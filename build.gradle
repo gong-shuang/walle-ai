@@ -18,6 +18,7 @@ buildscript {
 allprojects {
     repositories {
         google()
+
         jcenter()
         // huawei maven
         maven { url 'https://developer.huawei.com/repo/' }

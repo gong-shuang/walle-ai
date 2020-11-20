@@ -1,1 +1,2 @@
-include ':PushDemo', 'app'
+include ':push'
+include ':app', ':pushXiaomi', ':pushHuawei'
