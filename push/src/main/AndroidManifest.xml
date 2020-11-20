@@ -3,7 +3,9 @@
     package="com.walle.push">
 
     <application>
-        <activity android:name=".sdkHuawei.HuaweiActivity"></activity>
+        <activity android:name=".sdkHuawei.HuaweiActivity">
+
+        </activity>
 
         <activity android:name="com.walle.push.sdkHuawei.Deeplink2Activity">
             <intent-filter>

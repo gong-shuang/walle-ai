@@ -1,32 +1,22 @@
 package com.mpush.demo;
 
-import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
-import android.content.DialogInterface;
-import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.BitmapFactory;
-import android.os.Looper;
 import android.os.Bundle;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
 import androidx.annotation.StringRes;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.huawei.gspush.BuildConfig;
 import com.huawei.gspush.R;
 import com.mpush.android.MPush;
-import com.mpush.android.MPushLog;
-import com.mpush.android.MPushService;
 import com.mpush.android.Notifications;
 import com.mpush.api.Constants;
 import com.mpush.api.http.HttpCallback;
@@ -34,13 +24,9 @@ import com.mpush.api.http.HttpMethod;
 import com.mpush.api.http.HttpRequest;
 import com.mpush.api.http.HttpResponse;
 import com.mpush.client.ClientConfig;
-import com.walle.push.sdkHuawei.HuaweiActivity;
 
-import org.json.JSONException;
 import org.json.JSONObject;
 
-
-import java.util.List;
 
 import java.util.concurrent.TimeUnit;
 
@@ -52,7 +38,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+        setContentView(R.layout.activity_xiaomi);
         Notifications.I.init(this.getApplicationContext());
         Notifications.I.setSmallIcon(R.mipmap.ic_notification);
         Notifications.I.setLargeIcon(BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher));

@@ -57,10 +57,10 @@ public class DemoMessageReceiver extends PushMessageReceiver {
 
     @Override
     public void onReceivePassThroughMessage(Context context, MiPushMessage message) {
-        Log.v(DemoApplication.TAG,
+        Log.v(XiaomiApplication.TAG,
                 "onReceivePassThroughMessage is called. " + message.toString());
         String log = context.getString(R.string.recv_passthrough_message, message.getContent());
-        MainActivity.logList.add(0, getSimpleDate() + " " + log);
+        XiaomiActivity.logList.add(0, getSimpleDate() + " " + log);
 
         if (!TextUtils.isEmpty(message.getTopic())) {
             mTopic = message.getTopic();
@@ -70,15 +70,15 @@ public class DemoMessageReceiver extends PushMessageReceiver {
 
         Message msg = Message.obtain();
         msg.obj = log;
-        DemoApplication.getHandler().sendMessage(msg);
+        XiaomiApplication.getHandler().sendMessage(msg);
     }
 
     @Override
     public void onNotificationMessageClicked(Context context, MiPushMessage message) {
-        Log.v(DemoApplication.TAG,
+        Log.v(XiaomiApplication.TAG,
                 "onNotificationMessageClicked is called. " + message.toString());
         String log = context.getString(R.string.click_notification_message, message.getContent());
-        MainActivity.logList.add(0, getSimpleDate() + " " + log);
+        XiaomiActivity.logList.add(0, getSimpleDate() + " " + log);
 
         if (!TextUtils.isEmpty(message.getTopic())) {
             mTopic = message.getTopic();
@@ -90,15 +90,15 @@ public class DemoMessageReceiver extends PushMessageReceiver {
         if (message.isNotified()) {
             msg.obj = log;
         }
-        DemoApplication.getHandler().sendMessage(msg);
+        XiaomiApplication.getHandler().sendMessage(msg);
     }
 
     @Override
     public void onNotificationMessageArrived(Context context, MiPushMessage message) {
-        Log.v(DemoApplication.TAG,
+        Log.v(XiaomiApplication.TAG,
                 "onNotificationMessageArrived is called. " + message.toString());
         String log = context.getString(R.string.arrive_notification_message, message.getContent());
-        MainActivity.logList.add(0, getSimpleDate() + " " + log);
+        XiaomiActivity.logList.add(0, getSimpleDate() + " " + log);
 
         if (!TextUtils.isEmpty(message.getTopic())) {
             mTopic = message.getTopic();
@@ -108,12 +108,12 @@ public class DemoMessageReceiver extends PushMessageReceiver {
 
         Message msg = Message.obtain();
         msg.obj = log;
-        DemoApplication.getHandler().sendMessage(msg);
+        XiaomiApplication.getHandler().sendMessage(msg);
     }
 
     @Override
     public void onCommandResult(Context context, MiPushCommandMessage message) {
-        Log.v(DemoApplication.TAG,
+        Log.v(XiaomiApplication.TAG,
                 "onCommandResult is called. " + message.toString());
         String command = message.getCommand();
         List<String> arguments = message.getCommandArguments();
@@ -123,6 +123,7 @@ public class DemoMessageReceiver extends PushMessageReceiver {
         if (MiPushClient.COMMAND_REGISTER.equals(command)) {
             if (message.getResultCode() == ErrorCode.SUCCESS) {
                 mRegId = cmdArg1;
+                XiaomiApplication.REG_ID = cmdArg1;
                 log = context.getString(R.string.register_success);
             } else {
                 log = context.getString(R.string.register_fail);
@@ -180,16 +181,16 @@ public class DemoMessageReceiver extends PushMessageReceiver {
         } else {
             log = message.getReason();
         }
-        MainActivity.logList.add(0, getSimpleDate() + "    " + log);
+        XiaomiActivity.logList.add(0, getSimpleDate() + "    " + log);
 
         Message msg = Message.obtain();
         msg.obj = log;
-        DemoApplication.getHandler().sendMessage(msg);
+        XiaomiApplication.getHandler().sendMessage(msg);
     }
 
     @Override
     public void onReceiveRegisterResult(Context context, MiPushCommandMessage message) {
-        Log.v(DemoApplication.TAG,
+        Log.v(XiaomiApplication.TAG,
                 "onReceiveRegisterResult is called. " + message.toString());
         String command = message.getCommand();
         List<String> arguments = message.getCommandArguments();
@@ -208,7 +209,7 @@ public class DemoMessageReceiver extends PushMessageReceiver {
 
         Message msg = Message.obtain();
         msg.obj = log;
-        DemoApplication.getHandler().sendMessage(msg);
+        XiaomiApplication.getHandler().sendMessage(msg);
     }
 
     @SuppressLint("SimpleDateFormat")

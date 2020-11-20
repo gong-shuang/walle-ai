@@ -10,6 +10,7 @@ import android.widget.Toast;
 
 import com.mpush.demo.MainActivity;
 import com.walle.push.sdkHuawei.HuaweiActivity;
+import com.walle.pushxiaomi.XiaomiActivity;
 
 import pub.devrel.easypermissions.AfterPermissionGranted;
 import pub.devrel.easypermissions.EasyPermissions;
@@ -83,6 +84,11 @@ public class HomeActivity extends AppCompatActivity {
 
     public void gotoHuawei(View btn) {
         Intent intent = new Intent(HomeActivity.this, HuaweiActivity.class);
+        startActivity(intent);
+    }
+
+    public void xiaomi(View btn) {
+        Intent intent = new Intent(HomeActivity.this, XiaomiActivity.class);
         startActivity(intent);
     }
 }

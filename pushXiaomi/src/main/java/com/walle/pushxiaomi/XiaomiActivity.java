@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.EditText;
@@ -23,7 +24,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  *
  * @author wangkuiwei
  */
-public class MainActivity extends Activity {
+public class XiaomiActivity extends Activity {
 
     public static List<String> logList = new CopyOnWriteArrayList<String>();
 
@@ -32,7 +33,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+        setContentView(R.layout.activity_xiaomi);
         XiaomiApplication.setMainActivity(this);
         mLogView = (TextView) findViewById(R.id.log);
         // 设置别名
@@ -40,8 +41,8 @@ public class MainActivity extends Activity {
 
             @Override
             public void onClick(View v) {
-                final EditText editText = new EditText(MainActivity.this);
-                new AlertDialog.Builder(MainActivity.this)
+                final EditText editText = new EditText(XiaomiActivity.this);
+                new AlertDialog.Builder(XiaomiActivity.this)
                         .setTitle(R.string.set_alias)
                         .setView(editText)
                         .setPositiveButton(R.string.ok, new DialogInterface.OnClickListener() {
@@ -49,12 +50,13 @@ public class MainActivity extends Activity {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
                                 String alias = editText.getText().toString();
-                                MiPushClient.setAlias(MainActivity.this, alias, null);
+                                MiPushClient.setAlias(XiaomiActivity.this, alias, null);
                             }
 
                         })
                         .setNegativeButton(R.string.cancel, null)
                         .show();
+                Log.d("11111", "mRegId: " + XiaomiApplication.REG_ID );
             }
         });
         // 撤销别名
@@ -62,8 +64,8 @@ public class MainActivity extends Activity {
 
             @Override
             public void onClick(View v) {
-                final EditText editText = new EditText(MainActivity.this);
-                new AlertDialog.Builder(MainActivity.this)
+                final EditText editText = new EditText(XiaomiActivity.this);
+                new AlertDialog.Builder(XiaomiActivity.this)
                         .setTitle(R.string.unset_alias)
                         .setView(editText)
                         .setPositiveButton(R.string.ok, new DialogInterface.OnClickListener() {
@@ -71,7 +73,7 @@ public class MainActivity extends Activity {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
                                 String alias = editText.getText().toString();
-                                MiPushClient.unsetAlias(MainActivity.this, alias, null);
+                                MiPushClient.unsetAlias(XiaomiActivity.this, alias, null);
                             }
 
                         })
@@ -85,8 +87,8 @@ public class MainActivity extends Activity {
 
             @Override
             public void onClick(View v) {
-                final EditText editText = new EditText(MainActivity.this);
-                new AlertDialog.Builder(MainActivity.this)
+                final EditText editText = new EditText(XiaomiActivity.this);
+                new AlertDialog.Builder(XiaomiActivity.this)
                         .setTitle(R.string.set_account)
                         .setView(editText)
                         .setPositiveButton(R.string.ok, new DialogInterface.OnClickListener() {
@@ -94,7 +96,7 @@ public class MainActivity extends Activity {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
                                 String account = editText.getText().toString();
-                                MiPushClient.setUserAccount(MainActivity.this, account, null);
+                                MiPushClient.setUserAccount(XiaomiActivity.this, account, null);
                             }
 
                         })
@@ -108,8 +110,8 @@ public class MainActivity extends Activity {
 
             @Override
             public void onClick(View v) {
-                final EditText editText = new EditText(MainActivity.this);
-                new AlertDialog.Builder(MainActivity.this)
+                final EditText editText = new EditText(XiaomiActivity.this);
+                new AlertDialog.Builder(XiaomiActivity.this)
                         .setTitle(R.string.unset_account)
                         .setView(editText)
                         .setPositiveButton(R.string.ok, new DialogInterface.OnClickListener() {
@@ -117,7 +119,7 @@ public class MainActivity extends Activity {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
                                 String account = editText.getText().toString();
-                                MiPushClient.unsetUserAccount(MainActivity.this, account, null);
+                                MiPushClient.unsetUserAccount(XiaomiActivity.this, account, null);
                             }
 
                         })
@@ -130,8 +132,8 @@ public class MainActivity extends Activity {
 
             @Override
             public void onClick(View v) {
-                final EditText editText = new EditText(MainActivity.this);
-                new AlertDialog.Builder(MainActivity.this)
+                final EditText editText = new EditText(XiaomiActivity.this);
+                new AlertDialog.Builder(XiaomiActivity.this)
                         .setTitle(R.string.subscribe_topic)
                         .setView(editText)
                         .setPositiveButton(R.string.ok, new DialogInterface.OnClickListener() {
@@ -139,7 +141,7 @@ public class MainActivity extends Activity {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
                                 String topic = editText.getText().toString();
-                                MiPushClient.subscribe(MainActivity.this, topic, null);
+                                MiPushClient.subscribe(XiaomiActivity.this, topic, null);
                             }
 
                         })
@@ -152,8 +154,8 @@ public class MainActivity extends Activity {
 
             @Override
             public void onClick(View v) {
-                final EditText editText = new EditText(MainActivity.this);
-                new AlertDialog.Builder(MainActivity.this)
+                final EditText editText = new EditText(XiaomiActivity.this);
+                new AlertDialog.Builder(XiaomiActivity.this)
                         .setTitle(R.string.unsubscribe_topic)
                         .setView(editText)
                         .setPositiveButton(R.string.ok, new DialogInterface.OnClickListener() {
@@ -161,7 +163,7 @@ public class MainActivity extends Activity {
                             @Override
                             public void onClick(DialogInterface dialog, int which) {
                                 String topic = editText.getText().toString();
-                                MiPushClient.unsubscribe(MainActivity.this, topic, null);
+                                MiPushClient.unsubscribe(XiaomiActivity.this, topic, null);
                             }
 
                         })
@@ -174,12 +176,12 @@ public class MainActivity extends Activity {
 
             @Override
             public void onClick(View v) {
-                new TimeIntervalDialog(MainActivity.this, new TimeIntervalInterface() {
+                new TimeIntervalDialog(XiaomiActivity.this, new TimeIntervalInterface() {
 
                     @Override
                     public void apply(int startHour, int startMin, int endHour,
                                       int endMin) {
-                        MiPushClient.setAcceptTime(MainActivity.this, startHour, startMin, endHour, endMin, null);
+                        MiPushClient.setAcceptTime(XiaomiActivity.this, startHour, startMin, endHour, endMin, null);
                     }
 
                     @Override
@@ -196,7 +198,7 @@ public class MainActivity extends Activity {
 
             @Override
             public void onClick(View v) {
-                MiPushClient.pausePush(MainActivity.this, null);
+                MiPushClient.pausePush(XiaomiActivity.this, null);
             }
         });
 
@@ -204,7 +206,7 @@ public class MainActivity extends Activity {
 
             @Override
             public void onClick(View v) {
-                MiPushClient.resumePush(MainActivity.this, null);
+                MiPushClient.resumePush(XiaomiActivity.this, null);
             }
         });
     }

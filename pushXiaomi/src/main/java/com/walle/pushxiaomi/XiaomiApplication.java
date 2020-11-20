@@ -1,5 +1,6 @@
 package com.walle.pushxiaomi;
 
+import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.ActivityManager.RunningAppProcessInfo;
 import android.app.Application;
@@ -36,7 +37,9 @@ public class XiaomiApplication extends Application {
     public static final String TAG = "com.huawei.gspush";
 
     private static DemoHandler sHandler = null;
-    private static MainActivity sMainActivity = null;
+    private static XiaomiActivity sMainActivity = null;
+
+    public static String REG_ID = null;
 
     @Override
     public void onCreate() {
@@ -88,7 +91,7 @@ public class XiaomiApplication extends Application {
         return sHandler;
     }
 
-    public static void setMainActivity(MainActivity activity) {
+    public static void setMainActivity(XiaomiActivity activity) {
         sMainActivity = activity;
     }
 
