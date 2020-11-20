@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-package com.walle.pushhuawei;
+package com.walle.push.sdkHuawei;
 
 import android.annotation.SuppressLint;
 import android.app.Dialog;
@@ -26,6 +26,8 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.TextView;
+
+import com.walle.push.R;
 
 public class TopicDialog extends Dialog implements View.OnClickListener {
     private View view;

@@ -24,7 +24,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
-import android.support.annotation.Nullable;
+
+
+import androidx.annotation.Nullable;
 
 import com.mpush.api.Client;
 import com.mpush.api.ClientListener;

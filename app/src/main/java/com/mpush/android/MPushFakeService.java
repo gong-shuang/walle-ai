@@ -30,7 +30,10 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.IBinder;
-import android.support.v4.app.NotificationCompat;
+
+import androidx.core.app.NotificationCompat;
+
+import com.huawei.gspush.R;
 
 /**
  * 双Service提高进程优先级,降低被系统杀死机率

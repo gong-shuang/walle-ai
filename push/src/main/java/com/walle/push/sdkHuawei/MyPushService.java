@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-package com.walle.pushhuawei;
+package com.walle.push.sdkHuawei;
 
 import android.content.Intent;
 import android.text.TextUtils;

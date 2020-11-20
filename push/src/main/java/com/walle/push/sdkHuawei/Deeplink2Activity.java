@@ -1,10 +1,12 @@
-package com.walle.pushhuawei;
+package com.walle.push.sdkHuawei;
 
 import android.content.Intent;
 import android.os.Bundle;
-import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 
+import androidx.appcompat.app.AppCompatActivity;
+
+import com.walle.push.R;
 
 
 public class Deeplink2Activity extends AppCompatActivity {

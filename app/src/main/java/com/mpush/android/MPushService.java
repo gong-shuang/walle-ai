@@ -34,10 +34,14 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.IBinder;
-import android.support.annotation.Nullable;
-import android.support.v4.app.NotificationCompat;
+
 import android.util.Log;
 
+import androidx.annotation.Nullable;
+import androidx.core.app.NotificationCompat;
+
+import com.huawei.gspush.BuildConfig;
+import com.huawei.gspush.R;
 import com.mpush.api.Client;
 import com.mpush.api.ClientListener;
 import com.mpush.demo.MyReceiver;

@@ -1,2 +1,2 @@
 include ':push'
-include ':app', ':pushXiaomi', ':pushHuawei'
+include ':app', ':pushXiaomi'

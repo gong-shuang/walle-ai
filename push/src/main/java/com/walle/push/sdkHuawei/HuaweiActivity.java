@@ -1,20 +1,4 @@
-/*
- *  Copyright 2020. Huawei Technologies Co., Ltd. All rights reserved.
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
-
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- */
-
-package com.walle.pushhuawei;
+package com.walle.push.sdkHuawei;
 
 import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
@@ -25,14 +9,14 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
-import android.support.annotation.NonNull;
-import android.support.v7.app.AppCompatActivity;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
 
 import com.huawei.agconnect.config.AGConnectServicesConfig;
 import com.huawei.hmf.tasks.OnCompleteListener;
@@ -43,8 +27,10 @@ import com.huawei.hms.aaid.HmsInstanceId;
 import com.huawei.hms.aaid.entity.AAIDResult;
 import com.huawei.hms.common.ApiException;
 import com.huawei.hms.push.HmsMessaging;
+import com.walle.push.R;
 
-public class MainActivity extends AppCompatActivity implements View.OnClickListener {
+
+public class HuaweiActivity extends AppCompatActivity implements View.OnClickListener {
     private static final String TAG = "PushDemoLog";
 
     private TextView tvSetPush;
@@ -81,7 +67,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+        setContentView(R.layout.activity_huawei);
         tvSetPush = findViewById(R.id.btn_set_push);
         tvSetAAID = findViewById(R.id.btn_get_aaid);
         tvSetAutoInit = findViewById(R.id.btn_set_autoInit_enabled);
@@ -158,7 +144,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 @Override
                 public void run() {
                     try {
-                        HmsInstanceId.getInstance(MainActivity.this).deleteAAID();
+                        HmsInstanceId.getInstance(HuaweiActivity.this).deleteAAID();
                         showLog("delete aaid and its generation timestamp success.");
                         handler.sendEmptyMessage(GET_AAID);
                     } catch (Exception e) {
@@ -184,8 +170,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             public void run() {
                 try {
                     // read from agconnect-services.json
-                    String appId = AGConnectServicesConfig.fromContext(MainActivity.this).getString("client/app_id");
-                    String token = HmsInstanceId.getInstance(MainActivity.this).getToken(appId, "HCM");
+                    String appId = AGConnectServicesConfig.fromContext(HuaweiActivity.this).getString("client/app_id");
+                    String token = HmsInstanceId.getInstance(HuaweiActivity.this).getToken(appId, "HCM");
                     Log.i(TAG, "get token:" + token);
                     if(!TextUtils.isEmpty(token)) {
                         sendRegTokenToServer(token);
@@ -212,8 +198,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             public void run() {
                 try {
                     // read from agconnect-services.json
-                    String appId = AGConnectServicesConfig.fromContext(MainActivity.this).getString("client/app_id");
-                    HmsInstanceId.getInstance(MainActivity.this).deleteToken(appId, "HCM");
+                    String appId = AGConnectServicesConfig.fromContext(HuaweiActivity.this).getString("client/app_id");
+                    HmsInstanceId.getInstance(HuaweiActivity.this).deleteToken(appId, "HCM");
                     Log.i(TAG, "deleteToken success.");
                     showLog("deleteToken success");
                 } catch (ApiException e) {
@@ -267,19 +253,19 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             public void onConfirmClick(String msg) {
                 topicDialog.dismiss();
                 try {
-                    HmsMessaging.getInstance(MainActivity.this)
-                        .subscribe(msg)
-                        .addOnCompleteListener(new OnCompleteListener<Void>() {
-                            @Override
-                            public void onComplete(Task<Void> task) {
-                                if (task.isSuccessful()) {
-                                    Log.i(TAG, "subscribe Complete");
-                                    showLog("subscribe Complete");
-                                } else {
-                                    showLog("subscribe failed: ret=" + task.getException().getMessage());
+                    HmsMessaging.getInstance(HuaweiActivity.this)
+                            .subscribe(msg)
+                            .addOnCompleteListener(new OnCompleteListener<Void>() {
+                                @Override
+                                public void onComplete(Task<Void> task) {
+                                    if (task.isSuccessful()) {
+                                        Log.i(TAG, "subscribe Complete");
+                                        showLog("subscribe Complete");
+                                    } else {
+                                        showLog("subscribe failed: ret=" + task.getException().getMessage());
+                                    }
                                 }
-                            }
-                        });
+                            });
                 } catch (Exception e) {
                     showLog("subscribe failed: exception=" + e.getMessage());
                 }
@@ -303,18 +289,18 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             public void onConfirmClick(String msg) {
                 topicDialog.dismiss();
                 try {
-                    HmsMessaging.getInstance(MainActivity.this)
-                        .unsubscribe(msg)
-                        .addOnCompleteListener(new OnCompleteListener<Void>() {
-                            @Override
-                            public void onComplete(Task<Void> task) {
-                                if (task.isSuccessful()) {
-                                    showLog("unsubscribe Complete");
-                                } else {
-                                    showLog("unsubscribe failed: ret=" + task.getException().getMessage());
+                    HmsMessaging.getInstance(HuaweiActivity.this)
+                            .unsubscribe(msg)
+                            .addOnCompleteListener(new OnCompleteListener<Void>() {
+                                @Override
+                                public void onComplete(Task<Void> task) {
+                                    if (task.isSuccessful()) {
+                                        showLog("unsubscribe Complete");
+                                    } else {
+                                        showLog("unsubscribe failed: ret=" + task.getException().getMessage());
+                                    }
                                 }
-                            }
-                        });
+                            });
                 } catch (Exception e) {
                     showLog("unsubscribe failed: exception=" + e.getMessage());
                 }
@@ -377,7 +363,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         // You can add parameters in either of the following ways:
         // Define a scheme protocol, for example, pushscheme://com.huawei.codelabpush/deeplink?.
         // way 1 start: Use ampersands (&) to separate key-value pairs. The following is an example:
-         intent.setData(Uri.parse("pushscheme://com.huawei.codelabpush/deeplink?name=abc&age=180"));
+        intent.setData(Uri.parse("pushscheme://com.huawei.codelabpush/deeplink?name=abc&age=180"));
         // way 1 end. In this example, name=abc and age=180 are two key-value pairs separated by an ampersand (&).
 
         // way 2 start: Directly add parameters to the Intent.

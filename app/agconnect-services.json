@@ -1,0 +1,12 @@
+{
+	"client":{
+		"cp_id":"80086000158048373",
+		"product_id":"736430079244676692",
+		"client_id":"479533784526488768",
+		"client_secret":"A57508FBCC2B91E30AA7A3DA32200893361038E6AD85F427BCE4194B4D8E3620",
+		"app_id":"103117793",
+		"package_name":"com.huawei.gspush",
+		"api_key":"CgB6e3x9AVG3NjK/ZXoTrlWPp3+q1CdcICwcJUbFig0loobJsIrgn/RhprPXiLuBJp1LKOQu3F/mszn9BELr6Zzl"
+	},
+	"configuration_version":"1.0"
+}

@@ -3,48 +3,51 @@ package com.mpush.demo;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
+import android.content.DialogInterface;
+import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.BitmapFactory;
 import android.os.Looper;
-import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.Toast;
 
-import com.mpush.android.BuildConfig;
+import androidx.annotation.NonNull;
+import androidx.annotation.StringRes;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
+
+import com.huawei.gspush.BuildConfig;
+import com.huawei.gspush.R;
 import com.mpush.android.MPush;
 import com.mpush.android.MPushLog;
 import com.mpush.android.MPushService;
 import com.mpush.android.Notifications;
-import com.mpush.android.R;
 import com.mpush.api.Constants;
 import com.mpush.api.http.HttpCallback;
 import com.mpush.api.http.HttpMethod;
 import com.mpush.api.http.HttpRequest;
 import com.mpush.api.http.HttpResponse;
 import com.mpush.client.ClientConfig;
+import com.walle.push.sdkHuawei.HuaweiActivity;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Random;
-import java.util.concurrent.TimeUnit;
-import java.util.logging.Handler;
 
-import kr.co.namee.permissiongen.PermissionFail;
-import kr.co.namee.permissiongen.PermissionGen;
-import kr.co.namee.permissiongen.PermissionSuccess;
+import java.util.List;
+
+import java.util.concurrent.TimeUnit;
+
+
 
 public class MainActivity extends AppCompatActivity {
 
-    private IntentFilter intentFilter;
-    private MyReceiver myReceiver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -59,48 +62,10 @@ public class MainActivity extends AppCompatActivity {
             EditText et = (EditText) findViewById(R.id.alloc);
             et.setText(alloc);
         }
-
-//        //注册广播
-//        intentFilter = new IntentFilter();
-//        intentFilter.addAction(MPushService.ACTION_MESSAGE_RECEIVED);
-//        intentFilter.addCategory("com.mpush.android");
-//        myReceiver = new MyReceiver();
-//        registerReceiver(myReceiver, intentFilter);
-
-        //检测权限
-        PermissionGen.with(this)
-                .addRequestCode(100)
-                .permissions(
-                        //电话通讯录
-                        Manifest.permission.GET_ACCOUNTS,
-                        Manifest.permission.READ_PHONE_STATE,
-                        //位置
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION,
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        //相机、麦克风
-                        Manifest.permission.RECORD_AUDIO,
-                        Manifest.permission.WAKE_LOCK,
-                        Manifest.permission.CAMERA,
-                        //存储空间
-                        Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                        Manifest.permission.WRITE_SETTINGS,
-                        //网络
-                        Manifest.permission.INTERNET,
-                        Manifest.permission.ACCESS_NETWORK_STATE,
-                        Manifest.permission.ACCESS_WIFI_STATE
-                )
-                .request();
     }
 
-    @PermissionSuccess(requestCode = 100)
-    public void permissionSuccess() {
-        Toast.makeText(this, "获取相机权限成功", Toast.LENGTH_SHORT);
-    }
-
-    @PermissionFail(requestCode = 100)
-    public void permissionFail() {
-        Toast.makeText(this, "获取相机权限失败", Toast.LENGTH_SHORT);
+    protected void toast(@StringRes int message) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
 
     private void initPush(String allocServer, String userId) {
@@ -237,11 +202,4 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, "unbind user", Toast.LENGTH_SHORT).show();
     }
 
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        //取消广播接收者的注册
-//        unregisterReceiver(myReceiver);
-    }
 }
