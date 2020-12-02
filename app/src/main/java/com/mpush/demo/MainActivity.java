@@ -14,9 +14,8 @@ import android.widget.Toast;
 import androidx.annotation.StringRes;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.huawei.gspush.BuildConfig;
+import com.huawei.agconnect.core.BuildConfig;
 import com.huawei.gspush.R;
-import com.mpush.android.MPush;
 import com.mpush.android.Notifications;
 import com.mpush.api.Constants;
 import com.mpush.api.http.HttpCallback;
@@ -45,7 +44,7 @@ public class MainActivity extends AppCompatActivity {
         SharedPreferences sp = this.getSharedPreferences("mpush.cfg", Context.MODE_PRIVATE);
         String alloc = sp.getString("allotServer", null);
         if (alloc != null) {
-            EditText et = (EditText) findViewById(R.id.alloc);
+            EditText et = findViewById(R.id.alloc);
             et.setText(alloc);
         }
     }

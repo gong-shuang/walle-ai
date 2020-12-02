@@ -30,7 +30,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
 
     <application
-        android:name="com.walle.pushxiaomi.XiaomiApplication"
+        android:name="com.BaseApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -44,11 +44,10 @@
             </intent-filter>
         </activity>
 
-        <activity android:name="com.mpush.demo.MainActivity">
-        </activity>
+        <activity android:name="com.mpush.demo.MainActivity"></activity>
 
         <receiver
-            android:name="com.mpush.android.MPushReceiver"
+            android:name="com.mpush.demo.MPushReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
@@ -59,7 +58,7 @@
         </receiver>
 
         <service
-            android:name="com.mpush.android.MPushService"
+            android:name="com.mpush.demo.MPushService"
             android:enabled="true"
             android:exported="true" />
         <service android:name="com.mpush.android.MPushFakeService" />
@@ -75,8 +74,8 @@
                 <action android:name="com.mpush.HANDSHAKE_OK" /> <!-- 收到握手成功消息 -->
                 <action android:name="com.mpush.BIND_USER" /> <!-- 收到绑定用户消息 -->
                 <action android:name="com.mpush.UNBIND_USER" /> <!-- 收到解绑用户消息 -->
-
-
+                <action android:name="com.push.huawei"/>
+                <action android:name="com.push.xiaomi"/>
                 <!-- 此值要改为自己的应用的applicationId  @see MPushService -->
                 <category android:name="com.mpush.android" />
             </intent-filter>

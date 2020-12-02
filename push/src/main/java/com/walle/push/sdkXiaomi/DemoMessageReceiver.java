@@ -1,11 +1,13 @@
-package com.walle.pushxiaomi;
+package com.walle.push.sdkXiaomi;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Message;
 import android.text.TextUtils;
 import android.util.Log;
 
+import com.walle.push.R;
 import com.xiaomi.mipush.sdk.ErrorCode;
 import com.xiaomi.mipush.sdk.MiPushClient;
 import com.xiaomi.mipush.sdk.MiPushCommandMessage;
@@ -62,6 +64,7 @@ public class DemoMessageReceiver extends PushMessageReceiver {
         String log = context.getString(R.string.recv_passthrough_message, message.getContent());
         XiaomiActivity.logList.add(0, getSimpleDate() + " " + log);
 
+
         if (!TextUtils.isEmpty(message.getTopic())) {
             mTopic = message.getTopic();
         } else if (!TextUtils.isEmpty(message.getAlias())) {
@@ -71,6 +74,10 @@ public class DemoMessageReceiver extends PushMessageReceiver {
         Message msg = Message.obtain();
         msg.obj = log;
         XiaomiApplication.getHandler().sendMessage(msg);
+        Intent intent = new Intent();
+        intent.setAction("com.push.xiaomi");
+        intent.putExtra("PassThrough", message);
+        context.sendBroadcast(intent);
     }
 
     @Override
@@ -91,6 +98,10 @@ public class DemoMessageReceiver extends PushMessageReceiver {
             msg.obj = log;
         }
         XiaomiApplication.getHandler().sendMessage(msg);
+        Intent intent = new Intent();
+        intent.setAction("com.push.xiaomi");
+        intent.putExtra("PassThrough", message);
+        context.sendBroadcast(intent);
     }
 
     @Override

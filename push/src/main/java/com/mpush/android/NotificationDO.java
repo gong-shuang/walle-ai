@@ -1,6 +1,4 @@
-package com.mpush.demo;
-
-import com.mpush.android.MPushMessage;
+package com.mpush.android;
 
 import org.json.JSONObject;
 

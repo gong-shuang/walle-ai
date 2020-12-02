@@ -18,16 +18,17 @@
  */
 
 
-package com.mpush.android;
+package com.mpush.demo;
 
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
 
-
 import androidx.annotation.Nullable;
 
+import com.mpush.android.MPushLog;
+import com.mpush.android.SPSessionStorage;
 import com.mpush.api.Client;
 import com.mpush.api.ClientListener;
 import com.mpush.api.Constants;
@@ -60,7 +61,7 @@ public final class MPush {
     private Context ctx;
     private ClientConfig clientConfig;
     private SharedPreferences sp;
-    /*package*/ Client client;
+    /*package*/ public Client client;
 
     /**
      * 获取MPUSH实例
@@ -344,7 +345,7 @@ public final class MPush {
         return clientConfig;
     }
 
-    synchronized /*package*/ void create(ClientListener listener) {
+    public synchronized /*package*/ void create(ClientListener listener) {
         ClientConfig config = this.getClientConfig();
         if (config != null) {
             this.client = config.setClientListener(listener).create();

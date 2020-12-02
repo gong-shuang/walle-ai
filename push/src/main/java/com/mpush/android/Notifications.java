@@ -27,7 +27,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 
-
 import androidx.core.app.NotificationCompat;
 
 import java.util.HashMap;
@@ -87,7 +86,8 @@ public final class Notifications {
             count = 0;
         }
         nIds.put(nid, ++count);
-        Intent cancelIT = new Intent(MPushReceiver.ACTION_NOTIFY_CANCEL);
+        Intent cancelIT = new Intent();
+        cancelIT.setAction("com.mpush.NOTIFY_CANCEL");
         cancelIT.putExtra(EXTRA_MESSAGE_ID, nid);
         clickIT.putExtra(EXTRA_MESSAGE_ID, nid);
         PendingIntent clickPI = PendingIntent.getBroadcast(context, 0, clickIT, 0);//处理点击

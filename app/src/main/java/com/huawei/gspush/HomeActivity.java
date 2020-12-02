@@ -10,7 +10,7 @@ import android.widget.Toast;
 
 import com.mpush.demo.MainActivity;
 import com.walle.push.sdkHuawei.HuaweiActivity;
-import com.walle.pushxiaomi.XiaomiActivity;
+import com.walle.push.sdkXiaomi.XiaomiActivity;
 
 import pub.devrel.easypermissions.AfterPermissionGranted;
 import pub.devrel.easypermissions.EasyPermissions;

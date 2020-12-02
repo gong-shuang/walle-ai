@@ -18,7 +18,7 @@
  */
 
 
-package com.mpush.android;
+package com.mpush.demo;
 
 
 import android.app.AlarmManager;
@@ -34,17 +34,15 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.IBinder;
-
 import android.util.Log;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
-import com.huawei.gspush.BuildConfig;
-import com.huawei.gspush.R;
+import com.huawei.agconnect.core.BuildConfig;
 import com.mpush.api.Client;
 import com.mpush.api.ClientListener;
-import com.mpush.demo.MyReceiver;
+import com.walle.push.R;
 
 /**
  * Created by yxx on 2016/2/13.
@@ -66,6 +64,8 @@ public final class MPushService extends Service implements ClientListener {
     public static final String EXTRA_BIND_RET = "bind_ret";
     public static final String EXTRA_CONNECT_STATE = "connect_state";
     public static final String EXTRA_HEARTBEAT = "heartbeat";
+    public static final String ACTION_MESSAGE_HUAWEI = "com.push.huawei";
+    public static final String ACTION_MESSAGE_XIAOMI = "com.push.xiaomi";
     private int SERVICE_START_DELAYED = 5;
 
     public static final int NOTIFICATION_ID = 1002;
