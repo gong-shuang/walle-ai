@@ -1,6 +1,5 @@
-package com.walle.pushxiaomi;
+package com.walle.push.sdkXiaomi;
 
-import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.ActivityManager.RunningAppProcessInfo;
 import android.app.Application;

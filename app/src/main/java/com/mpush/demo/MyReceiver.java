@@ -7,8 +7,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.widget.Toast;
 
-import com.mpush.android.MPush;
-import com.mpush.android.MPushService;
+import com.mpush.android.NotificationDO;
 import com.mpush.android.Notifications;
 import com.mpush.api.Constants;
 
@@ -66,6 +65,10 @@ public class MyReceiver extends BroadcastReceiver {
         } else if (MPushService.ACTION_HANDSHAKE_OK.equals(intent.getAction())) {
             Toast.makeText(context, "MPUSH握手成功, 心跳:" + intent.getIntExtra(MPushService.EXTRA_HEARTBEAT, 0)
                     , Toast.LENGTH_SHORT).show();
+        }else if (MPushService.ACTION_MESSAGE_HUAWEI.equals(intent.getAction())) {
+
+        }else if (MPushService.ACTION_MESSAGE_XIAOMI.equals(intent.getAction())) {
+
         }
     }
 

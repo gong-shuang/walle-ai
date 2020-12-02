@@ -33,7 +33,7 @@ import android.os.IBinder;
 
 import androidx.core.app.NotificationCompat;
 
-import com.huawei.gspush.R;
+import com.walle.push.R;
 
 /**
  * 双Service提高进程优先级,降低被系统杀死机率

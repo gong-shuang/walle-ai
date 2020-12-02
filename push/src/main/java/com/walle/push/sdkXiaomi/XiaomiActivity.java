@@ -1,4 +1,4 @@
-package com.walle.pushxiaomi;
+package com.walle.push.sdkXiaomi;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -10,7 +10,7 @@ import android.view.View.OnClickListener;
 import android.widget.EditText;
 import android.widget.TextView;
 
-import com.walle.pushxiaomi.TimeIntervalDialog.TimeIntervalInterface;
+import com.walle.push.R;
 import com.xiaomi.mipush.sdk.MiPushClient;
 
 import java.util.List;
@@ -176,7 +176,7 @@ public class XiaomiActivity extends Activity {
 
             @Override
             public void onClick(View v) {
-                new TimeIntervalDialog(XiaomiActivity.this, new TimeIntervalInterface() {
+                new TimeIntervalDialog(XiaomiActivity.this, new TimeIntervalDialog.TimeIntervalInterface() {
 
                     @Override
                     public void apply(int startHour, int startMin, int endHour,

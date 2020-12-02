@@ -1,4 +1,4 @@
-package com.walle.pushxiaomi;
+package com.walle.push.sdkXiaomi;
 
 import android.app.Dialog;
 import android.content.Context;
@@ -7,6 +7,8 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.TimePicker;
 import android.widget.TimePicker.OnTimeChangedListener;
+
+import com.walle.push.R;
 
 public class TimeIntervalDialog extends Dialog implements OnTimeChangedListener {
 
