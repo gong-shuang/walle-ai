@@ -19,6 +19,7 @@ import net.qiujuer.italker.common.widget.PortraitView;
 import net.qiujuer.italker.factory.presenter.user.UpdateInfoContract;
 import net.qiujuer.italker.factory.presenter.user.UpdateInfoPresenter;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.activities.MainActivity;
 import net.qiujuer.italker.push.frags.media.GalleryFragment;
 
@@ -35,19 +36,19 @@ import static android.app.Activity.RESULT_OK;
 public class UpdateInfoFragment extends PresenterFragment<UpdateInfoContract.Presenter>
         implements UpdateInfoContract.View {
 
-    @BindView(R.id.im_sex)
+    @BindView(R2.id.im_sex)
     ImageView mSex;
 
-    @BindView(R.id.edit_desc)
+    @BindView(R2.id.edit_desc)
     EditText mDesc;
 
-    @BindView(R.id.im_portrait)
+    @BindView(R2.id.im_portrait)
     PortraitView mPortrait;
 
-    @BindView(R.id.loading)
+    @BindView(R2.id.loading)
     Loading mLoading;
 
-    @BindView(R.id.btn_submit)
+    @BindView(R2.id.btn_submit)
     Button mSubmit;
 
     // 头像的本地路径
@@ -63,7 +64,7 @@ public class UpdateInfoFragment extends PresenterFragment<UpdateInfoContract.Pre
         return R.layout.fragment_update_info;
     }
 
-    @OnClick(R.id.im_portrait)
+    @OnClick(R2.id.im_portrait)
     void onPortraitClick() {
         new GalleryFragment()
                 .setListener(new GalleryFragment.OnSelectedListener() {
@@ -124,7 +125,7 @@ public class UpdateInfoFragment extends PresenterFragment<UpdateInfoContract.Pre
                 .into(mPortrait);
     }
 
-    @OnClick(R.id.im_sex)
+    @OnClick(R2.id.im_sex)
     void onSexClick() {
         // 性别图片点击的时候触发
         isMan = !isMan; // 反向性别
@@ -136,7 +137,7 @@ public class UpdateInfoFragment extends PresenterFragment<UpdateInfoContract.Pre
         mSex.getBackground().setLevel(isMan ? 0 : 1);
     }
 
-    @OnClick(R.id.btn_submit)
+    @OnClick(R2.id.btn_submit)
     void onSubmitClick() {
         String desc = mDesc.getText().toString();
         // 调用P层进行注册

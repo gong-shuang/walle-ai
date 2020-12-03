@@ -9,6 +9,7 @@ import com.bumptech.glide.load.DecodeFormat;
 import net.qiujuer.italker.common.widget.recycler.RecyclerAdapter;
 import net.qiujuer.italker.face.Face;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 
 import butterknife.BindView;
 
@@ -17,7 +18,7 @@ import butterknife.BindView;
  * @version 1.0.0
  */
 public class FaceHolder extends RecyclerAdapter.ViewHolder<Face.Bean> {
-    @BindView(R.id.im_face)
+    @BindView(R2.id.im_face)
     ImageView mFace;
 
     public FaceHolder(View itemView) {

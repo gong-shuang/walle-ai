@@ -3,7 +3,7 @@ package net.qiujuer.italker.common.app;
 import android.app.ProgressDialog;
 import android.content.DialogInterface;
 
-import com.ld.im.R;
+import net.qiujuer.italker.push.R;
 
 import net.qiujuer.italker.factory.presenter.BaseContract;
 

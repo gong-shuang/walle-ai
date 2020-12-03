@@ -2,7 +2,8 @@ package net.qiujuer.italker.factory.presenter.account;
 
 import android.text.TextUtils;
 
-import com.ld.im.R;
+import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 
 import net.qiujuer.genius.kit.handler.Run;
 import net.qiujuer.genius.kit.handler.runable.Action;

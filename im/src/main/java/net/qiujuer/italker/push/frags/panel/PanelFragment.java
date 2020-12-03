@@ -26,6 +26,7 @@ import net.qiujuer.italker.common.widget.GalleryView;
 import net.qiujuer.italker.common.widget.recycler.RecyclerAdapter;
 import net.qiujuer.italker.face.Face;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 
 import java.io.File;
 import java.util.List;

@@ -17,6 +17,7 @@ import net.qiujuer.italker.factory.model.db.User;
 import net.qiujuer.italker.factory.presenter.contact.ContactContract;
 import net.qiujuer.italker.factory.presenter.contact.ContactPresenter;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.activities.MessageActivity;
 import net.qiujuer.italker.push.activities.PersonalActivity;
 
@@ -26,10 +27,10 @@ import butterknife.OnClick;
 public class ContactFragment extends PresenterFragment<ContactContract.Presenter>
         implements ContactContract.View {
 
-    @BindView(R.id.empty)
+    @BindView(R2.id.empty)
     EmptyView mEmptyView;
 
-    @BindView(R.id.recycler)
+    @BindView(R2.id.recycler)
     RecyclerView mRecycler;
 
     // 适配器，User，可以直接从数据库查询数据
@@ -105,13 +106,13 @@ public class ContactFragment extends PresenterFragment<ContactContract.Presenter
 
 
     class ViewHolder extends RecyclerAdapter.ViewHolder<User> {
-        @BindView(R.id.im_portrait)
+        @BindView(R2.id.im_portrait)
         PortraitView mPortraitView;
 
-        @BindView(R.id.txt_name)
+        @BindView(R2.id.txt_name)
         TextView mName;
 
-        @BindView(R.id.txt_desc)
+        @BindView(R2.id.txt_desc)
         TextView mDesc;
 
 
@@ -126,7 +127,7 @@ public class ContactFragment extends PresenterFragment<ContactContract.Presenter
             mDesc.setText(user.getDesc());
         }
 
-        @OnClick(R.id.im_portrait)
+        @OnClick(R2.id.im_portrait)
         void onPortraitClick() {
             // 显示信息
             PersonalActivity.show(getContext(), mData.getId());

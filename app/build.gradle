@@ -29,11 +29,23 @@ android {
 
     defaultConfig {
         applicationId "com.huawei.gspush"
-        minSdkVersion 17
+        minSdkVersion 19
         targetSdkVersion 29
         versionCode 1
         versionName "1.0"
         flavorDimensions "default"
+
+        // 为编译通过，先添加，后面删除
+        //个推相关参数
+        manifestPlaceholders = [
+                //                GETUI_APP_ID    : "Rr51sROK4B8FXbq0TUjAF5",
+                //                GETUI_APP_KEY   : "eurxTdqHECAKgc7s4xtUe9",
+                //                GETUI_APP_SECRET: "wvAHiSQwuJ79Fp1tBy8Td8",
+                GETUI_APP_ID    : "tHSXfYZwQR63CG5ZckhKu1",
+                GETUI_APP_KEY   : "MgbBRw1xDp89sHbN3xGxE5",
+                GETUI_APP_SECRET: "U75wIhRw9O9EJ0Ctaivu29",
+                PACKAGE_NAME    : applicationId
+        ]
     }
     buildTypes {
         release {
@@ -68,6 +80,11 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
     }
 
 }

@@ -20,6 +20,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 
 import net.qiujuer.italker.common.app.Application;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 
 import java.util.List;
 import java.util.Objects;

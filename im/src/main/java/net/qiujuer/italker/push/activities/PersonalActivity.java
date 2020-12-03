@@ -24,6 +24,7 @@ import net.qiujuer.italker.factory.model.db.User;
 import net.qiujuer.italker.factory.presenter.contact.PersonalContract;
 import net.qiujuer.italker.factory.presenter.contact.PersonalPresenter;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 
 import butterknife.BindView;
 import butterknife.OnClick;
@@ -36,19 +37,19 @@ public class PersonalActivity extends PresenterToolbarActivity<PersonalContract.
     private static final String BOUND_KEY_ID = "BOUND_KEY_ID";
     private String userId;
 
-    @BindView(R.id.im_header)
+    @BindView(R2.id.im_header)
     ImageView mHeader;
-    @BindView(R.id.im_portrait)
+    @BindView(R2.id.im_portrait)
     PortraitView mPortrait;
-    @BindView(R.id.txt_name)
+    @BindView(R2.id.txt_name)
     TextView mName;
-    @BindView(R.id.txt_desc)
+    @BindView(R2.id.txt_desc)
     TextView mDesc;
-    @BindView(R.id.txt_follows)
+    @BindView(R2.id.txt_follows)
     TextView mFollows;
-    @BindView(R.id.txt_following)
+    @BindView(R2.id.txt_following)
     TextView mFollowing;
-    @BindView(R.id.btn_say_hello)
+    @BindView(R2.id.btn_say_hello)
     Button mSayHello;
 
     // 关注
@@ -102,7 +103,7 @@ public class PersonalActivity extends PresenterToolbarActivity<PersonalContract.
         return super.onOptionsItemSelected(item);
     }
 
-    @OnClick(R.id.btn_say_hello)
+    @OnClick(R2.id.btn_say_hello)
     void onSayHelloClick() {
         // 发起聊天的点击
         User user = mPresenter.getUserPersonal();

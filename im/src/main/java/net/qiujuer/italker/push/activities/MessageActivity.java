@@ -12,6 +12,7 @@ import net.qiujuer.italker.factory.model.db.Group;
 import net.qiujuer.italker.factory.model.db.Message;
 import net.qiujuer.italker.factory.model.db.Session;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.frags.message.ChatGroupFragment;
 import net.qiujuer.italker.push.frags.message.ChatUserFragment;
 

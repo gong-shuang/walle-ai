@@ -17,7 +17,9 @@ import com.bumptech.glide.load.resource.drawable.GlideDrawable;
 import com.bumptech.glide.request.animation.GlideAnimation;
 import com.bumptech.glide.request.target.ViewTarget;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
-import com.ld.im.R;
+
+import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 
 import net.qiujuer.genius.ui.Ui;
 import net.qiujuer.genius.ui.widget.FloatActionButton;
@@ -39,22 +41,22 @@ public class MainActivity extends Activity
         implements BottomNavigationView.OnNavigationItemSelectedListener,
         NavHelper.OnTabChangedListener<Integer> {
 
-    @BindView(R.id.appbar)
+    @BindView(R2.id.appbar)
     View mLayAppbar;
 
-    @BindView(R.id.im_portrait)
+    @BindView(R2.id.im_portrait)
     PortraitView mPortrait;
 
-    @BindView(R.id.txt_title)
+    @BindView(R2.id.txt_title)
     TextView mTitle;
 
-    @BindView(R.id.lay_container)
+    @BindView(R2.id.lay_container)
     FrameLayout mContainer;
 
-    @BindView(R.id.navigation)
+    @BindView(R2.id.navigation)
     BottomNavigationView mNavigation;
 
-    @BindView(R.id.btn_action)
+    @BindView(R2.id.btn_action)
     FloatActionButton mAction;
 
     private NavHelper<Integer> mNavHelper;
@@ -125,13 +127,13 @@ public class MainActivity extends Activity
     }
 
     // 最上面左边的人物头像
-    @OnClick(R.id.im_portrait)
+    @OnClick(R2.id.im_portrait)
     void onPortraitClick() {
         PersonalActivity.show(this, Account.getUserId());
     }
 
     // 最上面得到搜索按钮
-    @OnClick(R.id.im_search)
+    @OnClick(R2.id.im_search)
     void onSearchMenuClick() {
         // 在群的界面的时候，点击顶部的搜索就进入群搜索界面
         // 其他都为人搜索的界面
@@ -141,7 +143,7 @@ public class MainActivity extends Activity
     }
 
     // 下面的悬浮按钮
-    @OnClick(R.id.btn_action)
+    @OnClick(R2.id.btn_action)
     void onActionClick() {
         // 浮动按钮点击时，判断当前界面是群还是联系人界面
         // 如果是群，则打开群创建的界面

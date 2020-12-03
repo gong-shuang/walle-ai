@@ -10,7 +10,8 @@ import android.widget.TextView;
 
 import androidx.annotation.StringRes;
 
-import com.ld.im.R;
+import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 
 import net.qiujuer.genius.ui.widget.Loading;
 import net.qiujuer.italker.common.app.Application;

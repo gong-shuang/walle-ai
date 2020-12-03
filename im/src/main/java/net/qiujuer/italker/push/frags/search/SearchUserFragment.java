@@ -24,6 +24,7 @@ import net.qiujuer.italker.factory.presenter.contact.FollowPresenter;
 import net.qiujuer.italker.factory.presenter.search.SearchContract;
 import net.qiujuer.italker.factory.presenter.search.SearchUserPresenter;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.activities.PersonalActivity;
 import net.qiujuer.italker.push.activities.SearchActivity;
 
@@ -38,10 +39,10 @@ import butterknife.OnClick;
 public class SearchUserFragment extends PresenterFragment<SearchContract.Presenter>
         implements SearchActivity.SearchFragment, SearchContract.UserView {
 
-    @BindView(R.id.empty)
+    @BindView(R2.id.empty)
     EmptyView mEmptyView;
 
-    @BindView(R.id.recycler)
+    @BindView(R2.id.recycler)
     RecyclerView mRecycler;
 
     private RecyclerAdapter<UserCard> mAdapter;
@@ -110,13 +111,13 @@ public class SearchUserFragment extends PresenterFragment<SearchContract.Present
      */
     class ViewHolder extends RecyclerAdapter.ViewHolder<UserCard>
             implements FollowContract.View {
-        @BindView(R.id.im_portrait)
+        @BindView(R2.id.im_portrait)
         PortraitView mPortraitView;
 
-        @BindView(R.id.txt_name)
+        @BindView(R2.id.txt_name)
         TextView mName;
 
-        @BindView(R.id.im_follow)
+        @BindView(R2.id.im_follow)
         ImageView mFollow;
 
         private FollowContract.Presenter mPresenter;
@@ -135,13 +136,13 @@ public class SearchUserFragment extends PresenterFragment<SearchContract.Present
             mFollow.setEnabled(!userCard.isFollow());
         }
 
-        @OnClick(R.id.im_portrait)
+        @OnClick(R2.id.im_portrait)
         void onPortraitClick() {
             // 显示信息
             PersonalActivity.show(getContext(), mData.getId());
         }
 
-        @OnClick(R.id.im_follow)
+        @OnClick(R2.id.im_follow)
         void onFollowClick() {
             // 发起关注
             mPresenter.follow(mData.getId());

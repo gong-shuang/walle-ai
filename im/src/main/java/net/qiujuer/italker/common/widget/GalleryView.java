@@ -18,7 +18,9 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
-import com.ld.im.R;
+
+import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 
 import net.qiujuer.italker.common.widget.recycler.RecyclerAdapter;
 

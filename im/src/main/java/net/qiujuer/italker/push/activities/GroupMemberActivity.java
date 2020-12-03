@@ -12,13 +12,15 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 
+import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
+
 import net.qiujuer.italker.common.app.PresenterToolbarActivity;
 import net.qiujuer.italker.common.widget.PortraitView;
 import net.qiujuer.italker.common.widget.recycler.RecyclerAdapter;
 import net.qiujuer.italker.factory.model.db.view.MemberUserModel;
 import net.qiujuer.italker.factory.presenter.group.GroupMembersContract;
 import net.qiujuer.italker.factory.presenter.group.GroupMembersPresenter;
-import net.qiujuer.italker.push.R;
 import net.qiujuer.italker.push.frags.group.GroupMemberAddFragment;
 
 import butterknife.BindView;
@@ -30,7 +32,7 @@ public class GroupMemberActivity extends PresenterToolbarActivity<GroupMembersCo
     private static final String KEY_GROUP_ADMIN = "KEY_GROUP_ADMIN";
 
 
-    @BindView(R.id.recycler)
+    @BindView(R2.id.recycler)
     RecyclerView mRecycler;
 
     private String mGroupId;
@@ -138,9 +140,9 @@ public class GroupMemberActivity extends PresenterToolbarActivity<GroupMembersCo
     }
 
     class ViewHolder extends RecyclerAdapter.ViewHolder<MemberUserModel> {
-        @BindView(R.id.im_portrait)
+        @BindView(R2.id.im_portrait)
         PortraitView mPortrait;
-        @BindView(R.id.txt_name)
+        @BindView(R2.id.txt_name)
         TextView mName;
 
 
@@ -155,7 +157,7 @@ public class GroupMemberActivity extends PresenterToolbarActivity<GroupMembersCo
             mName.setText(model.name);
         }
 
-        @OnClick(R.id.im_portrait)
+        @OnClick(R2.id.im_portrait)
         void onPortraitClick() {
             PersonalActivity.show(GroupMemberActivity.this, mData.userId);
         }

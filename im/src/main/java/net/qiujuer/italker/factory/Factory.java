@@ -7,7 +7,9 @@ import androidx.annotation.StringRes;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
-import com.ld.im.R;
+
+import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import com.raizlabs.android.dbflow.config.FlowConfig;
 import com.raizlabs.android.dbflow.config.FlowManager;
 

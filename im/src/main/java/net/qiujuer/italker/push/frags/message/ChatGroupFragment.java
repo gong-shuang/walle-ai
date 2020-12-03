@@ -22,6 +22,7 @@ import net.qiujuer.italker.factory.model.db.view.MemberUserModel;
 import net.qiujuer.italker.factory.presenter.message.ChatContract;
 import net.qiujuer.italker.factory.presenter.message.ChatGroupPresenter;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.activities.GroupMemberActivity;
 import net.qiujuer.italker.push.activities.PersonalActivity;
 
@@ -35,13 +36,13 @@ import butterknife.BindView;
 public class ChatGroupFragment extends ChatFragment<Group>
         implements ChatContract.GroupView {
 
-    @BindView(R.id.im_header)
+    @BindView(R2.id.im_header)
     ImageView mHeader;
 
-    @BindView(R.id.lay_members)
+    @BindView(R2.id.lay_members)
     LinearLayout mLayMembers;
 
-    @BindView(R.id.txt_member_more)
+    @BindView(R2.id.txt_member_more)
     TextView mMemberMore;
 
     public ChatGroupFragment() {

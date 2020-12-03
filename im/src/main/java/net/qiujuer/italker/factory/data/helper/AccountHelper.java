@@ -2,7 +2,8 @@ package net.qiujuer.italker.factory.data.helper;
 
 import android.text.TextUtils;
 
-import com.ld.im.R;
+import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 
 import net.qiujuer.italker.factory.Factory;
 import net.qiujuer.italker.factory.data.DataSource;

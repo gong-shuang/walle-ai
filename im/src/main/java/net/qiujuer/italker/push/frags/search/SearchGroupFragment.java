@@ -18,6 +18,7 @@ import net.qiujuer.italker.factory.model.card.GroupCard;
 import net.qiujuer.italker.factory.presenter.search.SearchContract;
 import net.qiujuer.italker.factory.presenter.search.SearchGroupPresenter;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.activities.PersonalActivity;
 import net.qiujuer.italker.push.activities.SearchActivity;
 
@@ -32,10 +33,10 @@ import butterknife.OnClick;
 public class SearchGroupFragment extends PresenterFragment<SearchContract.Presenter>
         implements SearchActivity.SearchFragment, SearchContract.GroupView {
 
-    @BindView(R.id.empty)
+    @BindView(R2.id.empty)
     EmptyView mEmptyView;
 
-    @BindView(R.id.recycler)
+    @BindView(R2.id.recycler)
     RecyclerView mRecycler;
 
     private RecyclerAdapter<GroupCard> mAdapter;
@@ -103,13 +104,13 @@ public class SearchGroupFragment extends PresenterFragment<SearchContract.Presen
      * 每一个Cell的布局操作
      */
     class ViewHolder extends RecyclerAdapter.ViewHolder<GroupCard> {
-        @BindView(R.id.im_portrait)
+        @BindView(R2.id.im_portrait)
         PortraitView mPortraitView;
 
-        @BindView(R.id.txt_name)
+        @BindView(R2.id.txt_name)
         TextView mName;
 
-        @BindView(R.id.im_join)
+        @BindView(R2.id.im_join)
         ImageView mJoin;
 
         public ViewHolder(View itemView) {
@@ -124,7 +125,7 @@ public class SearchGroupFragment extends PresenterFragment<SearchContract.Presen
             mJoin.setEnabled(groupCard.getJoinAt() == null);
         }
 
-        @OnClick(R.id.im_join)
+        @OnClick(R2.id.im_join)
         void onJoinClick() {
             // 进入创建者的个人界面
             PersonalActivity.show(getContext(), mData.getOwnerId());

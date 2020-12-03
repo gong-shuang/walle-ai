@@ -17,6 +17,7 @@ import net.qiujuer.genius.ui.compat.UiCompat;
 import net.qiujuer.italker.common.app.Activity;
 import net.qiujuer.italker.common.app.Fragment;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.frags.user.UpdateInfoFragment;
 
 import butterknife.BindView;
@@ -27,7 +28,7 @@ import butterknife.BindView;
  */
 public class UserActivity extends Activity {
     private Fragment mCurFragment;
-    @BindView(R.id.im_bg)
+    @BindView(R2.id.im_bg)
     ImageView mBg;
 
     /**

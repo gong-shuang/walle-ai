@@ -8,7 +8,8 @@ import androidx.annotation.LayoutRes;
 import androidx.recyclerview.widget.RecyclerView;
 
 
-import com.ld.im.R;
+import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 
 import java.util.ArrayList;
 import java.util.Collection;

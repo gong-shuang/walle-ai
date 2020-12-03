@@ -17,6 +17,7 @@ import net.qiujuer.italker.factory.model.db.Group;
 import net.qiujuer.italker.factory.presenter.group.GroupsContract;
 import net.qiujuer.italker.factory.presenter.group.GroupsPresenter;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.activities.MessageActivity;
 
 import butterknife.BindView;
@@ -24,10 +25,10 @@ import butterknife.BindView;
 public class GroupFragment extends PresenterFragment<GroupsContract.Presenter>
         implements GroupsContract.View {
 
-    @BindView(R.id.empty)
+    @BindView(R2.id.empty)
     EmptyView mEmptyView;
 
-    @BindView(R.id.recycler)
+    @BindView(R2.id.recycler)
     RecyclerView mRecycler;
 
     // 适配器，User，可以直接从数据库查询数据
@@ -102,16 +103,16 @@ public class GroupFragment extends PresenterFragment<GroupsContract.Presenter>
 
 
     class ViewHolder extends RecyclerAdapter.ViewHolder<Group> {
-        @BindView(R.id.im_portrait)
+        @BindView(R2.id.im_portrait)
         PortraitView mPortraitView;
 
-        @BindView(R.id.txt_name)
+        @BindView(R2.id.txt_name)
         TextView mName;
 
-        @BindView(R.id.txt_desc)
+        @BindView(R2.id.txt_desc)
         TextView mDesc;
 
-        @BindView(R.id.txt_member)
+        @BindView(R2.id.txt_member)
         TextView mMember;  // 群成员的名字，依次显示出来。
 
 

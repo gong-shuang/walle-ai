@@ -23,6 +23,7 @@ import net.qiujuer.italker.factory.model.db.Session;
 import net.qiujuer.italker.factory.presenter.message.SessionContract;
 import net.qiujuer.italker.factory.presenter.message.SessionPresenter;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.activities.MessageActivity;
 import net.qiujuer.italker.utils.DateTimeUtil;
 
@@ -34,10 +35,10 @@ import butterknife.BindView;
 public class ActiveFragment extends PresenterFragment<SessionContract.Presenter>
         implements SessionContract.View {
 
-    @BindView(R.id.empty)
+    @BindView(R2.id.empty)
     EmptyView mEmptyView;
 
-    @BindView(R.id.recycler)
+    @BindView(R2.id.recycler)
     RecyclerView mRecycler;
 
     ActiveFragment activeFragment;
@@ -139,16 +140,16 @@ public class ActiveFragment extends PresenterFragment<SessionContract.Presenter>
 
     // 界面数据渲染，这里的ViewHolder是RecyclerView的子item。
     class ViewHolder extends RecyclerAdapter.ViewHolder<Session> {
-        @BindView(R.id.im_portrait)
+        @BindView(R2.id.im_portrait)
         PortraitView mPortraitView;
 
-        @BindView(R.id.txt_name)
+        @BindView(R2.id.txt_name)
         TextView mName;
 
-        @BindView(R.id.txt_content)
+        @BindView(R2.id.txt_content)
         TextView mContent;
 
-        @BindView(R.id.txt_time)
+        @BindView(R2.id.txt_time)
         TextView mTime;
 
         ViewHolder(View itemView) {

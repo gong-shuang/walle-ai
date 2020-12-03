@@ -17,7 +17,9 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
-import com.ld.im.R;
+
+import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import com.yalantis.ucrop.UCrop;
 
 import net.qiujuer.italker.common.app.Application;
@@ -36,16 +38,16 @@ import butterknife.OnClick;
 
 public class GroupCreateActivity extends PresenterToolbarActivity<GroupCreateContract.Presenter>
         implements GroupCreateContract.View {
-    @BindView(R.id.recycler)
+    @BindView(R2.id.recycler)
     RecyclerView mRecycler;
 
-    @BindView(R.id.edit_name)
+    @BindView(R2.id.edit_name)
     EditText mName;
 
-    @BindView(R.id.edit_desc)
+    @BindView(R2.id.edit_desc)
     EditText mDesc;
 
-    @BindView(R.id.im_portrait)
+    @BindView(R2.id.im_portrait)
     PortraitView mPortrait;
 
     private String mPortraitPath;
@@ -58,7 +60,7 @@ public class GroupCreateActivity extends PresenterToolbarActivity<GroupCreateCon
 
     @Override
     protected int getContentLayoutId() {
-        return R.layout.activity_group_create;
+        return R2.layout.activity_group_create;
     }
 
     @Override
@@ -76,7 +78,7 @@ public class GroupCreateActivity extends PresenterToolbarActivity<GroupCreateCon
         mPresenter.start();
     }
 
-    @OnClick(R.id.im_portrait)
+    @OnClick(R2.id.im_portrait)
     void onPortraitClick() {
         hideSoftKeyboard();
         new GalleryFragment()
@@ -208,11 +210,11 @@ public class GroupCreateActivity extends PresenterToolbarActivity<GroupCreateCon
 
 
     class ViewHolder extends RecyclerAdapter.ViewHolder<GroupCreateContract.ViewModel> {
-        @BindView(R.id.im_portrait)
+        @BindView(R2.id.im_portrait)
         PortraitView mPortrait;
-        @BindView(R.id.txt_name)
+        @BindView(R2.id.txt_name)
         TextView mName;
-        @BindView(R.id.cb_select)
+        @BindView(R2.id.cb_select)
         CheckBox mSelect;
 
 
@@ -220,7 +222,7 @@ public class GroupCreateActivity extends PresenterToolbarActivity<GroupCreateCon
             super(itemView);
         }
 
-        @OnCheckedChanged(R.id.cb_select)
+        @OnCheckedChanged(R2.id.cb_select)
         void onCheckedChanged(boolean checked) {
             // 进行状态更改
             mPresenter.changeSelect(mData, checked);

@@ -1,6 +1,8 @@
-plugins {
-    id 'com.android.library'
-}
+//plugins {
+//    id 'com.android.library', 'com.jakewharton.butterknife'
+//}
+apply plugin: 'com.android.library'
+apply plugin: 'com.jakewharton.butterknife'
 
 android {
     compileSdkVersion 29
@@ -73,9 +75,6 @@ dependencies {
     // Lame 录音 MP3 转码器
     api "net.qiujuer.lame:lame:$rootProject.ext.lameVersion"
 
-    api "com.jakewharton:butterknife:$rootProject.ext.butterknifeVersion"
-    annotationProcessor "com.jakewharton:butterknife-compiler:$rootProject.ext.butterknifeVersion"
-
 
     api "com.aliyun.dpa:oss-android-sdk:$rootProject.ext.ossVersion"
 
@@ -84,8 +83,8 @@ dependencies {
 
     //选用的数据库是DBflow
     annotationProcessor "com.github.Raizlabs.DBFlow:dbflow-processor:${rootProject.ext.dbflowVersion}"
-    compile "com.github.Raizlabs.DBFlow:dbflow-core:${rootProject.ext.dbflowVersion}"
-    compile "com.github.Raizlabs.DBFlow:dbflow:${rootProject.ext.dbflowVersion}"
+    api "com.github.Raizlabs.DBFlow:dbflow-core:${rootProject.ext.dbflowVersion}"
+    api "com.github.Raizlabs.DBFlow:dbflow:${rootProject.ext.dbflowVersion}"
 
     api "net.qiujuer.genius:kit-reflect:$rootProject.ext.geniusVersion"
 

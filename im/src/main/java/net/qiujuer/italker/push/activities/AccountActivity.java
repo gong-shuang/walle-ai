@@ -12,7 +12,9 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.drawable.GlideDrawable;
 import com.bumptech.glide.request.animation.GlideAnimation;
 import com.bumptech.glide.request.target.ViewTarget;
-import com.ld.im.R;
+
+import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 
 import net.qiujuer.genius.ui.compat.UiCompat;
 import net.qiujuer.italker.common.app.Activity;
@@ -32,7 +34,7 @@ public class AccountActivity extends Activity implements AccountTrigger {
     private Fragment mLoginFragment;
     private Fragment mRegisterFragment;
 
-    @BindView(R.id.im_bg)
+    @BindView(R2.id.im_bg)
     ImageView mBg;
 
     /**
@@ -46,7 +48,7 @@ public class AccountActivity extends Activity implements AccountTrigger {
 
     @Override
     protected int getContentLayoutId() {
-        return R.layout.activity_account;
+        return R2.layout.activity_account;
     }
 
     @Override

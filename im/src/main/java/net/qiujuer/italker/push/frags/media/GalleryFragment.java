@@ -19,6 +19,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import net.qiujuer.italker.common.tools.UiTool;
 import net.qiujuer.italker.common.widget.GalleryView;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 
 import java.util.Objects;
 

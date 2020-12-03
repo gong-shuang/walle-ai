@@ -29,6 +29,7 @@ import net.qiujuer.italker.factory.presenter.group.GroupCreateContract;
 import net.qiujuer.italker.factory.presenter.group.GroupMemberAddContract;
 import net.qiujuer.italker.factory.presenter.group.GroupMemberAddPresenter;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.frags.media.GalleryFragment;
 
 import butterknife.BindView;
@@ -41,10 +42,10 @@ import butterknife.OnCheckedChanged;
 public class GroupMemberAddFragment extends BottomSheetDialogFragment
         implements GroupMemberAddContract.View {
 
-    @BindView(R.id.recycler)
+    @BindView(R2.id.recycler)
     RecyclerView mRecycler;
 
-    @BindView(R.id.toolbar)
+    @BindView(R2.id.toolbar)
     Toolbar mToolbar;
 
     private Adapter mAdapter;
@@ -76,7 +77,7 @@ public class GroupMemberAddFragment extends BottomSheetDialogFragment
         initPresenter();
 
         // 获取我们的GalleryView
-        View root = inflater.inflate(R.layout.fragment_group_member_add, container, false);
+        View root = inflater.inflate(R2.layout.fragment_group_member_add, container, false);
         // 控件绑定
         ButterKnife.bind(this, root);
         initRecycler();
@@ -185,11 +186,11 @@ public class GroupMemberAddFragment extends BottomSheetDialogFragment
     }
 
     class ViewHolder extends RecyclerAdapter.ViewHolder<GroupCreateContract.ViewModel> {
-        @BindView(R.id.im_portrait)
+        @BindView(R2.id.im_portrait)
         PortraitView mPortrait;
-        @BindView(R.id.txt_name)
+        @BindView(R2.id.txt_name)
         TextView mName;
-        @BindView(R.id.cb_select)
+        @BindView(R2.id.cb_select)
         CheckBox mSelect;
 
 
@@ -197,7 +198,7 @@ public class GroupMemberAddFragment extends BottomSheetDialogFragment
             super(itemView);
         }
 
-        @OnCheckedChanged(R.id.cb_select)
+        @OnCheckedChanged(R2.id.cb_select)
         void onCheckedChanged(boolean checked) {
             // 进行状态更改
             mPresenter.changeSelect(mData, checked);

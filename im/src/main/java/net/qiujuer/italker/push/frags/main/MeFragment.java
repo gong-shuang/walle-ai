@@ -14,6 +14,7 @@ import net.qiujuer.italker.factory.persistence.Account;
 import net.qiujuer.italker.factory.presenter.me.MeContract;
 import net.qiujuer.italker.factory.presenter.me.MePresenter;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.activities.AccountActivity;
 
 import butterknife.BindView;
@@ -25,10 +26,10 @@ import butterknife.OnClick;
 public class MeFragment extends PresenterFragment<MeContract.Presenter>
         implements MeContract.View {
 
-    @BindView(R.id.im_portrait)
+    @BindView(R2.id.im_portrait)
     PortraitView mPortrait;
 
-    @BindView(R.id.txt_name)
+    @BindView(R2.id.txt_name)
     TextView mName;
 
     @Override
@@ -68,7 +69,7 @@ public class MeFragment extends PresenterFragment<MeContract.Presenter>
     }
 
 
-    @OnClick(R.id.btn_quit)
+    @OnClick(R2.id.btn_quit)
     void onSubmitClick() {
         // 调用P层，进行退出
         mPresenter.quit();

@@ -18,6 +18,7 @@ import net.qiujuer.italker.factory.model.db.User;
 import net.qiujuer.italker.factory.presenter.message.ChatContract;
 import net.qiujuer.italker.factory.presenter.message.ChatUserPresenter;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.activities.PersonalActivity;
 
 import butterknife.BindView;
@@ -29,7 +30,7 @@ import butterknife.OnClick;
  */
 public class ChatUserFragment extends ChatFragment<User>
         implements ChatContract.UserView {
-    @BindView(R.id.im_portrait)
+    @BindView(R2.id.im_portrait)
     PortraitView mPortrait;
 
     private MenuItem mUserInfoMenuItem;
@@ -132,7 +133,7 @@ public class ChatUserFragment extends ChatFragment<User>
     /**
      * 点击用户的头像，进去用户详情界面
      */
-    @OnClick(R.id.im_portrait)
+    @OnClick(R2.id.im_portrait)
     void onPortraitClick() {
         PersonalActivity.show(getContext(), mReceiverId);
     }

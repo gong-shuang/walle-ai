@@ -14,6 +14,7 @@ import androidx.appcompat.widget.SearchView;
 import net.qiujuer.italker.common.app.Fragment;
 import net.qiujuer.italker.common.app.ToolbarActivity;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.frags.search.SearchGroupFragment;
 import net.qiujuer.italker.push.frags.search.SearchUserFragment;
 

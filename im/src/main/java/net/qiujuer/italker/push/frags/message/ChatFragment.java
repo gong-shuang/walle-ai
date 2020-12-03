@@ -40,6 +40,7 @@ import net.qiujuer.italker.factory.persistence.Account;
 import net.qiujuer.italker.factory.presenter.message.ChatContract;
 import net.qiujuer.italker.factory.utils.FileCache;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.activities.MessageActivity;
 import net.qiujuer.italker.push.frags.panel.PanelFragment;
 import net.qiujuer.widget.airpanel.AirPanel;
@@ -64,23 +65,23 @@ public abstract class ChatFragment<InitModel>
     protected Adapter mAdapter;
 
     // 注意这个toolbar 和 appbar 的区别，这个是下拉后，显示的大图
-    @BindView(R.id.toolbar)
+    @BindView(R2.id.toolbar)
     Toolbar mToolbar;
 
-    @BindView(R.id.recycler)
+    @BindView(R2.id.recycler)
     RecyclerView mRecyclerView;
 
     // appbar 就是上面的bar
-    @BindView(R.id.appbar)
+    @BindView(R2.id.appbar)
     AppBarLayout mAppBarLayout;
 
-    @BindView(R.id.collapsingToolbarLayout)
+    @BindView(R2.id.collapsingToolbarLayout)
     CollapsingToolbarLayout mCollapsingLayout;
 
-    @BindView(R.id.edit_content)
+    @BindView(R2.id.edit_content)
     EditText mContent;    // 内容按钮
 
-    @BindView(R.id.btn_submit)
+    @BindView(R2.id.btn_submit)
     View mSubmit;    // 发送按钮，或者图片按钮
 
     // 控制顶部面板与软键盘过度的Boss控件
@@ -278,20 +279,20 @@ public abstract class ChatFragment<InitModel>
     public void onOffsetChanged(AppBarLayout appBarLayout, int verticalOffset) {
     }
 
-    @OnClick(R.id.btn_face)
+    @OnClick(R2.id.btn_face)
     void onFaceClick() {
         // 仅仅只需请求打开即可
         mPanelBoss.openPanel();
         mPanelFragment.showFace();
     }
 
-    @OnClick(R.id.btn_record)
+    @OnClick(R2.id.btn_record)
     void onRecordClick() {
         mPanelBoss.openPanel();
         mPanelFragment.showRecord();
     }
 
-    @OnClick(R.id.btn_submit)
+    @OnClick(R2.id.btn_submit)
     void onSubmitClick() {
         if (mSubmit.isActivated()) {
             // 发送
@@ -365,24 +366,14 @@ public abstract class ChatFragment<InitModel>
 
         @Override
         protected ViewHolder<Message> onCreateViewHolder(View root, int viewType) {
-            switch (viewType) {
-                // 左右都是同一个
-                case R.layout.cell_chat_text_right:
-                case R.layout.cell_chat_text_left:
-                    return new TextHolder(root);
-
-                case R.layout.cell_chat_audio_right:
-                case R.layout.cell_chat_audio_left:
-                    return new AudioHolder(root);
-
-                case R.layout.cell_chat_pic_right:
-                case R.layout.cell_chat_pic_left:
-                    return new PicHolder(root);
-
-                // 默认情况下，返回的就是Text类型的Holder进行处理
-                // 文件的一些实现
-                default:
-                    return new TextHolder(root);
+            if(viewType == R.layout.cell_chat_text_right || viewType == R.layout.cell_chat_text_left ){
+                return new TextHolder(root);
+            }else if(viewType == R.layout.cell_chat_audio_right || viewType == R.layout.cell_chat_audio_left){
+                return new AudioHolder(root);
+            }else if(viewType == R.layout.cell_chat_pic_right || viewType == R.layout.cell_chat_pic_left){
+                return new PicHolder(root);
+            }else {
+                return new TextHolder(root);
             }
         }
     }
@@ -390,12 +381,12 @@ public abstract class ChatFragment<InitModel>
 
     // Holder的基类
     class BaseHolder extends RecyclerAdapter.ViewHolder<Message> {
-        @BindView(R.id.im_portrait)
+        @BindView(R2.id.im_portrait)
         PortraitView mPortrait;
 
         // 允许为空，左边没有，右边有
         @Nullable
-        @BindView(R.id.loading)
+        @BindView(R2.id.loading)
         Loading mLoading;
 
 
@@ -437,7 +428,7 @@ public abstract class ChatFragment<InitModel>
             }
         }
 
-        @OnClick(R.id.im_portrait)
+        @OnClick(R2.id.im_portrait)
         void onRePushClick() {
             // 重新发送
 
@@ -452,7 +443,7 @@ public abstract class ChatFragment<InitModel>
 
     // 文字的Holder
     class TextHolder extends BaseHolder {
-        @BindView(R.id.txt_content)
+        @BindView(R2.id.txt_content)
         TextView mContent;
 
         public TextHolder(View itemView) {
@@ -475,9 +466,9 @@ public abstract class ChatFragment<InitModel>
 
     // 语音的Holder
     class AudioHolder extends BaseHolder {
-        @BindView(R.id.txt_content)
+        @BindView(R2.id.txt_content)
         TextView mContent;
-        @BindView(R.id.im_audio_track)
+        @BindView(R2.id.im_audio_track)
         ImageView mAudioTrack;
 
         public AudioHolder(View itemView) {
@@ -524,7 +515,7 @@ public abstract class ChatFragment<InitModel>
 
     // 图片的Holder
     class PicHolder extends BaseHolder {
-        @BindView(R.id.im_image)
+        @BindView(R2.id.im_image)
         ImageView mContent;
 
 

@@ -10,6 +10,7 @@ import net.qiujuer.italker.common.app.PresenterFragment;
 import net.qiujuer.italker.factory.presenter.account.RegisterContract;
 import net.qiujuer.italker.factory.presenter.account.RegisterPresenter;
 import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.activities.MainActivity;
 
 import butterknife.BindView;
@@ -22,18 +23,18 @@ public class RegisterFragment extends PresenterFragment<RegisterContract.Present
         implements RegisterContract.View {
     private AccountTrigger mAccountTrigger;
 
-    @BindView(R.id.edit_phone)
+    @BindView(R2.id.edit_phone)
     EditText mPhone;
-    @BindView(R.id.edit_name)
+    @BindView(R2.id.edit_name)
     EditText mName;
-    @BindView(R.id.edit_password)
+    @BindView(R2.id.edit_password)
     EditText mPassword;
 
 
-    @BindView(R.id.loading)
+    @BindView(R2.id.loading)
     Loading mLoading;
 
-    @BindView(R.id.btn_submit)
+    @BindView(R2.id.btn_submit)
     Button mSubmit;
 
 
@@ -59,7 +60,7 @@ public class RegisterFragment extends PresenterFragment<RegisterContract.Present
     }
 
 
-    @OnClick(R.id.btn_submit)
+    @OnClick(R2.id.btn_submit)
     void onSubmitClick() {
         String phone = mPhone.getText().toString();
         String name = mName.getText().toString();
@@ -68,7 +69,7 @@ public class RegisterFragment extends PresenterFragment<RegisterContract.Present
         mPresenter.register(phone, name, password);
     }
 
-    @OnClick(R.id.txt_go_login)
+    @OnClick(R2.id.txt_go_login)
     void onShowLoginClick() {
         // 让AccountActivity进行界面切换
         mAccountTrigger.triggerView();

@@ -4,7 +4,9 @@ import android.content.Context;
 import android.util.AttributeSet;
 
 import com.bumptech.glide.RequestManager;
-import com.ld.im.R;
+
+import net.qiujuer.italker.push.R;
+import net.qiujuer.italker.push.R2;
 
 import net.qiujuer.italker.factory.model.Author;
 

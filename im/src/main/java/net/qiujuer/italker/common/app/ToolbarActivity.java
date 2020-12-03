@@ -3,7 +3,7 @@ package net.qiujuer.italker.common.app;
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.widget.Toolbar;
 
-import com.ld.im.R;
+import net.qiujuer.italker.push.R;
 
 
 /**

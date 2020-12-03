@@ -1,6 +1,6 @@
 package net.qiujuer.italker.factory.data.helper;
 
-import com.ld.im.R;
+import net.qiujuer.italker.push.R;
 import com.raizlabs.android.dbflow.sql.language.SQLite;
 
 import net.qiujuer.italker.factory.Factory;

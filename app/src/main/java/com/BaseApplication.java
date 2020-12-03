@@ -1,12 +1,12 @@
 package com;
 
 import android.app.Activity;
-import android.app.Application;
 import android.os.Bundle;
 
 import com.igexin.sdk.PushManager;
 import com.walle.push.InitPush;
 
+import net.qiujuer.italker.common.app.Application;
 import net.qiujuer.italker.factory.Factory;
 import net.qiujuer.italker.push.AppMessageReceiverService;
 import net.qiujuer.italker.push.AppPushService;
