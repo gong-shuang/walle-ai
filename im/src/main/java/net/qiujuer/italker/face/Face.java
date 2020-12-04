@@ -16,11 +16,12 @@ import android.util.ArrayMap;
 import android.view.View;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.resource.drawable.GlideDrawable;
-import com.bumptech.glide.request.animation.GlideAnimation;
+import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.target.SimpleTarget;
+import com.bumptech.glide.request.transition.Transition;
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
 
@@ -199,15 +200,20 @@ public class Face {
                                  final Bean bean, final int size) {
         Glide.with(context)
                 .load(bean.preview)
-                .asBitmap()
-                .into(new SimpleTarget<Bitmap>(size, size) {
+//                .asBitmap()
+                .into(new CustomTarget<Drawable>() {
                     @Override
-                    public void onResourceReady(Bitmap resource, GlideAnimation<? super Bitmap> glideAnimation) {
+                    public void onResourceReady(@NonNull Drawable resource, @Nullable Transition<? super Drawable> transition) {
                         Spannable spannable = new SpannableString(String.format("[%s]", bean.key));
-                        ImageSpan span = new ImageSpan(context, resource, ImageSpan.ALIGN_BASELINE);
+//                        ImageSpan span = new ImageSpan(context, resource, ImageSpan.ALIGN_BASELINE);
                         // 前后不关联
-                        spannable.setSpan(span, 0, spannable.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                        editable.append(spannable);
+//                        spannable.setSpan(span, 0, spannable.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+//                        editable.append(spannable);
+                    }
+
+                    @Override
+                    public void onLoadCleared(@Nullable Drawable placeholder) {
+
                     }
                 });
     }
@@ -290,10 +296,9 @@ public class Face {
             Glide.with(context)
                     .load(source)
                     .fitCenter()
-                    .into(new SimpleTarget<GlideDrawable>(size, size) {
-
+                    .into(new CustomTarget<Drawable>() {
                         @Override
-                        public void onResourceReady(GlideDrawable resource, GlideAnimation<? super GlideDrawable> glideAnimation) {
+                        public void onResourceReady(@NonNull Drawable resource, @Nullable Transition<? super Drawable> transition) {
                             mDrawable = resource.getCurrent();
                             // 获取自测量高宽
                             int width = mDrawable.getIntrinsicWidth();
@@ -304,6 +309,11 @@ public class Face {
 
                             // 通知刷新
                             mView.invalidate();
+                        }
+
+                        @Override
+                        public void onLoadCleared(@Nullable Drawable placeholder) {
+
                         }
                     });
         }

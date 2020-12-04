@@ -131,7 +131,7 @@ public class GroupCreateActivity extends PresenterToolbarActivity<GroupCreateCon
 
         Glide.with(this)
                 .load(uri)
-                .asBitmap()
+//                .asBitmap()
                 .centerCrop()
                 .into(mPortrait);
     }

@@ -34,7 +34,7 @@ public class FaceHolder extends RecyclerAdapter.ViewHolder<Face.Bean> {
                 || bean.preview instanceof String))
             Glide.with(itemView.getContext())
                     .load(bean.preview)
-                    .asBitmap()
+//                    .asBitmap()
                     .format(DecodeFormat.PREFER_ARGB_8888) //设置解码格式8888，保证清晰度
                     .placeholder(R.drawable.default_face)
                     .into(mFace);

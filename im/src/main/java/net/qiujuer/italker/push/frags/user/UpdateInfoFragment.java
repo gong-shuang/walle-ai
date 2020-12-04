@@ -120,7 +120,7 @@ public class UpdateInfoFragment extends PresenterFragment<UpdateInfoContract.Pre
 
         Glide.with(this)
                 .load(uri)
-                .asBitmap()
+//                .asBitmap()
                 .centerCrop()
                 .into(mPortrait);
     }
