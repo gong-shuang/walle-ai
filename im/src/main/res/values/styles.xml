@@ -44,8 +44,8 @@
     </style>
 
     <style name="TextAppearance.Title" parent="@style/TextAppearance.AppCompat.Title">
-        <item name="android:textSize">?attr/toolbarTitleSize</item>
-        <item name="android:textColor">?attr/toolbarTitleColor</item>
+        <item name="android:textSize">@dimen/font_18</item>
+        <item name="android:textColor">@color/white_alpha_224</item>
     </style>
 
     <style name="Theme.private" parent="Theme.AppCompat">

@@ -60,7 +60,7 @@ public class GroupCreateActivity extends PresenterToolbarActivity<GroupCreateCon
 
     @Override
     protected int getContentLayoutId() {
-        return R2.layout.activity_group_create;
+        return R.layout.activity_group_create;
     }
 
     @Override

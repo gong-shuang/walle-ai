@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 import android.text.TextUtils;
 
 import com.raizlabs.android.dbflow.sql.language.SQLite;
+import com.walle.push.mpush.MPushInit;
 
 import net.qiujuer.italker.factory.Factory;
 import net.qiujuer.italker.factory.model.api.account.AccountRspModel;
@@ -152,7 +153,7 @@ public class Account {
     public static void login(AccountRspModel model) {
         // 存储当前登录的账户, token, 用户Id，方便从数据库中查询我的信息
         Account.token = model.getToken();
-        Account.account = model.getAccount();
+        Account.account = model.getUser().getName();
         Account.userId = model.getUser().getId();
         save(Factory.app());
     }

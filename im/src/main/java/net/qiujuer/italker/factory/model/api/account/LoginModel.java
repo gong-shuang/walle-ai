@@ -5,27 +5,27 @@ package net.qiujuer.italker.factory.model.api.account;
  * @version 1.0.0
  */
 public class LoginModel {
-    private String account;
+    private String name;
     private String password;
     private String pushId;
 
     public LoginModel(String account, String password) {
-        this.account = account;
+        this.name = account;
         this.password = password;
     }
 
     public LoginModel(String account, String password, String pushId) {
-        this.account = account;
+        this.name = account;
         this.password = password;
         this.pushId = pushId;
     }
 
     public String getAccount() {
-        return account;
+        return name;
     }
 
     public void setAccount(String account) {
-        this.account = account;
+        this.name = account;
     }
 
     public String getPassword() {

@@ -3,6 +3,47 @@
     package="com.walle.push">
 
     <application>
+
+
+
+
+<!--        mpush start -->
+
+        <receiver
+            android:name="com.walle.push.mpush.MPushReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
+                <action android:name="com.mpush.HEALTH_CHECK" />
+                <action android:name="com.mpush.NOTIFY_CANCEL" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name="com.walle.push.mpush.MPushService"
+            android:enabled="true"
+            android:exported="true" />
+
+        <receiver
+            android:name="com.walle.push.mpush.MyReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.mpush.MESSAGE_RECEIVED" /> <!-- 收到PUSH消息 -->
+                <action android:name="com.mpush.KICK_USER" /> <!-- 收到踢人消息 -->
+                <action android:name="com.mpush.CONNECTIVITY_CHANGE" /> <!-- 收到链接变化 -->
+                <action android:name="com.mpush.HANDSHAKE_OK" /> <!-- 收到握手成功消息 -->
+                <action android:name="com.mpush.BIND_USER" /> <!-- 收到绑定用户消息 -->
+                <action android:name="com.mpush.UNBIND_USER" /> <!-- 收到解绑用户消息 -->
+
+                <!-- 此值要改为自己的应用的applicationId  @see MPushService -->
+                <category android:name="com.mpush.android" />
+            </intent-filter>
+        </receiver>
+<!--        mpush end -->
+
+<!--   华为 start     -->
         <activity android:name=".sdkHuawei.HuaweiActivity" />
 
         <activity android:name="com.walle.push.sdkHuawei.Deeplink2Activity">
@@ -13,8 +54,6 @@
                 <category android:name="android.intent.category.BROWSABLE" />
             </intent-filter>
         </activity>
-
-        <activity android:name=".sdkXiaomi.XiaomiActivity"/>
 
         <meta-data
             android:name="push_kit_auto_init_enabled"
@@ -42,7 +81,11 @@
             </intent-filter>
         </service>
 
-        <!--小米-->
+<!--   华为  end  -->
+
+        <!--  小米  start -->
+
+        <activity android:name=".sdkXiaomi.XiaomiActivity"/>
 
         <service
             android:name="com.xiaomi.push.service.XMJobService"
@@ -94,6 +137,8 @@
                 <action android:name="com.xiaomi.push.PING_TIMER" />
             </intent-filter>
         </receiver>
+
+        <!--  小米  end -->
 
     </application>
 

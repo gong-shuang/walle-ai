@@ -116,7 +116,7 @@ public class UserHelper {
     // 界面更新的时候进行对比，然后差异更新
     public static void refreshContacts() {
         RemoteService service = Network.remote();
-        service.userContacts()
+        service.userContacts(Account.getUser().getId())
                 .enqueue(new Callback<RspModel<List<UserCard>>>() {
                     @Override
                     public void onResponse(Call<RspModel<List<UserCard>>> call, Response<RspModel<List<UserCard>>> response) {

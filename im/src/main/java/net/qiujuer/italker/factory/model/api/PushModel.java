@@ -79,7 +79,7 @@ public class PushModel {
         // 消息实体
         public String content;
         // 消息生成时间
-        public Date createAt;
+        public String createAt;
 
         @Override
         public String toString() {

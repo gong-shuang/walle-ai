@@ -75,7 +75,7 @@ public class MeFragment extends PresenterFragment<MeContract.Presenter>
         mPresenter.quit();
         AccountActivity.show(getActivity());
  //       getActivity().finish();
-        Application.getInstance().finishAll();
+        Application.finishAll();
         //注意，退出登陆时，应该给个推发送一个注销的消息。
     }
 }

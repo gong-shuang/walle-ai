@@ -3,7 +3,6 @@ package net.qiujuer.italker.factory.model.api.account;
 import net.qiujuer.italker.factory.model.db.User;
 
 /**
- * @author qiujuer Email:qiujuer@live.cn
  * @version 1.0.0
  */
 public class AccountRspModel {

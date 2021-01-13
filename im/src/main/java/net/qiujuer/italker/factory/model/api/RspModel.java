@@ -8,7 +8,7 @@ import java.util.Date;
  */
 @SuppressWarnings({"WeakerAccess", "unused"})
 public class RspModel<T> {
-    public static final int SUCCEED = 1;
+    public static final int SUCCEED = 200;
 
     public static final int ERROR_UNKNOWN = 0;
 
@@ -32,21 +32,21 @@ public class RspModel<T> {
 
     public static final int ERROR_ACCOUNT_NO_PERMISSION = 2010;
 
-    private int code;
-    private String message;
+    private int responseCode;
+    private String responseMsg;
     private Date time;
-    private T result;
+    private T data;
 
     public boolean success() {
-        return code == SUCCEED;
+        return responseCode == SUCCEED;
     }
 
     public int getCode() {
-        return code;
+        return responseCode;
     }
 
     public void setCode(int code) {
-        this.code = code;
+        this.responseCode = code;
     }
 
     public Date getTime() {
@@ -58,18 +58,18 @@ public class RspModel<T> {
     }
 
     public String getMessage() {
-        return message;
+        return responseMsg;
     }
 
     public void setMessage(String message) {
-        this.message = message;
+        this.responseMsg = message;
     }
 
     public T getResult() {
-        return result;
+        return data;
     }
 
     public void setResult(T result) {
-        this.result = result;
+        this.data = result;
     }
 }

@@ -25,7 +25,7 @@ public class UserCard implements Author {
     private int following;
 
     // 我与当前User的关系状态，是否已经关注了这个人
-    private boolean isFollow;
+    private boolean isFollow = true;  // 修改为 默认设置 true
 
     // 用户信息最后的更新时间
     private Date modifyAt;

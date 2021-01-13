@@ -1,5 +1,6 @@
 package net.qiujuer.italker.factory;
 
+import android.content.Context;
 import android.util.Log;
 
 import androidx.annotation.StringRes;
@@ -82,7 +83,7 @@ public class Factory {
      *
      * @return Application
      */
-    public static Application app() {
+    public static Context app() {
         return Application.getInstance();
     }
 

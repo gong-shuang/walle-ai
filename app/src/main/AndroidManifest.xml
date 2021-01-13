@@ -30,56 +30,22 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
 
     <application
-        android:name="com.BaseApplication"
+        android:name="com.MyApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
-        <activity android:name=".HomeActivity">
+        <activity android:name="com.walle.open.push.PushTestActivity"></activity>
+        <activity android:name=".LaunchActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <activity android:name="com.mpush.demo.MainActivity"></activity>
-
-        <receiver
-            android:name="com.mpush.demo.MPushReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
-                <action android:name="com.mpush.HEALTH_CHECK" />
-                <action android:name="com.mpush.NOTIFY_CANCEL" />
-            </intent-filter>
-        </receiver>
-
-        <service
-            android:name="com.mpush.demo.MPushService"
-            android:enabled="true"
-            android:exported="true" />
-        <service android:name="com.mpush.android.MPushFakeService" />
-
-        <receiver
-            android:name="com.mpush.demo.MyReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.mpush.MESSAGE_RECEIVED" /> <!-- 收到PUSH消息 -->
-                <action android:name="com.mpush.KICK_USER" /> <!-- 收到踢人消息 -->
-                <action android:name="com.mpush.CONNECTIVITY_CHANGE" /> <!-- 收到链接变化 -->
-                <action android:name="com.mpush.HANDSHAKE_OK" /> <!-- 收到握手成功消息 -->
-                <action android:name="com.mpush.BIND_USER" /> <!-- 收到绑定用户消息 -->
-                <action android:name="com.mpush.UNBIND_USER" /> <!-- 收到解绑用户消息 -->
-                <action android:name="com.push.huawei"/>
-                <action android:name="com.push.xiaomi"/>
-                <!-- 此值要改为自己的应用的applicationId  @see MPushService -->
-                <category android:name="com.mpush.android" />
-            </intent-filter>
-        </receiver>
+        <activity android:name=".HomeActivity" />
     </application>
 
 </manifest>

@@ -8,7 +8,7 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.Toast;
 
-import com.mpush.demo.MainActivity;
+import com.walle.open.push.PushTestActivity;
 import com.walle.push.sdkHuawei.HuaweiActivity;
 import com.walle.push.sdkXiaomi.XiaomiActivity;
 
@@ -76,8 +76,13 @@ public class HomeActivity extends AppCompatActivity {
         return EasyPermissions.hasPermissions(this, ALL_PERMISSION);
     }
 
+    public void onClickTalker(View btn) {
+        Intent intent = new Intent(HomeActivity.this, LaunchActivity.class);
+        startActivity(intent);
+    }
+
     public void hello(View btn) {
-        Intent intent = new Intent(HomeActivity.this, MainActivity.class);
+        Intent intent = new Intent(HomeActivity.this, PushTestActivity.class);
         startActivity(intent);
     }
 

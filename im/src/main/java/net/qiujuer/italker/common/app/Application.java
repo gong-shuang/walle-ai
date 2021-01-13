@@ -9,6 +9,8 @@ import android.widget.Toast;
 
 import androidx.annotation.StringRes;
 
+import com.walle.base.BaseApp;
+
 import net.qiujuer.genius.kit.handler.Run;
 import net.qiujuer.genius.kit.handler.runable.Action;
 import net.qiujuer.italker.utils.FileUtil;
@@ -18,78 +20,24 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * @author qiujuer Email:qiujuer@live.cn
  * @version 1.0.0
  */
-public class Application extends android.app.Application {
-    private static Application instance;
-    private List<Activity> activities = new ArrayList<>(); // 所有的Activity 都继承 Activity
+public class Application {
 
-    @Override
-    public void onCreate() {
-        super.onCreate();
-        instance = this;
-
-
-        registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
-            @Override
-            public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
-                activities.add(activity);
-            }
-
-            @Override
-            public void onActivityStarted(Activity activity) {
-
-            }
-
-            @Override
-            public void onActivityResumed(Activity activity) {
-
-            }
-
-            @Override
-            public void onActivityPaused(Activity activity) {
-
-            }
-
-            @Override
-            public void onActivityStopped(Activity activity) {
-
-            }
-
-            @Override
-            public void onActivitySaveInstanceState(Activity activity, Bundle outState) {
-
-            }
-
-            @Override
-            public void onActivityDestroyed(Activity activity) {
-                activities.remove(activity);
-            }
-        });
-    }
-
-    // 退出所有
-    public void finishAll(){
-        for (Activity activity : activities) {
-            activity.finish();
-        }
-
-        showAccountView(this);
-    }
-
-    protected void showAccountView(Context context){
-
-    }
 
     /**
      * 外部获取单例
      *
      * @return Application
      */
-    public static Application getInstance() {
-        return instance;
+    public static Context getInstance() {
+        return BaseApp.getInstance();
     }
+
+    public static void finishAll(){
+        BaseApp.exit();
+    }
+
 
     /**
      * 获取缓存文件夹地址
@@ -97,7 +45,7 @@ public class Application extends android.app.Application {
      * @return 当前APP的缓存文件夹地址
      */
     public static File getCacheDirFile() {
-        return instance.getCacheDir();
+        return getInstance().getCacheDir();
     }
 
     /**
@@ -167,7 +115,7 @@ public class Application extends android.app.Application {
             @Override
             public void call() {
                 // 这里进行回调的时候一定就是主线程状态了
-                Toast.makeText(instance, msg, Toast.LENGTH_SHORT).show();
+                Toast.makeText(getInstance(), msg, Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -179,7 +127,7 @@ public class Application extends android.app.Application {
      * @param msgId 传递的是字符串的资源
      */
     public static void showToast(@StringRes int msgId) {
-        showToast(instance.getString(msgId));
+        showToast(getInstance().getString(msgId));
     }
 
 }

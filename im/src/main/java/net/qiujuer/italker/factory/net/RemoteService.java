@@ -18,9 +18,11 @@ import java.util.List;
 import retrofit2.Call;
 import retrofit2.http.Body;
 import retrofit2.http.GET;
+import retrofit2.http.Header;
 import retrofit2.http.POST;
 import retrofit2.http.PUT;
 import retrofit2.http.Path;
+import retrofit2.http.Query;
 
 /**
  * 网络请求的所有的接口
@@ -45,7 +47,7 @@ public interface RemoteService {
      * @param model LoginModel
      * @return RspModel<AccountRspModel>
      */
-    @POST("account/login")
+    @POST("user/login")
     Call<RspModel<AccountRspModel>> accountLogin(@Body LoginModel model);
 
     /**
@@ -70,15 +72,16 @@ public interface RemoteService {
     Call<RspModel<UserCard>> userFollow(@Path("userId") String userId);
 
     // 获取联系人列表
+    // ok
     @GET("user/contact")
-    Call<RspModel<List<UserCard>>> userContacts();
+    Call<RspModel<List<UserCard>>> userContacts(@Query("userId") String name);
 
     // 查询某人的信息
     @GET("user/{userId}")
     Call<RspModel<UserCard>> userFind(@Path("userId") String userId);
 
     // 发送消息的接口
-    @POST("msg")
+    @POST("message/send")
     Call<RspModel<MessageCard>> msgPush(@Body MsgCreateModel model);
 
     // 创建群

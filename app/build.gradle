@@ -21,6 +21,7 @@ dependencies {
 
     implementation project(":push")
     implementation project(":im")
+    api project(":base")
 }
 
 android {
@@ -34,6 +35,7 @@ android {
         versionCode 1
         versionName "1.0"
         flavorDimensions "default"
+        multiDexEnabled true
 
         // 为编译通过，先添加，后面删除
         //个推相关参数

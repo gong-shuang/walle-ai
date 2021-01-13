@@ -89,4 +89,6 @@ dependencies {
 
     api "net.qiujuer.genius:kit-reflect:$rootProject.ext.geniusVersion"
 
+    implementation project(":base")
+    implementation project(":push")
 }

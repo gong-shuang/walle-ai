@@ -17,6 +17,9 @@ public class MsgCreateModel {
     private String content;
     private String attach;
 
+    // 发送者
+    private String senderId;  // gs add 2021-1-12
+
     // 消息类型
     private int type = Message.TYPE_STR;
 
@@ -55,6 +58,13 @@ public class MsgCreateModel {
         return receiverType;
     }
 
+    public String getSenderId() {
+        return senderId;
+    }
+
+    public void setSenderId(String senderId) {
+        this.senderId = senderId;
+    }
 
     // 当我们需要发送一个文件的时候，content刷新的问题
 

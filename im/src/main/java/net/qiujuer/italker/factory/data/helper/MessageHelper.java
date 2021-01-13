@@ -19,6 +19,7 @@ import net.qiujuer.italker.factory.model.db.Message_Table;
 import net.qiujuer.italker.factory.net.Network;
 import net.qiujuer.italker.factory.net.RemoteService;
 import net.qiujuer.italker.factory.net.UploadHelper;
+import net.qiujuer.italker.factory.persistence.Account;
 import net.qiujuer.italker.utils.PicturesCompressor;
 import net.qiujuer.italker.utils.StreamUtil;
 
@@ -45,6 +46,7 @@ public class MessageHelper {
 
     // 发送是异步进行的
     public static void push(final MsgCreateModel model) {
+        model.setSenderId(Account.getUserId()); // gs add 2021-1-12
         Factory.runOnAsync(new Runnable() {
             @Override
             public void run() {

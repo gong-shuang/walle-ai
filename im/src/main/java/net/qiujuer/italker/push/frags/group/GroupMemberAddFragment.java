@@ -77,7 +77,7 @@ public class GroupMemberAddFragment extends BottomSheetDialogFragment
         initPresenter();
 
         // 获取我们的GalleryView
-        View root = inflater.inflate(R2.layout.fragment_group_member_add, container, false);
+        View root = inflater.inflate(R.layout.fragment_group_member_add, container, false);
         // 控件绑定
         ButterKnife.bind(this, root);
         initRecycler();

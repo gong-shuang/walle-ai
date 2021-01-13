@@ -2,6 +2,7 @@
 
 buildscript {
     repositories {
+        mavenCentral()
         google()
         jcenter()
         // huawei maven
@@ -10,7 +11,7 @@ buildscript {
     dependencies {
         classpath 'com.android.tools.build:gradle:3.5.3'
         classpath 'com.huawei.agconnect:agcp:1.2.1.301'  // HUAWEI agcp plugin
-        classpath 'com.jakewharton:butterknife-gradle-plugin:10.0.0' //  Butter Knife
+        classpath 'com.jakewharton:butterknife-gradle-plugin:10.2.3' //  Butter Knife
         // NOTE: Do not place your application dependencies here; they belong
         // in the individual module build.gradle files
     }
@@ -40,7 +41,7 @@ ext {
 
     // 相关依赖库版本
     supportVersion = '28.0.0'
-    butterknifeVersion = '10.0.0'
+    butterknifeVersion = '10.2.3'
     geniusVersion = '2.1.1'
     glideVersion = '4.11.0'
     circleimageviewVersion = '2.2.0'

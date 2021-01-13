@@ -57,7 +57,7 @@ public class AccountHelper {
     }
 
     /**
-     * 对设备Id进行绑定的操作
+     * 对设备Id进行绑定的操作  (现在修改为，只有推送连接到服务器后，就已经是绑定啦)
      *
      * @param callback Callback
      */
