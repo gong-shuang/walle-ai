@@ -33,15 +33,12 @@ android {
 
 dependencies {
 
-//    implementation 'androidx.appcompat:appcompat:1.2.0'
-//    implementation 'com.google.android.material:material:1.2.1'
-//    testImplementation 'junit:junit:4.+'
-//    androidTestImplementation 'androidx.test.ext:junit:1.1.2'
-//    androidTestImplementation 'androidx.test.espresso:espresso-core:3.3.0'
-
-    api 'androidx.appcompat:appcompat:1.0.0'
-    api 'androidx.recyclerview:recyclerview:1.0.0'
-    api 'com.google.android.material:material:1.0.0'
+    api 'androidx.appcompat:appcompat:1.2.0'
+    api 'com.google.android.material:material:1.2.1'
+    api 'androidx.recyclerview:recyclerview:1.1.0'
+    testImplementation 'junit:junit:4.+'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.2'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.3.0'
 
     // qiujuer 就是
     api "net.qiujuer.genius:ui:$rootProject.ext.geniusVersion"
@@ -63,7 +60,7 @@ dependencies {
     api "net.qiujuer.widget:airpanel:$rootProject.ext.airpanelVersion"
 
     //布局
-    api 'androidx.constraintlayout:constraintlayout:1.1.3'
+    api 'androidx.constraintlayout:constraintlayout:2.0.4'
     api 'androidx.legacy:legacy-support-v4:1.0.0'
 
     api "net.qiujuer.genius:ui:$rootProject.ext.geniusVersion"
