@@ -163,12 +163,12 @@ public final class MPush {
     public void startPush() {
         if (hasInit()) {
             Intent intent = new Intent(ctx, MPushService.class);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                //android8.0以上通过startForegroundService启动service
-                ctx.startForegroundService(intent);
-            } else {
+//            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+//                //android8.0以上通过startForegroundService启动service
+//                ctx.startForegroundService(intent);
+//            } else {
                 ctx.startService(intent);
-            }
+//            }
 
         }
     }

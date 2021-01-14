@@ -81,11 +81,12 @@ public interface RemoteService {
     Call<RspModel<UserCard>> userFind(@Path("userId") String userId);
 
     // 发送消息的接口
+    // ok
     @POST("message/send")
     Call<RspModel<MessageCard>> msgPush(@Body MsgCreateModel model);
 
     // 创建群
-    @POST("group")
+    @POST("group/insert")
     Call<RspModel<GroupCard>> groupCreate(@Body GroupCreateModel model);
 
     // 拉取群信息
@@ -97,12 +98,12 @@ public interface RemoteService {
     Call<RspModel<List<GroupCard>>> groupSearch(@Path(value = "name", encoded = true) String name);
 
     // 我的群列表
-    @GET("group/list/{date}")
-    Call<RspModel<List<GroupCard>>> groups(@Path(value = "date", encoded = true) String date);
+    @GET("group/list")
+    Call<RspModel<List<GroupCard>>> groups(@Query("userId") String name);
 
     // 我的群的成员列表
-    @GET("group/{groupId}/member")
-    Call<RspModel<List<GroupMemberCard>>> groupMembers(@Path("groupId") String groupId);
+    @GET("group/member")
+    Call<RspModel<List<GroupMemberCard>>> groupMembers(@Query("groupId") String groupId);
 
     // 给群添加成员
     @POST("group/{groupId}/member")

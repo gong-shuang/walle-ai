@@ -13,13 +13,15 @@ public class GroupCreateModel {
     private String name;// 群名称
     private String desc;// 群描述
     private String picture;// 群图片
-    private Set<String> users = new HashSet<>();
+    private Set<String> users = new HashSet<>();  // user id
+    private String ownerId; // gs add 2021-1-13
 
-    public GroupCreateModel(String name, String desc, String picture, Set<String> users) {
+    public GroupCreateModel(String name, String desc, String picture, Set<String> users, String ownerId) {
         this.name = name;
         this.desc = desc;
         this.picture = picture;
         this.users = users;
+        this.ownerId = ownerId;
     }
 
     public String getName() {

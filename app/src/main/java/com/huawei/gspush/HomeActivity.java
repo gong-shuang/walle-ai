@@ -8,14 +8,17 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.Toast;
 
+import com.walle.base.utils.LogUtils;
 import com.walle.open.push.PushTestActivity;
 import com.walle.push.sdkHuawei.HuaweiActivity;
 import com.walle.push.sdkXiaomi.XiaomiActivity;
 
+import java.util.List;
+
 import pub.devrel.easypermissions.AfterPermissionGranted;
 import pub.devrel.easypermissions.EasyPermissions;
 
-public class HomeActivity extends AppCompatActivity {
+public class HomeActivity extends AppCompatActivity implements EasyPermissions.PermissionCallbacks {
 
     private static final String[] ALL_PERMISSION =
             {
@@ -32,7 +35,6 @@ public class HomeActivity extends AppCompatActivity {
                     android.Manifest.permission.CAMERA,
                     //存储空间
                     android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                    android.Manifest.permission.WRITE_SETTINGS,
                     //网络
                     android.Manifest.permission.INTERNET,
                     android.Manifest.permission.ACCESS_NETWORK_STATE,
@@ -59,9 +61,9 @@ public class HomeActivity extends AppCompatActivity {
 
     @AfterPermissionGranted(PERMISSION_CODE)
     public void acquirePermissions() {
-        if (hasLocationAndContactsPermissions()) {
+        if (EasyPermissions.hasPermissions(this, ALL_PERMISSION)) {
             // Have permissions, do the thing!
-            Toast.makeText(this, "TODO: Location and Contacts things", Toast.LENGTH_LONG).show();
+//            Toast.makeText(this, "TODO: Location and Contacts things", Toast.LENGTH_LONG).show();
         } else {
             // Ask for both permissions
             EasyPermissions.requestPermissions(
@@ -72,8 +74,21 @@ public class HomeActivity extends AppCompatActivity {
         }
     }
 
-    private boolean hasLocationAndContactsPermissions() {
-        return EasyPermissions.hasPermissions(this, ALL_PERMISSION);
+    //成功
+    @Override
+    public void onPermissionsGranted(int requestCode, List<String> list) {
+        // Some permissions have been granted
+        // ...
+        LogUtils.d("1:requestCode:" + requestCode);
+    }
+
+    //失败
+    @Override
+    public void onPermissionsDenied(int requestCode, List<String> list) {
+        // Some permissions have been denied
+        // ...
+        LogUtils.d("2:requestCode:" + requestCode);
+
     }
 
     public void onClickTalker(View btn) {

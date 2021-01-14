@@ -2,6 +2,7 @@ package com.huawei.gspush;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.Manifest;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ArgbEvaluator;
@@ -12,6 +13,7 @@ import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.Property;
 import android.view.View;
+import android.widget.Toast;
 
 import net.qiujuer.genius.res.Resource;
 import net.qiujuer.genius.ui.compat.UiCompat;
@@ -21,7 +23,12 @@ import net.qiujuer.italker.push.activities.AccountActivity;
 import net.qiujuer.italker.push.activities.ImMainActivity;
 import net.qiujuer.italker.push.frags.assist.PermissionsFragment;
 
-public class LaunchActivity  extends Activity {
+import java.util.List;
+
+import pub.devrel.easypermissions.AfterPermissionGranted;
+import pub.devrel.easypermissions.EasyPermissions;
+
+public class LaunchActivity  extends Activity  {
 
     // Drawable
     private ColorDrawable mBgDrawable;

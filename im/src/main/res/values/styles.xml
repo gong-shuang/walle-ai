@@ -1,6 +1,6 @@
 <resources>
 
-    <style name="AppTheme" parent="AppTheme.Base">
+    <style name="AppThemeIM" parent="AppTheme.Base">
         <!--
         <item name="toolbarStyle">@style/Widget.Toolbar</item>
         <item name="toolbarNavigationButtonStyle">@style/Widget.ToolbarNavigationButtonStyle</item>
@@ -89,5 +89,19 @@
         <item name="colorPrimary">@color/colorPrimary</item>
         <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
         <item name="colorAccent">@color/colorAccent</item>
+    </style>
+
+    <!--默认是 AppThemeIM ，出了问题，所以选择这个-->
+    <style name="NoActionBar" parent="AppTheme.Group.Create">
+        <!--顶部导航条中的Icon和二级字体的颜色-->
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+<!--    打开 UCropActivity 有问题，暂时用这个代替 -->
+    <style name="AppThemeIM.NoActionBar" parent="AppTheme.Base">
+        <!--顶部导航条中的Icon和二级字体的颜色-->
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
     </style>
 </resources>

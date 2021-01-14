@@ -1,4 +1,4 @@
-package com;
+package com.walle.open;
 
 import android.app.Activity;
 import android.os.Bundle;

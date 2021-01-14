@@ -1,5 +1,6 @@
 package net.qiujuer.italker.factory.data.helper;
 
+import net.qiujuer.italker.factory.persistence.Account;
 import net.qiujuer.italker.push.R;
 import com.raizlabs.android.dbflow.sql.language.Join;
 import com.raizlabs.android.dbflow.sql.language.SQLite;
@@ -127,11 +128,11 @@ public class GroupHelper {
     // 刷新我的群组列表
     public static void refreshGroups() {
         RemoteService service = Network.remote();
-        service.groups("").enqueue(new Callback<RspModel<List<GroupCard>>>() {
+        service.groups(Account.getUserId()).enqueue(new Callback<RspModel<List<GroupCard>>>() {
             @Override
             public void onResponse(Call<RspModel<List<GroupCard>>> call, Response<RspModel<List<GroupCard>>> response) {
                 RspModel<List<GroupCard>> rspModel = response.body();
-                if (rspModel.success()) {
+                if (rspModel != null && rspModel.success()) {
                     List<GroupCard> groupCards = rspModel.getResult();
                     if (groupCards != null && groupCards.size() > 0) {
                         // 进行调度显示，
