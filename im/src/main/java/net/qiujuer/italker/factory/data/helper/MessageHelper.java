@@ -2,6 +2,7 @@ package net.qiujuer.italker.factory.data.helper;
 
 import android.os.SystemClock;
 import android.text.TextUtils;
+import android.util.Log;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.target.Target;
@@ -104,6 +105,7 @@ public class MessageHelper {
 
                 // 直接发送, 进行网络调度
                 RemoteService service = Network.remote();
+                Log.e("RemoteService", "run: "+model.toString());
                 service.msgPush(model).enqueue(new Callback<RspModel<MessageCard>>() {
                     @Override
                     public void onResponse(Call<RspModel<MessageCard>> call, Response<RspModel<MessageCard>> response) {

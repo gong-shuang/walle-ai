@@ -20,6 +20,9 @@ public class DateTimeUtil {
      * @return 时间字符串
      */
     public static String getSampleDate(Date date) {
-        return FORMAT.format(date);
+        if (null != date) {
+            return FORMAT.format(date);
+        }
+        return "";
     }
 }

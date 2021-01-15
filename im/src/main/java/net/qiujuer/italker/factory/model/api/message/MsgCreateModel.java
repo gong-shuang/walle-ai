@@ -29,6 +29,9 @@ public class MsgCreateModel {
     // 接收者类型，群，人
     private int receiverType = Message.RECEIVER_TYPE_NONE;
 
+    //接收消息的群组ID
+    private String groupId;
+
     private MsgCreateModel() {
         // 随机生产一个UUID
         this.id = UUID.randomUUID().toString();
@@ -66,6 +69,9 @@ public class MsgCreateModel {
         this.senderId = senderId;
     }
 
+    public void setGroupId(String groupId) {
+        this.groupId = groupId;
+    }
     // 当我们需要发送一个文件的时候，content刷新的问题
 
     private MessageCard card;
@@ -83,6 +89,7 @@ public class MsgCreateModel {
             // 如果是群
             if (receiverType == Message.RECEIVER_TYPE_GROUP) {
                 card.setGroupId(receiverId);
+                setGroupId(receiverId);
             } else {
                 card.setReceiverId(receiverId);
             }
@@ -163,5 +170,20 @@ public class MsgCreateModel {
         }
 
         return model;
+    }
+
+    @Override
+    public String toString() {
+        return "MsgCreateModel{" +
+                "id='" + id + '\'' +
+                ", content='" + content + '\'' +
+                ", attach='" + attach + '\'' +
+                ", senderId='" + senderId + '\'' +
+                ", type=" + type +
+                ", receiverId='" + receiverId + '\'' +
+                ", receiverType=" + receiverType +
+                ", groupId='" + groupId + '\'' +
+                ", card=" + card +
+                '}';
     }
 }

@@ -121,4 +121,20 @@ public class MessageCard {
         message.setStatus(status);
         return message;
     }
+
+    @Override
+    public String toString() {
+        return "MessageCard{" +
+                "id='" + id + '\'' +
+                ", content='" + content + '\'' +
+                ", attach='" + attach + '\'' +
+                ", type=" + type +
+                ", createAt=" + createAt +
+                ", groupId='" + groupId + '\'' +
+                ", senderId='" + senderId + '\'' +
+                ", receiverId='" + receiverId + '\'' +
+                ", status=" + status +
+                ", uploaded=" + uploaded +
+                '}';
+    }
 }
