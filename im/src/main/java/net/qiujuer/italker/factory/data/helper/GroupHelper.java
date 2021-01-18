@@ -200,9 +200,9 @@ public class GroupHelper {
     }
 
     // 网络请求进行成员添加
-    public static void addMembers(String groupId, GroupMemberAddModel model, final DataSource.Callback<List<GroupMemberCard>> callback) {
+    public static void addMembers(GroupMemberAddModel model, final DataSource.Callback<List<GroupMemberCard>> callback) {
         RemoteService service = Network.remote();
-        service.groupMemberAdd(groupId, model)
+        service.groupMemberAdd(model)
                 .enqueue(new Callback<RspModel<List<GroupMemberCard>>>() {
                     @Override
                     public void onResponse(Call<RspModel<List<GroupMemberCard>>> call, Response<RspModel<List<GroupMemberCard>>> response) {

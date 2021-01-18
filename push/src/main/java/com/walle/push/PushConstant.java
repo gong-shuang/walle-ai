@@ -4,7 +4,7 @@ public class PushConstant {
 
     // push server
 //    public static final String allocServer = "http://81.69.253.141:9999";
-    public static final String allocServer = "http://172.30.67.183:9999";
+    public static final String allocServer = "http://172.30.66.11:9999";
 
     //小米的厂商配置，更换包名后，需要重新配置这两个
     // user your appid the key.

@@ -55,8 +55,8 @@ public class GroupMemberAddPresenter extends BaseRecyclerPresenter<GroupCreateCo
         }
 
         // 进行网络请求
-        GroupMemberAddModel model = new GroupMemberAddModel(users);
-        GroupHelper.addMembers(view.getGroupId(), model, this);
+        GroupMemberAddModel model = new GroupMemberAddModel(view.getGroupId(), users);
+        GroupHelper.addMembers( model, this);
     }
 
     @Override

@@ -91,6 +91,7 @@ public interface RemoteService {
 
     // 拉取群信息
     @GET("group/{groupId}")
+    // no
     Call<RspModel<GroupCard>> groupFind(@Path("groupId") String groupId);
 
     // 群搜索的接口
@@ -106,7 +107,6 @@ public interface RemoteService {
     Call<RspModel<List<GroupMemberCard>>> groupMembers(@Query("groupId") String groupId);
 
     // 给群添加成员
-    @POST("group/{groupId}/member")
-    Call<RspModel<List<GroupMemberCard>>> groupMemberAdd(@Path("groupId") String groupId,
-                                                         @Body GroupMemberAddModel model);
+    @POST("group/AddMember")
+    Call<RspModel<List<GroupMemberCard>>> groupMemberAdd(@Body GroupMemberAddModel model);
 }

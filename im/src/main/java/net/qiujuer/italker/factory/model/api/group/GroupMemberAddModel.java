@@ -8,9 +8,11 @@ import java.util.Set;
  * @version 1.0.0
  */
 public class GroupMemberAddModel {
+    private String groupId;
     private Set<String> users = new HashSet<>();
 
-    public GroupMemberAddModel(Set<String> users) {
+    public GroupMemberAddModel(String groupId, Set<String> users) {
+        this.groupId = groupId;
         this.users = users;
     }
 

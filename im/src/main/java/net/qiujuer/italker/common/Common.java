@@ -17,7 +17,7 @@ public class Common {
         // 本地地址，需要自己配置为本地局域网电脑ip地址
         // String API_URL = "http://192.168.232.161:8080/api/";
 //         String API_URL = "http://172.30.66.237:8080/italker/api/";
-         String API_URL = "http://172.30.67.183:8083/";
+         String API_URL = "http://172.30.66.11:8083/";
 //         String API_URL = "http://3qcode.club:8080/italker/api/";
 
         // 远程公共地址，不保证永久有效

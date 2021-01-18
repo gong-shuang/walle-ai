@@ -34,7 +34,7 @@ public class XiaomiActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_xiaomi);
-        XiaomiApplication.setMainActivity(this);
+        XiaomiInit.setMainActivity(this);
         mLogView = (TextView) findViewById(R.id.log);
         // 设置别名
         findViewById(R.id.set_alias).setOnClickListener(new OnClickListener() {
@@ -56,7 +56,7 @@ public class XiaomiActivity extends Activity {
                         })
                         .setNegativeButton(R.string.cancel, null)
                         .show();
-                Log.d("11111", "mRegId: " + XiaomiApplication.REG_ID );
+                Log.d("11111", "mRegId: " + XiaomiInit.REG_ID );
             }
         });
         // 撤销别名
@@ -220,7 +220,7 @@ public class XiaomiActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        XiaomiApplication.setMainActivity(null);
+        XiaomiInit.setMainActivity(null);
     }
 
     public void refreshLogInfo() {

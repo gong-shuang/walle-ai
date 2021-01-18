@@ -1,12 +1,20 @@
 package com.walle.push;
 
+import android.app.ActivityManager;
 import android.content.Context;
+import android.os.Process;
+import android.util.Log;
 
 import com.walle.base.utils.DeviceInfo;
 import com.walle.base.utils.LogUtils;
 import com.walle.push.mpush.MPushInit;
 import com.walle.push.mpush.MyReceiver;
+import com.walle.push.sdkXiaomi.XiaomiInit;
+import com.xiaomi.channel.commonutils.logger.LoggerInterface;
+import com.xiaomi.mipush.sdk.Logger;
 import com.xiaomi.mipush.sdk.MiPushClient;
+
+import java.util.List;
 
 public class OpenPush {
 
@@ -36,7 +44,8 @@ public class OpenPush {
         String producer = phoneProducer.toLowerCase();
         if("xiaomi".contains(producer) || "redmi".contains(producer)){
             //小米
-            MiPushClient.registerPush(context, PushConstant.APP_ID, PushConstant.APP_KEY);
+            XiaomiInit.init(mContext);
+
         }else if("huawei".contains(producer) || "honor".contains(producer)){
             //华为
         }else {
