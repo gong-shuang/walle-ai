@@ -52,8 +52,7 @@ public class GroupCreatePresenter extends BaseRecyclerPresenter<GroupCreateContr
         view.showLoading();
 
         // 判断参数
-        // 去掉照片  TextUtils.isEmpty(picture) ||
-        if (TextUtils.isEmpty(name) || TextUtils.isEmpty(desc) ||
+        if ( TextUtils.isEmpty(picture) || TextUtils.isEmpty(name) || TextUtils.isEmpty(desc) ||
                  users.size() == 0) {
             view.showError(R.string.label_group_create_invalid);
             return;
@@ -63,11 +62,11 @@ public class GroupCreatePresenter extends BaseRecyclerPresenter<GroupCreateContr
         Factory.runOnAsync(new Runnable() {
             @Override
             public void run() {
-//                String url = uploadPicture(picture);
-//                if (TextUtils.isEmpty(url))
-//                    return;
+                String url = uploadPicture(picture);
+                if (TextUtils.isEmpty(url))
+                    return;
                 // 进行网络请求
-                GroupCreateModel model = new GroupCreateModel(name, desc, "", users, Account.getUserId());
+                GroupCreateModel model = new GroupCreateModel(name, desc, url, users, Account.getUserId());
                 GroupHelper.create(model, GroupCreatePresenter.this);
             }
         });

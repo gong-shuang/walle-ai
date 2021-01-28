@@ -3,10 +3,13 @@ package net.qiujuer.italker.factory.net;
 import android.text.format.DateFormat;
 import android.util.Log;
 
+import com.alibaba.sdk.android.oss.ClientConfiguration;
 import com.alibaba.sdk.android.oss.OSS;
 import com.alibaba.sdk.android.oss.OSSClient;
+import com.alibaba.sdk.android.oss.common.auth.OSSAuthCredentialsProvider;
 import com.alibaba.sdk.android.oss.common.auth.OSSCredentialProvider;
 import com.alibaba.sdk.android.oss.common.auth.OSSPlainTextAKSKCredentialProvider;
+import com.alibaba.sdk.android.oss.common.auth.OSSStsTokenCredentialProvider;
 import com.alibaba.sdk.android.oss.model.PutObjectRequest;
 import com.alibaba.sdk.android.oss.model.PutObjectResult;
 
@@ -35,10 +38,8 @@ public class UploadHelper {
     private static OSS getClient() {
         // 明文设置secret的方式建议只在测试时使用，更多鉴权模式请参考后面的`访问控制`章节
         // https://help.aliyun.com/document_detail/32046.html?spm=a2c4g.11186623.6.900.2ff87ca2WzupMX
-//        OSSCredentialProvider credentialProvider = new OSSPlainTextAKSKCredentialProvider(
-//                "LTAIYQD07p05pHQW", "2txxzT8JXiHKEdEjylumFy6sXcDQ0G");
         OSSCredentialProvider credentialProvider = new OSSPlainTextAKSKCredentialProvider(
-                "LTAIThDt3umMZkGF", "NeIPbJ3XZomqBAcIAUo7Aypkcde9pn");
+                "LTAI4G6Cpdvh27vwJVNfeR76", "yE944e3bLl4kCEYrepUJGFAhktG0ZJ");
         return new OSSClient(Factory.app(), ENDPOINT, credentialProvider);
     }
 

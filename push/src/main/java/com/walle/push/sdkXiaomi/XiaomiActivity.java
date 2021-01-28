@@ -34,7 +34,7 @@ public class XiaomiActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_xiaomi);
-        XiaomiInit.setMainActivity(this);
+
         mLogView = (TextView) findViewById(R.id.log);
         // 设置别名
         findViewById(R.id.set_alias).setOnClickListener(new OnClickListener() {
@@ -220,7 +220,7 @@ public class XiaomiActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        XiaomiInit.setMainActivity(null);
+
     }
 
     public void refreshLogInfo() {

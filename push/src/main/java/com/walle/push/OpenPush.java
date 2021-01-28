@@ -9,6 +9,7 @@ import com.walle.base.utils.DeviceInfo;
 import com.walle.base.utils.LogUtils;
 import com.walle.push.mpush.MPushInit;
 import com.walle.push.mpush.MyReceiver;
+import com.walle.push.sdkHuawei.HuaweiInit;
 import com.walle.push.sdkXiaomi.XiaomiInit;
 import com.xiaomi.channel.commonutils.logger.LoggerInterface;
 import com.xiaomi.mipush.sdk.Logger;
@@ -20,6 +21,7 @@ public class OpenPush {
 
 
     public static Context mContext;
+    public static final String TAG = "com.walle.push";
 
 
 
@@ -48,6 +50,7 @@ public class OpenPush {
 
         }else if("huawei".contains(producer) || "honor".contains(producer)){
             //华为
+            HuaweiInit.init(mContext);
         }else {
 
         }
@@ -63,4 +66,24 @@ public class OpenPush {
     public interface PushMsgListener{
         void onReceive(int type, String msg);
     }
+
+    /**
+     * 得到手机厂商的 token
+     * @return
+     */
+    public static String getProducerToken(){
+        String phoneProducer = DeviceInfo.getPhoneProducer();
+        String producer = phoneProducer.toLowerCase();
+        if("xiaomi".contains(producer) || "redmi".contains(producer)){
+            //小米
+            return XiaomiInit.REG_ID;
+
+        }else if("huawei".contains(producer) || "honor".contains(producer)){
+            //华为
+            return HuaweiInit.TOKEN;
+        }else {
+            return "";
+        }
+    }
+
 }

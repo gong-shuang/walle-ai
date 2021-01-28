@@ -1,5 +1,6 @@
 package net.qiujuer.italker.factory.data.helper;
 
+import net.qiujuer.italker.factory.model.api.group.GroupQuitModel;
 import net.qiujuer.italker.factory.persistence.Account;
 import net.qiujuer.italker.push.R;
 import com.raizlabs.android.dbflow.sql.language.Join;
@@ -50,11 +51,26 @@ public class GroupHelper {
                 .querySingle();
     }
 
+    //从本地查找所有的组
+    public static List<Group> findAllGroup() {
+        return SQLite.select()
+                .from(Group.class)
+                .queryList();
+    }
+
+    //从本地查找 组的成员
+    public static List<GroupMember> findAllGroupMembers(String groupId) {
+        return SQLite.select()
+                .from(GroupMember.class)
+                .where(GroupMember_Table.group_id.eq(groupId))
+                .queryList();
+    }
+
     // 从网络找Group
-    public static Group findFormNet(String id) {
+    public static Group findFormNet(String groupId) {
         RemoteService remoteService = Network.remote();
         try {
-            Response<RspModel<GroupCard>> response = remoteService.groupFind(id).execute();
+            Response<RspModel<GroupCard>> response = remoteService.groupFind(groupId).execute();
             GroupCard card = response.body().getResult();
             if (card != null) {
                 // 数据库的存储并通知
@@ -125,7 +141,7 @@ public class GroupHelper {
         return call;
     }
 
-    // 刷新我的群组列表
+    // 刷新我的群组列表 ( 只在登录成功后，同步所有信息时使用 )
     public static void refreshGroups() {
         RemoteService service = Network.remote();
         service.groups(Account.getUserId()).enqueue(new Callback<RspModel<List<GroupCard>>>() {
@@ -137,7 +153,7 @@ public class GroupHelper {
                     if (groupCards != null && groupCards.size() > 0) {
                         // 进行调度显示，
                         //  可以理解为，将server的对象，转换成数据库的对象，并保存到数据库中。
-                        Factory.getGroupCenter().dispatch(groupCards.toArray(new GroupCard[0]));
+                        Factory.getGroupCenter().dispatchSync(groupCards.toArray(new GroupCard[0]));
                     }
                 } else {
                     Factory.decodeRspCode(rspModel, null);
@@ -152,10 +168,10 @@ public class GroupHelper {
     }
 
     // 获取一个群的成员数量
-    public static long getMemberCount(String id) {
+    public static long getMemberCount(String groupId) {
         return SQLite.selectCountOf()
                 .from(GroupMember.class)
-                .where(GroupMember_Table.group_id.eq(id))
+                .where(GroupMember_Table.group_id.eq(groupId))
                 .count();
     }
 
@@ -170,7 +186,7 @@ public class GroupHelper {
                     List<GroupMemberCard> memberCards = rspModel.getResult();
                     if (memberCards != null && memberCards.size() > 0) {
                         // 进行调度显示
-                        Factory.getGroupCenter().dispatch(memberCards.toArray(new GroupMemberCard[0]));
+                        Factory.getGroupCenter().dispatchSync(memberCards.toArray(new GroupMemberCard[0]));
                     }
                 } else {
                     Factory.decodeRspCode(rspModel, null);
@@ -221,6 +237,59 @@ public class GroupHelper {
 
                     @Override
                     public void onFailure(Call<RspModel<List<GroupMemberCard>>> call, Throwable t) {
+                        callback.onDataNotAvailable(R.string.data_network_error);
+                    }
+                });
+    }
+
+    // 删除群成员
+    public static void delMembers(GroupMemberAddModel model, final DataSource.Callback<List<GroupMemberCard>> callback) {
+        RemoteService service = Network.remote();
+        service.groupMemberDel(model)
+                .enqueue(new Callback<RspModel<List<GroupMemberCard>>>() {
+                    @Override
+                    public void onResponse(Call<RspModel<List<GroupMemberCard>>> call, Response<RspModel<List<GroupMemberCard>>> response) {
+                        RspModel<List<GroupMemberCard>> rspModel = response.body();
+                        if (rspModel.success()) {
+                            List<GroupMemberCard> memberCards = rspModel.getResult();
+                            if (memberCards != null && memberCards.size() > 0) {
+                                // 进行调度显示
+                                Factory.getGroupCenter().dispatchDel(memberCards.toArray(new GroupMemberCard[0]));
+                                callback.onDataLoaded(memberCards);
+                            }
+                        } else {
+                            Factory.decodeRspCode(rspModel, null);
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<RspModel<List<GroupMemberCard>>> call, Throwable t) {
+                        callback.onDataNotAvailable(R.string.data_network_error);
+                    }
+                });
+    }
+
+    // 退出群
+    public static void quitGroup(GroupQuitModel model, final DataSource.Callback<GroupCard> callback) {
+        RemoteService service = Network.remote();
+        service.groupQuit(model)
+                .enqueue(new Callback<RspModel<GroupCard>>() {
+                    @Override
+                    public void onResponse(Call<RspModel<GroupCard>> call, Response<RspModel<GroupCard>> response) {
+                        RspModel<GroupCard> rspModel = response.body();
+                        if (rspModel.success()) {
+                            GroupCard groupCard = rspModel.getResult();
+                            // 唤起进行保存的操作
+                            Factory.getGroupCenter().dispatchDel(groupCard);
+                            // 返回数据
+                            callback.onDataLoaded(groupCard);
+                        } else {
+                            Factory.decodeRspCode(rspModel, callback);
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<RspModel<GroupCard>> call, Throwable t) {
                         callback.onDataNotAvailable(R.string.data_network_error);
                     }
                 });

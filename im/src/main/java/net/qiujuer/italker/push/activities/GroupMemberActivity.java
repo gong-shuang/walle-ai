@@ -1,5 +1,6 @@
 package net.qiujuer.italker.push.activities;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
@@ -11,6 +12,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.walle.base.BaseApp;
 
 import net.qiujuer.italker.push.R;
 import net.qiujuer.italker.push.R2;
@@ -22,6 +24,9 @@ import net.qiujuer.italker.factory.model.db.view.MemberUserModel;
 import net.qiujuer.italker.factory.presenter.group.GroupMembersContract;
 import net.qiujuer.italker.factory.presenter.group.GroupMembersPresenter;
 import net.qiujuer.italker.push.frags.group.GroupMemberAddFragment;
+import net.qiujuer.italker.push.frags.group.GroupMemberDelFragment;
+
+import java.util.List;
 
 import butterknife.BindView;
 import butterknife.OnClick;
@@ -34,6 +39,14 @@ public class GroupMemberActivity extends PresenterToolbarActivity<GroupMembersCo
 
     @BindView(R2.id.recycler)
     RecyclerView mRecycler;
+
+    @BindView(R2.id.tv_add)
+    TextView mTvAdd;
+    @BindView(R2.id.tv_del)
+    TextView mTvDel;
+    @BindView(R2.id.tv_quit)
+    TextView mTvQuit;
+
 
     private String mGroupId;
     private boolean mIsAdmin;
@@ -99,10 +112,14 @@ public class GroupMemberActivity extends PresenterToolbarActivity<GroupMembersCo
         // 开始数据刷新
         mPresenter.refresh();
 
-        // 显示管理员界面，添加成员
+
         if (mIsAdmin) {
-            new GroupMemberAddFragment()
-                    .show(getSupportFragmentManager(), GroupMemberAddFragment.class.getName());
+            // 管理员权限，只能添加和删除成员
+            mTvQuit.setVisibility(View.GONE);
+        }else {
+            // 普通权限，只能退出群
+            mTvAdd.setVisibility(View.GONE);
+            mTvDel.setVisibility(View.GONE);
         }
     }
 
@@ -125,6 +142,15 @@ public class GroupMemberActivity extends PresenterToolbarActivity<GroupMembersCo
     @Override
     public String getGroupId() {
         return mGroupId;
+    }
+
+    @Override
+    public void exit() {
+        for(Activity activity : BaseApp.getActivities()){
+            if(!(activity instanceof ImMainActivity)){
+                activity.finish();
+            }
+        }
     }
 
     @Override
@@ -161,5 +187,23 @@ public class GroupMemberActivity extends PresenterToolbarActivity<GroupMembersCo
         void onPortraitClick() {
             PersonalActivity.show(GroupMemberActivity.this, mData.userId);
         }
+    }
+
+    @OnClick(R2.id.tv_add)
+    public void onClickAdd(View v){
+        new GroupMemberAddFragment()
+                .show(getSupportFragmentManager(), GroupMemberAddFragment.class.getName());
+    }
+
+    @OnClick(R2.id.tv_del)
+    public void onClickDel(View v){
+        new GroupMemberDelFragment()
+                .show(getSupportFragmentManager(), GroupMemberDelFragment.class.getName());
+    }
+
+    @OnClick(R2.id.tv_quit)
+    public void onClickQuit(View v){
+        // 开始数据刷新
+        mPresenter.quit();
     }
 }

@@ -1,8 +1,8 @@
-package com.walle.open.im;
+package com.walle.push.mpush;
 
 public class PushMsg {
-    public static final int NOTIFICATION = 1;  //会在通知栏显示
-    public static final int MESSAGE = 2;  //不会在通知栏显示,业务自定义消息
+    public static final int NOTIFICATION = 1;  //通知, 对应的是业务层
+    public static final int MESSAGE = 2;  //消息，对应的是IM
     public static final int NOTIFICATION_AND_MESSAGE = 3;  //1+2
 
     private int msgType; //type

@@ -40,6 +40,8 @@ dependencies {
     // huawei push
     api 'com.huawei.hms:push:4.0.3.301'   //com.huawei.hms:push:5.0.4.302
 
+    api "com.google.code.gson:gson:$rootProject.ext.gsonVersion"
+
 
     implementation project(":base")
 }

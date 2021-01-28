@@ -18,20 +18,25 @@ import java.util.List;
  */
 @SuppressWarnings("WeakerAccess")
 public class PushModel {
-    // 退出登录
-    public static final int ENTITY_TYPE_LOGOUT = -1;
+
     // 普通消息送达
     public static final int ENTITY_TYPE_MESSAGE = 200;
     // 新朋友添加
-    public static final int ENTITY_TYPE_ADD_FRIEND = 1001;
-    // 新群添加
-    public static final int ENTITY_TYPE_ADD_GROUP = 1002;
-    // 新的群成员添加
-    public static final int ENTITY_TYPE_ADD_GROUP_MEMBERS = 1003;
-    // 群成员信息更改
-    public static final int ENTITY_TYPE_MODIFY_GROUP_MEMBERS = 2001;
+    public static final int ENTITY_TYPE_ADD_FRIEND = 600;
+
+    // 退出登录
+    public static final int ENTITY_TYPE_LOGOUT = 500;
+
+    // 加入新群
+    public static final int ENTITY_TYPE_ADD_GROUP = 1001;
+    // 群成员添加
+    public static final int ENTITY_TYPE_GROUP_MEMBERS_ADD = 1002;
     // 群成员退出
-    public static final int ENTITY_TYPE_EXIT_GROUP_MEMBERS = 3001;
+    public static final int ENTITY_TYPE_GROUP_MEMBERS_DEL = 1003;
+    // 群退出
+    public static final int ENTITY_TYPE_EXIT_GROUP = 1005;
+    // 群信息变更，如群头像，群名字
+    public static final int ENTITY_TYPE_GROUP_INFO_MODIFY = 1006;
 
     private List<Entity> entities = new ArrayList<>();
 

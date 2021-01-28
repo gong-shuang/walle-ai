@@ -146,4 +146,8 @@ public class BaseApp extends MultiDexApplication {
     public static void setMainHandler(Handler mHandler) {
         BaseApp.mHandler = mHandler;
     }
+
+    public static List<Activity> getActivities() {
+        return activities;
+    }
 }

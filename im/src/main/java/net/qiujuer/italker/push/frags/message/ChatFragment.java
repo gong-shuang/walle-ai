@@ -42,6 +42,8 @@ import net.qiujuer.italker.factory.utils.FileCache;
 import net.qiujuer.italker.push.R;
 import net.qiujuer.italker.push.R2;
 import net.qiujuer.italker.push.activities.MessageActivity;
+import net.qiujuer.italker.push.frags.assist.PicturePreviewFragment;
+import net.qiujuer.italker.push.frags.group.GroupMemberAddFragment;
 import net.qiujuer.italker.push.frags.panel.PanelFragment;
 import net.qiujuer.widget.airpanel.AirPanel;
 import net.qiujuer.widget.airpanel.Util;
@@ -139,8 +141,10 @@ public abstract class ChatFragment<InitModel>
             @Override
             public void onSoftKeyboardStateChanged(boolean isOpen) {
                 // 软键盘改变
-                if (isOpen)
+                if (isOpen){
                     onBottomPanelOpened();
+                    recyclerViewScrollToBottom();
+                }
             }
         });
         mPanelFragment = (PanelFragment) getChildFragmentManager().findFragmentById(R.id.frag_panel);
@@ -161,7 +165,17 @@ public abstract class ChatFragment<InitModel>
                 if (message.getType() == Message.TYPE_AUDIO && holder instanceof ChatFragment.AudioHolder) {
                     // 权限的判断，当然权限已经全局申请了
                     mAudioFileCache.download((AudioHolder) holder, message.getContent());
+                }else if (message.getType() == Message.TYPE_PIC && holder instanceof ChatFragment.PicHolder){
+                    //打开图片预览
+                    new PicturePreviewFragment().setUrl(message.getContent())
+                            .show(getActivity().getSupportFragmentManager(), PicturePreviewFragment.class.getName());
                 }
+            }
+        });
+        mAdapter.setScrollToBottomListener(new RecyclerAdapter.ScrollToBottomListener() {
+            @Override
+            public void onScroll() {
+                recyclerViewScrollToBottom();
             }
         });
 
@@ -307,6 +321,14 @@ public abstract class ChatFragment<InitModel>
     private void onMoreClick() {
         mPanelBoss.openPanel();
         mPanelFragment.showGallery();
+    }
+
+    private void recyclerViewScrollToBottom(){
+
+        //默认appbar展开，此时，滚动RecyclerView时，有一个item没有展示出来，因此，将appbar收起来
+        mAppBarLayout.setExpanded(false, true);
+
+        mRecyclerView.smoothScrollToPosition(getRecyclerAdapter().getItemCount());  // gs add 2021-1-20
     }
 
     @Override

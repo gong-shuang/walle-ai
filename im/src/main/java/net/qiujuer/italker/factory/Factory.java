@@ -30,6 +30,8 @@ import net.qiujuer.italker.factory.model.card.MessageCard;
 import net.qiujuer.italker.factory.model.card.UserCard;
 import net.qiujuer.italker.factory.persistence.Account;
 import net.qiujuer.italker.factory.utils.DBFlowExclusionStrategy;
+import net.qiujuer.italker.push.activities.AccountActivity;
+import net.qiujuer.italker.push.activities.ImMainActivity;
 
 import java.lang.reflect.Type;
 import java.util.List;
@@ -184,7 +186,14 @@ public class Factory {
      * 收到账户退出的消息需要进行账户退出重新登录
      */
     private void logout() {
+        // 清除 xml 文件
+        Account.clear(Factory.app());
+        AccountActivity.show(Factory.app());
+        Application.finishAll();
+    }
 
+    public static void appLogout(){
+        instance.logout();
     }
 
 
@@ -204,7 +213,6 @@ public class Factory {
 
         // 对推送集合进行遍历
         for (PushModel.Entity entity : model.getEntities()) {
-            Log.e(TAG, "dispatchPush-Entity:" + entity.toString());
 
             switch (entity.type) {
                 case PushModel.ENTITY_TYPE_LOGOUT:
@@ -233,18 +241,31 @@ public class Factory {
                     break;
                 }
 
-                case PushModel.ENTITY_TYPE_ADD_GROUP_MEMBERS:
-                case PushModel.ENTITY_TYPE_MODIFY_GROUP_MEMBERS: {
-                    // 群成员变更, 回来的是一个群成员的列表
-                    Type type = new TypeToken<List<GroupMemberCard>>() {
-                    }.getType();
+                case PushModel.ENTITY_TYPE_GROUP_MEMBERS_ADD:{
+                    //返回的是，添加的新成员
+                    Type type = new TypeToken<List<GroupMemberCard>>() {}.getType();
                     List<GroupMemberCard> card = getGson().fromJson(entity.content, type);
                     // 把数据集合丢到数据中心处理
                     getGroupCenter().dispatch(card.toArray(new GroupMemberCard[0]));
                     break;
                 }
-                case PushModel.ENTITY_TYPE_EXIT_GROUP_MEMBERS: {
-                    // TODO 成员退出的推送
+                case PushModel.ENTITY_TYPE_GROUP_MEMBERS_DEL:{
+                    //返回的是，成员中要被删除的成员
+                    Type type = new TypeToken<List<GroupMemberCard>>() {}.getType();
+                    List<GroupMemberCard> card = getGson().fromJson(entity.content, type);
+                    // 把数据集合丢到数据中心处理
+                    getGroupCenter().dispatchDel(card.toArray(new GroupMemberCard[0]));
+                    break;
+                }
+                case PushModel.ENTITY_TYPE_EXIT_GROUP: {
+                    //返回的是，被删除的组
+                    GroupCard card = getGson().fromJson(entity.content, GroupCard.class);
+                    getGroupCenter().dispatchDel(card);
+                }
+                case PushModel.ENTITY_TYPE_GROUP_INFO_MODIFY: {
+                    // 群成员变更, 回来的是一个群成员的列表
+
+                    break;
                 }
 
             }

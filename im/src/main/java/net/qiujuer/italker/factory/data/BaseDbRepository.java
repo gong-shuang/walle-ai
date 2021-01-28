@@ -80,8 +80,12 @@ public abstract class BaseDbRepository<Data extends BaseDbModel<Data>> implement
         // 但数据库数据删除的操作
         boolean isChanged = false;
         for (Data data : list) {
-            if (dataList.remove(data))
-                isChanged = true;
+            for(Data data1 :dataList){
+                if(data1.equals(data)){
+                    dataList.remove(data);
+                    isChanged = true;
+                }
+            }
         }
 
         // 有数据变更，则进行界面刷新

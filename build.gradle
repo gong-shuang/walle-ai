@@ -47,7 +47,7 @@ ext {
     circleimageviewVersion = '2.2.0'
     ucropVersion = "2.2.0-native"
     easyPMVersion = "0.3.0"
-    ossVersion = '2.9.1'
+    ossVersion = '2.9.5'
 
     gsonVersion = '2.8.0'
     retrofitVersion = '2.1.0'

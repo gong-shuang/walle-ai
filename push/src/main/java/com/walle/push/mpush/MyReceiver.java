@@ -7,6 +7,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.widget.Toast;
 
+import com.google.gson.Gson;
 import com.mpush.android.NotificationDO;
 import com.mpush.api.Constants;
 import com.walle.base.utils.LogUtils;
@@ -14,6 +15,9 @@ import com.walle.push.OpenPush;
 import com.walle.push.PushConstant;
 
 import org.json.JSONObject;
+
+import static com.walle.push.mpush.PushMsg.MESSAGE;
+import static com.walle.push.mpush.PushMsg.NOTIFICATION;
 
 /**
  * 接受广播
@@ -23,17 +27,23 @@ public class MyReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        Log.d("111", "getAction:" + intent.getAction());
+        LogUtils.d("Mpush getAction:" + intent.getAction());
         if (MPushService.ACTION_MESSAGE_RECEIVED.equals(intent.getAction())) {
             byte[] bytes = intent.getByteArrayExtra(MPushService.EXTRA_PUSH_MESSAGE);
             int messageId = intent.getIntExtra(MPushService.EXTRA_PUSH_MESSAGE_ID, 0);
             String message = new String(bytes, Constants.UTF_8);
 
-            Toast.makeText(context, "收到新的通知：" + message, Toast.LENGTH_SHORT).show();
+            LogUtils.d( "Mpush 收到新的通知：" + message);
 
-            //普通消息
-            if(OpenPush.mIMListener != null){
-                OpenPush.mIMListener.onReceive( PushConstant.MSG_NORMAL, message);
+            PushMsg pushMsg = new Gson().fromJson(message, PushMsg.class);
+            if(pushMsg.getMsgType() == NOTIFICATION ){
+                //业务层
+            }else if(pushMsg.getMsgType() == MESSAGE ){
+                //IM
+                if(OpenPush.mIMListener != null){
+                    //普通消息
+                    OpenPush.mIMListener.onReceive( PushConstant.MSG_NORMAL, pushMsg.getContent());
+                }
             }
 
             if (messageId > 0) MPush.I.ack(messageId);

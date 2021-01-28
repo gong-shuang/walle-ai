@@ -19,6 +19,13 @@ import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
+import net.qiujuer.italker.common.app.Application;
+import net.qiujuer.italker.factory.Factory;
+import net.qiujuer.italker.factory.data.DataSource;
+import net.qiujuer.italker.factory.data.helper.AccountHelper;
+import net.qiujuer.italker.factory.data.helper.MessageHelper;
+import net.qiujuer.italker.factory.data.helper.UserHelper;
+import net.qiujuer.italker.factory.model.api.account.CheckTokenRspModel;
 import net.qiujuer.italker.push.R;
 //import net.qiujuer.italker.push.R2;
 
@@ -131,6 +138,31 @@ public class ImMainActivity extends Activity
 
         // 初始化头像加载
         mPortrait.setup(Glide.with(this), Account.getUser());
+
+        // 获取联系人 （未读消息的获取，需要联系人）
+        UserHelper.refreshContacts(true);
+
+        //检查token
+        AccountHelper.checkToken(new DataSource.Callback<Boolean>() {
+            @Override
+            public void onDataNotAvailable(int strRes) {
+
+            }
+
+            @Override
+            public void onDataLoaded(Boolean result) {
+                //判断是否有效
+                if(result == false){
+                    Factory.appLogout();
+                }
+            }
+        });
+
+        // 删除所有的组和成员
+        Factory.getGroupCenter().deleteAllGroupAndMembers();
+
+        // 获取 群 未接受到的消息
+        MessageHelper.getGroupMissedMessage();
     }
 
     // 最上面左边的人物头像

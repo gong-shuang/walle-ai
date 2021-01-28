@@ -173,14 +173,19 @@ public class ChatGroupFragment extends ChatFragment<Group>
 
     @Override
     public void showAdminOption(boolean isAdmin) {
-        if (isAdmin) {
+//        if (isAdmin) {
+        if (true) {
             mToolbar.inflateMenu(R.menu.chat_group);
             mToolbar.setOnMenuItemClickListener(new Toolbar.OnMenuItemClickListener() {
                 @Override
                 public boolean onMenuItemClick(MenuItem item) {
                     if (item.getItemId() == R.id.action_add) {
                         // mReceiverId 就是群的Id
-                        GroupMemberActivity.showAdmin(getContext(), mReceiverId );
+                        if (isAdmin) {
+                            GroupMemberActivity.showAdmin(getContext(), mReceiverId );
+                        }else {
+                            GroupMemberActivity.show(getContext(), mReceiverId );
+                        }
                         return true;
                     }
                     return false;

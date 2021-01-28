@@ -31,6 +31,7 @@ public abstract class RecyclerAdapter<Data>
     // adapter 的 notifyDataSetChanged() 函数，才会在界面上生效。
     private final List<Data> mDataList;   // 这个是必须有的一个集合，用来存储数据的，每个条目的数据。
     private AdapterListener<Data> mListener;  //这个是用来监听item的点击事件，包括点击和长按。
+    private ScrollToBottomListener mScrollToBottomListener;  //这个是用来监听item的点击事件，包括点击和长按。
 
     /**
      * 构造函数模块
@@ -319,5 +320,21 @@ public abstract class RecyclerAdapter<Data>
         public void onItemLongClick(ViewHolder holder, Data data) {
 
         }
+    }
+
+    public void setScrollToBottomListener(ScrollToBottomListener mScrollListener) {
+        this.mScrollToBottomListener = mScrollListener;
+    }
+
+    public ScrollToBottomListener getScrollToBottomListener() {
+        return mScrollToBottomListener;
+    }
+
+    /**
+     * 滑动到底部
+     */
+    public interface ScrollToBottomListener {
+        // 滑动
+        void onScroll();
     }
 }

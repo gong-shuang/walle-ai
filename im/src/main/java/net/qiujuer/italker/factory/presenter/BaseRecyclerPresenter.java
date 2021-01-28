@@ -53,6 +53,12 @@ public class BaseRecyclerPresenter<ViewMode, View extends BaseContract.RecyclerV
             public void call() {
                 // 这里是主线程运行时
                 refreshDataOnUiThread(diffResult, dataList);
+
+                //聊天界面，滑动到最底端
+                View view = getView();
+                if (view != null && view.getRecyclerAdapter().getScrollToBottomListener() != null){
+                    view.getRecyclerAdapter().getScrollToBottomListener().onScroll();
+                }
             }
         });
     }

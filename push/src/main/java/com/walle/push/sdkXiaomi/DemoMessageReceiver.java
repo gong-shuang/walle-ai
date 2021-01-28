@@ -7,6 +7,8 @@ import android.os.Message;
 import android.text.TextUtils;
 import android.util.Log;
 
+import com.walle.base.utils.LogUtils;
+import com.walle.push.OpenPush;
 import com.walle.push.R;
 import com.xiaomi.mipush.sdk.ErrorCode;
 import com.xiaomi.mipush.sdk.MiPushClient;
@@ -17,6 +19,8 @@ import com.xiaomi.mipush.sdk.PushMessageReceiver;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
+
+import static com.walle.push.PushConstant.PRODUCER_REGISTER;
 
 /**
  * 1、PushMessageReceiver 是个抽象类，该类继承了 BroadcastReceiver。<br/>
@@ -59,7 +63,7 @@ public class DemoMessageReceiver extends PushMessageReceiver {
 
     @Override
     public void onReceivePassThroughMessage(Context context, MiPushMessage message) {
-        Log.v(XiaomiInit.TAG,
+        Log.v(OpenPush.TAG,
                 "onReceivePassThroughMessage is called. " + message.toString());
         String log = context.getString(R.string.recv_passthrough_message, message.getContent());
         XiaomiActivity.logList.add(0, getSimpleDate() + " " + log);
@@ -71,9 +75,8 @@ public class DemoMessageReceiver extends PushMessageReceiver {
             mAlias = message.getAlias();
         }
 
-        Message msg = Message.obtain();
-        msg.obj = log;
-        XiaomiInit.getHandler().sendMessage(msg);
+        LogUtils.d(log);
+
         Intent intent = new Intent();
         intent.setAction("com.push.xiaomi");
         intent.putExtra("PassThrough", message);
@@ -82,7 +85,7 @@ public class DemoMessageReceiver extends PushMessageReceiver {
 
     @Override
     public void onNotificationMessageClicked(Context context, MiPushMessage message) {
-        Log.v(XiaomiInit.TAG,
+        Log.v(OpenPush.TAG,
                 "onNotificationMessageClicked is called. " + message.toString());
         String log = context.getString(R.string.click_notification_message, message.getContent());
         XiaomiActivity.logList.add(0, getSimpleDate() + " " + log);
@@ -93,11 +96,8 @@ public class DemoMessageReceiver extends PushMessageReceiver {
             mAlias = message.getAlias();
         }
 
-        Message msg = Message.obtain();
-        if (message.isNotified()) {
-            msg.obj = log;
-        }
-        XiaomiInit.getHandler().sendMessage(msg);
+        LogUtils.d(log);
+
         Intent intent = new Intent();
         intent.setAction("com.push.xiaomi");
         intent.putExtra("PassThrough", message);
@@ -106,7 +106,7 @@ public class DemoMessageReceiver extends PushMessageReceiver {
 
     @Override
     public void onNotificationMessageArrived(Context context, MiPushMessage message) {
-        Log.v(XiaomiInit.TAG,
+        Log.v(OpenPush.TAG,
                 "onNotificationMessageArrived is called. " + message.toString());
         String log = context.getString(R.string.arrive_notification_message, message.getContent());
         XiaomiActivity.logList.add(0, getSimpleDate() + " " + log);
@@ -117,14 +117,12 @@ public class DemoMessageReceiver extends PushMessageReceiver {
             mAlias = message.getAlias();
         }
 
-        Message msg = Message.obtain();
-        msg.obj = log;
-        XiaomiInit.getHandler().sendMessage(msg);
+        LogUtils.d(log);
     }
 
     @Override
     public void onCommandResult(Context context, MiPushCommandMessage message) {
-        Log.v(XiaomiInit.TAG,
+        Log.v(OpenPush.TAG,
                 "onCommandResult is called. " + message.toString());
         String command = message.getCommand();
         List<String> arguments = message.getCommandArguments();
@@ -136,6 +134,9 @@ public class DemoMessageReceiver extends PushMessageReceiver {
                 mRegId = cmdArg1;
                 XiaomiInit.REG_ID = cmdArg1;
                 log = context.getString(R.string.register_success);
+                if(OpenPush.mNotificationListener != null){
+                    OpenPush.mNotificationListener.onReceive(PRODUCER_REGISTER, "");
+                }
             } else {
                 log = context.getString(R.string.register_fail);
             }
@@ -194,14 +195,12 @@ public class DemoMessageReceiver extends PushMessageReceiver {
         }
         XiaomiActivity.logList.add(0, getSimpleDate() + "    " + log);
 
-        Message msg = Message.obtain();
-        msg.obj = log;
-        XiaomiInit.getHandler().sendMessage(msg);
+        LogUtils.d(log);
     }
 
     @Override
     public void onReceiveRegisterResult(Context context, MiPushCommandMessage message) {
-        Log.v(XiaomiInit.TAG,
+        Log.v(OpenPush.TAG,
                 "onReceiveRegisterResult is called. " + message.toString());
         String command = message.getCommand();
         List<String> arguments = message.getCommandArguments();
@@ -210,6 +209,7 @@ public class DemoMessageReceiver extends PushMessageReceiver {
         if (MiPushClient.COMMAND_REGISTER.equals(command)) {
             if (message.getResultCode() == ErrorCode.SUCCESS) {
                 mRegId = cmdArg1;
+                XiaomiInit.REG_ID = cmdArg1;
                 log = context.getString(R.string.register_success);
             } else {
                 log = context.getString(R.string.register_fail);
@@ -218,9 +218,7 @@ public class DemoMessageReceiver extends PushMessageReceiver {
             log = message.getReason();
         }
 
-        Message msg = Message.obtain();
-        msg.obj = log;
-        XiaomiInit.getHandler().sendMessage(msg);
+        LogUtils.d(log);
     }
 
     @SuppressLint("SimpleDateFormat")

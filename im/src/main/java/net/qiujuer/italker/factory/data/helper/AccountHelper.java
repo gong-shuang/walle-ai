@@ -2,6 +2,11 @@ package net.qiujuer.italker.factory.data.helper;
 
 import android.text.TextUtils;
 
+import com.walle.base.utils.LogUtils;
+import com.walle.push.OpenPush;
+
+import net.qiujuer.italker.factory.model.api.account.BindModel;
+import net.qiujuer.italker.factory.model.api.account.CheckTokenRspModel;
 import net.qiujuer.italker.push.R;
 import net.qiujuer.italker.push.R2;
 
@@ -59,18 +64,77 @@ public class AccountHelper {
     /**
      * 对设备Id进行绑定的操作  (现在修改为，只有推送连接到服务器后，就已经是绑定啦)
      *
-     * @param callback Callback
      */
-    public static void bindPush(final DataSource.Callback<User> callback) {
-        // 检查是否为空
+    public static void bindPush() {
+        // 检查pushId为空
         String pushId = Account.getPushId();
         if (TextUtils.isEmpty(pushId))
             return;
 
+        //检测厂商token是否为空
+        if(TextUtils.isEmpty(OpenPush.getProducerToken())){
+            return;
+        }
+
+        //检测用户是否为空
+        if(TextUtils.isEmpty(Account.getUserId())){
+            return;
+        }
+
         // 调用Retrofit对我们的网络请求接口做代理
         RemoteService service = Network.remote();
-        Call<RspModel<AccountRspModel>> call = service.accountBind(pushId);
-        call.enqueue(new AccountRspCallback(callback));
+        BindModel model = new BindModel(pushId, Account.getUserId());
+        Call<RspModel<String>> call = service.accountBind(model);
+        call.enqueue(new Callback<RspModel<String>>() {
+            @Override
+            public void onResponse(Call<RspModel<String>> call, Response<RspModel<String>> response) {
+                RspModel<String> rspModel = response.body();
+                if(rspModel!=null && rspModel.success()){
+                    LogUtils.d("绑定成功！");
+                }else {
+                    LogUtils.d("绑定失败！");
+                }
+            }
+
+            @Override
+            public void onFailure(Call<RspModel<String>> call, Throwable t) {
+                LogUtils.d("绑定失败！");
+            }
+        });
+    }
+
+    /**
+     * 检查token
+     *
+     */
+    public static void checkToken(final DataSource.Callback<Boolean> callback) {
+        // 检查pushId为空
+        String token = Account.getToken();
+        if (TextUtils.isEmpty(token))
+            return;
+
+        // 调用Retrofit对我们的网络请求接口做代理
+        RemoteService service = Network.remote();
+        Call<RspModel<Boolean>> call = service.checkToken(token);
+        call.enqueue(new Callback<RspModel<Boolean>>() {
+            @Override
+            public void onResponse(Call<RspModel<Boolean>> call, Response<RspModel<Boolean>> response) {
+                RspModel<Boolean> rspModel = response.body();
+                if(rspModel!=null && rspModel.success() && rspModel.getResult() != null){
+                    LogUtils.d("检查成功！");
+                    if(callback != null){
+                        callback.onDataLoaded(rspModel.getResult());
+                    }
+                }else {
+                    LogUtils.d("检查失败！");
+                }
+            }
+
+            @Override
+            public void onFailure(Call<RspModel<Boolean>> call, Throwable t) {
+                LogUtils.d("检查失败！");
+            }
+        });
     }
 
 
@@ -127,7 +191,8 @@ public class AccountHelper {
                         callback.onDataLoaded(user);
                 } else {
                     // 进行绑定的唤起
-                    bindPush(callback);
+//                    bindPush(callback);
+                    bindPush();
                 }
             } else {
                 // 错误解析

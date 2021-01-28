@@ -6,6 +6,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.text.Editable;
 import android.text.Spannable;
@@ -205,10 +206,11 @@ public class Face {
                     @Override
                     public void onResourceReady(@NonNull Drawable resource, @Nullable Transition<? super Drawable> transition) {
                         Spannable spannable = new SpannableString(String.format("[%s]", bean.key));
-//                        ImageSpan span = new ImageSpan(context, resource, ImageSpan.ALIGN_BASELINE);
+                        BitmapDrawable bd = (BitmapDrawable) resource;
+                        ImageSpan span = new ImageSpan(context, bd.getBitmap(), ImageSpan.ALIGN_BASELINE);
                         // 前后不关联
-//                        spannable.setSpan(span, 0, spannable.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-//                        editable.append(spannable);
+                        spannable.setSpan(span, 0, spannable.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        editable.append(spannable);
                     }
 
                     @Override

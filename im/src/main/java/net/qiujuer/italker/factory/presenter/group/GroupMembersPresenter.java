@@ -1,8 +1,16 @@
 package net.qiujuer.italker.factory.presenter.group;
 
+import com.walle.base.utils.LogUtils;
+
 import net.qiujuer.italker.factory.Factory;
+import net.qiujuer.italker.factory.data.DataSource;
 import net.qiujuer.italker.factory.data.helper.GroupHelper;
+import net.qiujuer.italker.factory.model.api.group.GroupMemberAddModel;
+import net.qiujuer.italker.factory.model.api.group.GroupQuitModel;
+import net.qiujuer.italker.factory.model.card.GroupCard;
+import net.qiujuer.italker.factory.model.card.GroupMemberCard;
 import net.qiujuer.italker.factory.model.db.view.MemberUserModel;
+import net.qiujuer.italker.factory.persistence.Account;
 import net.qiujuer.italker.factory.presenter.BaseRecyclerPresenter;
 
 import java.util.List;
@@ -25,6 +33,22 @@ public class GroupMembersPresenter extends BaseRecyclerPresenter<MemberUserModel
 
         // 异步加载
         Factory.runOnAsync(loader);
+    }
+
+    @Override
+    public void quit() {
+        GroupQuitModel model = new GroupQuitModel(getView().getGroupId(), Account.getUserId());
+        GroupHelper.quitGroup(model, new DataSource.Callback<GroupCard>() {
+            @Override
+            public void onDataNotAvailable(int strRes) {
+                LogUtils.d("strRes:" + strRes);
+            }
+
+            @Override
+            public void onDataLoaded(GroupCard groupMemberCards) {
+                getView().exit();
+            }
+        });
     }
 
     private Runnable loader = new Runnable() {

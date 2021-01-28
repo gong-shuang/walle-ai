@@ -114,7 +114,7 @@ public class UserHelper {
     // 刷新联系人的操作，不需要Callback，直接存储到数据库，
     // 并通过数据库观察者进行通知界面更新，
     // 界面更新的时候进行对比，然后差异更新
-    public static void refreshContacts() {
+    public static void refreshContacts(final boolean unreadMsg) {
         RemoteService service = Network.remote();
         service.userContacts(Account.getUser().getId())
                 .enqueue(new Callback<RspModel<List<UserCard>>>() {
@@ -134,6 +134,10 @@ public class UserHelper {
 
                         } else {
                             Factory.decodeRspCode(rspModel, null);
+                        }
+
+                        if(unreadMsg == true){
+                            MessageHelper.getMissedMessage();
                         }
                     }
 

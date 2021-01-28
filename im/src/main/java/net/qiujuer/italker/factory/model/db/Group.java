@@ -122,15 +122,23 @@ public class Group extends BaseDbModel<Group> implements Serializable {
 
         Group group = (Group) o;
 
+//        return notifyLevel == group.notifyLevel
+//                && Objects.equals(id, group.id)
+//                && Objects.equals(name, group.name)
+//                && Objects.equals(desc, group.desc)
+//                && Objects.equals(picture, group.picture)
+//                && Objects.equals(joinAt, group.joinAt)
+//                && Objects.equals(modifyAt, group.modifyAt)
+//                && Objects.equals(owner, group.owner)
+//                && Objects.equals(holder, group.holder);
+
         return notifyLevel == group.notifyLevel
                 && Objects.equals(id, group.id)
                 && Objects.equals(name, group.name)
                 && Objects.equals(desc, group.desc)
                 && Objects.equals(picture, group.picture)
                 && Objects.equals(joinAt, group.joinAt)
-                && Objects.equals(modifyAt, group.modifyAt)
-                && Objects.equals(owner, group.owner)
-                && Objects.equals(holder, group.holder);
+                && Objects.equals(modifyAt, group.modifyAt);
     }
 
     @Override

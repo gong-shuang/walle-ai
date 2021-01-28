@@ -238,8 +238,13 @@ public class DbHelper {
                         .where(Group_Table.id.in(groupIds))
                         .queryList();
 
-                // 调用直接进行一次通知分发
-                instance.notifySave(Group.class, groups.toArray(new Group[0]));
+//                if(groups.size() != 0){
+                    // 调用直接进行一次通知分发
+                    instance.notifySave(Group.class, groups.toArray(new Group[0]));
+//                }else {
+//                    //gs add 2021-1-22
+//                    instance.notifyDelete(Group.class, groups.toArray(new Group[0]));
+//                }
 
             }
         }).build().execute();

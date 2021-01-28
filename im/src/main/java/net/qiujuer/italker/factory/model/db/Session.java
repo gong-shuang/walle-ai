@@ -276,8 +276,8 @@ public class Session extends BaseDbModel<Session> {
      * equals 和 hashCode 也是对两个字段进行判断
      */
     public static class Identify {
-        public String id;
-        public int type;
+        public String id;  // 存储的是人或者群的Id
+        public int type;  // 存储的是具体的类型（人、群）
 
 
         @Override

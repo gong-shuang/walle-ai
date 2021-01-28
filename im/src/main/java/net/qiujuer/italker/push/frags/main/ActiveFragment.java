@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 
+import net.qiujuer.genius.ui.Ui;
 import net.qiujuer.italker.common.app.PresenterFragment;
 import net.qiujuer.italker.common.widget.EmptyView;
 import net.qiujuer.italker.common.widget.PortraitView;
@@ -168,11 +169,12 @@ public class ActiveFragment extends PresenterFragment<SessionContract.Presenter>
             String str = TextUtils.isEmpty(session.getContent()) ? "" : session.getContent();
             Spannable spannable = new SpannableString(str);
             // 解析表情
-            Face.decode(mContent, spannable, (int) mContent.getTextSize());
+            Face.decode(mContent, spannable, (int) Ui.dipToPx(getResources(), 20));  // 以前是这样的 (int) mContent.getTextSize() ，现在写死成20
             // 把内容设置到布局上
             mContent.setText(spannable);
 
             mTime.setText(DateTimeUtil.getSampleDate(session.getModifyAt()));
         }
+
     }
 }

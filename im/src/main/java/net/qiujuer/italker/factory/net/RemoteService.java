@@ -2,11 +2,16 @@ package net.qiujuer.italker.factory.net;
 
 import net.qiujuer.italker.factory.model.api.RspModel;
 import net.qiujuer.italker.factory.model.api.account.AccountRspModel;
+import net.qiujuer.italker.factory.model.api.account.BindModel;
+import net.qiujuer.italker.factory.model.api.account.CheckTokenRspModel;
 import net.qiujuer.italker.factory.model.api.account.LoginModel;
 import net.qiujuer.italker.factory.model.api.account.RegisterModel;
 import net.qiujuer.italker.factory.model.api.group.GroupCreateModel;
 import net.qiujuer.italker.factory.model.api.group.GroupMemberAddModel;
+import net.qiujuer.italker.factory.model.api.group.GroupQuitModel;
+import net.qiujuer.italker.factory.model.api.message.GroupMissedMsgModel;
 import net.qiujuer.italker.factory.model.api.message.MsgCreateModel;
+import net.qiujuer.italker.factory.model.api.message.MsgReceivedModel;
 import net.qiujuer.italker.factory.model.api.user.UserUpdateModel;
 import net.qiujuer.italker.factory.model.card.GroupCard;
 import net.qiujuer.italker.factory.model.card.GroupMemberCard;
@@ -51,13 +56,19 @@ public interface RemoteService {
     Call<RspModel<AccountRspModel>> accountLogin(@Body LoginModel model);
 
     /**
-     * 绑定设备Id
+     * 检测token
      *
-     * @param pushId 设备Id
-     * @return RspModel<AccountRspModel>
+     * @return RspModel<String>
      */
-    @POST("account/bind/{pushId}")
-    Call<RspModel<AccountRspModel>> accountBind(@Path(encoded = true, value = "pushId") String pushId);
+    @GET("user/checkToken")
+    Call<RspModel<Boolean>> checkToken(@Query("token") String token);
+
+    /**
+     * 绑定设备Id
+     * @return RspModel<String>
+     */
+    @POST("device/bind")
+    Call<RspModel<String>> accountBind(@Body BindModel model);
 
     // 用户更新的接口
     @PUT("user")
@@ -85,6 +96,18 @@ public interface RemoteService {
     @POST("message/send")
     Call<RspModel<MessageCard>> msgPush(@Body MsgCreateModel model);
 
+    // 获取未接受到的消息 （单聊）
+    @GET("user/missedMessage")
+    Call<RspModel<List<MessageCard>>> getMissedMsg(@Query("userId") String userId);
+
+    // 设置消息已经被接受
+    @POST("message/received")
+    Call<RspModel<String>> setMsgReceived(@Body MsgReceivedModel model);
+
+    // 获取群未接受到的消息（群）
+    @POST("message/GroupMissedMessage")
+    Call<RspModel<List<MessageCard>>> getGroupMissedMsg(@Body List<GroupMissedMsgModel> list);
+
     // 创建群
     @POST("group/insert")
     Call<RspModel<GroupCard>> groupCreate(@Body GroupCreateModel model);
@@ -95,18 +118,27 @@ public interface RemoteService {
     Call<RspModel<GroupCard>> groupFind(@Path("groupId") String groupId);
 
     // 群搜索的接口
+    // no
     @GET("group/search/{name}")
     Call<RspModel<List<GroupCard>>> groupSearch(@Path(value = "name", encoded = true) String name);
 
     // 我的群列表
     @GET("group/list")
-    Call<RspModel<List<GroupCard>>> groups(@Query("userId") String name);
+    Call<RspModel<List<GroupCard>>> groups(@Query("userId") String userId);
 
     // 我的群的成员列表
     @GET("group/member")
     Call<RspModel<List<GroupMemberCard>>> groupMembers(@Query("groupId") String groupId);
 
-    // 给群添加成员
+    // 给群添加新成员
     @POST("group/AddMember")
     Call<RspModel<List<GroupMemberCard>>> groupMemberAdd(@Body GroupMemberAddModel model);
+
+    // 删除群成员
+    @POST("group/DelMember")
+    Call<RspModel<List<GroupMemberCard>>> groupMemberDel(@Body GroupMemberAddModel model);
+
+    // 退出群
+    @POST("group/quit")
+    Call<RspModel<GroupCard>> groupQuit(@Body GroupQuitModel model);
 }

@@ -8,15 +8,20 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.target.Target;
 import com.raizlabs.android.dbflow.sql.language.OperatorGroup;
 import com.raizlabs.android.dbflow.sql.language.SQLite;
+import com.walle.base.utils.LogUtils;
 
 import net.qiujuer.italker.common.Common;
 import net.qiujuer.italker.common.app.Application;
 import net.qiujuer.italker.factory.Factory;
 import net.qiujuer.italker.factory.model.api.RspModel;
+import net.qiujuer.italker.factory.model.api.message.GroupMissedMsgModel;
 import net.qiujuer.italker.factory.model.api.message.MsgCreateModel;
+import net.qiujuer.italker.factory.model.api.message.MsgReceivedModel;
+import net.qiujuer.italker.factory.model.card.GroupMemberCard;
 import net.qiujuer.italker.factory.model.card.MessageCard;
 import net.qiujuer.italker.factory.model.db.Message;
 import net.qiujuer.italker.factory.model.db.Message_Table;
+import net.qiujuer.italker.factory.model.db.Session;
 import net.qiujuer.italker.factory.net.Network;
 import net.qiujuer.italker.factory.net.RemoteService;
 import net.qiujuer.italker.factory.net.UploadHelper;
@@ -25,6 +30,8 @@ import net.qiujuer.italker.utils.PicturesCompressor;
 import net.qiujuer.italker.utils.StreamUtil;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -105,7 +112,6 @@ public class MessageHelper {
 
                 // 直接发送, 进行网络调度
                 RemoteService service = Network.remote();
-                Log.e("RemoteService", "run: "+model.toString());
                 service.msgPush(model).enqueue(new Callback<RspModel<MessageCard>>() {
                     @Override
                     public void onResponse(Call<RspModel<MessageCard>> call, Response<RspModel<MessageCard>> response) {
@@ -131,6 +137,125 @@ public class MessageHelper {
                         Factory.getMessageCenter().dispatch(card);
                     }
                 });
+            }
+        });
+    }
+
+    public static void getMissedMessage(){
+        // 用户不能为空
+        if(TextUtils.isEmpty(Account.getUserId())){
+            return;
+        }
+
+        RemoteService service = Network.remote();
+        service.getMissedMsg(Account.getUserId()).enqueue(new Callback<RspModel<List<MessageCard>>>() {
+            @Override
+            public void onResponse(Call<RspModel<List<MessageCard>>> call, Response<RspModel<List<MessageCard>>> response) {
+                RspModel<List<MessageCard>> rspModel = response.body();
+                if (rspModel != null && rspModel.success()) {
+                    LogUtils.d("get Missed Message ok!");
+                    List<MessageCard> rspCard = rspModel.getResult();
+                    if (rspCard != null && rspCard.size() > 0) {
+                        // 成功的调度
+                        Factory.getMessageCenter().dispatch(rspCard.toArray(new MessageCard[0]));
+
+                        //设置消息已经被接受
+                        setMsgReceived(rspCard);
+                    }
+                } else {
+                    // 检查是否是账户异常
+                    Factory.decodeRspCode(rspModel, null);
+                    // 走失败流程
+                    onFailure(call, null);
+                    LogUtils.e("rspModel.Message:" );
+                }
+            }
+
+            @Override
+            public void onFailure(Call<RspModel<List<MessageCard>>> call, Throwable t) {
+                // 失败
+                LogUtils.e("call:" + call);
+            }
+        });
+    }
+
+
+    /**
+     * 拉取所有群的未接受的消息
+     */
+    public static void getGroupMissedMessage(){
+        // 用户不能为空
+        if(TextUtils.isEmpty(Account.getUserId())){
+            return;
+        }
+
+        List<Session> sessionList =SessionHelper.getGroupList();
+
+        if(sessionList.size() == 0){
+            return;
+        }
+
+        List<GroupMissedMsgModel> missedList = new ArrayList<>();
+        for(Session session: sessionList){
+            missedList.add(new GroupMissedMsgModel(session.getId(), session.getModifyAt()));
+        }
+
+        RemoteService service = Network.remote();
+        service.getGroupMissedMsg(missedList).enqueue(new Callback<RspModel<List<MessageCard>>>() {
+            @Override
+            public void onResponse(Call<RspModel<List<MessageCard>>> call, Response<RspModel<List<MessageCard>>> response) {
+                RspModel<List<MessageCard>> rspModel = response.body();
+                if (rspModel != null && rspModel.success()) {
+                    LogUtils.d("get Missed Message ok!");
+                    List<MessageCard> rspCard = rspModel.getResult();
+                    if (rspCard != null && rspCard.size() > 0) {
+                        // 成功的调度
+                        Factory.getMessageCenter().dispatch(rspCard.toArray(new MessageCard[0]));
+                    }
+                } else {
+                    // 检查是否是账户异常
+                    Factory.decodeRspCode(rspModel, null);
+                    // 走失败流程
+                    onFailure(call, null);
+                    LogUtils.e("rspModel.Message:" );
+                }
+            }
+
+            @Override
+            public void onFailure(Call<RspModel<List<MessageCard>>> call, Throwable t) {
+                // 失败
+                LogUtils.e("call:" + call);
+            }
+        });
+    }
+
+    /**
+     * 设置消息已经被接受
+     */
+    public static void setMsgReceived(List<MessageCard> list){
+        if(list != null && list.size() > 0){
+            return;
+        }
+        RemoteService service = Network.remote();
+        List<String> msgList = new ArrayList<>();
+        for (MessageCard card : list){
+            msgList.add(card.getId());
+        }
+        service.setMsgReceived(new MsgReceivedModel(msgList)).enqueue(new Callback<RspModel<String>>() {
+            @Override
+            public void onResponse(Call<RspModel<String>> call, Response<RspModel<String>> response) {
+                RspModel<String> rspModel = response.body();
+                if (rspModel != null && rspModel.success()) {
+                    LogUtils.d("get Missed Message ok!");
+                } else {
+                    LogUtils.e("rspModel.Message:" );
+                }
+            }
+
+            @Override
+            public void onFailure(Call<RspModel<String>> call, Throwable t) {
+                // 失败
+                LogUtils.e("call:" + call);
             }
         });
     }

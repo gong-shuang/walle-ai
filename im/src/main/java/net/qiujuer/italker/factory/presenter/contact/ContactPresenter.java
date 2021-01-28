@@ -33,7 +33,7 @@ public class ContactPresenter extends BaseSourcePresenter<User, User, ContactDat
         super.start();
 
         // 加载网络数据
-        UserHelper.refreshContacts();
+        UserHelper.refreshContacts(false);
     }
 
     // 运行到这里的时候是子线程
