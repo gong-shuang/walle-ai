@@ -100,9 +100,9 @@ public class PushTestActivity extends AppCompatActivity {
         EditText etUser = (EditText) findViewById(R.id.from);
         String userId = etUser.getText().toString().trim();
 
-//        initPush(allocServer, userId);
-//
-//        MPush.I.checkInit(this.getApplication()).startPush();
+        initPush(allocServer, userId);
+
+        MPush.I.checkInit(this.getApplication()).startPush();
 
         Toast.makeText(this, "start push", Toast.LENGTH_SHORT).show();
     }
@@ -134,6 +134,7 @@ public class PushTestActivity extends AppCompatActivity {
         JSONObject params = new JSONObject();
         params.put("userId", to);
         params.put("hello", from + " say:" + hello);
+        params.put("type", 2);
 
         final Context context = this.getApplicationContext();
         HttpRequest request = new HttpRequest(HttpMethod.POST, allocServer + "/push");

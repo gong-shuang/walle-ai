@@ -159,7 +159,7 @@ public class ImMainActivity extends Activity
         });
 
         // 删除所有的组和成员
-        Factory.getGroupCenter().deleteAllGroupAndMembers();
+//        Factory.getGroupCenter().deleteAllGroupAndMembers();
 
         // 获取 群 未接受到的消息
         MessageHelper.getGroupMissedMessage();
