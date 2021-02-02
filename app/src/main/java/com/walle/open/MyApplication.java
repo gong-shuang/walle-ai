@@ -5,7 +5,6 @@ import android.os.Bundle;
 
 import com.walle.base.BaseApp;
 import com.walle.base.utils.LogUtils;
-import com.walle.open.im.OpenIM;
 import com.walle.open.push.PushReceiveMsgListener;
 import com.walle.push.OpenPush;
 
@@ -23,7 +22,6 @@ public class MyApplication extends BaseApp {
         OpenPush.initPush(this);
         OpenPush.setNotificationListener(new PushReceiveMsgListener());
 
-        OpenIM.init(this);
 
         // 注册生命周期
         registerActivityLifecycleCallbacks(new PushInitializeLifecycle());

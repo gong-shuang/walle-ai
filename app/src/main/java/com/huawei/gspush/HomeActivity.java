@@ -6,7 +6,6 @@ import android.Manifest;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
-import android.widget.Toast;
 
 import com.walle.base.utils.LogUtils;
 import com.walle.open.push.PushTestActivity;
@@ -91,24 +90,8 @@ public class HomeActivity extends AppCompatActivity implements EasyPermissions.P
 
     }
 
-    public void onClickTalker(View btn) {
-        Intent intent = new Intent(HomeActivity.this, LaunchActivity.class);
-        startActivity(intent);
-    }
-
     public void hello(View btn) {
         Intent intent = new Intent(HomeActivity.this, PushTestActivity.class);
-        startActivity(intent);
-    }
-
-
-    public void gotoHuawei(View btn) {
-        Intent intent = new Intent(HomeActivity.this, HuaweiActivity.class);
-        startActivity(intent);
-    }
-
-    public void xiaomi(View btn) {
-        Intent intent = new Intent(HomeActivity.this, XiaomiActivity.class);
         startActivity(intent);
     }
 }

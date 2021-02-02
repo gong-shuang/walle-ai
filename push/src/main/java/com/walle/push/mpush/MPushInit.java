@@ -53,18 +53,6 @@ public class MPushInit {
         MPush.I.checkInit(OpenPush.getContext()).setClientConfig(cc);
     }
 
-    private String getDeviceId() {
-        TelephonyManager tm = (TelephonyManager) OpenPush.getContext().getSystemService(Activity.TELEPHONY_SERVICE);
-//        String deviceId = tm.getDeviceId(0);
-        String deviceId = "1111111112";
-        if (TextUtils.isEmpty(deviceId)) {
-            String time = Long.toString((System.currentTimeMillis() / (1000 * 60 * 60)));
-            deviceId = time + time;
-        }
-        return deviceId;
-    }
-
-
     public void start(String userId){
         if(TextUtils.isEmpty(userId)){
             userId = getPushId();
@@ -94,15 +82,28 @@ public class MPushInit {
         String androidID = DeviceInfo.getAndroidID(OpenPush.getContext());
         String fingerPrint = DeviceInfo.getFingerPrint();
         String serialNumber = DeviceInfo.getSerialNumber();
-//        phoneProducer = AndroidDeviceInfo.getPhoneProducer();
-//        phoneModel = AndroidDeviceInfo.getPhoneModel();
-//        systemVersion = AndroidDeviceInfo.getSystemVersion();
-//        sdkVersion = AndroidDeviceInfo.getSDKVersion();
+//        String phoneProducer = DeviceInfo.getPhoneProducer();
+//        String phoneModel = DeviceInfo.getPhoneModel();
+//        String systemVersion = DeviceInfo.getSystemVersion();
+//        String sdkVersion = DeviceInfo.getSDKVersion();
         String mac = DeviceInfo.getMacAddress(OpenPush.getContext());
         String applicationId = OpenPush.getContext().getApplicationInfo().processName;
         UUID deviceUuid = new UUID(((long)androidID.hashCode()<< 32 | fingerPrint.hashCode()),
                 ((long)applicationId.hashCode() << 32) | mac.hashCode());
         return deviceUuid.toString();
+    }
+
+    public String getDeviceId(){
+        String androidID = DeviceInfo.getAndroidID(OpenPush.getContext());
+        String fingerPrint = DeviceInfo.getFingerPrint();
+        String serialNumber = DeviceInfo.getSerialNumber();
+        String phoneProducer = DeviceInfo.getPhoneProducer();
+        String phoneModel = DeviceInfo.getPhoneModel();
+        String systemVersion = DeviceInfo.getSystemVersion();
+        String sdkVersion = DeviceInfo.getSDKVersion();
+        String mac = DeviceInfo.getMacAddress(OpenPush.getContext());
+        String device = androidID+","+phoneProducer+","+phoneModel+","+systemVersion+","+sdkVersion;
+        return device;
     }
 
 }

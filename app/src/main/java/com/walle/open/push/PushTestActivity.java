@@ -11,6 +11,7 @@ import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.EditText;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.huawei.agconnect.core.BuildConfig;
@@ -21,58 +22,30 @@ import com.mpush.api.http.HttpMethod;
 import com.mpush.api.http.HttpRequest;
 import com.mpush.api.http.HttpResponse;
 import com.mpush.client.ClientConfig;
+import com.walle.open.eventBus.MessageEvent;
+import com.walle.push.PushConstant;
 import com.walle.push.mpush.MPush;
+import com.walle.push.mpush.MPushInit;
 import com.walle.push.mpush.MyLog;
 
+import org.greenrobot.eventbus.EventBus;
+import org.greenrobot.eventbus.Subscribe;
+import org.greenrobot.eventbus.ThreadMode;
 import org.json.JSONObject;
 
 import java.util.concurrent.TimeUnit;
 
 public class PushTestActivity extends AppCompatActivity {
 
+    TextView mLog;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_push_test);
 
-        //        Notifications.I.init(this.getApplicationContext());
-//        Notifications.I.setSmallIcon(R.mipmap.ic_notification);
-//        Notifications.I.setLargeIcon(BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher));
-        SharedPreferences sp = this.getSharedPreferences("mpush.cfg", Context.MODE_PRIVATE);
-        String alloc = sp.getString("allotServer", null);
-        if (alloc != null) {
-            EditText et = findViewById(R.id.alloc);
-            et.setText(alloc);
-        }
+        mLog = (TextView) findViewById(R.id.log);
 
-    }
-
-
-
-    protected void toast(@StringRes int message) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
-    }
-
-    private void initPush(String allocServer, String userId) {
-        //公钥有服务端提供和私钥对应
-        String publicKey = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCghPCWCobG8nTD24juwSVataW7iViRxcTkey/B792VZEhuHjQvA3cAJgx2Lv8GnX8NIoShZtoCg3Cx6ecs+VEPD2fBcg2L4JK7xldGpOJ3ONEAyVsLOttXZtNXvyDZRijiErQALMTorcgi79M5uVX9/jMv2Ggb2XAeZhlLD28fHwIDAQAB";
-
-        ClientConfig cc = ClientConfig.build()
-                .setPublicKey(publicKey)
-                .setAllotServer(allocServer)
-                .setDeviceId(getDeviceId())
-                .setClientVersion(BuildConfig.VERSION_NAME)
-                .setLogger(new MyLog(this, (EditText) findViewById(R.id.log)))
-                .setLogEnabled(BuildConfig.DEBUG)
-                .setEnableHttpProxy(true)
-                .setUserId(userId);
-        MPush.I.checkInit(getApplicationContext()).setClientConfig(cc);
-    }
-
-    private String getDeviceId() {
-        String deviceId = "1111111112";
-
-        return deviceId;
     }
 
     public void bindUser(View btn) {
@@ -84,32 +57,22 @@ public class PushTestActivity extends AppCompatActivity {
     }
 
     public void startPush(View btn) {
-        EditText et = (EditText) findViewById(R.id.alloc);
-        String allocServer = et.getText().toString().trim();
-
-        if (TextUtils.isEmpty(allocServer)) {
-            Toast.makeText(this, "请填写正确的alloc地址", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        if (!allocServer.startsWith("http://")) {
-            allocServer = "http://" + allocServer;
-        }
-
 
         EditText etUser = (EditText) findViewById(R.id.from);
         String userId = etUser.getText().toString().trim();
 
-        initPush(allocServer, userId);
+        if(TextUtils.isEmpty(userId)){
+            Toast.makeText(this, "start push", Toast.LENGTH_SHORT).show();
+        }
 
-        MPush.I.checkInit(this.getApplication()).startPush();
+        //初始化 mpush
+        MPushInit.getInstance().start(userId);
 
         Toast.makeText(this, "start push", Toast.LENGTH_SHORT).show();
     }
 
     public void sendPush(View btn) throws Exception {
-        EditText et1 = (EditText) findViewById(R.id.alloc);
-        String allocServer = et1.getText().toString().trim();
+        String allocServer = PushConstant.allocServer;
 
         if (TextUtils.isEmpty(allocServer)) {
             Toast.makeText(this, "请填写正确的alloc地址", Toast.LENGTH_SHORT).show();
@@ -134,7 +97,7 @@ public class PushTestActivity extends AppCompatActivity {
         JSONObject params = new JSONObject();
         params.put("userId", to);
         params.put("hello", from + " say:" + hello);
-        params.put("type", 2);
+        params.put("type", 1);  // 1是通知消息，1是IM
 
         final Context context = this.getApplicationContext();
         HttpRequest request = new HttpRequest(HttpMethod.POST, allocServer + "/push");
@@ -182,6 +145,27 @@ public class PushTestActivity extends AppCompatActivity {
     public void unbindUser(View btn) {
         MPush.I.unbindAccount();
         Toast.makeText(this, "unbind user", Toast.LENGTH_SHORT).show();
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onMessageEvent(MessageEvent event) {
+        String content = mLog.getText().toString();
+        if(!TextUtils.isEmpty(event.getMsg())){
+            mLog.setText(content + " \n\r接受到新的消息：" + event.getMsg());
+        }
+
+    };
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        EventBus.getDefault().register(this);
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        EventBus.getDefault().unregister(this);
     }
 
 }

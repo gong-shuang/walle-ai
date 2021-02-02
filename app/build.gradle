@@ -19,8 +19,9 @@ dependencies {
     //权限
     implementation 'pub.devrel:easypermissions:3.0.0'
 
+    implementation 'org.greenrobot:eventbus:3.2.0'
+
     implementation project(":push")
-    implementation project(":im")
     api project(":base")
 }
 

@@ -13,26 +13,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Hello MPush" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Allocator:" />
-
-        <EditText
-            android:id="@+id/alloc"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:hint="alloc服务接口地址ip:port"
-            android:text="http://81.69.253.141:9999" />
-
-    </LinearLayout>
+        android:text="Hello Push" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -138,7 +119,7 @@
 
     </LinearLayout>
 
-    <EditText
+    <TextView
         android:id="@+id/log"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

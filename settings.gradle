@@ -1,4 +1,3 @@
 include ':base'
-include ':im'
 include ':push'
 include ':app'

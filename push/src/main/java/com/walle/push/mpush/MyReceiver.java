@@ -38,10 +38,14 @@ public class MyReceiver extends BroadcastReceiver {
             PushMsg pushMsg = new Gson().fromJson(message, PushMsg.class);
             if(pushMsg.getMsgType() == NOTIFICATION ){
                 //业务层
+                if(OpenPush.mNotificationListener != null){
+                    //消息
+                    OpenPush.mNotificationListener.onReceive( PushConstant.MSG_NOTIFY, pushMsg.getContent());
+                }
             }else if(pushMsg.getMsgType() == MESSAGE ){
                 //IM
                 if(OpenPush.mIMListener != null){
-                    //普通消息
+                    //消息
                     OpenPush.mIMListener.onReceive( PushConstant.MSG_NORMAL, pushMsg.getContent());
                 }
             }
