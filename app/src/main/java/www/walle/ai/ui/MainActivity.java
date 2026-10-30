@@ -11,10 +11,9 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.ViewModelProvider;
 
 import www.walle.ai.R;
-import www.walle.ai.net.AlarmStore;
-import www.walle.ai.net.ConnState;
 import www.walle.ai.net.MqttManager;
 import www.walle.ai.net.MqttService;
 import com.google.android.material.badge.BadgeDrawable;
@@ -25,7 +24,7 @@ import com.google.android.material.bottomnavigation.BottomNavigationView;
  * 连接状态不再常驻顶部，统一收进「设置」页；
  * 服务器断开、或存在未查看告警时，设置 tab 显示红点。
  */
-public class MainActivity extends AppCompatActivity implements MqttManager.Listener {
+public class MainActivity extends AppCompatActivity {
 
     private static final int REQ_NOTIF = 1001;
 
@@ -37,8 +36,7 @@ public class MainActivity extends AppCompatActivity implements MqttManager.Liste
     private final SettingsFragment settingsFragment = new SettingsFragment();
     private Fragment active = devicesFragment;
 
-    /** 告警收件箱变化时刷新 tab 红点（未读告警也让设置 tab 亮红点）。 */
-    private final AlarmStore.Observer alarmObserver = this::refreshSettingsBadge;
+    private ConnectionViewModel connectionViewModel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,6 +65,9 @@ public class MainActivity extends AppCompatActivity implements MqttManager.Liste
 
         devicesFragment.setOnDevicePicked(this::onDevicePicked);
 
+        connectionViewModel = new ViewModelProvider(this).get(ConnectionViewModel.class);
+        connectionViewModel.state().observe(this, this::renderSettingsBadge);
+
         nav.inflateMenu(R.menu.bottom_nav);
         nav.setOnItemSelectedListener(item -> {
             int id = item.getItemId();
@@ -81,7 +82,6 @@ public class MainActivity extends AppCompatActivity implements MqttManager.Liste
         else if (startTab == 2) nav.setSelectedItemId(R.id.nav_settings);
         else nav.setSelectedItemId(R.id.nav_devices);
 
-        refreshSettingsBadge();
 
         ensureNotificationPermission();
         // 进入自动连接：本地已保存用户名/密码才连；
@@ -120,37 +120,14 @@ public class MainActivity extends AppCompatActivity implements MqttManager.Liste
         }
     }
 
-    @Override
-    protected void onStart() {
-        super.onStart();
-        mgr.addListener(this);
-        AlarmStore.get().addObserver(alarmObserver);
-        refreshSettingsBadge();
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        mgr.removeListener(this);
-        AlarmStore.get().removeObserver(alarmObserver);
-    }
-
-    // ---------------- MqttManager.Listener ----------------
-    @Override public void onConnState(ConnState state, String info) {
-        runOnUiThread(this::refreshSettingsBadge);
-    }
-
     /**
      * 「设置」tab 的红点：服务器断开 / 连接失败，或存在未查看告警时显示。
+     * 数据来自 {@link ConnectionViewModel}（唯一监听 MQTT 的地方）。
      */
-    private void refreshSettingsBadge() {
+    private void renderSettingsBadge(ConnectionViewModel.UiState ui) {
         if (nav == null) return;
         BadgeDrawable badge = nav.getOrCreateBadge(R.id.nav_settings);
         badge.setBackgroundColor(ContextCompat.getColor(this, R.color.state_error));
-        ConnState state = mgr == null ? null : mgr.getState();
-        boolean offline = state == ConnState.DISCONNECTED
-                || state == ConnState.ERROR;
-        boolean hasUnreadAlarm = AlarmStore.get().unread() > 0;
-        badge.setVisible(offline || hasUnreadAlarm);
+        badge.setVisible(ui.offline() || ui.unreadAlarms > 0);
     }
 }

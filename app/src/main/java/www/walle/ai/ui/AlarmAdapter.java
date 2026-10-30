@@ -20,6 +20,13 @@ public class AlarmAdapter extends RecyclerView.Adapter<AlarmAdapter.VH> {
 
     AlarmAdapter(List<JSONObject> data) { this.data = data; }
 
+    /** 用新列表整体替换（ViewModel 每次发布的是不可变快照）。 */
+    void setItems(List<JSONObject> items) {
+        data.clear();
+        if (items != null) data.addAll(items);
+        notifyDataSetChanged();
+    }
+
     @NonNull
     @Override
     public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {

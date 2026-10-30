@@ -231,7 +231,7 @@ bash -n device/install.sh
 CI：`.github/workflows/android-ci.yml` 在 push / PR 时依次执行
 **单测 → debug 构建 → 设备端自检 → 上传 APK**。
 
-测试覆盖的契约（改主题或报文格式时，这里会先失败）：
+测试覆盖的契约（改主题或报文格式时，这里会先失败；当前 **40 个用例**）：
 
 | 测试 | 覆盖内容 |
 |---|---|
@@ -240,6 +240,7 @@ CI：`.github/workflows/android-ci.yml` 在 push / PR 时依次执行
 | `DeviceRegistryTest` | online 新增/合并/离线忽略、discovery 按 device_id 替换旧 uuid、选中项兜底、状态缓存、在线优先排序 |
 | `StatusSnapshotTest` | state/result 全字段解析、缺失分组归空、异常数值归一为 null、USB 无 product 时回退 sysfs、网卡按名称排序 |
 | `DeviceInfoTest` | 主题里的设备段推导（`device_id` > hostname > uuid）、非法字符清洗、`key()`/`displayName()` 优先级 |
+| `CameraCapabilityTest` | 设备端 `cameras` 数组与控制页透传的裸数组两种形态、无 `node` 条目过滤、缺字段回退空值、非法 JSON 退化为空列表 |
 | `device/selftest_topics.py` | 与 App 端**同一套**清洗用例交叉验证、主题拼装、订阅清单、请求路由、**应答回显 request_id** |
 
 ---
@@ -254,7 +255,8 @@ walle_android/
 │       ├── AndroidManifest.xml
 │       ├── java/www/walle/ai/
 │       │   ├── model/
-│       │   │   └── StatusSnapshot.java   # 状态快照的强类型模型 + 唯一解析入口
+│       │   │   ├── StatusSnapshot.java   # 状态快照的强类型模型 + 唯一解析入口
+│       │   │   └── CameraCapability.java # 摄像头能力的强类型模型 + 解析
 │       │   ├── net/                      # 网络与协议层（分层：门面 / 传输 / 路由 / 注册表）
 │       │   │   ├── MqttManager.java      # 门面：设备/状态/命令/视频 API，编排下面四个组件
 │       │   │   ├── MqttClient.java       # 传输层：连接/重连/订阅/异步发布（Paho）
@@ -269,16 +271,18 @@ walle_android/
 │       │   │   ├── MqttConfigStore.java  # 配置持久化（凭据加密后落盘）
 │       │   │   ├── CredentialCrypto.java  # Android Keystore AES-GCM 凭据加解密
 │       │   │   └── WhepClient.java       # WHEP 信令（Offer / Answer / DELETE）
-│       │   └── ui/                       # 界面层
-│       │       ├── MainActivity.java     # 主界面：底部三 tab
-│       │       ├── DevicesFragment.java  # 设备列表
-│       │       ├── StatusFragment.java   # 状态卡片（只渲染 UiState）
-│       │       ├── StatusViewModel.java  # 状态页 ViewModel（LiveData 单数据源）
-│       │       ├── ControlFragment.java  # 摄像头与推流
-│       │       ├── CommandFragment.java  # 远程命令
-│       │       ├── AlarmFragment.java    # 告警列表
-│       │       ├── SettingsFragment.java # 设置入口
-│       │       ├── PlayerActivity.java   # 全屏播放
+│       │   └── ui/                       # 界面层（页面 = 渲染 + 交互，状态在 ViewModel）
+│       │       ├── MqttViewModel.java    # 页面 ViewModel 基类：统一注册/注销 MQTT 监听
+│       │       ├── MainActivity.java     # 主界面：底部三 tab + 连接徽标
+│       │       ├── ConnectionViewModel.java # 连接状态/设备摘要/未读告警（主界面与设置页共用）
+│       │       ├── DevicesFragment.java + DevicesViewModel.java   # 设备列表与发现
+│       │       ├── DeviceDetailFragment.java # 设备详情：状态/控制/命令三子页
+│       │       ├── StatusFragment.java + StatusViewModel.java     # 状态卡片（只渲染 UiState）
+│       │       ├── ControlFragment.java + ControlViewModel.java   # 摄像头与推流状态机
+│       │       ├── CommandFragment.java + CommandViewModel.java   # 远程命令
+│       │       ├── AlarmFragment.java + AlarmViewModel.java       # 告警列表
+│       │       ├── SettingsFragment.java + SettingsActivity.java  # 设置（连接状态观察 VM）
+│       │       ├── PlayerActivity.java + PlayerViewModel.java     # 全屏播放 + 摄像头切换状态机
 │       │       ├── OnboardingActivity.java # 首次启动引导
 │       │       ├── OnboardingImageLoader.java # 引导页插图按需解码
 │       │       └── WhepSession.java      # WHEP/WebRTC 拉流会话（控制页与播放页共用）
@@ -295,7 +299,7 @@ walle_android/
 | 领域 | 选型 |
 |---|---|
 | 语言 | Java 17 |
-| UI | AndroidX AppCompat + Material Components，ViewPager2、SwipeRefreshLayout、ConstraintLayout；状态页已用 ViewModel + LiveData（Kotlin StateFlow 随 I1 迁移） |
+| UI | AndroidX AppCompat + Material Components，ViewPager2、SwipeRefreshLayout、ConstraintLayout；**全部页面 ViewModel + LiveData 单一数据源**（纯 Java 故选 LiveData，StateFlow 随 I1 迁移） |
 | 网络协议 | MQTT 3.1.1（Eclipse Paho 1.2.5，QoS 1、自动重连、LWT） |
 | 视频 | WebRTC（`io.getstream:stream-webrtc-android`）+ WHEP 信令 |
 | 序列化 | `org.json` |

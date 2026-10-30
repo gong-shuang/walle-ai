@@ -1,18 +1,18 @@
 # 架构与技术债清单
 
-> **本次复查：2026-10-30**（第三轮，全量按代码重新核对）
-> 范围：`app/src/main`（30 个 Java 文件 / 6637 行）、`res/`、`app/build.gradle`、`AndroidManifest.xml`、`device/`
-> 上一版：2026-10-29（同日二轮）
+> **本次复查：2026-10-30**（第四轮，N2 全量迁移后重新核对）
+> 范围：`app/src/main`（45 个 Java 文件 / 7827 行）、`res/`、`app/build.gradle`、`AndroidManifest.xml`、`device/`
+> 上一版：2026-10-30（第三轮，N2 试点完成）
 >
 > **状态图例**：✅ 已完成　　◐ 部分完成　　⭕ 未开始
 >
 > | 等级 | 含义 | 条目 | ✅ | ◐ | ⭕ |
 > |---|---|:--:|:--:|:--:|:--:|
 > | 严重 | 安全 / 上架 / 崩溃级 | 15 | 15 | 0 | 0 |
-> | 一般 | 架构、可靠性、性能、工程化 | 14 | 11 | 2 | 1 |
+> | 一般 | 架构、可靠性、性能、工程化 | 14 | 12 | 1 | 1 |
 > | 忽略 | 技术栈升级（现阶段收益低于成本） | 10 | 0 | 0 | 10 |
 >
-> **结论**：**严重项已全部清零**（15/15）；一般项已完成 11 条。剩 **N2 试点已完成、待推广**（◐）、**N11 Room 持久化**（⭕）、N7 等设备量上量（◐），以及 10 条忽略项。
+> **结论**：**严重项已全部清零**（15/15）；一般项已完成 12 条，**N2（ViewModel/LiveData 单一数据源）已全量落地**。剩 **N11 Room 持久化**（⭕）、**N7 设备发现广播**（◐，等设备量上量），以及 10 条忽略项。
 
 ---
 
@@ -29,29 +29,29 @@
 | N10 | ~~`allowBackup=true` 且无 `dataExtractionRules`~~ | 已改 `allowBackup=false` + `fullBackupContent=false`：无有价值用户数据，备份只会带走 broker 地址与（换机后无法解密的）凭据 | 已完成；清单 `aapt2` 链接通过 | 0.5 天 | ✅ |
 | N11 | 告警、状态只在内存，进程被杀即丢 | `AlarmStore` 用 `ArrayList`，无持久化 | Room 存告警与最近状态；界面先渲染缓存 | 2 天 | ⭕ |
 | N1 | ~~`MqttManager` 是 God object~~ | 已拆成四层：`MqttClient`（连接/订阅/异步发布，370 行）、`MessageRouter`（主题→事件 + 去重，162 行）、`DeviceRegistry`（设备/状态/选中，228 行）、`MqttTrace`（日志，49 行）+ `ConnState`；`MqttManager` 退化为门面（479 行，原 914 行） | 已改完；四组单测 30 项通过 | 3–5 天 | ✅ |
-| N2 | UI 无 ViewModel、无单一数据源（**试点已完成**） | 状态页已改造：`StatusViewModel`（LiveData 单数据源）+ `model/StatusSnapshot` 强类型解析，`StatusFragment` 从 445 行降到 334 行、**55 处 `optXxx` 全部移出 UI**；其余页面仍待迁移（`findViewById` 89 处、51 处 `requireActivity`） | 其余 4 个页面按同一模式迁移；纯 Java 用 LiveData，StateFlow 随 Kotlin 迁移（I1） | 1–2 周 | ◐ |
+| N2 | ~~UI 无 ViewModel、无单一数据源~~ | **全部页面已迁移**：`MqttViewModel` 基类（统一注册/注销 MQTT 监听）+ 7 个页面级 ViewModel，8 个文件共 1483 行；每个页面只 observe 一个不可变 `UiState`。Fragment/Activity **零** `MqttManager.Listener`、零 `AlarmStore.Observer`；`ui/` 里 JSON 解析只剩 ViewModel 与 2 个 Adapter 展示格式化（共 35 处，改造前状态页单文件就 55 处）；`runOnUiThread` 仅剩 1 处 | 已改完；纯 Java 用 LiveData，StateFlow 随 Kotlin 迁移（I1） | 1–2 周 | ✅ |
 | N3 | ~~视频管道两份实现~~ | 已抽 `WhepSession`（497 行）：EGL/Factory/PeerConnection/WHEP 协商/首帧/释放 只此一份；`PlayerActivity` 649→**376 行**，重复代码交集从 **40% 降到 2%**；协商代码全项目只在 `WhepSession` 出现 | 已改完；`javac` 通过 | 2–3 天 | ✅ |
 | N14 | ~~协议已大改，版本号没动~~ | 已提为 `versionCode 9` / `versionName "1.8"`，并在 build.gradle 注释与 README 徽章里标明「v1 主题已删除，不兼容旧设备/旧 App」 | 完成 | 10 分钟 | ✅ |
-| N12 | ~~Android 侧零自动化测试、无 CI~~ | 已补 `app/src/test/.../TopicNamesTest`、`DeviceInfoTest`（16 个用例）+ `.github/workflows/android-ci.yml`（单测 → debug 构建 → 设备端自检 → 上传 APK） | 已改完；单测本地 `JUnitCore` 跑通，`./gradlew :app:testDebugUnitTest` 可复跑 | 2–3 天 | ✅ |
+| N12 | ~~Android 侧零自动化测试、无 CI~~ | 已补 `app/src/test/.../TopicNamesTest`、`DeviceInfoTest`（40 个用例）+ `.github/workflows/android-ci.yml`（单测 → debug 构建 → 设备端自检 → 上传 APK） | 已改完；单测本地 `JUnitCore` 跑通（现 40 例），`./gradlew :app:testDebugUnitTest` 可复跑 | 2–3 天 | ✅ |
 | N13 | ~~非 git 仓库~~ | 已 `git init`（分支 `main`）+ `.gitignore` + 基线提交 `4a11c14`；构建产物/本地配置已排除 | 完成 | 10 分钟 | ✅ |
 | N7 | 设备发现是租户内广播，设备数增长后是 O(N) | `requestDeviceInfo()` 发 `walle/{tenant}/discovery/query`，每台设备各回一条 | 设备数上量后改 MQTT5 响应主题或 `$share/` 聚合 | 等需求 | ◐ |
 | N6 | ~~`cleanSession=false` 与 `MemoryPersistence` 语义矛盾~~ | 已改 `cleanSession=true`：本地不持久化告警/状态，会话无保留价值；同时删掉了随之失效的「旧订阅清理」代码（与 `MemoryPersistence` 语义一致） | 已验证：每次连接重新订阅 + 广播发现；`javac`/单测通过 | 1 天 | ✅ |
 
-> ◐ 说明：N12 设备端已有 `selftest_topics.py`（Android 侧仍为零）；N13 `gradlew` 已补但仓库未纳入 git；N7 发现范围已从「全局广播」收敛到「租户内广播」；N6 的订阅残留问题已修，持久化语义矛盾仍在。
+> ◐ 说明：仅剩 N7——发现范围已从「全局广播」收敛到「租户内广播」，但租户内仍是每台设备各回一条（O(N)），等设备数上量再换 MQTT5 响应主题或 `$share/` 聚合。
 
 ### 1.2 忽略项（现阶段不做）
 
 | # | 问题 | 现状 | 将来怎么做 |
 |:--:|---|---|---|
 | I1 | 全 Java，异步靠 `Handler`/`ExecutorService` | 11 处 `postDelayed`、6 个 executor | 迁 Kotlin + Coroutines/Flow |
-| I2 | XML + `findViewById`（89 处），未用 Compose | `viewBinding` 只有 `PlayerActivity` 在用 | 新页面 Compose + Material3；存量统一 ViewBinding |
+| I2 | XML + `findViewById`（89 处），未用 Compose | ViewModel 改造后页面已用 `viewBinding`（`binding.xxx`），剩余 `findViewById` 集中在 `SettingsActivity`(16)/`OnboardingActivity`(11)/各 Adapter(17) | 剩余页面统一 ViewBinding；新页面 Compose + Material3 |
 | I3 | 无 DI | 手写单例（`MqttManager.get()`、`AlarmStore.get()`），无 `Application` 子类 | Hilt 或手写 `AppContainer` |
 | I4 | Paho 1.2.5（MQTT 3.1.1） | `app/build.gradle:81` | HiveMQ Client（MQTT5：会话过期、响应主题、原因码） |
 | I5 | 单模块 | 只有 `app`，`net`/`ui` 两个包 | 拆 `:core:net` `:core:rtc` `:feature:*`（与 N1/N3 一起做） |
 | I6 | 依赖版本硬编码，无 version catalog | 见 `app/build.gradle:75-84` | `gradle/libs.versions.toml` |
 | I7 | 无 Baseline Profile / 启动度量 | 无 `baselineprofile` 模块 | Baseline Profile + Macrobenchmark |
 | I8 | 无深色模式/多语言，`strings.xml` 有 8 条未用 | 无 `values-night`/`values-en`；未用：`device_offline`、`history`、`notif_channel`、`section_alarm`、`section_server`、`tap_to_use`、`video_placeholder(_sub)` | 补 `values-night` + `localeConfig`，清理未用项 |
-| I9 | JSON 全手写解析（`org.json`） | `StatusFragment` 单文件 55 处 `optXxx` | kotlinx.serialization / Moshi + 数据类 |
+| I9 | JSON 全手写解析（`org.json`） | 已集中到 ViewModel（`ui/` 共 35 处 `optXxx`，改造前状态页单文件就有 55 处）；`StatusSnapshot`/`CameraCapability` 已是强类型模型 | kotlinx.serialization / Moshi + 数据类 |
 | I10 | 无日志框架/崩溃上报 | 全项目 `android.util.Log`，TAG 为字面量 | Timber + Crashlytics/Sentry |
 
 ---
@@ -90,9 +90,10 @@
 | 设备端工程化 | `device/` | 新增一键部署 `install.sh`（首次交互式必填 5 项）、`--check` 配置自检、环境文件自动加载、`selftest_topics.py` 扩展为 8 组断言 |
 | **状态页 ViewModel 试点（N2）** | `ui/StatusViewModel.java`、`model/StatusSnapshot.java`、`ui/StatusFragment.java`、`app/build.gradle` | 状态页改成「MQTT 回调 → ViewModel（解析为强类型模型）→ LiveData → 渲染」：UI 不再解析 JSON、不再自己维护 waiting/rid、回调里不碰 View；新增 `StatusSnapshotTest`（5 例）；补齐 lifecycle-viewmodel / lifecycle-livedata 依赖；删除无用的 `UiUtil.joinJsonStrings` |
 | **网络层分层（N1）** | `net/MqttClient.java`、`net/MessageRouter.java`、`net/DeviceRegistry.java`、`net/MqttTrace.java`、`net/ConnState.java`、`net/MqttManager.java`、6 个 UI 文件 | 把 914 行的 `MqttManager` 拆成「传输 / 路由 / 注册表 / 门面」四层；`ConnState` 提升为顶层枚举（UI 20 处引用同步）；新增 `MessageRouterTest`、`DeviceRegistryTest`（合计 30 项单测） |
+| **N2 全量迁移：ViewModel + LiveData** | `ui/MqttViewModel.java`（新增）、`ui/StatusViewModel`、`DevicesViewModel`、`CommandViewModel`、`AlarmViewModel`、`ControlViewModel`、`ConnectionViewModel`、`PlayerViewModel`、`model/CameraCapability`（新增）、对应 10 个 Fragment/Activity | 每个页面「MQTT/告警回调 → ViewModel 维护状态 → 不可变 `UiState` → LiveData → 渲染」：页面不再实现 `MqttManager.Listener`/`AlarmStore.Observer`，不再自己维护 `waiting/rid`，回调里不碰 View；同时修掉两个实打实的 bug——全屏播放页退出没带 `EXTRA_UUID` 导致设备端**永不停止推流**、以及全屏页重建后 spinner 与真实推流摄像头错位；`PlayerActivity` 与 `ControlFragment` 的切换摄像头状态机共用同一套「请求发出后才改状态 / 失败或 8s 超时回滚」逻辑 |
 | **视频管道去重（N3）** | `ui/WhepSession.java`（新增）、`ui/PlayerActivity.java`、`ui/ControlFragment.java` | 抽出 `WhepSession`：EGL/Factory/PeerConnection/WHEP 协商/首帧/释放 唯一实现；播放页删掉自管的 240 余行 WebRTC 代码，只保留 UI（状态文案/首帧遮罩/摄像头切换/退出）；控制页沿用同一会话并保留自己的状态文案 |
 | **收尾（N6 + N10）** | `AndroidManifest.xml`、`net/MqttManager.java`、`net/TopicNames.java` | 关闭备份；会话改 `cleanSession=true` 并删掉失效的旧订阅清理代码与对应单测 |
-| **单测 + CI（N12）** | `app/src/test/`、`.github/workflows/android-ci.yml`、`app/build.gradle` | 16 个 JVM 单测锁住主题命名/清洗/订阅/配对与设备标识规则；CI 依次跑单测、debug 构建、设备端契约自检，并上传 APK |
+| **单测 + CI（N12）** | `app/src/test/`、`.github/workflows/android-ci.yml`、`app/build.gradle` | 40 个 JVM 单测锁住主题命名/清洗/订阅/配对与设备标识规则；CI 依次跑单测、debug 构建、设备端契约自检，并上传 APK |
 | **git 基线（N13）** | 仓库根 | `git init -b main` + `.gitignore`（排除 build/.gradle/local.properties/venv/日志）+ 基线提交，共 120 个文件 |
 | **异步发布（N5）** | `net/MqttManager.java` | `publish()` 只入队，发送在单线程 `mqtt-publish` 执行器执行（保序）；队列上限 200，满时回错误给 UI；`doPublish()` 内重新校验连接状态 |
 | **请求配对（N4）** | App + 设备端 | 6 类请求全部带 `request_id`，设备 6 类应答全部回显；App 侧 cmd/video/capability 严格配对、state/discovery 宽松配对；video 链路加 8s 超时复位，不再靠 `starting`/`pendingCamera` 布尔位猜 |
@@ -106,7 +107,7 @@
 ## 四、建议顺序
 
 1. **量测 N9 / 验证 N8**（10 分钟）：`./gradlew :app:assembleDebug` 看 APK 大小；装包后看 logcat 有无「connectedDevice 被拒绝」回退日志。
-2. **N2 推广 + N11**（1–2 周）：把状态页的 ViewModel/LiveData 模式推广到控制页、命令页、设备列表；同时把告警接 Room 持久化（N11）。
+2. **N11 告警持久化**（2 天）：把 `AlarmStore` 换 Room，界面先渲染缓存；N2 的 ViewModel 已经让「数据源唯一」，换存储只动一层。
 3. N7（租户内广播发现）等设备数量上量后再优化；忽略项等业务上量后再做。
 
 ---
@@ -115,13 +116,15 @@
 
 ```bash
 # 规模
-find app/src/main/java -name "*.java" | xargs wc -l | tail -1    # 6637 行 / 30 文件
+find app/src/main/java -name "*.java" | xargs wc -l | tail -1    # 7827 行 / 45 文件
 
 # 发布配置
 grep -n "compileSdk\|targetSdk\|minifyEnabled\|shrinkResources\|abiFilters" app/build.gradle
 
 # 架构信号
-grep -rl "ViewModel\|StateFlow\|androidx.room\|Hilt" app/src/main/java | wc -l   # 0
+grep -rl "ViewModel" app/src/main/java | wc -l                                   # 19（8 个页面 VM + 基类 + 引用方）
+grep -rl "MqttManager.Listener" app/src/main/java | wc -l                        # 3（MqttViewModel + StatusViewModel + 接口定义）
+grep -rl "androidx.room\|Hilt" app/src/main/java | wc -l                         # 0（N11/I3 未做）
 grep -rho "findViewById" app/src/main/java | wc -l                              # 89
 grep -rho "requireActivity()\|requireContext()" app/src/main/java | wc -l       # 51
 

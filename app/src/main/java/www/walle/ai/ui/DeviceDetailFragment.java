@@ -9,6 +9,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.ViewModelProvider;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentTransaction;
 
@@ -17,13 +18,12 @@ import www.walle.ai.net.DeviceInfo;
 import www.walle.ai.net.MqttManager;
 import com.google.android.material.tabs.TabLayout;
 
-import org.json.JSONObject;
 
 /**
  * 设备详情容器页：顶部「当前设备」信息条 + 状态 / 控制 / 命令 三个子页。
  * 底部导航第二项对应本页。
  */
-public class DeviceDetailFragment extends Fragment implements MqttManager.Listener {
+public class DeviceDetailFragment extends Fragment {
 
     private static final String T_STATUS = "detail_status";
     private static final String T_CONTROL = "detail_control";
@@ -89,7 +89,8 @@ public class DeviceDetailFragment extends Fragment implements MqttManager.Listen
             @Override public void onTabReselected(TabLayout.Tab tab) { }
         });
 
-        updateDeviceLabel();
+        ConnectionViewModel vm = new ViewModelProvider(requireActivity()).get(ConnectionViewModel.class);
+        vm.state().observe(getViewLifecycleOwner(), this::renderConnection);
     }
 
     private void showTab(int position) {
@@ -113,13 +114,12 @@ public class DeviceDetailFragment extends Fragment implements MqttManager.Listen
             TabLayout.Tab t = tabs.getTabAt(0);
             if (t != null) t.select();
         }
-        updateDeviceLabel();
+        // 标题由 ConnectionViewModel 观察自动刷新，这里只需重置子页并查询
         if (statusFragment != null) statusFragment.onDeviceSwitched();
     }
 
-    private void updateDeviceLabel() {
-        if (tvCurrentDevice == null || mgr == null) return;
-        DeviceInfo d = mgr.getSelectedDevice();
+    private void updateDeviceLabel(@Nullable DeviceInfo d) {
+        if (tvCurrentDevice == null) return;
         if (d == null) {
             tvCurrentDevice.setText(R.string.no_device_selected);
         } else {
@@ -128,29 +128,8 @@ public class DeviceDetailFragment extends Fragment implements MqttManager.Listen
         }
     }
 
-    @Override
-    public void onStart() {
-        super.onStart();
-        mgr.addListener(this);
-        updateDeviceLabel();
-    }
-
-    @Override
-    public void onStop() {
-        super.onStop();
-        mgr.removeListener(this);
-    }
-
-    @Override public void onDeviceInfo(DeviceInfo device) {
-        if (getActivity() == null) return;
-        requireActivity().runOnUiThread(this::updateDeviceLabel);
-    }
-    @Override public void onDevicesChanged() {
-        if (getActivity() == null) return;
-        requireActivity().runOnUiThread(this::updateDeviceLabel);
-    }
-    @Override public void onOnline(JSONObject payload) {
-        if (getActivity() == null) return;
-        requireActivity().runOnUiThread(this::updateDeviceLabel);
+    /** 当前设备标题由 ConnectionViewModel 驱动。 */
+    private void renderConnection(ConnectionViewModel.UiState ui) {
+        updateDeviceLabel(ui.selected);
     }
 }

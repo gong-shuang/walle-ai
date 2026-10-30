@@ -12,6 +12,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.ViewModelProvider;
 
 import www.walle.ai.R;
 import www.walle.ai.net.AlarmStore;
@@ -22,8 +23,7 @@ import www.walle.ai.net.MqttManager;
  * 设置页：两个入口 —— 服务器连接（含当前状态）、告警（含未查看条数）。
  * 连接状态条不再常驻所有 tab，只在这里和服务器设置页里出现。
  */
-public class SettingsFragment extends Fragment
-        implements MqttManager.Listener, AlarmStore.Observer {
+public class SettingsFragment extends Fragment {
 
     private MqttManager mgr;
     private View dotServer;
@@ -54,38 +54,14 @@ public class SettingsFragment extends Fragment
             startActivity(intent);
         });
 
-        renderServer(mgr.getState(), mgr.getStateInfo());
-        renderAlarm();
+        ConnectionViewModel vm = new ViewModelProvider(requireActivity()).get(ConnectionViewModel.class);
+        vm.state().observe(getViewLifecycleOwner(), this::renderConnection);
     }
 
-    @Override
-    public void onStart() {
-        super.onStart();
-        mgr.addListener(this);
-        AlarmStore.get().addObserver(this);
-        renderServer(mgr.getState(), mgr.getStateInfo());
-        renderAlarm();
-    }
-
-    @Override
-    public void onStop() {
-        super.onStop();
-        mgr.removeListener(this);
-        AlarmStore.get().removeObserver(this);
-    }
-
-    // ---------------- MqttManager.Listener ----------------
-    @Override
-    public void onConnState(ConnState state, String info) {
-        if (getActivity() == null) return;
-        requireActivity().runOnUiThread(() -> renderServer(state, info));
-    }
-
-    // ---------------- AlarmStore.Observer ----------------
-    @Override
-    public void onAlarmsChanged() {
-        if (getActivity() == null) return;
-        requireActivity().runOnUiThread(this::renderAlarm);
+    // 连接状态与未读告警都来自 ConnectionViewModel（唯一监听 MQTT / AlarmStore 的地方）
+    private void renderConnection(ConnectionViewModel.UiState ui) {
+        renderServer(ui.connState, ui.connInfo);
+        renderAlarm(ui.unreadAlarms);
     }
 
     private void renderServer(ConnState state, String info) {
@@ -122,9 +98,8 @@ public class SettingsFragment extends Fragment
         }
     }
 
-    private void renderAlarm() {
+    private void renderAlarm(int n) {
         if (tvAlarmBadge == null) return;
-        int n = AlarmStore.get().unread();
         tvAlarmBadge.setVisibility(n > 0 ? View.VISIBLE : View.GONE);
         tvAlarmBadge.setText(n > 99 ? "99+" : String.valueOf(n));
     }

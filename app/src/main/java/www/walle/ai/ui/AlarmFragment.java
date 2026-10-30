@@ -9,21 +9,21 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
-import www.walle.ai.R;
-import www.walle.ai.net.AlarmStore;
 
 import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/** 告警列表：数据来自全局 AlarmStore，进入页面即把未读清零。 */
-public class AlarmFragment extends Fragment implements AlarmStore.Observer {
+import www.walle.ai.R;
 
-    private final List<JSONObject> items = new ArrayList<>();
+/** 告警列表：数据来自 AlarmStore，经 {@link AlarmViewModel} 暴露成 LiveData。 */
+public class AlarmFragment extends Fragment {
+
+    private AlarmViewModel viewModel;
     private AlarmAdapter adapter;
     private TextView tvEmpty;
 
@@ -36,52 +36,34 @@ public class AlarmFragment extends Fragment implements AlarmStore.Observer {
 
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        viewModel = new ViewModelProvider(this).get(AlarmViewModel.class);
+
         RecyclerView rv = view.findViewById(R.id.recyclerAlarm);
         tvEmpty = view.findViewById(R.id.tvAlarmEmpty);
         rv.setLayoutManager(new LinearLayoutManager(requireContext()));
-        adapter = new AlarmAdapter(items);
+        adapter = new AlarmAdapter(new ArrayList<>());
         rv.setAdapter(adapter);
-        reload();
+
+        viewModel.alarms().observe(getViewLifecycleOwner(), this::render);
     }
 
     @Override
     public void onStart() {
         super.onStart();
-        AlarmStore.get().addObserver(this);
-        reload();
-        // 已进入告警页，未读清零（设置页上的条数随之消失）
-        AlarmStore.get().markAllRead();
+        // 进入告警页即把未读清零（设置 tab 的红点随之消失）
+        viewModel.onScreenVisible();
     }
 
-    @Override
-    public void onStop() {
-        super.onStop();
-        AlarmStore.get().removeObserver(this);
-    }
-
+    /** 由宿主页面（AlarmActivity）调用。 */
     public void clearAlarms() {
-        AlarmStore.get().clear();
+        if (viewModel != null) viewModel.clear();
     }
 
-    @Override
-    public void onAlarmsChanged() {
-        if (getActivity() == null) return;
-        requireActivity().runOnUiThread(() -> {
-            reload();
-            // 正停留在告警页时新到的告警直接算已读，避免设置 tab 一直亮着红点
-            if (isResumed()) AlarmStore.get().markAllRead();
-        });
-    }
-
-    private void reload() {
+    private void render(List<JSONObject> items) {
         if (adapter == null) return;
-        items.clear();
-        items.addAll(AlarmStore.get().items());
-        adapter.notifyDataSetChanged();
-        updateEmpty();
-    }
-
-    private void updateEmpty() {
-        if (tvEmpty != null) tvEmpty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
+        adapter.setItems(items);
+        if (tvEmpty != null) {
+            tvEmpty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
+        }
     }
 }

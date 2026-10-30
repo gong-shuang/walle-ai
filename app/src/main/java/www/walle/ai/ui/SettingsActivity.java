@@ -8,6 +8,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.lifecycle.ViewModelProvider;
 import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.content.ContextCompat;
 
@@ -24,7 +25,7 @@ import com.google.android.material.textfield.TextInputEditText;
  * 服务器设置页：连接状态 + 连接/断开 + 服务器配置表单。
  * 从「设置」tab 的「服务器连接」入口进入。
  */
-public class SettingsActivity extends AppCompatActivity implements MqttManager.Listener {
+public class SettingsActivity extends AppCompatActivity {
 
     private TextInputEditText etHost, etPort, etUser, etPass, etClientId, etInterval;
     private SwitchCompat swReconnect, swAutoConnect, swTls;
@@ -78,7 +79,8 @@ public class SettingsActivity extends AppCompatActivity implements MqttManager.L
             MqttService.start(this);
         });
 
-        renderConn(mgr.getState(), mgr.getStateInfo());
+        ConnectionViewModel vm = new ViewModelProvider(this).get(ConnectionViewModel.class);
+        vm.state().observe(this, this::renderConnection);
     }
 
     private void loadConfig() {
@@ -170,22 +172,8 @@ public class SettingsActivity extends AppCompatActivity implements MqttManager.L
         return e.getText() == null ? "" : e.getText().toString();
     }
 
-    @Override
-    protected void onStart() {
-        super.onStart();
-        mgr.addListener(this);
-        renderConn(mgr.getState(), mgr.getStateInfo());
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        mgr.removeListener(this);
-    }
-
-    @Override
-    public void onConnState(ConnState state, String info) {
-        runOnUiThread(() -> renderConn(state, info));
+    private void renderConnection(ConnectionViewModel.UiState ui) {
+        renderConn(ui.connState, ui.connInfo);
     }
 
     private void renderConn(ConnState state, String info) {

@@ -20,7 +20,6 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.google.android.material.button.MaterialButton;
 
-import java.util.List;
 import java.util.Locale;
 
 import www.walle.ai.R;
