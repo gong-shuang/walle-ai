@@ -236,6 +236,8 @@ CI：`.github/workflows/android-ci.yml` 在 push / PR 时依次执行
 | 测试 | 覆盖内容 |
 |---|---|
 | `TopicNamesTest` | 段清洗（含通配符 `+ #` 必须被丢弃）、请求 `query/exec/request` 与应答 `result` 的命名约定、8 个订阅主题、`discovery/query` 不被误解析 |
+| `MessageRouterTest` | 8 种资源路由、device_id 兜底注入、一次性事件 2 秒去重（告警/命令/视频）、状态快照不去重、未知资源与非法 JSON 忽略 |
+| `DeviceRegistryTest` | online 新增/合并/离线忽略、discovery 按 device_id 替换旧 uuid、选中项兜底、状态缓存、在线优先排序 |
 | `DeviceInfoTest` | 主题里的设备段推导（`device_id` > hostname > uuid）、非法字符清洗、`key()`/`displayName()` 优先级 |
 | `device/selftest_topics.py` | 与 App 端**同一套**清洗用例交叉验证、主题拼装、订阅清单、请求路由、**应答回显 request_id** |
 
@@ -250,8 +252,12 @@ walle_android/
 │   └── src/main/
 │       ├── AndroidManifest.xml
 │       ├── java/www/walle/ai/
-│       │   ├── net/                      # 网络与协议层
-│       │   │   ├── MqttManager.java      # Paho 连接 / 分发 / 设备注册表
+│       │   ├── net/                      # 网络与协议层（分层：门面 / 传输 / 路由 / 注册表）
+│       │   │   ├── MqttManager.java      # 门面：设备/状态/命令/视频 API，编排下面四个组件
+│       │   │   ├── MqttClient.java       # 传输层：连接/重连/订阅/异步发布（Paho）
+│       │   │   ├── MessageRouter.java    # 路由层：主题→领域事件 + QoS1 去重
+│       │   │   ├── DeviceRegistry.java   # 设备清单、状态缓存、选中设备
+│       │   │   ├── MqttTrace.java        # 收发报文日志（Debug 下格式化）
 │       │   │   ├── MqttService.java      # 前台服务保活
 │       │   │   ├── Topics.java           # 主题与默认参数常量
 │       │   │   ├── DeviceInfo.java       # 设备身份模型

@@ -14,6 +14,7 @@ import androidx.fragment.app.Fragment;
 
 import www.walle.ai.R;
 import www.walle.ai.net.AlarmStore;
+import www.walle.ai.net.ConnState;
 import www.walle.ai.net.MqttManager;
 import www.walle.ai.net.MqttService;
 import com.google.android.material.badge.BadgeDrawable;
@@ -135,7 +136,7 @@ public class MainActivity extends AppCompatActivity implements MqttManager.Liste
     }
 
     // ---------------- MqttManager.Listener ----------------
-    @Override public void onConnState(MqttManager.ConnState state, String info) {
+    @Override public void onConnState(ConnState state, String info) {
         runOnUiThread(this::refreshSettingsBadge);
     }
 
@@ -146,9 +147,9 @@ public class MainActivity extends AppCompatActivity implements MqttManager.Liste
         if (nav == null) return;
         BadgeDrawable badge = nav.getOrCreateBadge(R.id.nav_settings);
         badge.setBackgroundColor(ContextCompat.getColor(this, R.color.state_error));
-        MqttManager.ConnState state = mgr == null ? null : mgr.getState();
-        boolean offline = state == MqttManager.ConnState.DISCONNECTED
-                || state == MqttManager.ConnState.ERROR;
+        ConnState state = mgr == null ? null : mgr.getState();
+        boolean offline = state == ConnState.DISCONNECTED
+                || state == ConnState.ERROR;
         boolean hasUnreadAlarm = AlarmStore.get().unread() > 0;
         badge.setVisible(offline || hasUnreadAlarm);
     }

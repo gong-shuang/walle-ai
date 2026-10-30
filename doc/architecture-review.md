@@ -9,10 +9,10 @@
 > | 等级 | 含义 | 条目 | ✅ | ◐ | ⭕ |
 > |---|---|:--:|:--:|:--:|:--:|
 > | 严重 | 安全 / 上架 / 崩溃级 | 15 | 15 | 0 | 0 |
-> | 一般 | 架构、可靠性、性能、工程化 | 14 | 10 | 1 | 3 |
+> | 一般 | 架构、可靠性、性能、工程化 | 14 | 11 | 1 | 2 |
 > | 忽略 | 技术栈升级（现阶段收益低于成本） | 10 | 0 | 0 | 10 |
 >
-> **结论**：**严重项已全部清零**（15/15）；一般项已完成 10 条。只剩 **3 条未开始（N1 拆 God object、N2 ViewModel/单一数据源、N11 Room 持久化）** 与 1 条部分完成（N7，等设备数量上量），以及 10 条忽略项。
+> **结论**：**严重项已全部清零**（15/15）；一般项已完成 11 条。只剩 **2 条未开始（N2 ViewModel/单一数据源、N11 Room 持久化）** 与 1 条部分完成（N7，等设备数量上量），以及 10 条忽略项。
 
 ---
 
@@ -28,7 +28,7 @@
 | N5 | ~~`publish()` 在调用线程执行（多为 UI 线程），重连期可能卡顿~~ | 已改为异步：`publish()` 只入队，实际发送在单线程 `mqtt-publish` 执行器里做；队列上限 200，满时直接报错给 UI | 已改完；`adb logcat -v thread -s MqttTrace` 可见发送日志来自 `mqtt-publish` 线程 | 0.5 天 | ✅ |
 | N10 | ~~`allowBackup=true` 且无 `dataExtractionRules`~~ | 已改 `allowBackup=false` + `fullBackupContent=false`：无有价值用户数据，备份只会带走 broker 地址与（换机后无法解密的）凭据 | 已完成；清单 `aapt2` 链接通过 | 0.5 天 | ✅ |
 | N11 | 告警、状态只在内存，进程被杀即丢 | `AlarmStore` 用 `ArrayList`，无持久化 | Room 存告警与最近状态；界面先渲染缓存 | 2 天 | ⭕ |
-| N1 | `MqttManager` 是 God object，且越来越重 | **约 900 行**，含 v2 路由、请求配对、去重、异步发布 | 拆 `MqttClient` / `MessageRouter` / `DeviceRepository` / `VideoController` | 3–5 天 | ⭕ |
+| N1 | ~~`MqttManager` 是 God object~~ | 已拆成四层：`MqttClient`（连接/订阅/异步发布，370 行）、`MessageRouter`（主题→事件 + 去重，162 行）、`DeviceRegistry`（设备/状态/选中，228 行）、`MqttTrace`（日志，49 行）+ `ConnState`；`MqttManager` 退化为门面（479 行，原 914 行） | 已改完；四组单测 30 项通过 | 3–5 天 | ✅ |
 | N2 | UI 无 ViewModel、无单一数据源 | 0 个 ViewModel/StateFlow；`findViewById` **89 处**；`StatusFragment` 里 **55 处 `optXxx`**；全项目 **51 处 `requireActivity()/requireContext()`** | ViewModel + StateFlow + `repeatOnLifecycle`；协议解析下沉到数据类 | 1–2 周 | ⭕ |
 | N3 | ~~视频管道两份实现~~ | 已抽 `WhepSession`（497 行）：EGL/Factory/PeerConnection/WHEP 协商/首帧/释放 只此一份；`PlayerActivity` 649→**376 行**，重复代码交集从 **40% 降到 2%**；协商代码全项目只在 `WhepSession` 出现 | 已改完；`javac` 通过 | 2–3 天 | ✅ |
 | N14 | ~~协议已大改，版本号没动~~ | 已提为 `versionCode 9` / `versionName "1.8"`，并在 build.gradle 注释与 README 徽章里标明「v1 主题已删除，不兼容旧设备/旧 App」 | 完成 | 10 分钟 | ✅ |
@@ -88,6 +88,7 @@
 | App 不再自收自发 | App | 订阅改为 8 个精确响应主题（不再 `walle/{t}/#`）；连接时先退订旧会话遗留过滤器（`cleanSession=false` 坑） |
 | 设备端命令应答日志 | 设备端 | 新增 `_publish_cmd_result()`：发布 + `已响应命令执行 -> .../cmd/result（request_id=…，status=…，耗时 …）`，覆盖禁用/空命令/白名单/失败/超时全部分支 |
 | 设备端工程化 | `device/` | 新增一键部署 `install.sh`（首次交互式必填 5 项）、`--check` 配置自检、环境文件自动加载、`selftest_topics.py` 扩展为 8 组断言 |
+| **网络层分层（N1）** | `net/MqttClient.java`、`net/MessageRouter.java`、`net/DeviceRegistry.java`、`net/MqttTrace.java`、`net/ConnState.java`、`net/MqttManager.java`、6 个 UI 文件 | 把 914 行的 `MqttManager` 拆成「传输 / 路由 / 注册表 / 门面」四层；`ConnState` 提升为顶层枚举（UI 20 处引用同步）；新增 `MessageRouterTest`、`DeviceRegistryTest`（合计 30 项单测） |
 | **视频管道去重（N3）** | `ui/WhepSession.java`（新增）、`ui/PlayerActivity.java`、`ui/ControlFragment.java` | 抽出 `WhepSession`：EGL/Factory/PeerConnection/WHEP 协商/首帧/释放 唯一实现；播放页删掉自管的 240 余行 WebRTC 代码，只保留 UI（状态文案/首帧遮罩/摄像头切换/退出）；控制页沿用同一会话并保留自己的状态文案 |
 | **收尾（N6 + N10）** | `AndroidManifest.xml`、`net/MqttManager.java`、`net/TopicNames.java` | 关闭备份；会话改 `cleanSession=true` 并删掉失效的旧订阅清理代码与对应单测 |
 | **单测 + CI（N12）** | `app/src/test/`、`.github/workflows/android-ci.yml`、`app/build.gradle` | 16 个 JVM 单测锁住主题命名/清洗/订阅/配对与设备标识规则；CI 依次跑单测、debug 构建、设备端契约自检，并上传 APK |
@@ -104,7 +105,7 @@
 ## 四、建议顺序
 
 1. **量测 N9 / 验证 N8**（10 分钟）：`./gradlew :app:assembleDebug` 看 APK 大小；装包后看 logcat 有无「connectedDevice 被拒绝」回退日志。
-2. **N1 + N2 + N11**（1–2 周）：`MqttManager` 拆分层 + ViewModel/StateFlow + Room 持久化，三者互相依赖，建议一起做。
+2. **N2 + N11**（1–2 周）：UI 层引入 ViewModel/StateFlow，并把告警/状态接 Room 持久化；网络层已拆好，可直接向上暴露 `StateFlow`。
 3. N7（租户内广播发现）等设备数量上量后再优化；忽略项等业务上量后再做。
 
 ---

@@ -114,4 +114,6 @@ dependencies {
 
     // 单元测试：./gradlew :app:testDebugUnitTest
     testImplementation 'junit:junit:4.13.2'
+    // JVM 单测需要真正的 org.json 实现（android.jar 里只是抛 "Stub!" 的桩）
+    testImplementation 'org.json:json:20240303'
 }

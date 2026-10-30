@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat;
 import www.walle.ai.R;
 import www.walle.ai.net.MqttConfig;
 import www.walle.ai.net.MqttConfigStore;
+import www.walle.ai.net.ConnState;
 import www.walle.ai.net.MqttManager;
 import www.walle.ai.net.MqttService;
 import com.google.android.material.button.MaterialButton;
@@ -183,11 +184,11 @@ public class SettingsActivity extends AppCompatActivity implements MqttManager.L
     }
 
     @Override
-    public void onConnState(MqttManager.ConnState state, String info) {
+    public void onConnState(ConnState state, String info) {
         runOnUiThread(() -> renderConn(state, info));
     }
 
-    private void renderConn(MqttManager.ConnState state, String info) {
+    private void renderConn(ConnState state, String info) {
         int color;
         String label;
         switch (state) {
@@ -213,10 +214,10 @@ public class SettingsActivity extends AppCompatActivity implements MqttManager.L
         tvConnState.setText(label);
         tvConnDetail.setText(info == null || info.isEmpty() ? mgr.getConfig().brokerUri() : info);
 
-        if (state == MqttManager.ConnState.CONNECTED) {
+        if (state == ConnState.CONNECTED) {
             btnConnect.setText(R.string.disconnect);
             btnConnect.setEnabled(true);
-        } else if (state == MqttManager.ConnState.CONNECTING) {
+        } else if (state == ConnState.CONNECTING) {
             btnConnect.setText(R.string.connecting);
             btnConnect.setEnabled(true);
         } else {

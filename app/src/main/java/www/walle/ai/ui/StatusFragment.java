@@ -20,6 +20,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import www.walle.ai.R;
 import www.walle.ai.net.DeviceInfo;
+import www.walle.ai.net.ConnState;
 import www.walle.ai.net.MqttManager;
 import com.google.android.material.button.MaterialButton;
 import androidx.appcompat.widget.SwitchCompat;
@@ -44,7 +45,7 @@ public class StatusFragment extends Fragment implements MqttManager.Listener {
     private String waitingRid = "";
     private final Runnable autoTask = new Runnable() {
         @Override public void run() {
-            if (swAuto != null && swAuto.isChecked() && mgr.getState() == MqttManager.ConnState.CONNECTED) {
+            if (swAuto != null && swAuto.isChecked() && mgr.getState() == ConnState.CONNECTED) {
                 doQuery();
             }
             int sec = Math.max(2, mgr.getConfig().statusIntervalSec);
@@ -107,7 +108,7 @@ public class StatusFragment extends Fragment implements MqttManager.Listener {
     }
 
     private void doQuery() {
-        if (mgr.getState() != MqttManager.ConnState.CONNECTED) {
+        if (mgr.getState() != ConnState.CONNECTED) {
             swipe.setRefreshing(false);
             return;
         }
@@ -132,7 +133,7 @@ public class StatusFragment extends Fragment implements MqttManager.Listener {
 
     private void updateQueryEnabled() {
         if (btnQuery == null) return;
-        boolean ok = mgr.getState() == MqttManager.ConnState.CONNECTED
+        boolean ok = mgr.getState() == ConnState.CONNECTED
                 && !mgr.getSelectedKey().isEmpty();
         btnQuery.setEnabled(ok);
         btnQuery.setText(waiting ? R.string.refreshing : R.string.query_status);
@@ -140,11 +141,11 @@ public class StatusFragment extends Fragment implements MqttManager.Listener {
 
     /** 连接状态变化：按钮可用性跟着变；连上后若当前设备还没有数据，自动查一次。 */
     @Override
-    public void onConnState(MqttManager.ConnState state, String info) {
+    public void onConnState(ConnState state, String info) {
         if (getActivity() == null) return;
         requireActivity().runOnUiThread(() -> {
             updateQueryEnabled();
-            if (state == MqttManager.ConnState.CONNECTED) autoQueryIfIdle();
+            if (state == ConnState.CONNECTED) autoQueryIfIdle();
         });
     }
 
@@ -177,7 +178,7 @@ public class StatusFragment extends Fragment implements MqttManager.Listener {
     /** 已连接 + 已选设备 + 还没有数据时自动查一次，避免一直停在“暂无数据”。 */
     private void autoQueryIfIdle() {
         if (waiting) return;
-        if (mgr.getState() != MqttManager.ConnState.CONNECTED) return;
+        if (mgr.getState() != ConnState.CONNECTED) return;
         if (mgr.getSelectedKey().isEmpty()) return;
         if (mgr.getStatus(mgr.getSelectedKey()) != null) return;
         doQuery();

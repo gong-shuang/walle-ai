@@ -18,6 +18,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import www.walle.ai.R;
 import www.walle.ai.net.DeviceInfo;
+import www.walle.ai.net.ConnState;
 import www.walle.ai.net.MqttManager;
 import www.walle.ai.net.Topics;
 
@@ -198,8 +199,8 @@ public class DevicesFragment extends Fragment implements MqttManager.Listener {
     }
 
     @Override
-    public void onConnState(MqttManager.ConnState state, String info) {
-        if (state == MqttManager.ConnState.CONNECTED) {
+    public void onConnState(ConnState state, String info) {
+        if (state == ConnState.CONNECTED) {
             scan(false);
         } else {
             render();

@@ -17,6 +17,7 @@ import androidx.fragment.app.Fragment;
 
 import www.walle.ai.R;
 import www.walle.ai.net.DeviceInfo;
+import www.walle.ai.net.ConnState;
 import www.walle.ai.net.MqttManager;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.chip.Chip;
@@ -96,7 +97,7 @@ public class CommandFragment extends Fragment implements MqttManager.Listener {
             Toast.makeText(requireContext(), "请输入命令", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (mgr.getState() != MqttManager.ConnState.CONNECTED) {
+        if (mgr.getState() != ConnState.CONNECTED) {
             Toast.makeText(requireContext(), "MQTT 未连接", Toast.LENGTH_SHORT).show();
             return;
         }

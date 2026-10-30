@@ -15,6 +15,7 @@ import androidx.fragment.app.Fragment;
 
 import www.walle.ai.R;
 import www.walle.ai.net.AlarmStore;
+import www.walle.ai.net.ConnState;
 import www.walle.ai.net.MqttManager;
 
 /**
@@ -75,7 +76,7 @@ public class SettingsFragment extends Fragment
 
     // ---------------- MqttManager.Listener ----------------
     @Override
-    public void onConnState(MqttManager.ConnState state, String info) {
+    public void onConnState(ConnState state, String info) {
         if (getActivity() == null) return;
         requireActivity().runOnUiThread(() -> renderServer(state, info));
     }
@@ -87,7 +88,7 @@ public class SettingsFragment extends Fragment
         requireActivity().runOnUiThread(this::renderAlarm);
     }
 
-    private void renderServer(MqttManager.ConnState state, String info) {
+    private void renderServer(ConnState state, String info) {
         if (dotServer == null || tvServerTitle == null) return;
         int color;
         String label;
@@ -112,7 +113,7 @@ public class SettingsFragment extends Fragment
         dotServer.getBackground().setColorFilter(
                 ContextCompat.getColor(requireContext(), color), PorterDuff.Mode.SRC_IN);
         tvServerTitle.setText(getString(R.string.server_row_fmt, label));
-        if (state == MqttManager.ConnState.CONNECTED) {
+        if (state == ConnState.CONNECTED) {
             tvServerSub.setText(mgr.getConfig().brokerUri());
         } else if (info != null && !info.isEmpty()) {
             tvServerSub.setText(info);
