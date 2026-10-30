@@ -355,7 +355,8 @@ public class ControlFragment extends Fragment implements MqttManager.Listener {
         if (!switchResp && !startResp) {
             // 迟到的旧结果 / 别处发起的结果：直接丢，避免把当前状态改乱
             android.util.Log.w("ControlFragment", "忽略不匹配的推流结果 request_id=" + rid
-                    + "（等待 start=" + pendingStartRid + " switch=" + pendingSwitchRid + "）");
+                    + "（等待 start=" + pendingStartRid + " switch=" + pendingSwitchRid + "）"
+                    + (rid.isEmpty() ? "｜设备未回显 request_id，检查设备端是否为最新版本" : ""));
             return;
         }
 

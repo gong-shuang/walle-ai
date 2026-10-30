@@ -1030,6 +1030,14 @@ class RpiMonitor:
         """取请求里的 request_id（统一字符串；缺省为空串）。"""
         return str((data or {}).get("request_id") or "")
 
+    def _video_req(self, data, video_device, room_number):
+        """推流请求的归一化副本：用于构造应答报文，必须把 request_id 一并带上。"""
+        return {
+            "video_device": video_device,
+            "room_number": room_number,
+            "request_id": self._rid(data),
+        }
+
     def publish_json(self, resource, data, retain=False):
         """按资源名发布到 walle/{tenant}/{device}/{resource}。
 
@@ -1425,7 +1433,8 @@ class RpiMonitor:
 
         video_device = str(data.get("video_device") or "").strip()
         room_number = str(data.get("room_number") or "").strip()
-        req = {"video_device": video_device, "room_number": room_number}
+        # 注意：这里曾重建 dict 时漏掉 request_id，导致应答回显成空串、App 严格配对后丢弃结果
+        req = self._video_req(data, video_device, room_number)
 
         if not VIDEO_ENABLE:
             self._publish_video_result(req, -2, "命令执行失败",

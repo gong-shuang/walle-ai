@@ -219,6 +219,23 @@ def main():
     ]:
         check(f"{topic.split('/')[-2]}/{topic.split('/')[-1]} 回显 rid", sent.get(topic, {}).get("request_id"), rid)
 
+    # 回归：视频请求曾经的 bug —— 重建 req 字典时漏掉 request_id，
+    # 导致应答里 request_id 为空、App 严格配对后把结果丢弃（表现为「一直转圈」）。
+    req = resp._video_req({"request_id": "rid-req"}, "/dev/video0", "123456")
+    check("_video_req 保留 request_id", req.get("request_id"), "rid-req")
+
+    resp.client.sent.clear()
+    m.VIDEO_ENABLE = False          # 走「推流已关闭」的早退分支，避免真的启动 ffmpeg
+    try:
+        resp.handle_video_request(
+            '{"uuid":"x","video_device":"/dev/video0","room_number":"123456",'
+            '"request_id":"rid-video"}')
+    finally:
+        m.VIDEO_ENABLE = True
+    sent_video = {t: json.loads(p) for t, p, _ in resp.client.sent}
+    check("视频请求应答回显 rid", sent_video.get(f"{base}/video/start/result", {}).get("request_id"),
+          "rid-video")
+
     print("\n== 8. 请求路由（含租户级 discovery）==")
     routed = []
 
