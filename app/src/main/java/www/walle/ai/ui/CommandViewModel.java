@@ -75,21 +75,21 @@ public class CommandViewModel extends MqttViewModel {
     }
 
     public void clearToast() {
-        toast.setValue(null);
+        emit(toast, null);
     }
 
     /** 下发命令；参数已由页面做过空值/范围收敛。 */
     public void run(String cmd, int timeoutSec) {
         if (cmd == null || cmd.trim().isEmpty()) {
-            toast.setValue("请输入命令");
+            emit(toast, "请输入命令");
             return;
         }
         if (mgr.getState() != ConnState.CONNECTED) {
-            toast.setValue("MQTT 未连接");
+            emit(toast, "MQTT 未连接");
             return;
         }
         if (mgr.getSelectedKey().isEmpty()) {
-            toast.setValue("请先在设备页选择一台设备");
+            emit(toast, "请先在设备页选择一台设备");
             return;
         }
         final int timeout = Math.max(1, Math.min(timeoutSec, 300));
@@ -178,6 +178,10 @@ public class CommandViewModel extends MqttViewModel {
     }
 
     private void publish() {
+        if (!onMainThread()) {          // WebRTC 回调可能在 signaling 线程
+            runOnMain(this::publish);
+            return;
+        }
         state.setValue(new UiState(mgr.getSelectedDevice(), connected, running,
                 meta, result, new ArrayList<>(history)));
     }

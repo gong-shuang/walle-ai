@@ -27,6 +27,29 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # 架构守卫：分层约束一旦被破坏就在 CI 里失败（比 code review 可靠）
+      - name: Architecture guard
+        run: |
+          set -e
+          fail() { echo "::error::$1"; exit 1; }
+
+          # 1) 只有 ViewModel 允许监听 MQTT；页面（Fragment/Activity）必须走 ViewModel
+          if grep -rn "implements .*MqttManager.Listener" app/src/main/java | grep -v "ViewModel.java"; then
+            fail "页面不应实现 MqttManager.Listener，请改为 ViewModel + LiveData（见 N2）"
+          fi
+
+          # 2) LiveData 写入集中在 ViewModel，页面只 observe
+          if grep -rn "\.setValue(\|\.postValue(" app/src/main/java | grep -v "ViewModel.java"; then
+            fail "LiveData 写入应集中在 ViewModel，页面只允许 observe"
+          fi
+
+          # 3) WhepSession 的回调必须经 dispatch() 切主线程 + 捕获异常，
+          #    否则异常跨 JNI 边界会直接 SIGABRT（signaling 线程）
+          grep -q "private void dispatch(Runnable" app/src/main/java/www/walle/ai/ui/WhepSession.java \
+            || fail "WhepSession 的 dispatch() 兜底被删除：WebRTC 回调必须切主线程且不得抛出异常"
+
+          echo "架构守卫通过"
+
       # 单元测试：TopicNames / DeviceInfo 的主题与标识契约
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace

@@ -87,6 +87,10 @@ public class ConnectionViewModel extends MqttViewModel implements AlarmStore.Obs
     }
 
     private void publish() {
+        if (!onMainThread()) {          // WebRTC 回调可能在 signaling 线程
+            runOnMain(this::publish);
+            return;
+        }
         state.setValue(new UiState(mgr.getState(), mgr.getStateInfo(),
                 mgr.deviceCount(), mgr.onlineCount(), mgr.getSelectedDevice(),
                 AlarmStore.get().unread()));

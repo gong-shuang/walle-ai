@@ -138,7 +138,7 @@ public class ControlViewModel extends MqttViewModel {
     }
 
     public void clearToast() {
-        toast.setValue(null);
+        emit(toast, null);
     }
 
     // ---------------------------------------------------------------- 生命周期
@@ -238,7 +238,7 @@ public class ControlViewModel extends MqttViewModel {
         if (phase == Phase.LIVE && !activeRoom.isEmpty()) {
             MqttManager.VideoRequest req = mgr.startVideoStream(activeUuid, node, activeRoom);
             if (!req.isSent()) {
-                toast.setValue("摄像头切换请求未发出");
+                emit(toast, "摄像头切换请求未发出");
                 return;
             }
             pendingCamera = node;
@@ -260,12 +260,12 @@ public class ControlViewModel extends MqttViewModel {
         }
         String uuid = mgr.getSelectedKey();
         if (uuid.isEmpty()) {
-            toast.setValue(app().getString(R.string.video_no_device));
+            emit(toast, app().getString(R.string.video_no_device));
             return;
         }
         CameraCapability.Camera cam = selectedCamera();
         if (cam == null) {
-            toast.setValue(app().getString(R.string.video_no_camera));
+            emit(toast, app().getString(R.string.video_no_camera));
             return;
         }
         activeUuid = uuid;
@@ -346,7 +346,7 @@ public class ControlViewModel extends MqttViewModel {
         pendingStopRid = "";
         int result = payload.optInt("result", 0);
         if (result != 0) {
-            toast.setValue(app().getString(R.string.video_stop_failed,
+            emit(toast, app().getString(R.string.video_stop_failed,
                     payload.optString("error", "")));
         }
     }
@@ -465,6 +465,10 @@ public class ControlViewModel extends MqttViewModel {
     }
 
     private void publish() {
+        if (!onMainThread()) {          // WebRTC 回调可能在 signaling 线程
+            runOnMain(this::publish);
+            return;
+        }
         DeviceInfo dev = mgr.getSelectedDevice();
         state.setValue(new UiState(cameras, selectedNode, connected, hasDevice,
                 capabilityLoading, phase, status, activeRoom, activeCamera,

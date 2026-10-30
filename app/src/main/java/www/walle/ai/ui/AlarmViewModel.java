@@ -40,7 +40,6 @@ public class AlarmViewModel extends AndroidViewModel implements AlarmStore.Obser
 
     @Override
     public void onAlarmsChanged() {
-        // AlarmStore 的回调已在主线程
         reload();
     }
 
@@ -49,7 +48,8 @@ public class AlarmViewModel extends AndroidViewModel implements AlarmStore.Obser
         AlarmStore.get().removeObserver(this);
     }
 
+    /** 用 postValue：AlarmStore 可能被 MQTT 回调（主线程）之外的路径触发，且每次都重新取快照。 */
     private void reload() {
-        alarms.setValue(new ArrayList<>(AlarmStore.get().items()));
+        alarms.postValue(new ArrayList<>(AlarmStore.get().items()));
     }
 }

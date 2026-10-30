@@ -241,6 +241,10 @@ public class PlayerViewModel extends MqttViewModel {
     }
 
     private void publish() {
+        if (!onMainThread()) {          // WebRTC 回调可能在 signaling 线程
+            runOnMain(this::publish);
+            return;
+        }
         state.setValue(new UiState(cameras, indexOf(currentCamera), currentCamera,
                 waiting, status, room, deviceKey));
     }

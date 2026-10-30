@@ -69,6 +69,21 @@ public class StatusViewModel extends AndroidViewModel implements MqttManager.Lis
         publish();
     };
 
+    private boolean onMainThread() {
+        return Looper.myLooper() == Looper.getMainLooper();
+    }
+
+    /** 单次事件安全 setValue：主线程立即生效，其它线程切主线程（避免 set/post 交错）。 */
+    private void emit(MutableLiveData<String> live, String value) {
+        if (onMainThread()) live.setValue(value);
+        else handler.post(() -> live.setValue(value));
+    }
+
+    private void runOnMain(Runnable action) {
+        if (onMainThread()) action.run();
+        else handler.post(action);
+    }
+
     private final Runnable autoTask = new Runnable() {
         @Override
         public void run() {
@@ -96,7 +111,7 @@ public class StatusViewModel extends AndroidViewModel implements MqttManager.Lis
     }
 
     public void clearToast() {
-        toast.setValue(null);
+        emit(toast, null);
     }
 
     public boolean isAutoRefresh() {
@@ -109,7 +124,7 @@ public class StatusViewModel extends AndroidViewModel implements MqttManager.Lis
             return;
         }
         if (mgr.getSelectedKey().isEmpty()) {
-            toast.setValue("请先在设备页选择一台设备");
+            emit(toast, "请先在设备页选择一台设备");
             return;
         }
         waitingRid = mgr.requestStatus();
@@ -187,6 +202,10 @@ public class StatusViewModel extends AndroidViewModel implements MqttManager.Lis
     }
 
     private void publish() {
+        if (!onMainThread()) {          // WebRTC 回调可能在 signaling 线程
+            runOnMain(this::publish);
+            return;
+        }
         StatusSnapshot snapshot = cache;
         if (snapshot == null) {
             JSONObject cached = mgr.getStatus(mgr.getSelectedKey());

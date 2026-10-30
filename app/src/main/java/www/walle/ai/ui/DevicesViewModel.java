@@ -93,13 +93,13 @@ public class DevicesViewModel extends MqttViewModel {
     }
 
     public void clearToast() {
-        toast.setValue(null);
+        emit(toast, null);
     }
 
     /** 扫描一次；manual=true 时在未连接的情况下提示用户。 */
     public void scan(boolean manual) {
         if (!mgr.isConnected()) {
-            if (manual) toast.setValue("尚未连接 MQTT 服务器");
+            if (manual) emit(toast, "尚未连接 MQTT 服务器");
             publish();
             return;
         }
@@ -158,7 +158,7 @@ public class DevicesViewModel extends MqttViewModel {
             handler.removeCallbacks(finishScan);
             scanning = false;
             pendingKeys.clear();
-            toast.setValue(error);
+            emit(toast, error);
             publish();
         }
     }
@@ -177,6 +177,10 @@ public class DevicesViewModel extends MqttViewModel {
     }
 
     private void publish() {
+        if (!onMainThread()) {          // WebRTC 回调可能在 signaling 线程
+            runOnMain(this::publish);
+            return;
+        }
         List<DeviceInfo> visible = new ArrayList<>();
         for (DeviceInfo d : mgr.getDevices()) {
             if (shownKeys.contains(d.key())) visible.add(d);

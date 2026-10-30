@@ -1,9 +1,12 @@
 package www.walle.ai.ui;
 
 import android.app.Application;
+import android.os.Handler;
+import android.os.Looper;
 
 import androidx.annotation.NonNull;
 import androidx.lifecycle.AndroidViewModel;
+import androidx.lifecycle.MutableLiveData;
 
 import www.walle.ai.net.MqttManager;
 
@@ -17,6 +20,7 @@ import www.walle.ai.net.MqttManager;
 public abstract class MqttViewModel extends AndroidViewModel implements MqttManager.Listener {
 
     protected final MqttManager mgr;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     protected MqttViewModel(@NonNull Application app) {
         super(app);
@@ -27,5 +31,32 @@ public abstract class MqttViewModel extends AndroidViewModel implements MqttMana
     @Override
     protected void onCleared() {
         mgr.removeListener(this);
+        mainHandler.removeCallbacksAndMessages(null);
+    }
+
+    protected final boolean onMainThread() {
+        return Looper.myLooper() == Looper.getMainLooper();
+    }
+
+    /**
+     * 保证在主线程执行。
+     *
+     * <p>MQTT 回调由 {@code MqttManager} 统一 post 到主线程，但 <b>WebRTC 的回调不是</b>：
+     * {@code PeerConnection.Observer} 来自 native 的 signaling 线程。ViewModel 里的状态字段
+     * 与 LiveData 都不是线程安全的，所以入口统一走这里。</p>
+     */
+    protected final void runOnMain(@NonNull Runnable action) {
+        if (onMainThread()) action.run();
+        else mainHandler.post(action);
+    }
+
+    /**
+     * 单次事件（toast 之类）的安全 setValue：主线程立即生效，其它线程切主线程。
+     *
+     * <p>不用 {@code postValue} 是为了避免「post 的旧值覆盖 set 的新值」这类交错。</p>
+     */
+    protected final <T> void emit(@NonNull MutableLiveData<T> live, T value) {
+        if (onMainThread()) live.setValue(value);
+        else mainHandler.post(() -> live.setValue(value));
     }
 }

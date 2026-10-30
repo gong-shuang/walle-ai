@@ -316,7 +316,8 @@ public final class WhepSession {
                 isLive = true;
             }
             // 文案交给页面决定（控制页写「推流中」、播放页写「直播中」）
-            callback.onConnectionState(newState);
+            // 注意：这里来自 WebRTC 的 signaling 线程，必须切主线程再回调
+            dispatch(() -> callback.onConnectionState(newState));
         }
 
         @Override
@@ -454,26 +455,37 @@ public final class WhepSession {
 
     // ---------------------------------------------------------------- 回调封装
 
-    private void status(final String text) {
+    /**
+     * 统一的回调派发：切主线程 + 兜底捕获异常。
+     *
+     * <p>这些回调大多由 WebRTC 的 native 线程（signaling / network）触发。异常一旦从这些线程
+     * 跨过 JNI 边界返回，WebRTC 的 jni_generator_helper 会命中
+     * {@code Check failed: !env->ExceptionCheck()} 直接 SIGABRT —— 表现为「UI 里一个
+     * IllegalStateException，整个 App 闪退」。所以这里必须自己 try/catch，把异常留在 Java 层。</p>
+     */
+    private void dispatch(Runnable action) {
         if (released) return;
         mainHandler.post(() -> {
-            if (!released) callback.onStatus(text);
+            if (released) return;
+            try {
+                action.run();
+            } catch (Throwable t) {
+                Log.e(TAG, "回调执行异常（已拦截，避免跨 JNI 崩溃）: " + t, t);
+            }
         });
+    }
+
+    private void status(final String text) {
+        dispatch(() -> callback.onStatus(text));
     }
 
     private void notifyFirstFrame() {
-        if (released) return;
-        mainHandler.post(() -> {
-            if (!released) callback.onFirstFrame();
-        });
+        dispatch(callback::onFirstFrame);
     }
 
     private void error(final String message) {
-        if (released) return;
         Log.e(TAG, "播放错误: " + message);
-        mainHandler.post(() -> {
-            if (!released) callback.onError(message);
-        });
+        dispatch(() -> callback.onError(message));
     }
 
     /** 简化版 SdpObserver：只关心成功/失败分支。 */
