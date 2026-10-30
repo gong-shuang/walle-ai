@@ -168,15 +168,6 @@ public final class UiUtil {
         }
     }
 
-    public static String joinJsonStrings(JSONArray arr) {
-        if (arr == null || arr.length() == 0) return "";
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < arr.length(); i++) {
-            if (i > 0) sb.append(", ");
-            sb.append(arr.optString(i));
-        }
-        return sb.toString();
-    }
 
     /** 从 JSONObject 安全取 double，键不存在或 null 返回 null。 */
     public static Double optDouble(JSONObject o, String key) {

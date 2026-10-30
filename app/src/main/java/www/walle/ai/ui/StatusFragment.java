@@ -2,8 +2,6 @@ package www.walle.ai.ui;
 
 import android.graphics.Typeface;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -14,44 +12,38 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.ViewModelProvider;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
-import www.walle.ai.R;
-import www.walle.ai.net.DeviceInfo;
-import www.walle.ai.net.ConnState;
-import www.walle.ai.net.MqttManager;
 import com.google.android.material.button.MaterialButton;
-import androidx.appcompat.widget.SwitchCompat;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
-
+import java.util.List;
 import java.util.Locale;
 
-public class StatusFragment extends Fragment implements MqttManager.Listener {
+import www.walle.ai.R;
+import www.walle.ai.model.StatusSnapshot;
+import www.walle.ai.net.DeviceInfo;
 
-    private MqttManager mgr;
+/**
+ * 设备状态页：只负责渲染 {@link StatusViewModel.UiState}，不再自己解析 JSON / 维护请求状态。
+ *
+ * <p>数据流：MQTT 回调 → ViewModel（解析成 {@link StatusSnapshot}）→ LiveData → 本页渲染。
+ * Activity/Fragment 重建时状态由 ViewModel 保留，不会出现「旋转后重新查一遍」或
+ * 「回调里碰已销毁的 View」。</p>
+ */
+public class StatusFragment extends Fragment {
+
+    private StatusViewModel viewModel;
     private LinearLayout container;
     private TextView tvEmpty, tvUpdated, tvCurrentDevice;
     private MaterialButton btnQuery;
     private SwitchCompat swAuto;
     private SwipeRefreshLayout swipe;
-    private final Handler handler = new Handler(Looper.getMainLooper());
-
-    private boolean waiting = false;
-    /** 本次状态查询的 request_id，用于过滤迟到的旧结果。 */
-    private String waitingRid = "";
-    private final Runnable autoTask = new Runnable() {
-        @Override public void run() {
-            if (swAuto != null && swAuto.isChecked() && mgr.getState() == ConnState.CONNECTED) {
-                doQuery();
-            }
-            int sec = Math.max(2, mgr.getConfig().statusIntervalSec);
-            handler.postDelayed(this, sec * 1000L);
-        }
-    };
+    /** 避免 setChecked 触发监听器造成回环。 */
+    private boolean bindingSwitch;
 
     @Nullable
     @Override
@@ -62,7 +54,8 @@ public class StatusFragment extends Fragment implements MqttManager.Listener {
 
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
-        mgr = MqttManager.get(requireContext());
+        viewModel = new ViewModelProvider(this).get(StatusViewModel.class);
+
         container = view.findViewById(R.id.statusContainer);
         tvEmpty = view.findViewById(R.id.tvEmpty);
         tvUpdated = view.findViewById(R.id.tvUpdated);
@@ -71,34 +64,51 @@ public class StatusFragment extends Fragment implements MqttManager.Listener {
         swAuto = view.findViewById(R.id.swAuto);
         swipe = view.findViewById(R.id.swipe);
 
-        btnQuery.setOnClickListener(v -> doQuery());
-        swipe.setOnRefreshListener(this::doQuery);
+        btnQuery.setOnClickListener(v -> viewModel.query());
+        swipe.setOnRefreshListener(() -> {
+            viewModel.query();
+            swipe.setRefreshing(false);   // 刷新指示由 UiState.refreshing 驱动
+        });
+        swAuto.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (bindingSwitch) return;
+            viewModel.setAutoRefresh(isChecked);
+        });
 
-        updateDeviceLabel();
-        renderCached();
-        updateQueryEnabled();
+        viewModel.state().observe(getViewLifecycleOwner(), this::render);
+        viewModel.toast().observe(getViewLifecycleOwner(), msg -> {
+            if (msg != null && !msg.isEmpty()) {
+                Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show();
+                viewModel.clearToast();
+            }
+        });
     }
 
-    /** 设备页切换了当前设备：刷新标题、清空旧数据并立即查询一次。 */
+    /** 设备页切换了当前设备：Dialog 已由设备页负责，这里让 ViewModel 重新取一次。 */
     public void onDeviceSwitched() {
-        if (!isAdded()) return;
-        updateDeviceLabel();
-        container.removeAllViews();
-        tvEmpty.setVisibility(View.VISIBLE);
-        tvUpdated.setText("");
-        renderCached();
-        updateQueryEnabled();
-        doQuery();
+        if (!isAdded() || viewModel == null) return;
+        viewModel.query();
     }
 
-    private void renderCached() {
-        JSONObject cached = mgr.getStatus(mgr.getSelectedKey());
-        if (cached != null) render(cached);
+    // ---------------------------------------------------------------- 渲染
+
+    private void render(StatusViewModel.UiState ui) {
+        renderDeviceLabel(ui.device);
+        renderToolbar(ui);
+
+        StatusSnapshot s = ui.snapshot;
+        if (s == null) {
+            container.removeAllViews();
+            tvEmpty.setVisibility(View.VISIBLE);
+            tvUpdated.setText("");
+            return;
+        }
+        tvEmpty.setVisibility(View.GONE);
+        tvUpdated.setText("最近更新：" + s.datetime);
+        renderSnapshot(s);
     }
 
-    private void updateDeviceLabel() {
+    private void renderDeviceLabel(DeviceInfo d) {
         if (tvCurrentDevice == null) return;
-        DeviceInfo d = mgr.getSelectedDevice();
         if (d == null) {
             tvCurrentDevice.setText(R.string.no_device_selected);
         } else {
@@ -107,268 +117,147 @@ public class StatusFragment extends Fragment implements MqttManager.Listener {
         }
     }
 
-    private void doQuery() {
-        if (mgr.getState() != ConnState.CONNECTED) {
-            swipe.setRefreshing(false);
-            return;
+    private void renderToolbar(StatusViewModel.UiState ui) {
+        if (btnQuery != null) {
+            btnQuery.setEnabled(ui.canQuery());
+            btnQuery.setText(ui.refreshing ? R.string.refreshing : R.string.query_status);
         }
-        if (mgr.getSelectedKey().isEmpty()) {
-            swipe.setRefreshing(false);
-            Toast.makeText(requireContext(), R.string.no_device_selected, Toast.LENGTH_SHORT).show();
-            return;
+        if (swAuto != null) {
+            bindingSwitch = true;
+            swAuto.setChecked(ui.autoRefresh);
+            bindingSwitch = false;
         }
-        waitingRid = mgr.requestStatus();
-        waiting = !waitingRid.isEmpty();
-        updateQueryEnabled();
-        swipe.setRefreshing(true);
-        handler.postDelayed(() -> {
-            if (waiting) {
-                waiting = false;
-                waitingRid = "";
-                swipe.setRefreshing(false);
-                updateQueryEnabled();
-            }
-        }, 6000);
     }
 
-    private void updateQueryEnabled() {
-        if (btnQuery == null) return;
-        boolean ok = mgr.getState() == ConnState.CONNECTED
-                && !mgr.getSelectedKey().isEmpty();
-        btnQuery.setEnabled(ok);
-        btnQuery.setText(waiting ? R.string.refreshing : R.string.query_status);
-    }
-
-    /** 连接状态变化：按钮可用性跟着变；连上后若当前设备还没有数据，自动查一次。 */
-    @Override
-    public void onConnState(ConnState state, String info) {
-        if (getActivity() == null) return;
-        requireActivity().runOnUiThread(() -> {
-            updateQueryEnabled();
-            if (state == ConnState.CONNECTED) autoQueryIfIdle();
-        });
-    }
-
-    @Override
-    public void onStart() {
-        super.onStart();
-        mgr.addListener(this);
-        updateDeviceLabel();
-        renderCached();
-        handler.postDelayed(autoTask, Math.max(2, mgr.getConfig().statusIntervalSec) * 1000L);
-    }
-
-    @Override
-    public void onStop() {
-        super.onStop();
-        mgr.removeListener(this);
-        handler.removeCallbacks(autoTask);
-    }
-
-    // ---------------- Listener ----------------
-    @Override public void onDevicesChanged() {
-        if (getActivity() == null) return;
-        requireActivity().runOnUiThread(() -> {
-            updateDeviceLabel();
-            updateQueryEnabled();
-            autoQueryIfIdle();
-        });
-    }
-
-    /** 已连接 + 已选设备 + 还没有数据时自动查一次，避免一直停在“暂无数据”。 */
-    private void autoQueryIfIdle() {
-        if (waiting) return;
-        if (mgr.getState() != ConnState.CONNECTED) return;
-        if (mgr.getSelectedKey().isEmpty()) return;
-        if (mgr.getStatus(mgr.getSelectedKey()) != null) return;
-        doQuery();
-    }
-    @Override public void onMachineStatus(JSONObject s) {
-        if (getActivity() == null) return;
-        String uuid = s.optString("uuid", "");
-        String sel = mgr.getSelectedKey();
-        if (!uuid.isEmpty() && !sel.isEmpty() && !uuid.equals(sel)) return;
-        requireActivity().runOnUiThread(() -> {
-            String rid = s.optString("request_id", "");
-            // 只有与本次查询匹配（或报文没带 rid）才结束「查询中」；迟到的旧结果只渲染不改状态
-            if (waitingRid.isEmpty() || rid.isEmpty() || rid.equals(waitingRid)) {
-                waiting = false;
-                waitingRid = "";
-                swipe.setRefreshing(false);
-                updateQueryEnabled();
-            }
-            render(s);
-        });
-    }
-
-    // ---------------- Rendering ----------------
-    private void render(JSONObject s) {
+    private void renderSnapshot(StatusSnapshot s) {
         container.removeAllViews();
-        tvEmpty.setVisibility(View.GONE);
-        tvUpdated.setText("最近更新：" + s.optString("datetime", ""));
 
-        // 系统卡片
-        JSONObject sys = s.optJSONObject("system");
-        StringBuilder sy = new StringBuilder();
-        if (sys != null) {
-            String model = sys.optString("model", "");
-            if (!model.isEmpty()) sy.append("型号：").append(model).append('\n');
+        // ---------- 系统 ----------
+        StringBuilder sb = new StringBuilder();
+        if (s.system != null && !s.system.model.isEmpty()) {
+            sb.append("型号：").append(s.system.model).append('\n');
         }
-        sy.append("主机名：").append(s.optString("hostname", "—")).append('\n');
-        sy.append("IP：").append(s.optString("ip", "—")).append('\n');
-        if (sys != null) {
-            sy.append("系统：").append(sys.optString("os", "—"))
-              .append("  ").append(sys.optString("machine", "")).append('\n');
-            sy.append("内核：").append(sys.optString("kernel", "—")).append('\n');
+        sb.append("主机名：").append(orDash(s.hostname)).append('\n');
+        sb.append("IP：").append(orDash(s.ip)).append('\n');
+        if (s.system != null) {
+            sb.append("系统：").append(orDash(s.system.os))
+                    .append("  ").append(s.system.machine).append('\n');
+            sb.append("内核：").append(orDash(s.system.kernel)).append('\n');
         }
-        long up = s.optLong("uptime_seconds", 0);
-        sy.append("已运行：").append(UiUtil.uptime(up));
-        addCard("🖥 系统", sy.toString());
+        sb.append("已运行：").append(UiUtil.uptime(s.uptimeSeconds));
+        addCard("🖥 系统", sb.toString());
 
-        // CPU 卡片
-        JSONObject cpu = s.optJSONObject("cpu");
-        if (cpu != null) {
+        // ---------- CPU ----------
+        if (s.cpu != null) {
             LinearLayout card = newCardContainer("🧠 CPU");
-            Double pct = UiUtil.optDouble(cpu, "percent");
-            addBigMetric(card, "使用率", UiUtil.pct(pct), UiUtil.usageColor(pct));
-            addRow(card, "温度", temp(UiUtil.optDouble(cpu, "temperature_c")));
+            addBigMetric(card, "使用率", UiUtil.pct(s.cpu.percent), UiUtil.usageColor(s.cpu.percent));
+            addRow(card, "温度", temp(s.cpu.tempC));
             addRow(card, "负载 1/5/15m",
-                    nz(cpu, "load_avg_1m") + " / " + nz(cpu, "load_avg_5m") + " / " + nz(cpu, "load_avg_15m"));
-            JSONObject freq = cpu.optJSONObject("frequency_mhz");
-            if (freq != null) {
-                addRow(card, "主频", nz(freq, "current") + " / " + nz(freq, "min") + " ~ " + nz(freq, "max") + " MHz");
+                    fmt(s.cpu.load1) + " / " + fmt(s.cpu.load5) + " / " + fmt(s.cpu.load15));
+            if (!s.cpu.freqCurrent.isEmpty() || !s.cpu.freqMin.isEmpty()) {
+                addRow(card, "主频", fmt(s.cpu.freqCurrent) + " / "
+                        + fmt(s.cpu.freqMin) + " ~ " + fmt(s.cpu.freqMax) + " MHz");
             }
-            addRow(card, "核心数", "逻辑 " + cpu.optInt("count_logical", -1)
-                    + "，物理 " + cpu.optInt("count_physical", -1));
-            JSONArray cores = cpu.optJSONArray("per_core_percent");
-            if (cores != null && cores.length() > 0) {
+            addRow(card, "核心数", "逻辑 " + s.cpu.coresLogical + "，物理 " + s.cpu.coresPhysical);
+            if (s.cpu.perCore.length > 0) {
                 StringBuilder cs = new StringBuilder();
-                for (int i = 0; i < cores.length(); i++) {
-                    cs.append(String.format(Locale.US, "核%d:%.0f%%  ", i, cores.optDouble(i, 0)));
+                for (int i = 0; i < s.cpu.perCore.length; i++) {
+                    cs.append(String.format(Locale.US, "核%d:%.0f%%  ", i, s.cpu.perCore[i]));
                 }
                 addRow(card, "各核", cs.toString().trim());
             }
             container.addView(card);
         }
 
-        // 内存
-        JSONObject mem = s.optJSONObject("memory");
-        if (mem != null) {
+        // ---------- 内存 ----------
+        if (s.memory != null) {
             LinearLayout card = newCardContainer("💾 内存");
-            Double mpct = UiUtil.optDouble(mem, "percent");
-            addBigMetric(card, "使用率", UiUtil.pct(mpct), UiUtil.usageColor(mpct));
-            addRow(card, "容量", mem.optString("used_human", "—") + " / " + mem.optString("total_human", "—"));
-            addRow(card, "可用", mem.optString("available_human", "—"));
-            JSONObject swap = mem.optJSONObject("swap");
-            if (swap != null) {
-                addRow(card, "Swap", swap.optString("used_human", "—") + " / "
-                        + swap.optString("total_human", "—") + "（" + UiUtil.pct(UiUtil.optDouble(swap, "percent")) + "）");
+            addBigMetric(card, "使用率", UiUtil.pct(s.memory.percent), UiUtil.usageColor(s.memory.percent));
+            addRow(card, "容量", orDash(s.memory.usedHuman) + " / " + orDash(s.memory.totalHuman));
+            addRow(card, "可用", orDash(s.memory.availableHuman));
+            if (!s.memory.swapTotalHuman.isEmpty()) {
+                addRow(card, "Swap", orDash(s.memory.swapUsedHuman) + " / "
+                        + s.memory.swapTotalHuman + "（" + UiUtil.pct(s.memory.swapPercent) + "）");
             }
             container.addView(card);
         }
 
-        // 磁盘
-        JSONObject disk = s.optJSONObject("disk");
-        if (disk != null) {
-            JSONArray mounts = disk.optJSONArray("mounts");
-            if (mounts != null && mounts.length() > 0) {
-                LinearLayout card = newCardContainer("💿 磁盘");
-                for (int i = 0; i < mounts.length(); i++) {
-                    JSONObject m = mounts.optJSONObject(i);
-                    if (m == null) continue;
-                    Double dp = UiUtil.optDouble(m, "percent");
-                    TextView t = new TextView(requireContext());
-                    t.setText(String.format(Locale.US, "%s  %s\n   %s / %s (%s)  [%s]",
-                            m.optString("mount", "—"),
-                            m.optString("fstype", ""),
-                            m.optString("used_human", "—"),
-                            m.optString("total_human", "—"),
-                            UiUtil.pct(dp),
-                            m.optString("device", "")));
-                    t.setTextSize(12);
-                    t.setTextColor(UiUtil.usageColor(dp));
-                    t.setPadding(0, 6, 0, 6);
-                    card.addView(t);
-                }
-                container.addView(card);
+        // ---------- 磁盘 ----------
+        if (!s.disks.isEmpty()) {
+            LinearLayout card = newCardContainer("💿 磁盘");
+            for (StatusSnapshot.DiskMount m : s.disks) {
+                TextView t = new TextView(requireContext());
+                t.setText(String.format(Locale.US, "%s  %s\n   %s / %s (%s)  [%s]",
+                        orDash(m.mount), m.fstype, orDash(m.usedHuman), orDash(m.totalHuman),
+                        UiUtil.pct(m.percent), m.device));
+                t.setTextSize(12);
+                t.setTextColor(UiUtil.usageColor(m.percent));
+                t.setPadding(0, 6, 0, 6);
+                card.addView(t);
             }
+            container.addView(card);
         }
 
-        // 网络
-        JSONObject net = s.optJSONObject("network");
-        if (net != null) {
+        // ---------- 网络 ----------
+        if (s.network != null) {
             LinearLayout card = newCardContainer("🌐 网络");
-            addRow(card, "总入站", net.optString("total_rx_rate", "—"));
-            addRow(card, "总出站", net.optString("total_tx_rate", "—"));
-            JSONObject ifaces = net.optJSONObject("interfaces");
-            if (ifaces != null) {
-                JSONArray names = ifaces.names();
-                if (names != null) {
-                    for (int i = 0; i < names.length(); i++) {
-                        String n = names.optString(i);
-                        JSONObject it = ifaces.optJSONObject(n);
-                        if (it == null) continue;
-                        addRow(card, n, "↓" + it.optString("rx_rate", "—")
-                                + "  ↑" + it.optString("tx_rate", "—"));
-                    }
-                }
+            addRow(card, "总入站", orDash(s.network.totalRxRate));
+            addRow(card, "总出站", orDash(s.network.totalTxRate));
+            for (StatusSnapshot.Network.Interface it : s.network.interfaces) {
+                addRow(card, it.name, "↓" + orDash(it.rxRate) + "  ↑" + orDash(it.txRate));
             }
             container.addView(card);
         }
 
-        // USB
-        JSONObject usb = s.optJSONObject("usb");
-        if (usb != null) {
-            LinearLayout card = newCardContainer("🔌 USB 设备（" + usb.optInt("count", 0) + "）");
-            JSONArray devs = usb.optJSONArray("devices");
-            if (devs != null && devs.length() > 0) {
-                for (int i = 0; i < devs.length(); i++) {
-                    JSONObject d = devs.optJSONObject(i);
-                    if (d == null) continue;
-                    String title = d.optString("product", "");
-                    if (title.isEmpty()) title = d.optString("sysfs", "未知设备");
-                    String manuf = d.optString("manufacturer", "");
-                    String vid = d.optString("vendor_id", ""), pid = d.optString("product_id", "");
-                    JSONArray blocks = d.optJSONArray("block_nodes");
-                    String blk = "";
-                    if (blocks != null && blocks.length() > 0) {
-                        StringBuilder sb = new StringBuilder("  块设备:");
-                        for (int bi = 0; bi < blocks.length(); bi++) {
-                            if (bi > 0) sb.append(",");
-                            sb.append(blocks.optString(bi));
-                        }
-                        blk = sb.toString();
-                    }
+        // ---------- USB ----------
+        if (s.usb != null) {
+            LinearLayout card = newCardContainer("🔌 USB 设备（" + s.usb.count + "）");
+            if (s.usb.devices.isEmpty()) {
+                addRow(card, "无设备", "");
+            } else {
+                for (StatusSnapshot.Usb.Device d : s.usb.devices) {
+                    String id = d.vendorId + ":" + d.productId;
+                    String blocks = d.blockNodes.isEmpty() ? "" : "  块设备:" + String.join(",", d.blockNodes);
                     TextView t = new TextView(requireContext());
-                    t.setText("• " + title + (manuf.isEmpty() ? "" : "（" + manuf + "）")
-                            + "\n   " + vid + ":" + pid + blk);
+                    t.setText("• " + d.title
+                            + (d.manufacturer.isEmpty() ? "" : "（" + d.manufacturer + "）")
+                            + "\n   " + id + blocks);
                     t.setTextSize(12);
                     t.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_primary));
                     t.setPadding(0, 6, 0, 6);
                     card.addView(t);
                 }
-            } else {
-                addRow(card, "无设备", "");
             }
             container.addView(card);
         }
 
-        // 活动告警
-        JSONObject alarms = s.optJSONObject("alarms");
-        if (alarms != null) {
-            JSONArray active = alarms.optJSONArray("active");
-            String a = active != null && active.length() > 0
-                    ? UiUtil.joinJsonStrings(active) : "无活动告警";
-            addCard("🚨 活动告警", a);
+        // ---------- 活动告警 ----------
+        if (!s.activeAlarms.isEmpty()) {
+            addCard("🚨 活动告警", String.join("\n", s.activeAlarms));
+        } else {
+            addCard("🚨 活动告警", "无活动告警");
         }
     }
 
-    private String temp(Double t) { return t == null ? "—" : String.format(Locale.US, "%.1f ℃", t); }
-    private String nz(JSONObject o, String k) {
-        if (!o.has(k) || o.isNull(k)) return "—";
-        double v = o.optDouble(k, Double.NaN);
-        if (Double.isNaN(v)) return "—";
-        return (v == Math.floor(v)) ? String.valueOf((long) v) : String.format(Locale.US, "%.1f", v);
+    // ---------------------------------------------------------------- 小组件
+
+    private static String orDash(String s) {
+        return s == null || s.isEmpty() ? "—" : s;
+    }
+
+    private String temp(Double t) {
+        return t == null ? "—" : String.format(Locale.US, "%.1f ℃", t);
+    }
+
+    /** 数值文本：设备端可能给 "1500"、"1500.0"、""；统一按「整数不带小数」展示。 */
+    private String fmt(String raw) {
+        if (raw == null || raw.isEmpty()) return "—";
+        try {
+            double v = Double.parseDouble(raw);
+            return (v == Math.floor(v)) ? String.valueOf((long) v) : String.format(Locale.US, "%.1f", v);
+        } catch (NumberFormatException e) {
+            return raw;
+        }
     }
 
     private void addCard(String title, String body) {
