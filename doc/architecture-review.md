@@ -9,10 +9,10 @@
 > | 等级 | 含义 | 条目 | ✅ | ◐ | ⭕ |
 > |---|---|:--:|:--:|:--:|:--:|
 > | 严重 | 安全 / 上架 / 崩溃级 | 15 | 15 | 0 | 0 |
-> | 一般 | 架构、可靠性、性能、工程化 | 14 | 9 | 1 | 4 |
+> | 一般 | 架构、可靠性、性能、工程化 | 14 | 10 | 1 | 3 |
 > | 忽略 | 技术栈升级（现阶段收益低于成本） | 10 | 0 | 0 | 10 |
 >
-> **结论**：**严重项已全部清零**（15/15）；一般项已完成 9 条。只剩 **4 条未开始（N1/N2/N3/N11，属分层改造）** 与 1 条部分完成（N7，等设备数量上量），以及 10 条忽略项。
+> **结论**：**严重项已全部清零**（15/15）；一般项已完成 10 条。只剩 **3 条未开始（N1 拆 God object、N2 ViewModel/单一数据源、N11 Room 持久化）** 与 1 条部分完成（N7，等设备数量上量），以及 10 条忽略项。
 
 ---
 
@@ -30,7 +30,7 @@
 | N11 | 告警、状态只在内存，进程被杀即丢 | `AlarmStore` 用 `ArrayList`，无持久化 | Room 存告警与最近状态；界面先渲染缓存 | 2 天 | ⭕ |
 | N1 | `MqttManager` 是 God object，且越来越重 | **约 900 行**，含 v2 路由、请求配对、去重、异步发布 | 拆 `MqttClient` / `MessageRouter` / `DeviceRepository` / `VideoController` | 3–5 天 | ⭕ |
 | N2 | UI 无 ViewModel、无单一数据源 | 0 个 ViewModel/StateFlow；`findViewById` **89 处**；`StatusFragment` 里 **55 处 `optXxx`**；全项目 **51 处 `requireActivity()/requireContext()`** | ViewModel + StateFlow + `repeatOnLifecycle`；协议解析下沉到数据类 | 1–2 周 | ⭕ |
-| N3 | 视频管道两份实现 | `PlayerActivity` 649 行 / `WhepPlayer` 205 唯一行，交集 **82 行（40%）** | 抽 `WhepSession`，播放页与控制页共用 | 2–3 天 | ⭕ |
+| N3 | ~~视频管道两份实现~~ | 已抽 `WhepSession`（497 行）：EGL/Factory/PeerConnection/WHEP 协商/首帧/释放 只此一份；`PlayerActivity` 649→**376 行**，重复代码交集从 **40% 降到 2%**；协商代码全项目只在 `WhepSession` 出现 | 已改完；`javac` 通过 | 2–3 天 | ✅ |
 | N14 | ~~协议已大改，版本号没动~~ | 已提为 `versionCode 9` / `versionName "1.8"`，并在 build.gradle 注释与 README 徽章里标明「v1 主题已删除，不兼容旧设备/旧 App」 | 完成 | 10 分钟 | ✅ |
 | N12 | ~~Android 侧零自动化测试、无 CI~~ | 已补 `app/src/test/.../TopicNamesTest`、`DeviceInfoTest`（16 个用例）+ `.github/workflows/android-ci.yml`（单测 → debug 构建 → 设备端自检 → 上传 APK） | 已改完；单测本地 `JUnitCore` 跑通，`./gradlew :app:testDebugUnitTest` 可复跑 | 2–3 天 | ✅ |
 | N13 | ~~非 git 仓库~~ | 已 `git init`（分支 `main`）+ `.gitignore` + 基线提交 `4a11c14`；构建产物/本地配置已排除 | 完成 | 10 分钟 | ✅ |
@@ -65,7 +65,7 @@
 | S2 | 删除 WHEP 的 trust-all 与恒 true 的 HostnameVerifier | `WhepClient` 改为系统 CA + 默认主机名校验；线上证书实测链 OK |
 | S3 | 多租户主题 v2：`walle/{tenant}/{device}/{resource}` | `TopicNames` + `MqttManager`；v1 全局主题已删除 |
 | S3b | EMQX 按账号 ACL（`walle/${username}/#`、设备 `walle/{t}/${clientid}/#`） | `device/emqx/acl.conf.example`；已实测越权收不到 |
-| S3-回归 | 同一事件重复投递 → 渲染器二次 init 崩溃 | `MqttManager` 2 秒窗口去重 + `ControlFragment` 同房间幂等 + `WhepPlayer` 渲染器只 init 一次 |
+| S3-回归 | 同一事件重复投递 → 渲染器二次 init 崩溃 | `MqttManager` 2 秒窗口去重 + `ControlFragment` 同房间幂等 + `WhepSession` 渲染器只 init 一次 |
 | S4 | targetSdk/compileSdk 36、AGP 9.4.1、Gradle 9.6、edge-to-edge | `app/build.gradle:28/34`；运行日志 `target_sdk_version=36` 证明构建生效；视觉回归见 `doc/s4-target-sdk-36-migration.md` |
 | S5 | release 开 R8 + 资源压缩 | `minifyEnabled true` / `shrinkResources true`（`app/build.gradle:55-56`）+ 完整 keep 规则 |
 | S6 | 引导页位图按需解码（HARDWARE/RGB_565 + 后台线程 + LRU） | `OnboardingImageLoader.java`；堆占用 36.6 MB → 19 MB / API28+ 近 0 |
@@ -88,6 +88,7 @@
 | App 不再自收自发 | App | 订阅改为 8 个精确响应主题（不再 `walle/{t}/#`）；连接时先退订旧会话遗留过滤器（`cleanSession=false` 坑） |
 | 设备端命令应答日志 | 设备端 | 新增 `_publish_cmd_result()`：发布 + `已响应命令执行 -> .../cmd/result（request_id=…，status=…，耗时 …）`，覆盖禁用/空命令/白名单/失败/超时全部分支 |
 | 设备端工程化 | `device/` | 新增一键部署 `install.sh`（首次交互式必填 5 项）、`--check` 配置自检、环境文件自动加载、`selftest_topics.py` 扩展为 8 组断言 |
+| **视频管道去重（N3）** | `ui/WhepSession.java`（新增）、`ui/PlayerActivity.java`、`ui/ControlFragment.java` | 抽出 `WhepSession`：EGL/Factory/PeerConnection/WHEP 协商/首帧/释放 唯一实现；播放页删掉自管的 240 余行 WebRTC 代码，只保留 UI（状态文案/首帧遮罩/摄像头切换/退出）；控制页沿用同一会话并保留自己的状态文案 |
 | **收尾（N6 + N10）** | `AndroidManifest.xml`、`net/MqttManager.java`、`net/TopicNames.java` | 关闭备份；会话改 `cleanSession=true` 并删掉失效的旧订阅清理代码与对应单测 |
 | **单测 + CI（N12）** | `app/src/test/`、`.github/workflows/android-ci.yml`、`app/build.gradle` | 16 个 JVM 单测锁住主题命名/清洗/订阅/配对与设备标识规则；CI 依次跑单测、debug 构建、设备端契约自检，并上传 APK |
 | **git 基线（N13）** | 仓库根 | `git init -b main` + `.gitignore`（排除 build/.gradle/local.properties/venv/日志）+ 基线提交，共 120 个文件 |
@@ -103,7 +104,7 @@
 ## 四、建议顺序
 
 1. **量测 N9 / 验证 N8**（10 分钟）：`./gradlew :app:assembleDebug` 看 APK 大小；装包后看 logcat 有无「connectedDevice 被拒绝」回退日志。
-2. **N1 + N2 + N3**（1–2 周）：分层改造一次性做完，同时处理 N11（Room 持久化）。
+2. **N1 + N2 + N11**（1–2 周）：`MqttManager` 拆分层 + ViewModel/StateFlow + Room 持久化，三者互相依赖，建议一起做。
 3. N7（租户内广播发现）等设备数量上量后再优化；忽略项等业务上量后再做。
 
 ---
@@ -132,7 +133,7 @@ def norm(p):
         out.add(s)
     return out
 a=norm('app/src/main/java/www/walle/ai/ui/PlayerActivity.java')
-b=norm('app/src/main/java/www/walle/ai/ui/WhepPlayer.java')
+b=norm('app/src/main/java/www/walle/ai/ui/WhepSession.java')
 print(f'{len(a&b)}/{len(b)} = {100*len(a&b)/len(b):.0f}%')
 PY
 

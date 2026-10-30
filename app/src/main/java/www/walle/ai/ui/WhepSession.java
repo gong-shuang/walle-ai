@@ -19,6 +19,7 @@ import org.webrtc.PeerConnectionFactory;
 import org.webrtc.RendererCommon;
 import org.webrtc.RtpReceiver;
 import org.webrtc.RtpTransceiver;
+import org.webrtc.SdpObserver;
 import org.webrtc.SessionDescription;
 import org.webrtc.SurfaceViewRenderer;
 import org.webrtc.VideoTrack;
@@ -34,46 +35,51 @@ import java.util.concurrent.atomic.AtomicReference;
 import www.walle.ai.net.WhepClient;
 
 /**
- * 页面内嵌的 WHEP（WebRTC）拉流控制器。
+ * WHEP（WebRTC-HTTP Egress Protocol）拉流会话：把「渲染器 + WebRTC + WHEP 协商」封装成一个可复用组件。
  *
- * <p>与全屏的 {@link PlayerActivity} 复用同一套协商流程，但把渲染控件交给调用方，
- * 因此可以嵌在控制页的视频区域里播放。一个实例对应一次拉流会话：
- * 开始 → {@link #start(String)}；停止/离开页面 → {@link #release()}。
+ * <p>控制页的内嵌小窗（{@link ControlFragment}）和全屏播放页（{@link PlayerActivity}）
+ * 用的是同一份实现，页面只负责自己的 UI（状态文案、首帧遮罩、摄像头切换、退出流程）。</p>
  *
- * <p><b>渲染器只能 init 一次</b>：{@link SurfaceViewRenderer#init} 在已初始化时会抛
- * {@code IllegalStateException: videoRendererAlready initialized}。因此这里：
- * <ul>
- *   <li>同一 View 上复用同一个 {@link RendererSink}（用 WeakHashMap 绑定），只 init 一次；</li>
- *   <li>首帧回调通过 sink 转发给「当前」播放器，避免复用时回调仍指向已释放的实例；</li>
- *   <li>释放时解除绑定并 release 渲染器，下一次播放可以安全地重新 init。</li>
- * </ul>
+ * <p>生命周期：</p>
+ * <ol>
+ *   <li>构造：创建 EGL / PeerConnectionFactory / ADM，初始化渲染器（<b>同一个 View 只 init 一次</b>）；</li>
+ *   <li>{@link #start(String)}：发起一次 WHEP 协商（内部会先关掉旧会话，可重复调用）；</li>
+ *   <li>{@link #stopSession()}：只结束当前会话（DELETE 服务端会话 + dispose PeerConnection），
+ *       保留 EGL/Factory，便于之后快速重新协商；</li>
+ *   <li>{@link #release()}：完整释放，不可再用。</li>
+ * </ol>
  */
-public final class WhepPlayer {
+public final class WhepSession {
 
-    private static final String TAG = "WhepPlayer";
+    private static final String TAG = "WhepSession";
 
+    /** 会话回调，全部在主线程触发。 */
     public interface Callback {
-        /** 状态文案变化（主线程） */
+        /** 过程文案（正在创建连接 / 正在协商 / 已建立信令…）。 */
         void onStatus(String text);
 
-        /** 首帧上屏（主线程） */
+        /** 首帧上屏。 */
         void onFirstFrame();
 
-        /** 播放失败（主线程） */
+        /** 播放失败（协商失败、WHEP 请求失败等）。 */
         void onError(String message);
+
+        /** PeerConnection 状态变化；页面可据此显示「直播中 / 连接中断」等文案。 */
+        default void onConnectionState(PeerConnection.PeerConnectionState state) {
+        }
     }
 
     /**
-     * 每个 {@link SurfaceViewRenderer} 只允许 init 一次；这里保存它的 RendererEvents，
-     * 并把首帧事件转发给当前持有它的 {@link WhepPlayer}。
+     * 每个 {@link SurfaceViewRenderer} 只能 init 一次；这里保存它的 RendererEvents，
+     * 并把首帧事件转发给当前持有它的会话。
      */
     private static final class RendererSink implements RendererCommon.RendererEvents {
-        volatile WhepPlayer owner;
+        volatile WhepSession owner;
 
         @Override
         public void onFirstFrameRendered() {
-            WhepPlayer p = owner;
-            if (p != null) p.notifyFirstFrame();
+            WhepSession s = owner;
+            if (s != null) s.notifyFirstFrame();
         }
 
         @Override
@@ -81,39 +87,50 @@ public final class WhepPlayer {
         }
     }
 
-    /** 渲染器 → 已注册的 sink（弱引用键，View 销毁后可被回收）。 */
+    /** 渲染器 → 已注册的 sink（弱引用键，View 销毁后可回收）。 */
     private static final Map<SurfaceViewRenderer, RendererSink> SINKS = new WeakHashMap<>();
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService networkExecutor = Executors.newSingleThreadExecutor();
-    private final AtomicReference<String> sessionLocation = new AtomicReference<>();
-    private final Callback callback;
     private final Context appContext;
+    private final Callback callback;
 
-    private EglBase eglBase;
     private SurfaceViewRenderer renderer;
+    private EglBase eglBase;
     private PeerConnectionFactory factory;
     private JavaAudioDeviceModule audioDeviceModule;
     private PeerConnection peerConnection;
-    private boolean released;
-    private boolean isLive;
+    private final AtomicReference<String> sessionLocation = new AtomicReference<>();
 
-    public WhepPlayer(Context context, SurfaceViewRenderer renderer, Callback callback) {
+    private volatile boolean released;
+    private volatile boolean isLive;
+
+    public WhepSession(Context context, SurfaceViewRenderer renderer, Callback callback) {
         this.appContext = context.getApplicationContext();
         this.renderer = renderer;
         this.callback = callback;
         initWebRtc();
     }
 
-    /** 开始拉流：whepUrl 形如 https://host/rtc/v1/whep/?app=live&stream={room} 已替换好的完整地址。 */
+    /** 开始（或重新开始）一次拉流；whepUrl 是已替换好房间号的完整 WHEP 地址。 */
     public void start(String whepUrl) {
         if (released) {
             return;
         }
-        createAndNegotiate(whepUrl);
+        stopSession();
+        negotiate(whepUrl);
     }
 
-    // ---------------- WebRTC 初始化 --------------
+    public boolean isLive() {
+        return isLive;
+    }
+
+    /** 已释放的实例不可再用，调用方应新建一个。 */
+    public boolean isReleased() {
+        return released;
+    }
+
+    // ---------------------------------------------------------------- 初始化
 
     private void initWebRtc() {
         eglBase = EglBase.create();
@@ -132,7 +149,6 @@ public final class WhepPlayer {
                 }
             }
             sink.owner = this;
-            // 等比例缩放完整显示，不做裁剪
             renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT);
         }
 
@@ -168,9 +184,10 @@ public final class WhepPlayer {
         return factory.createPeerConnection(config, peerConnectionObserver);
     }
 
-    // ---------------- 协商流程 --------------
+    // ---------------------------------------------------------------- 协商
 
-    private void createAndNegotiate(final String whepUrl) {
+    private void negotiate(final String whepUrl) {
+        isLive = false;
         PeerConnection pc = createPeerConnection();
         if (pc == null) {
             error("PeerConnection 创建失败");
@@ -179,14 +196,12 @@ public final class WhepPlayer {
         peerConnection = pc;
 
         try {
-            RtpTransceiver.RtpTransceiverInit audioInit =
+            pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO,
                     new RtpTransceiver.RtpTransceiverInit(
-                            RtpTransceiver.RtpTransceiverDirection.RECV_ONLY);
-            RtpTransceiver.RtpTransceiverInit videoInit =
+                            RtpTransceiver.RtpTransceiverDirection.RECV_ONLY));
+            pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
                     new RtpTransceiver.RtpTransceiverInit(
-                            RtpTransceiver.RtpTransceiverDirection.RECV_ONLY);
-            pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, audioInit);
-            pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, videoInit);
+                            RtpTransceiver.RtpTransceiverDirection.RECV_ONLY));
         } catch (Exception e) {
             error("添加收发通道失败: " + e.getMessage());
             return;
@@ -197,7 +212,7 @@ public final class WhepPlayer {
             @Override
             public void onCreateSuccess(SessionDescription offer) {
                 PeerConnection connection = peerConnection;
-                if (connection == null) {
+                if (connection == null || released) {
                     return;
                 }
                 connection.setLocalDescription(new SimpleSdpObserver() {
@@ -220,7 +235,7 @@ public final class WhepPlayer {
         }, new MediaConstraints());
     }
 
-    /** SRS/Oryx 的 WHEP 不支持 trickle ICE，需等 candidate 收集完成后一次性 POST 完整 SDP。 */
+    /** SRS/Oryx 的 WHEP 不支持 trickle ICE，需要等 candidate 收集完成后一次性 POST 完整 SDP。 */
     private void waitForIceGatheringThenSend(final String whepUrl) {
         mainHandler.postDelayed(new Runnable() {
             private int tries;
@@ -283,7 +298,7 @@ public final class WhepPlayer {
         }, answer);
     }
 
-    // ---------------- WebRTC 事件 --------------
+    // ---------------------------------------------------------------- WebRTC 事件
 
     private final PeerConnection.Observer peerConnectionObserver = new PeerConnection.Observer() {
         @Override
@@ -299,14 +314,9 @@ public final class WhepPlayer {
             Log.i(TAG, "PeerConnection state = " + newState);
             if (newState == PeerConnection.PeerConnectionState.CONNECTED) {
                 isLive = true;
-                status("● 推流中");
-            } else if (newState == PeerConnection.PeerConnectionState.DISCONNECTED) {
-                status("连接中断，尝试恢复…");
-            } else if (newState == PeerConnection.PeerConnectionState.FAILED) {
-                if (!released) status("连接失败");
-            } else if (newState == PeerConnection.PeerConnectionState.CLOSED) {
-                if (!released) status("连接已关闭");
             }
+            // 文案交给页面决定（控制页写「推流中」、播放页写「直播中」）
+            callback.onConnectionState(newState);
         }
 
         @Override
@@ -358,8 +368,9 @@ public final class WhepPlayer {
             if (track instanceof VideoTrack) {
                 VideoTrack videoTrack = (VideoTrack) track;
                 videoTrack.setEnabled(true);
-                if (renderer != null) {
-                    videoTrack.addSink(renderer);
+                SurfaceViewRenderer r = renderer;
+                if (r != null) {
+                    videoTrack.addSink(r);
                 }
             } else if (track instanceof AudioTrack) {
                 AudioTrack audioTrack = (AudioTrack) track;
@@ -372,21 +383,15 @@ public final class WhepPlayer {
         }
     };
 
-    // ---------------- 资源释放 --------------
+    // ---------------------------------------------------------------- 释放
 
-    /** 幂等释放：结束 WHEP 会话 + 拆 WebRTC 资源 + 释放渲染器。 */
-    public void release() {
-        if (released) {
-            return;
-        }
-        released = true;
-
+    /** 只结束当前会话：DELETE 服务端会话 + dispose PeerConnection，保留 EGL/Factory。 */
+    public void stopSession() {
         mainHandler.removeCallbacksAndMessages(null);
-
         final String location = sessionLocation.getAndSet(null);
-        networkExecutor.execute(() -> WhepClient.deleteSession(location));
-        networkExecutor.shutdown();
-
+        if (location != null) {
+            networkExecutor.execute(() -> WhepClient.deleteSession(location));
+        }
         if (peerConnection != null) {
             try {
                 peerConnection.dispose();
@@ -394,6 +399,25 @@ public final class WhepPlayer {
             }
             peerConnection = null;
         }
+        // 清掉上一帧，避免旧画面残留到新会话建立完成
+        if (renderer != null) {
+            try {
+                renderer.clearImage();
+            } catch (Exception ignored) {
+            }
+        }
+        isLive = false;
+    }
+
+    /** 完整释放：结束会话 + 拆 WebRTC 资源 + 释放渲染器。不可逆。 */
+    public void release() {
+        if (released) {
+            return;
+        }
+        released = true;
+
+        stopSession();
+
         if (factory != null) {
             try {
                 factory.dispose();
@@ -425,41 +449,35 @@ public final class WhepPlayer {
             }
             audioDeviceModule = null;
         }
+        networkExecutor.shutdown();
     }
 
-    public boolean isLive() {
-        return isLive;
-    }
-
-    /** 已释放的实例不能再 start()，调用方应新建一个。 */
-    public boolean isReleased() {
-        return released;
-    }
-
-    // ---------------- 回调封装 --------------
+    // ---------------------------------------------------------------- 回调封装
 
     private void status(final String text) {
         if (released) return;
         mainHandler.post(() -> {
-            if (!released && callback != null) callback.onStatus(text);
+            if (!released) callback.onStatus(text);
         });
     }
 
     private void notifyFirstFrame() {
-        isLive = true;
-        if (callback != null) callback.onFirstFrame();
+        if (released) return;
+        mainHandler.post(() -> {
+            if (!released) callback.onFirstFrame();
+        });
     }
 
     private void error(final String message) {
         if (released) return;
         Log.e(TAG, "播放错误: " + message);
         mainHandler.post(() -> {
-            if (!released && callback != null) callback.onError(message);
+            if (!released) callback.onError(message);
         });
     }
 
     /** 简化版 SdpObserver：只关心成功/失败分支。 */
-    private static class SimpleSdpObserver implements org.webrtc.SdpObserver {
+    private static class SimpleSdpObserver implements SdpObserver {
         @Override
         public void onCreateSuccess(SessionDescription sessionDescription) {
         }

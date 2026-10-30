@@ -271,7 +271,7 @@ walle_android/
 │       │       ├── PlayerActivity.java   # 全屏播放
 │       │       ├── OnboardingActivity.java # 首次启动引导
 │       │       ├── OnboardingImageLoader.java # 引导页插图按需解码
-│       │       └── WhepPlayer.java       # WebRTC 播放器封装
+│       │       └── WhepSession.java      # WHEP/WebRTC 拉流会话（控制页与播放页共用）
 │       └── res/                          # 布局 / 颜色 / 字符串 / 插图
 ├── doc/architecture-review.md            # 架构与技术债评审
 ├── tools/gen_onboarding.py               # 引导页插图生成脚本

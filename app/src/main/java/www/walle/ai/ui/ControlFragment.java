@@ -95,7 +95,7 @@ public class ControlFragment extends Fragment implements MqttManager.Listener {
         timeoutHandler.removeCallbacks(videoTimeout);
     }
     private boolean handoff;          // 已切换到全屏播放页：本次 onStop 不下发 stop
-    private WhepPlayer player;
+    private WhepSession player;
     /** 当前播放器实际拉取的房间号：用于幂等判断，防止重复结果把播放器初始化两次。 */
     private String playingRoom = "";
 
@@ -472,8 +472,8 @@ public class ControlFragment extends Fragment implements MqttManager.Listener {
             player = null;
         }
         playingRoom = room;
-        player = new WhepPlayer(requireContext().getApplicationContext(), videoRenderer,
-                new WhepPlayer.Callback() {
+        player = new WhepSession(requireContext().getApplicationContext(), videoRenderer,
+                new WhepSession.Callback() {
                     @Override
                     public void onStatus(String text) {
                         if (isAdded()) setStatus(text);
@@ -488,6 +488,27 @@ public class ControlFragment extends Fragment implements MqttManager.Listener {
                     public void onError(final String message) {
                         if (!isAdded()) return;
                         stopStream(true, getString(R.string.video_play_error, message));
+                    }
+
+                    @Override
+                    public void onConnectionState(org.webrtc.PeerConnection.PeerConnectionState state) {
+                        if (!isAdded()) return;
+                        switch (state) {
+                            case CONNECTED:
+                                setStatus("● 推流中");
+                                break;
+                            case DISCONNECTED:
+                                setStatus("连接中断，尝试恢复…");
+                                break;
+                            case FAILED:
+                                setStatus("连接失败");
+                                break;
+                            case CLOSED:
+                                setStatus("连接已关闭");
+                                break;
+                            default:
+                                break;
+                        }
                     }
                 });
         player.start(url);

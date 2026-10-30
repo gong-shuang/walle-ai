@@ -1,6 +1,5 @@
 package www.walle.ai.ui;
 
-import android.app.AlertDialog;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -10,7 +9,6 @@ import android.util.Log;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
-import android.widget.ArrayAdapter;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
@@ -24,33 +22,12 @@ import www.walle.ai.databinding.ActivityPlayerBinding;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.webrtc.AudioTrack;
-import org.webrtc.EglBase;
-import org.webrtc.IceCandidate;
-import org.webrtc.MediaConstraints;
-import org.webrtc.MediaStreamTrack;
 import org.webrtc.PeerConnection;
-import org.webrtc.PeerConnectionFactory;
-import org.webrtc.RendererCommon;
-import org.webrtc.RtpReceiver;
-import org.webrtc.RtpTransceiver;
-import org.webrtc.SdpObserver;
-import org.webrtc.SessionDescription;
-import org.webrtc.SurfaceViewRenderer;
-import org.webrtc.VideoTrack;
-import org.webrtc.audio.JavaAudioDeviceModule;
-import org.webrtc.DefaultVideoDecoderFactory;
-import org.webrtc.DefaultVideoEncoderFactory;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicReference;
 
 import www.walle.ai.net.MqttManager;
-import www.walle.ai.net.WhepClient;
 
 /**
  * WHEP 拉流播放页（纯 Java 实现，横屏全屏）。
@@ -96,20 +73,11 @@ public class PlayerActivity extends AppCompatActivity {
 
     private ActivityPlayerBinding binding;
 
-    // —— WebRTC ——
-    private EglBase eglBase;
-    private SurfaceViewRenderer renderer;
-    private PeerConnectionFactory factory;
-    private JavaAudioDeviceModule audioDeviceModule;
-    private PeerConnection peerConnection;
-    private final AtomicReference<String> sessionLocation = new AtomicReference<>();
+    // —— 拉流会话（与控制页共用同一份实现）——
+    private WhepSession session;
 
-    /** 完整资源是否已释放（onDestroy 调用 release() 后置 true）。 */
+    /** 页面是否已销毁（onDestroy 后置 true，用于丢弃迟到的回调）。 */
     private volatile boolean released;
-    /** 当前是否处于「会话重建」过程中（切换摄像头时为 true，防止并发 startPlayback）。 */
-    private volatile boolean reconnecting;
-    /** 是否已进入直播中（PeerConnection = CONNECTED）。 */
-    private volatile boolean isLive;
 
     /**
      * 极简 MQTT 监听：只关心 video/start/result 来更新切换摄像头的状态条。
@@ -153,7 +121,6 @@ public class PlayerActivity extends AppCompatActivity {
     };
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final ExecutorService networkExecutor = Executors.newSingleThreadExecutor();
 
     // region 生命周期
 
@@ -230,13 +197,58 @@ public class PlayerActivity extends AppCompatActivity {
         // 初始渲染状态
         updateCameraUi();
 
-        // 初始化 WebRTC（只做一次）并开始拉流
-        initWebRtc();
-        startPlayback();
+        // 创建拉流会话（内部负责 EGL / Factory / 渲染器初始化）并开始协商
+        binding.firstFrameMask.setAlpha(1f);
+        binding.firstFrameMask.setVisibility(View.VISIBLE);
+        session = new WhepSession(getApplicationContext(), binding.remoteRenderer,
+                new WhepSession.Callback() {
+                    @Override
+                    public void onStatus(String text) {
+                        setStatus(text);
+                    }
+
+                    @Override
+                    public void onFirstFrame() {
+                        if (released) return;
+                        // 首帧上屏后淡出遮罩
+                        mainHandler.postDelayed(() -> binding.firstFrameMask.animate()
+                                .alpha(0f).setDuration(200)
+                                .withEndAction(() -> binding.firstFrameMask.setVisibility(View.GONE))
+                                .start(), 400);
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        setStatus("错误：" + message);
+                    }
+
+                    @Override
+                    public void onConnectionState(PeerConnection.PeerConnectionState state) {
+                        if (released) return;
+                        switch (state) {
+                            case CONNECTED:
+                                setStatus("● 直播中");
+                                break;
+                            case DISCONNECTED:
+                                setStatus("连接中断，尝试恢复…");
+                                break;
+                            case FAILED:
+                                setStatus("连接失败");
+                                break;
+                            case CLOSED:
+                                setStatus("连接已关闭");
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                });
+        session.start(whepUrl);
 
         // 兜底提示：10 秒后仍未进入直播状态，提示可能没有主播推流
         mainHandler.postDelayed(() -> {
-            if (!released && !isLive) {
+            WhepSession s = session;
+            if (!released && (s == null || !s.isLive())) {
                 setStatus("等待主播推流中…");
             }
         }, 10_000);
@@ -248,8 +260,12 @@ public class PlayerActivity extends AppCompatActivity {
         waitingVideoResult = false;
         MqttManager.get(getApplicationContext()).removeListener(mqttListener);
 
-        // 完整释放（factory / eglBase / audioDeviceModule 也一起释放）
-        release();
+        // 释放拉流会话（EGL / Factory / 渲染器一起释放）
+        released = true;
+        if (session != null) {
+            session.release();
+            session = null;
+        }
         // 通知设备端停流
         if (!roomNumber.isEmpty() && !deviceUuid.isEmpty()) {
             MqttManager.get(getApplicationContext()).stopVideoStream(deviceUuid, roomNumber);
@@ -297,230 +313,6 @@ public class PlayerActivity extends AppCompatActivity {
 
     // endregion
 
-    // region WebRTC 初始化
-
-    /**
-     * 只做一次：创建 EGL / Factory / ADM，初始化 SurfaceViewRenderer。
-     * 后续切换摄像头只重新协商会话（PeerConnection），不重走这里。
-     */
-    private void initWebRtc() {
-        EglBase egl = EglBase.create();
-        eglBase = egl;
-
-        SurfaceViewRenderer r = binding.remoteRenderer;
-        r.init(egl.getEglBaseContext(), new RendererCommon.RendererEvents() {
-            @Override
-            public void onFirstFrameRendered() {
-                mainHandler.postDelayed(() -> binding.firstFrameMask.animate()
-                        .alpha(0f).setDuration(200)
-                        .withEndAction(() -> binding.firstFrameMask.setVisibility(View.GONE))
-                        .start(), 400);
-            }
-
-            @Override
-            public void onFrameResolutionChanged(int videoWidth, int videoHeight, int rotation) {
-            }
-        });
-        r.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT);
-        renderer = r;
-
-        PeerConnectionFactory.initialize(
-                PeerConnectionFactory.InitializationOptions
-                        .builder(getApplicationContext())
-                        .createInitializationOptions()
-        );
-
-        JavaAudioDeviceModule adm = JavaAudioDeviceModule.builder(getApplicationContext())
-                .createAudioDeviceModule();
-        audioDeviceModule = adm;
-
-        factory = PeerConnectionFactory.builder()
-                .setAudioDeviceModule(adm)
-                .setVideoEncoderFactory(new DefaultVideoEncoderFactory(egl.getEglBaseContext(), true, true))
-                .setVideoDecoderFactory(new DefaultVideoDecoderFactory(egl.getEglBaseContext()))
-                .createPeerConnectionFactory();
-    }
-
-    private PeerConnection createPeerConnection() {
-        if (factory == null) return null;
-        PeerConnection.RTCConfiguration config =
-                new PeerConnection.RTCConfiguration(Collections.<PeerConnection.IceServer>emptyList());
-        config.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN;
-        config.continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_ONCE;
-        config.bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE;
-        config.rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE;
-        config.tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.ENABLED;
-        config.keyType = PeerConnection.KeyType.ECDSA;
-        return factory.createPeerConnection(config, peerConnectionObserver);
-    }
-
-    // endregion
-
-    // region 播放流程
-
-    /**
-     * 开始一次 WHEP 协商。初次播放和切换摄像头都会调用。
-     */
-    private void startPlayback() {
-        if (factory == null || released) return;
-
-        PeerConnection pc = createPeerConnection();
-        if (pc == null) {
-            onError("PeerConnection 创建失败");
-            return;
-        }
-        peerConnection = pc;
-
-        try {
-            pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO,
-                    new RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY));
-            pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
-                    new RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY));
-        } catch (Exception e) {
-            onError("添加收发通道失败: " + e.getMessage());
-            return;
-        }
-
-        // 首帧遮罩恢复，切换摄像头时也复用同一个遮罩动画
-        binding.firstFrameMask.setAlpha(1f);
-        binding.firstFrameMask.setVisibility(View.VISIBLE);
-
-        setStatus("正在创建连接…");
-        pc.createOffer(new SimpleSdpObserver() {
-            @Override
-            public void onCreateSuccess(SessionDescription offer) {
-                PeerConnection connection = peerConnection;
-                if (connection == null) return;
-                connection.setLocalDescription(new SimpleSdpObserver() {
-                    @Override
-                    public void onSetSuccess() {
-                        waitForIceGatheringThenSend();
-                    }
-
-                    @Override
-                    public void onSetFailure(String error) {
-                        onError("设置本地 SDP 失败: " + error);
-                    }
-                }, offer);
-            }
-
-            @Override
-            public void onCreateFailure(String error) {
-                onError("创建 Offer 失败: " + error);
-            }
-        }, new MediaConstraints());
-    }
-
-    private void waitForIceGatheringThenSend() {
-        mainHandler.postDelayed(new Runnable() {
-            private int tries;
-            @Override
-            public void run() {
-                PeerConnection pc = peerConnection;
-                if (pc == null || released) return;
-                tries++;
-                boolean complete = pc.iceGatheringState() == PeerConnection.IceGatheringState.COMPLETE;
-                if (complete || tries > 60) {
-                    Log.i(TAG, "ICE gathering=" + pc.iceGatheringState() + "，开始发送 Offer SDP");
-                    sendOffer(pc);
-                } else {
-                    mainHandler.postDelayed(this, 100);
-                }
-            }
-        }, 100);
-    }
-
-    private void sendOffer(PeerConnection pc) {
-        SessionDescription localDescription = pc.getLocalDescription();
-        String offerSdp = localDescription == null ? null : localDescription.description;
-        if (offerSdp == null) {
-            onError("本地 SDP 为空");
-            return;
-        }
-        setStatus("正在与服务器协商…");
-        networkExecutor.execute(() -> {
-            try {
-                WhepClient.WhepResponse response = WhepClient.postOffer(whepUrl, offerSdp);
-                sessionLocation.set(response.location);
-                mainHandler.post(() -> applyAnswer(response.sdpAnswer));
-            } catch (Exception e) {
-                String message = e.getMessage() == null ? "WHEP 请求失败" : e.getMessage();
-                mainHandler.post(() -> onError(message));
-            }
-        });
-    }
-
-    private void applyAnswer(String sdpAnswer) {
-        PeerConnection pc = peerConnection;
-        if (pc == null) return;
-        SessionDescription answer = new SessionDescription(SessionDescription.Type.ANSWER, sdpAnswer);
-        pc.setRemoteDescription(new SimpleSdpObserver() {
-            @Override
-            public void onSetSuccess() {
-                setStatus("已建立信令，等待媒体流…");
-                reconnecting = false;
-            }
-
-            @Override
-            public void onSetFailure(String error) {
-                onError("设置远端 SDP 失败: " + error);
-                reconnecting = false;
-            }
-        }, answer);
-    }
-
-    // endregion
-
-    // region WebRTC 事件
-
-    private final PeerConnection.Observer peerConnectionObserver = new PeerConnection.Observer() {
-        @Override public void onSignalingChange(PeerConnection.SignalingState state) {}
-        @Override public void onIceConnectionChange(PeerConnection.IceConnectionState state) {}
-        @Override public void onIceCandidatesRemoved(IceCandidate[] candidates) {}
-        @Override public void onAddStream(org.webrtc.MediaStream stream) {}
-        @Override public void onRemoveStream(org.webrtc.MediaStream stream) {}
-        @Override public void onDataChannel(org.webrtc.DataChannel dataChannel) {}
-        @Override public void onRenegotiationNeeded() {}
-        @Override public void onIceConnectionReceivingChange(boolean receiving) {}
-
-        @Override
-        public void onConnectionChange(PeerConnection.PeerConnectionState newState) {
-            Log.i(TAG, "PeerConnection state = " + newState);
-            if (newState == PeerConnection.PeerConnectionState.CONNECTED) {
-                isLive = true;
-                setStatus("● 直播中");
-            } else if (newState == PeerConnection.PeerConnectionState.DISCONNECTED) {
-                setStatus("连接中断，尝试恢复…");
-            } else if (newState == PeerConnection.PeerConnectionState.FAILED) {
-                if (!released) setStatus("连接失败");
-            } else if (newState == PeerConnection.PeerConnectionState.CLOSED) {
-                if (!released) setStatus("连接已关闭");
-            }
-        }
-
-        @Override public void onIceGatheringChange(PeerConnection.IceGatheringState state) {}
-        @Override public void onIceCandidate(IceCandidate candidate) {}
-        @Override public void onAddTrack(RtpReceiver receiver, org.webrtc.MediaStream[] streams) {}
-
-        @Override
-        public void onTrack(RtpTransceiver transceiver) {
-            if (transceiver == null || transceiver.getReceiver() == null) return;
-            org.webrtc.MediaStreamTrack track = transceiver.getReceiver().track();
-            if (track == null) return;
-            if (track instanceof VideoTrack) {
-                VideoTrack videoTrack = (VideoTrack) track;
-                videoTrack.setEnabled(true);
-                if (renderer != null) videoTrack.addSink(renderer);
-            } else if (track instanceof AudioTrack) {
-                AudioTrack audioTrack = (AudioTrack) track;
-                audioTrack.setEnabled(true);
-                try { audioTrack.setVolume(1.0); } catch (Exception ignored) {}
-            }
-        }
-    };
-
-    // endregion
-
     // region 切换摄像头
 
     /** 解析控制页传递的摄像头列表 JSON，并同步 Spinner。 */
@@ -565,64 +357,6 @@ public class PlayerActivity extends AppCompatActivity {
         return -1;
     }
 
-    /**
-     * 只释放当前 WHEP 会话：DELETE 服务端会话 + dispose PeerConnection。
-     * 保留 factory / eglBase / renderer / audioDeviceModule，以便切换摄像头后快速重建连接。
-     */
-    private void releaseSession() {
-        mainHandler.removeCallbacksAndMessages(null);
-        final String location = sessionLocation.getAndSet(null);
-        networkExecutor.execute(() -> WhepClient.deleteSession(location));
-
-        if (peerConnection != null) {
-            try { peerConnection.dispose(); } catch (Exception ignored) {}
-            peerConnection = null;
-        }
-        // 渲染器先清空，避免旧画面残留到新会话建立完成
-        if (renderer != null) {
-            try { renderer.clearImage(); } catch (Exception ignored) {}
-        }
-    }
-
-    // endregion
-
-    // region 完整释放
-
-    /**
-     * 完整释放：onDestroy 调用，不可逆。
-     */
-    private void release() {
-        if (released) return;
-        released = true;
-
-        mainHandler.removeCallbacksAndMessages(null);
-
-        final String location = sessionLocation.getAndSet(null);
-        networkExecutor.execute(() -> WhepClient.deleteSession(location));
-        networkExecutor.shutdown();
-
-        if (peerConnection != null) {
-            try { peerConnection.dispose(); } catch (Exception ignored) {}
-            peerConnection = null;
-        }
-        if (factory != null) {
-            try { factory.dispose(); } catch (Exception ignored) {}
-            factory = null;
-        }
-        if (renderer != null) {
-            try { renderer.release(); } catch (Exception ignored) {}
-            renderer = null;
-        }
-        if (eglBase != null) {
-            try { eglBase.release(); } catch (Exception ignored) {}
-            eglBase = null;
-        }
-        if (audioDeviceModule != null) {
-            try { audioDeviceModule.release(); } catch (Exception ignored) {}
-            audioDeviceModule = null;
-        }
-    }
-
     // endregion
 
     // region helpers
@@ -634,21 +368,8 @@ public class PlayerActivity extends AppCompatActivity {
         });
     }
 
-    private void onError(String message) {
-        if (released) return;
-        Log.e(TAG, "播放错误: " + message);
-        setStatus("错误：" + message);
-    }
-
     private static String orEmpty(String s) {
         return s == null ? "" : s;
-    }
-
-    private abstract static class SimpleSdpObserver implements SdpObserver {
-        @Override public void onCreateSuccess(SessionDescription sessionDescription) {}
-        @Override public void onSetSuccess() {}
-        @Override public void onCreateFailure(String error) {}
-        @Override public void onSetFailure(String error) {}
     }
 
     // endregion
