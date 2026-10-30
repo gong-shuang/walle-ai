@@ -49,8 +49,8 @@ public final class TopicNames {
     public static final String KIND_STATE = "state/query";
     /** 命令下发失败 */
     public static final String KIND_CMD = "cmd";
-    /** 摄像头能力查询失败 */
-    public static final String KIND_CAPABILITY = "camera/capability/query";
+    /** 设备能力查询失败 */
+    public static final String KIND_CAPABILITY = "capability/query";
     /** 推流启动失败 */
     public static final String KIND_VIDEO_START = "video/start";
     /** 停止推流失败 */
@@ -131,9 +131,9 @@ public final class TopicNames {
         return deviceBase(tenant, device) + "/alarm";
     }
 
-    /** 摄像头能力结果（收到 camera/capability/query 后发布）。 */
+    /** 设备能力结果（收到 capability/query 后发布，含摄像头/麦克风/音响等外设）。 */
     public static String capabilityResult(String tenant, String device) {
-        return deviceBase(tenant, device) + "/camera/capability/result";
+        return deviceBase(tenant, device) + "/capability/result";
     }
 
     /** 推流启动结果（收到 video/start/request 后发布）。 */
@@ -162,7 +162,7 @@ public final class TopicNames {
                 base + "/discovery/result",        // 查询应答
                 base + "/state/result",
                 base + "/cmd/result",
-                base + "/camera/capability/result",
+                base + "/capability/result",
                 base + "/video/start/result",
                 base + "/video/stop/result",
         };
@@ -179,9 +179,9 @@ public final class TopicNames {
         return deviceBase(tenant, device) + "/cmd/exec";
     }
 
-    /** 查询摄像头能力。 */
+    /** 查询设备能力（摄像头/麦克风/音响等外设）。 */
     public static String capabilityQuery(String tenant, String device) {
-        return deviceBase(tenant, device) + "/camera/capability/query";
+        return deviceBase(tenant, device) + "/capability/query";
     }
 
     /** 开始推流（动作类，用 /request）。 */

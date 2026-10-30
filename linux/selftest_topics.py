@@ -110,7 +110,7 @@ def main():
         (m.RES_DISCOVERY_RESULT, "discovery/result"),
         (m.RES_STATE_RESULT, "state/result"),
         (m.RES_CMD_RESULT, "cmd/result"),
-        (m.RES_CAPABILITY_RESULT, "camera/capability/result"),
+        (m.RES_CAPABILITY_RESULT, "capability/result"),
         (m.RES_VIDEO_START_RESULT, "video/start/result"),
         (m.RES_VIDEO_STOP_RESULT, "video/stop/result"),
     ]:
@@ -199,6 +199,7 @@ def main():
         "camera_count": 0,
         "summary": {"total_formats": 0, "probe_cost_ms": 0},
         "probe": {"error": None},
+        "audio": {"capture": {"available": False}, "playback": {"available": False}},
     }
 
     resp.handle_query_status('{"uuid":"x","request_id":"rid-state"}')
@@ -212,7 +213,7 @@ def main():
     sent = {t: json.loads(p) for t, p, _ in resp.client.sent}
     for topic, rid in [
         (f"{base}/state/result", "rid-state"),
-        (f"{base}/camera/capability/result", "rid-cap"),
+        (f"{base}/capability/result", "rid-cap"),
         (f"{base}/discovery/result", "rid-disc"),
         (f"{base}/video/start/result", "rid-vstart"),
         (f"{base}/video/stop/result", "rid-vstop"),

@@ -16,6 +16,7 @@ import java.util.List;
 
 import www.walle.ai.R;
 import www.walle.ai.model.CameraCapability;
+import www.walle.ai.model.DeviceCapability;
 import www.walle.ai.net.ConnState;
 import www.walle.ai.net.DeviceInfo;
 import www.walle.ai.net.MqttManager;
@@ -60,10 +61,15 @@ public class ControlViewModel extends MqttViewModel {
         public final String deviceKey;
         /** 当前设备的真实 uuid：只用于校验 result 归属。 */
         public final String deviceUuid;
+        /** 麦克风能力（capability/result 的 audio.capture） */
+        public final DeviceCapability.AudioEnd audioCapture;
+        /** 音响/扬声器能力（capability/result 的 audio.playback） */
+        public final DeviceCapability.AudioEnd audioPlayback;
 
         UiState(List<CameraCapability.Camera> cameras, String selectedNode, boolean connected,
                 boolean hasDevice, boolean capabilityLoading, Phase phase, String status,
-                String room, String activeCamera, String deviceKey, String deviceUuid) {
+                String room, String activeCamera, String deviceKey, String deviceUuid,
+                DeviceCapability.AudioEnd audioCapture, DeviceCapability.AudioEnd audioPlayback) {
             this.cameras = cameras;
             this.selectedNode = selectedNode;
             this.connected = connected;
@@ -75,6 +81,8 @@ public class ControlViewModel extends MqttViewModel {
             this.activeCamera = activeCamera;
             this.deviceKey = deviceKey;
             this.deviceUuid = deviceUuid;
+            this.audioCapture = audioCapture;
+            this.audioPlayback = audioPlayback;
         }
 
         public boolean canPlay() {
@@ -87,6 +95,8 @@ public class ControlViewModel extends MqttViewModel {
     private final MutableLiveData<String> toast = new MutableLiveData<>();
 
     private List<CameraCapability.Camera> cameras = Collections.emptyList();
+    private DeviceCapability.AudioEnd audioCapture = DeviceCapability.AudioEnd.UNAVAILABLE;
+    private DeviceCapability.AudioEnd audioPlayback = DeviceCapability.AudioEnd.UNAVAILABLE;
     private String selectedNode = "";
     private String capUuid = "";
     private boolean capabilityLoading;
@@ -189,6 +199,8 @@ public class ControlViewModel extends MqttViewModel {
         selectedNode = "";
         if (uuid.isEmpty()) {
             cameras = Collections.emptyList();
+            audioCapture = DeviceCapability.AudioEnd.UNAVAILABLE;
+            audioPlayback = DeviceCapability.AudioEnd.UNAVAILABLE;
             hasDevice = false;
             capabilityLoading = false;
             status = app().getString(R.string.video_no_device);
@@ -216,8 +228,10 @@ public class ControlViewModel extends MqttViewModel {
         pendingCapRid = "";
         capabilityLoading = false;
 
-        CameraCapability cap = CameraCapability.parse(payload);
+        DeviceCapability cap = DeviceCapability.parse(payload);
         cameras = cap.cameras;
+        audioCapture = cap.audioCapture;
+        audioPlayback = cap.audioPlayback;
         if (cameras.isEmpty()) {
             selectedNode = "";
             status = app().getString(R.string.video_no_camera);
@@ -472,6 +486,7 @@ public class ControlViewModel extends MqttViewModel {
         DeviceInfo dev = mgr.getSelectedDevice();
         state.setValue(new UiState(cameras, selectedNode, connected, hasDevice,
                 capabilityLoading, phase, status, activeRoom, activeCamera,
-                mgr.getSelectedKey(), dev == null ? "" : orEmpty(dev.uuid)));
+                mgr.getSelectedKey(), dev == null ? "" : orEmpty(dev.uuid),
+                audioCapture, audioPlayback));
     }
 }

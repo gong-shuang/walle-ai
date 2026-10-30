@@ -46,7 +46,7 @@ public class MessageRouterTest {
         router.route(BASE + "/state/result", "{\"cpu\":{}}");
         router.route(BASE + "/cmd/result", "{\"request_id\":\"r1\"}");
         router.route(BASE + "/alarm", "{\"event\":\"alarm\"}");
-        router.route(BASE + "/camera/capability/result", "{\"cameras\":[]}");
+        router.route(BASE + "/capability/result", "{\"cameras\":[]}");
         router.route(BASE + "/video/start/result", "{\"result\":0}");
         router.route(BASE + "/video/stop/result", "{\"result\":0}");
 

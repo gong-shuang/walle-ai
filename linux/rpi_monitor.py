@@ -20,7 +20,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     walle/{t}/discovery/query                   .../discovery/result                 设备发现（租户级广播）
     .../state/query                             .../state/result                     状态快照
     .../cmd/exec                                .../cmd/result                       远程命令（执行动作）
-    .../camera/capability/query                 .../camera/capability/result         摄像头能力（查询）
+    .../capability/query                      .../capability/result                  设备能力（摄像头/麦克风/音响等外设）
     .../video/start/request                     .../video/start/result               开始推流（动作）
     .../video/stop/request                      .../video/stop/result                停止推流（动作）
 
@@ -155,7 +155,7 @@ MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE", "").strip()      # 留空则用系
 RES_DISCOVERY_RESULT = "discovery/result"           # 收到 discovery/query 后发布（设备身份详情）
 RES_STATE_RESULT = "state/result"                   # 收到 state/query 后发布（状态快照）
 RES_CMD_RESULT = "cmd/result"                       # 收到 cmd/exec 后发布
-RES_CAPABILITY_RESULT = "camera/capability/result"  # 收到 camera/capability/query 后发布
+RES_CAPABILITY_RESULT = "capability/result"         # 收到 capability/query 后发布
 RES_VIDEO_START_RESULT = "video/start/result"       # 收到 video/start/request 后发布
 RES_VIDEO_STOP_RESULT = "video/stop/result"         # 收到 video/stop/request 后发布
 
@@ -174,7 +174,7 @@ RES_ALARM = "alarm"                         # 告警 / 恢复 / USB 插拔
 REQ_DISCOVERY = "discovery/query"
 REQ_STATE = "state/query"
 REQ_CMD = "cmd/exec"
-REQ_CAPABILITY = "camera/capability/query"
+REQ_CAPABILITY = "capability/query"
 REQ_VIDEO_START = "video/start/request"
 REQ_VIDEO_STOP = "video/stop/request"
 
@@ -805,19 +805,16 @@ def list_cameras():
 
 # ==================== 视频推流（ffmpeg -> RTMP） ====================
 
-def _pulse_has_input_source():
+def _pactl_list_names(kind):
     """
-    用 pactl 判断 PulseAudio 上是否存在真实录音源（排除 *.monitor 回环源）。
-    （*.monitor 是输出设备把播放内容回环出来的虚拟源，不是麦克风。）
+    `pactl list short sources|sinks` 的名称列。
 
-    返回 (state, reason)：
-      state=True  有录音源
-      state=False 没有录音源
-      state=None  无法判断（pactl 未安装 / PulseAudio 未运行等），reason 为原因
+    返回 (names, reason)：成功时 names 为 [name, ...]（可能为空列表），
+    pactl 未安装/PulseAudio 未运行/超时等失败时 names=None、reason 为原因。
     """
     try:
         proc = subprocess.run(
-            [VIDEO_PACTL_BIN, "list", "short", "sources"],
+            [VIDEO_PACTL_BIN, "list", "short", kind],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -834,12 +831,47 @@ def _pulse_has_input_source():
         detail = (proc.stderr or b"").decode("utf-8", "replace").strip()[:200]
         return None, f"pactl 返回 {proc.returncode}（PulseAudio 未运行？）{detail}"
 
+    names = []
     for line in (proc.stdout or b"").decode("utf-8", "replace").splitlines():
         # 输出形如：0<TAB>alsa_input.usb-xxx<TAB>module-alsa-card.c<TAB>s16le ...
         cols = line.split("\t")
-        name = cols[1].strip() if len(cols) > 1 else ""
-        if name and not name.endswith(".monitor"):
-            return True, None
+        if len(cols) > 1 and cols[1].strip():
+            names.append(cols[1].strip())
+    return names, None
+
+
+def _pactl_value(args):
+    """执行一条 pactl 查询命令（get-default-sink 等），成功返回 stdout 文本，失败返回 None"""
+    try:
+        proc = subprocess.run(
+            [VIDEO_PACTL_BIN] + args,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=VIDEO_AUDIO_PROBE_TIMEOUT,
+        )
+        if proc.returncode != 0:
+            return None
+        return (proc.stdout or b"").decode("utf-8", "replace").strip() or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _pulse_has_input_source():
+    """
+    用 pactl 判断 PulseAudio 上是否存在真实录音源（排除 *.monitor 回环源）。
+    （*.monitor 是输出设备把播放内容回环出来的虚拟源，不是麦克风。）
+
+    返回 (state, reason)：
+      state=True  有录音源
+      state=False 没有录音源
+      state=None  无法判断（pactl 未安装 / PulseAudio 未运行等），reason 为原因
+    """
+    names, reason = _pactl_list_names("sources")
+    if names is None:
+        return None, reason
+    if any(not n.endswith(".monitor") for n in names):
+        return True, None
     return False, "未检测到录音源（没有麦克风，或只有 *.monitor 回环源）"
 
 
@@ -903,6 +935,74 @@ def detect_microphone():
 
     info["available"] = True
     info["device"] = VIDEO_AUDIO_DEVICE
+    return info
+
+
+def probe_audio_capture():
+    """
+    麦克风（录音）能力，供 capability/result 上报。
+
+    可用性判定复用 detect_microphone（含 VIDEO_AUDIO_ENABLE 开关与 ffmpeg 兜底），
+    附带 pactl 列出的真实录音源清单（排除 *.monitor）。
+    返回 {"available","device","sources","reason"}，任何一步失败都降级为
+    available=False + reason，绝不抛异常。
+    """
+    base = detect_microphone()
+    info = {
+        "available": base["available"],
+        "device": base["device"],
+        "sources": [],
+        "reason": base["reason"],
+    }
+    names, _ = _pactl_list_names("sources")
+    if names:
+        info["sources"] = [n for n in names if not n.endswith(".monitor")]
+    return info
+
+
+def probe_audio_playback():
+    """
+    音响/扬声器（播放）能力，供 capability/result 上报。
+
+    返回 {"available","device","volume_percent","muted","sinks","reason"}：
+      available:       是否存在音频输出设备
+      device:          默认输出 sink 名（pactl get-default-sink，老版本没有该命令则取第一个）
+      volume_percent:  默认输出音量（0-150+），未知为 None
+      muted:           默认输出是否静音，未知为 None
+      sinks:           全部输出 sink 名清单
+      reason:          不可用原因（pactl 缺失 / 无输出设备）
+    任何一步失败都降级，绝不抛异常；音量/静音拿不到时保留 None 而不是报错。
+    """
+    info = {
+        "available": False,
+        "device": None,
+        "volume_percent": None,
+        "muted": None,
+        "sinks": [],
+        "reason": None,
+    }
+    names, reason = _pactl_list_names("sinks")
+    if names is None:
+        info["reason"] = reason
+        return info
+    if not names:
+        info["reason"] = "未检测到音频输出设备（无扬声器/声卡）"
+        return info
+
+    info["available"] = True
+    info["sinks"] = names
+    info["device"] = _pactl_value(["get-default-sink"]) or names[0]
+
+    volume = _pactl_value(["get-sink-volume", info["device"]])
+    if volume:
+        m = re.search(r"(\d+)%", volume)
+        if m:
+            info["volume_percent"] = int(m.group(1))
+
+    mute = _pactl_value(["get-sink-mute", info["device"]])
+    if mute:
+        lowered = mute.lower()
+        info["muted"] = ("yes" in lowered) or ("是" in mute)
     return info
 
 
@@ -1396,37 +1496,57 @@ class RpiMonitor:
         except Exception:
             logging.exception("上报 %s 失败", v2_topic(RES_DISCOVERY_RESULT))
 
-    # ---------- camera/capability/query 能力查询（摄像头） ----------
+    # ---------- capability/query 设备能力查询（摄像头/麦克风/音响等外设） ----------
 
     def build_capability(self):
-        """采集本机能力信息，生成 capability/result 报文"""
+        """采集本机外设能力（摄像头 + 麦克风 + 音响），生成 capability/result 报文"""
         t0 = time.time()
-        cameras, error = ([], "摄像头能力探测已关闭（CAM_ENABLE=False）")
+        cameras, cam_error = ([], "摄像头能力探测已关闭（CAM_ENABLE=False）")
         if CAM_ENABLE:
-            cameras, error = list_cameras()
+            cameras, cam_error = list_cameras()
+        capture = probe_audio_capture()
+        playback = probe_audio_playback()
         cost_ms = int((time.time() - t0) * 1000)
 
         total_formats = sum(c["format_count"] for c in cameras)
         total_resolutions = sum(c["resolution_count"] for c in cameras)
+
+        # 能力清单如实反映探测结果：App 按它显隐功能入口
+        capabilities = ["system_status", "remote_cmd"]
+        if cameras:
+            capabilities.append("camera_video_capture")
+        if VIDEO_ENABLE:
+            capabilities.append("rtmp_push")
+        if capture["available"]:
+            capabilities.append("audio_capture")
+        if playback["available"]:
+            capabilities.append("audio_playback")
 
         return {
             "device_id": DEVICE_ID,
             "uuid": DEVICE_UUID,
             "hostname": HOSTNAME,
             "ip": self.lan_ip,
-            "capability": "camera",
-            "capabilities": ["camera_video_capture", "rtmp_push", "system_status", "remote_cmd"],
+            "capability": "device",
+            "capabilities": capabilities,
             "camera_count": len(cameras),
             "cameras": cameras,
+            "audio": {
+                "capture": capture,
+                "playback": playback,
+            },
             "summary": {
                 "total_cameras": len(cameras),
                 "total_formats": total_formats,
                 "total_resolutions": total_resolutions,
+                "audio_sources": len(capture["sources"]),
+                "audio_sinks": len(playback["sinks"]),
                 "probe_cost_ms": cost_ms,
             },
             "probe": {
-                "tool": "v4l2-ctl",
-                "error": error,          # None 表示探测正常
+                "tool": "v4l2-ctl + pactl",
+                "error": cam_error,          # None 表示摄像头探测正常
+                "audio_error": capture["reason"] or playback["reason"],
             },
             "timestamp": now_ts(),
             "datetime": now_str(),
@@ -1442,9 +1562,11 @@ class RpiMonitor:
             result = self.build_capability()
             result["request_id"] = rid
             self.publish_json(RES_CAPABILITY_RESULT, result)
-            logging.info("已响应能力查询 -> %s（request_id=%s，摄像头 %d 个，格式 %d 种，耗时 %dms%s）",
+            audio = result["audio"]
+            logging.info("已响应能力查询 -> %s（request_id=%s，摄像头 %d 个，麦克风%s，音响%s，耗时 %dms%s）",
                          v2_topic(RES_CAPABILITY_RESULT), rid or "-", result["camera_count"],
-                         result["summary"]["total_formats"],
+                         "" if audio["capture"]["available"] else "：无",
+                         "" if audio["playback"]["available"] else "：无",
                          result["summary"]["probe_cost_ms"],
                          f"，探测异常: {result['probe']['error']}" if result["probe"]["error"] else "")
         except Exception:

@@ -26,6 +26,7 @@ import java.util.List;
 import www.walle.ai.BuildConfig;
 import www.walle.ai.R;
 import www.walle.ai.model.CameraCapability;
+import www.walle.ai.model.DeviceCapability;
 
 /**
  * 摄像头/推流页：只负责渲染 {@link ControlViewModel.UiState} 与本地播放器（{@link WhepSession}）的生命周期。
@@ -38,6 +39,7 @@ public class ControlFragment extends Fragment {
 
     private Spinner spinnerCamera;
     private TextView tvVideoStatus;
+    private TextView tvAudioInfo;
     private ImageView btnPlay;
     private ImageView ivFullscreen;
     private ProgressBar pbVideo;
@@ -67,6 +69,7 @@ public class ControlFragment extends Fragment {
 
         spinnerCamera = view.findViewById(R.id.spinnerCamera);
         tvVideoStatus = view.findViewById(R.id.tvVideoStatus);
+        tvAudioInfo = view.findViewById(R.id.tvAudioInfo);
         btnPlay = view.findViewById(R.id.btnPlay);
         ivFullscreen = view.findViewById(R.id.ivFullscreen);
         pbVideo = view.findViewById(R.id.pbVideo);
@@ -149,6 +152,7 @@ public class ControlFragment extends Fragment {
         spinnerCamera.setEnabled(!ui.capabilityLoading && !ui.cameras.isEmpty());
 
         tvVideoStatus.setText(ui.status);
+        renderAudioInfo(ui);
         pbVideo.setVisibility(ui.phase == ControlViewModel.Phase.STARTING ? View.VISIBLE : View.GONE);
 
         boolean idle = ui.phase == ControlViewModel.Phase.IDLE;
@@ -185,6 +189,32 @@ public class ControlFragment extends Fragment {
             if (node.equals(cameras.get(i).node)) return i;
         }
         return -1;
+    }
+
+    /** 麦克风 / 音响能力一行展示：查询中或无设备时隐藏，避免闪屏噪音。 */
+    private void renderAudioInfo(ControlViewModel.UiState ui) {
+        if (ui.capabilityLoading || !ui.hasDevice) {
+            tvAudioInfo.setVisibility(View.GONE);
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        DeviceCapability.AudioEnd cap = ui.audioCapture;
+        if (cap.available) {
+            sb.append("麦克风：").append(cap.device.isEmpty() ? "default" : cap.device);
+        } else {
+            sb.append("麦克风：无");
+        }
+        DeviceCapability.AudioEnd play = ui.audioPlayback;
+        if (play.available) {
+            sb.append(" · 音响：");
+            if (play.volumePercent >= 0) sb.append(play.volumePercent).append("%");
+            else sb.append("有");
+            if (play.muted) sb.append("（静音）");
+        } else {
+            sb.append(" · 音响：无");
+        }
+        tvAudioInfo.setText(sb);
+        tvAudioInfo.setVisibility(View.VISIBLE);
     }
 
     // ---------------------------------------------------------------- 播放器

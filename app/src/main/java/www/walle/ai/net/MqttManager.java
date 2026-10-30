@@ -55,7 +55,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
 
         default void onCmdResult(JSONObject payload) {}
 
-        /** camera/capability/result：摄像头能力（v4l2 枚举结果） */
+        /** capability/result：设备能力（摄像头/麦克风/音响等外设枚举结果） */
         default void onCapability(JSONObject payload) {}
 
         /** video/start/result：推流启动结果 */

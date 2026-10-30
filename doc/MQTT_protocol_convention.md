@@ -27,7 +27,7 @@ walle/{tenant}/{device}/{resource}
 
 - `tenant`：租户标识 = **App 登录用的 MQTT 用户名**（经清洗）。同一账号 = 同一租户。
 - `device`：**稳定**的设备标识 `device_id`（设备端用 MAC + CPU + 内存算 md5 取前 16 位，重启不变）。
-- `resource`：按语义命名（见 §2.3），可能含 `/`（如 `camera/capability/result`）。
+- `resource`：按语义命名（见 §2.3），可能含 `/`（如 `video/start/result`）。
 
 特例：设备发现是**租户级**广播，只有 3 段、没有 device 段：`walle/{tenant}/discovery/query`。
 
@@ -39,7 +39,7 @@ walle/{tenant}/{device}/{resource}
 | 2 | 设备发现 | `walle/{t}/discovery/query` | `walle/{t}/{d}/discovery/result` | 请求-应答（按需、限频） |
 | 3 | 状态查询 | `walle/{t}/{d}/state/query` | `walle/{t}/{d}/state/result` | 请求-应答 |
 | 4 | 远程命令 | `walle/{t}/{d}/cmd/exec` | `walle/{t}/{d}/cmd/result` | 请求-应答 |
-| 5 | 摄像头能力 | `walle/{t}/{d}/camera/capability/query` | `walle/{t}/{d}/camera/capability/result` | 请求-应答 |
+| 5 | 设备能力 | `walle/{t}/{d}/capability/query` | `walle/{t}/{d}/capability/result` | 请求-应答 |
 | 6 | 开始推流 | `walle/{t}/{d}/video/start/request` | `walle/{t}/{d}/video/start/result` | 请求-应答 |
 | 7 | 停止推流 | `walle/{t}/{d}/video/stop/request` | `walle/{t}/{d}/video/stop/result` | 请求-应答 |
 | 8 | 告警 | — | `walle/{t}/{d}/alarm` | 主动上报 |
@@ -57,7 +57,7 @@ walle/{tenant}/{device}/{resource}
 把租户编码进主题路径，Broker 就能直接用 `walle/${username}/#` 做 ACL：
 用户 A 的 App 和设备只能看到 `walle/A/#`，天然隔离多用户，无需服务端代码。
 **因此主题段里绝不允许出现 `+ # /` 等通配/分隔符**（见 §3.3 清洗规则），否则 ACL 会失效。
-详细方案与 EMQX ACL 配置步骤见 [s3-multi-tenant-topics.md](s3-multi-tenant-topics.md)。
+详细方案与 EMQX ACL 配置步骤见 [s3-multi-tenant-topics.md](dev_record/s3-multi-tenant-topics.md)。
 
 ### 2.2 设备段必须稳定，禁止用 uuid
 
@@ -93,7 +93,7 @@ walle/{tenant}/{device}/{resource}
 
 QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 `MessageRouter` 用
 「键排序后的 JSON 签名 + 2 秒窗口」去重，但只针对**一次性事件**：
-`alarm`、`cmd/result`、`camera/capability/result`、`video/start/result`、`video/stop/result`
+`alarm`、`cmd/result`、`capability/result`、`video/start/result`、`video/stop/result`
 （重复处理会出事，例如推流结果重复 → 播放器初始化两次）。
 `online` 与 `state/result` 是幂等的（同一份状态重复应用无害），**不去重**。
 
@@ -102,7 +102,7 @@ QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 
 设备列表 = 当前在线设备，直接来自 retained `online` 报文：App 一连上就收到回放，
 **不需要广播轮询**。`discovery/query` 降级为按需手段（手动刷新、连上后一台设备都没
 回放出来时自动兜底一次）。设备端对 discovery 应答做了**限频（2 秒/台）+ 随机抖动
-（≤0.8 秒）**，避免多台手机同时扫描时回包风暴。背景见 [n7-discovery-scaling.md](n7-discovery-scaling.md)。
+（≤0.8 秒）**，避免多台手机同时扫描时回包风暴。背景见 [n7-discovery-scaling.md](dev_record/n7-discovery-scaling.md)。
 
 ### 2.7 不订通配子树
 
@@ -275,26 +275,35 @@ App 侧重复 online 不去重（幂等）。
 安全开关（设备端环境变量 / 常量）：`ENABLE_CMD_EXEC`（总开关）、`CMD_ALLOWLIST`
 （前缀白名单，为空=允许任意命令）。**这是高危能力**，Broker ACL 必须保证租户隔离。
 
-### 4.5 摄像头能力 camera/capability/query → camera/capability/result
+### 4.5 设备能力 capability/query → capability/result
 
-**作用**：枚举设备端 v4l2 摄像头及其格式/分辨率/帧率，供控制页展示与选择。
+**作用**：枚举设备端外设能力——摄像头（v4l2）、麦克风/音响（PulseAudio）等，供控制页
+展示与选择。历史上只查摄像头（`camera/capability/*`，已删除），任务 4 起升级为通用能力查询。
 
-- 请求：`walle/{t}/{d}/camera/capability/query`，字段 `{uuid, request_id}`
-- 应答：`walle/{t}/{d}/camera/capability/result`
+- 请求：`walle/{t}/{d}/capability/query`，字段 `{uuid, request_id}`
+- 应答：`walle/{t}/{d}/capability/result`
 
 应答字段：
 
 | 字段 | 说明 |
 |---|---|
-| `capability` | 固定 `"camera"` |
-| `capabilities[]` | 能力标签：`camera_video_capture`、`rtmp_push`、`system_status`、`remote_cmd` |
+| `capability` | 固定 `"device"` |
+| `capabilities[]` | 能力标签，按探测结果条件出现：`system_status`、`remote_cmd` 恒有；有摄像头加 `camera_video_capture`；`VIDEO_ENABLE` 开启加 `rtmp_push`；音频可用分别加 `audio_capture` / `audio_playback` |
 | `camera_count` / `cameras[]` | 摄像头列表，每项含 `node`（如 `/dev/video0`）、格式/分辨率/帧率明细、`format_count`、`resolution_count`；无 `node` 的条目 App 侧会过滤 |
-| `summary{total_cameras,total_formats,total_resolutions,probe_cost_ms}` | 聚合统计 |
-| `probe{tool:"v4l2-ctl", error}` | `error` 非 null 表示探测失败（含 CAM_ENABLE=False 的提示） |
+| `audio.capture` | 麦克风：`{available, device, sources[], reason}`；`device` 为默认录音源（通常 `default`），不可用时 `reason` 给出原因 |
+| `audio.playback` | 音响：`{available, device, sinks[], volume_percent, muted, reason}`；`volume_percent` 未知为 null（App 归一为 -1） |
+| `summary` | 聚合统计：`total_cameras`、`total_formats`、`total_resolutions`、`audio_sources`、`audio_sinks`、`probe_cost_ms` |
+| `probe` | `{tool: "v4l2-ctl + pactl", error, audio_error}`：`error` / `audio_error` 非 null 分别表示视频 / 音频探测失败（含 CAM_ENABLE=False 的提示） |
 | `request_id` 及公共字段 | — |
 
-App 解析：`model/CameraCapability.java`，兼容两种形态——设备端标准报文
-`{cameras: [...]}` 与控制页透传的**裸数组**。契约测试：`CameraCapabilityTest`。
+音频探测（设备端 `probe_audio_capture` / `probe_audio_playback`）：优先
+`pactl list short sources/sinks`（录音侧排除 `*.monitor` 回环源）；pactl 缺失时录音侧用
+ffmpeg 试读 0.2s 兜底；播放侧另取默认 sink、音量与静音状态。**任何一步失败只降级**
+（`available:false` + `reason`），不影响整体应答；单项探测超时 3s，整体控制在 2 秒量级。
+
+App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapability.parse`）；
+缺 `audio` 分组（旧设备端）归一为 unavailable，绝不崩。契约测试：`DeviceCapabilityTest`、
+`CameraCapabilityTest`。
 
 ### 4.6 开始推流 video/start/request → video/start/result
 
@@ -386,7 +395,7 @@ App 解析：`model/CameraCapability.java`，兼容两种形态——设备端�
    - App：`TopicNamesTest`（主题命名/清洗）、`MessageRouterTest`（路由/去重）、
      以及对应模型的解析测试（`StatusSnapshotTest` 等）
    - 设备端：`linux/selftest_topics.py`（清洗对照、订阅清单、命名成对、request_id 回显）
-4. 本地验证后提交，CI 会跑：单测 → debug 构建 → 设备端自检（见 `.github/workflows/android-ci.yml`）。
+4. 本地验证通过后提交（CI 工作流已移除，提交前务必本地跑通以下检查）：
 
 ```bash
 ./gradlew :app:testDebugUnitTest        # App 契约测试
@@ -411,7 +420,7 @@ bash -n linux/install.sh               # 部署脚本语法检查
 | 发现应答 | `DevicesViewModel.java`（消费） | `handle_device_query`（限频+抖动） |
 | 状态采集 | `StatusSnapshot.java`（解析） | `build_status` / `handle_query_status` |
 | 命令执行 | `CommandViewModel.java`（消费） | `handle_cmd_exec` / `_publish_cmd_result` |
-| 摄像头能力 | `CameraCapability.java`（解析） | `build_capability` / `handle_capability_query` |
+| 设备能力 | `DeviceCapability.java`（解析，摄像头部分复用 `CameraCapability`） | `build_capability` / `probe_audio_capture` / `probe_audio_playback` / `handle_capability_query` |
 | 推流控制 | `ControlViewModel` / `PlayerViewModel`（消费） | `handle_video_request` / `handle_video_stop` |
 | 告警 | `AlarmStore.java`（落盘）/ `AlarmViewModel` | `_event` / `check_threshold` / `check_usb` |
 | uuid 校验 | —（App 负责携带） | `verify_uuid` |
@@ -419,8 +428,8 @@ bash -n linux/install.sh               # 部署脚本语法检查
 
 ## 7. 相关文档
 
-- [多租户主题方案（s3）](s3-multi-tenant-topics.md) — ACL 配置与验收
-- [设备发现收敛（n7）](n7-discovery-scaling.md) — retained 驱动列表的演进
-- [MQTT5 升级评估](mqtt5-assessment.md) — 未来升级的工作量与触发条件
-- [架构与技术评审](architecture-review.md) — 分层与技术债全景
+- [多租户主题方案（s3）](dev_record/s3-multi-tenant-topics.md) — ACL 配置与验收
+- [设备发现收敛（n7）](dev_record/n7-discovery-scaling.md) — retained 驱动列表的演进
+- [MQTT5 升级评估](dev_record/mqtt5-assessment.md) — 未来升级的工作量与触发条件
+- [架构与技术评审](dev_record/architecture-review.md) — 分层与技术债全景
 - [设备端部署说明](../linux/README.md) — rpi_monitor 安装与配置

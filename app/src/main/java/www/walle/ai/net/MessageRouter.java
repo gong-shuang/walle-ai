@@ -115,7 +115,7 @@ public class MessageRouter {
             case "cmd/result":
                 if (!isDuplicate("cmd", json)) sink.onCmdResult(json);
                 break;
-            case "camera/capability/result":
+            case "capability/result":
                 if (!isDuplicate("capability", json)) sink.onCapabilityResult(json);
                 break;
             case "video/start/result":

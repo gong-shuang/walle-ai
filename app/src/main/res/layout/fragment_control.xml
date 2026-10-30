@@ -37,6 +37,16 @@
                 android:popupBackground="@drawable/bg_popup_dark" />
         </LinearLayout>
 
+        <!-- 音频外设能力（capability/result 的 audio 分组）：麦克风 / 音响 -->
+        <TextView
+            android:id="@+id/tvAudioInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
         <!-- 视频区域：4:3（640x480）比例，由 AspectRatioFrameLayout 在测量阶段固定 -->
         <www.walle.ai.ui.AspectRatioFrameLayout
             android:id="@+id/flVideo"

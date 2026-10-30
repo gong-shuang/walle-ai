@@ -11,7 +11,7 @@
 | 1 | 状态报文携带推流信息，控制页自动接管正在进行的推流 | 待开始 | 高 |
 | 2 | App → 设备端音频传输（反向音频） | 待开始 | 中 |
 | 3 | 告警拆分为「当前」与「历史」两个 Fragment | 待开始 | 中 |
-| 4 | 设备能力从「摄像头」扩展为通用外设能力（麦克风、音响等） | 待开始 | 中 |
+| 4 | 设备能力从「摄像头」扩展为通用外设能力（麦克风、音响等） | ✅ 已完成（2026-10-30） | 中 |
 
 ---
 
@@ -162,19 +162,41 @@ MQTT 不适合传音频流（QoS1 + JSON + 小报文），必须走独立通道�
 }
 ```
 
-- [ ] 主题命名需要决策：新增 `walle/{t}/{d}/capability/query`，还是保留
+- [x] 主题命名需要决策：新增 `walle/{t}/{d}/capability/query`，还是保留
       `camera/capability/query` 并向后兼容？建议新增通用主题，旧主题保留一个版本周期。
-- [ ] 采集复用：麦克风探测复用任务 2/推流用的 `detect_microphone()`，不要重复实现。
-- [ ] 音响探测：`pactl list short sinks` + `pactl get-sink-volume` / `get-sink-mute`。
-- [ ] 探测失败要降级为「该能力 unavailable + reason」，不能让整个报文失败。
-- [ ] App：`CameraCapability` 重构为 `DeviceCapability`（保留 CameraCapability 的解析兼容），
+      → **决策：直接以 `capability/query|result` 替换 `camera/capability/*`，不留兼容层**
+      （两端同仓同部署，与 v1 删除先例一致）。
+- [x] 采集复用：麦克风探测复用任务 2/推流用的 `detect_microphone()`，不要重复实现。
+      → `probe_audio_capture()` 复用 `detect_microphone()` + `_pactl_list_names("sources")`。
+- [x] 音响探测：`pactl list short sinks` + `pactl get-sink-volume` / `get-sink-mute`。
+- [x] 探测失败要降级为「该能力 unavailable + reason」，不能让整个报文失败。
+- [x] App：`CameraCapability` 重构为 `DeviceCapability`（保留 CameraCapability 的解析兼容），
       控制页与设置页按能力列表显隐入口（例如没有音响就不显示音量控件）。
-- [ ] 契约测试同步：`CameraCapabilityTest` → 扩展为 `DeviceCapabilityTest`；`selftest_topics.py` 新增主题。
+      → 新增 `model/DeviceCapability.java`（摄像头部分复用 `CameraCapability.parse`）；
+      控制页新增 `tvAudioInfo` 一行展示麦克风/音响状态。
+- [x] 契约测试同步：`CameraCapabilityTest` → 扩展为 `DeviceCapabilityTest`；`selftest_topics.py` 新增主题。
 
 ### 验收标准
 
 - 有麦克风无音响的设备：能力报文如实反映，App 不显示播音入口、推流自动带音频。
 - 探测超时（如 `pactl` 卡住）时能力查询仍在 2 秒内返回，缺失能力标记为 unavailable。
+
+### 验证记录（2026-10-30）
+
+- `./gradlew :app:testDebugUnitTest`：**54 个单测全部通过**（TopicNamesTest 10 /
+  MessageRouterTest 7 / DeviceCapabilityTest 4 / CameraCapabilityTest 5 等，0 失败）。
+- `python3 linux/selftest_topics.py`：**全部通过**（契约与 Android 端一致）。
+- 本地端到端：`./linux/.venv/bin/python3 linux/rpi_monitor.py --env-file linux/rpi-monitor.env.example`
+  启动后，用 paho 客户端向 `walle/home/c07920c42d6af684/capability/query` 发请求：
+  - `request_id` 原样回显，`capability="device"`；
+  - 本机（USB 摄像头带麦、双 sink）：`audio.capture.available=true`（device=default，
+    sources 含 USB 麦克风），`audio.playback.available=true`（音量 100%、未静音、2 个 sink）；
+  - `capabilities` 条件化正确：本机无可用摄像头（v4l2 权限拒绝），故无 `camera_video_capture`，
+    有 `audio_capture` / `audio_playback` / `rtmp_push`；探测总耗时 119ms（远低于 2s 预算）。
+- App 端到端：`assembleDebug` 构建成功，`adb install -r` 到 emulator-5554 后进入
+  aigo 设备「控制」页，日志确认收到 `capability/result`，UI 显示
+  「麦克风：default · 音响：100%」「设备未检测到摄像头」，无崩溃。
+- 协议文档 `doc/MQTT_protocol_convention.md` 已同步（总表、§2.5 去重清单、§4.5 整节、§6 对照表）。
 
 ---
 
