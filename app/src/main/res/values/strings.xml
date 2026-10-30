@@ -28,10 +28,8 @@
     <string name="device_offline">设备离线</string>
     <string name="device_unknown">设备状态未知</string>
 
-    <string name="query_status">查询状态</string>
-    <string name="auto_refresh">自动刷新</string>
-    <string name="no_status_yet">暂无数据，点击“查询状态”获取设备实时状态</string>
-    <string name="refreshing">正在采集（约 1 秒）…</string>
+    <string name="pull_to_refresh_hint">向下滑动屏幕会更新，最新更新：%1$s</string>
+    <string name="no_status_yet">暂无数据，向下滑动屏幕获取设备实时状态</string>
 
     <string name="no_alarms">暂无告警 / 事件\n设备产生的告警与 USB 插拔会实时出现在这里</string>
     <string name="clear_alarms">清空</string>

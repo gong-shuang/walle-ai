@@ -239,6 +239,12 @@ App 侧重复 online 不去重（幂等）。
 | `disk` | `mounts[]`：每挂载点容量/使用率/文件系统类型 |
 | `network` | `sample_interval_sec`、`total_rx/tx_bytes_per_sec`、`total_rx/tx_rate`（可读）、`interfaces[]`（每网卡 rx/tx 速率） |
 | `usb` | `count`、`devices[]` |
+| `video` | 推流状态（任务 1）：`streaming`、`room_number`、`video_device`、`audio`（推流时的音频信息，无音频/未推流为 null）、`pid`、`started_at`、`uptime_sec`；未推流时 `streaming=false` 且其余字段全为 null。数据来自推流时记录的 `video_meta`，ffmpeg 异常退出后看护线程清理，下一次查询即 `streaming=false` |
+
+**video 分组的用途**：App 控制页进入时查一次状态，若 `video.streaming=true` 且
+`room_number`/`video_device` 齐全，直接用该房间号拼 WHEP 地址拉流，**自动接管设备正在
+进行的推流**，无需用户再点「开始推流」。App 侧只认自己这次查询的 `request_id`
+（`ControlViewModel.takeoverRid`），状态页的周期查询不会触发接管。
 
 解析入口（App 唯一）：`model/StatusSnapshot.java`。契约测试：`StatusSnapshotTest`
 （缺分组归空、异常数值归一为 null、网卡按名称排序等）。**状态是实时查询数据，不落盘**

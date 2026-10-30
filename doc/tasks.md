@@ -8,7 +8,7 @@
 
 | # | 任务 | 状态 | 优先级 |
 |---|---|---|---|
-| 1 | 状态报文携带推流信息，控制页自动接管正在进行的推流 | 待开始 | 高 |
+| 1 | 状态报文携带推流信息，控制页自动接管正在进行的推流 | ✅ 已完成（2026-10-30） | 高 |
 | 2 | App → 设备端音频传输（反向音频） | 待开始 | 中 |
 | 3 | 告警拆分为「当前」与「历史」两个 Fragment | 待开始 | 中 |
 | 4 | 设备能力从「摄像头」扩展为通用外设能力（麦克风、音响等） | ✅ 已完成（2026-10-30） | 中 |
@@ -23,7 +23,7 @@ App 打开设备控制页时，如果该设备**正在推流**，直接显示视
 
 ### 设备端改动
 
-- [ ] `state/result` 中新增推流信息（建议字段，最终以协议文档为准）：
+- [x] `state/result` 中新增推流信息（建议字段，最终以协议文档为准）：
 
 ```json
 {
@@ -39,25 +39,48 @@ App 打开设备控制页时，如果该设备**正在推流**，直接显示视
 }
 ```
 
-- [ ] 未推流时 `video.streaming = false`，其余字段可为 null；`video` 整体缺省时 App 按「未推流」处理。
-- [ ] 数据来源：复用已有的 `self.video_meta`（含 room_number / video_device / pid / started_at / audio / started_ts），不要重复探测。
-- [ ] 注意加锁读取 `video_lock`，避免与推流启停竞态。
-- [ ] 顺带确认 `video_meta` 在 ffmpeg 进程异常退出后会被清理（否则会误报 streaming=true）。
+- [x] 未推流时 `video.streaming = false`，其余字段可为 null；`video` 整体缺省时 App 按「未推流」处理。
+- [x] 数据来源：复用已有的 `self.video_meta`（含 room_number / video_device / pid / started_at / audio / started_ts），不要重复探测。
+- [x] 注意加锁读取 `video_lock`，避免与推流启停竞态。
+      → 新增 `_video_status()`：锁内取快照，锁外组报文；`proc.poll()` 非 None 视为未推流。
+- [x] 顺带确认 `video_meta` 在 ffmpeg 进程异常退出后会被清理（否则会误报 streaming=true）。
+      → 既有 `_video_watch` 在 `proc.wait()` 返回后（含异常退出）即清空 `video_proc/video_meta`；
+      `_video_status()` 再加一道 `poll()` 兜底，selftest 第 11 节覆盖。
 
 ### App 端改动
 
-- [ ] `model/StatusSnapshot` 解析新增 `video` 分组（新增强类型字段，缺失时安全降级）。
-- [ ] `ControlViewModel` 进入页面时：若 `video.streaming == true` 且 `video_device` 与当前选中一致，
+- [x] `model/StatusSnapshot` 解析新增 `video` 分组（新增强类型字段，缺失时安全降级）。
+      → 新增 `StatusSnapshot.VideoStatus`（streaming/roomNumber/videoDevice/pid/startedAt/uptimeSec/audioAvailable），
+      分组缺失归 null，`takeoverReady()` 统一判定。
+- [x] `ControlViewModel` 进入页面时：若 `video.streaming == true` 且 `video_device` 与当前选中一致，
       直接用 `room_number` 拼 WHEP 地址发起拉流，跳过「请求推流」步骤。
-- [ ] 若 `video.streaming == true` 但设备与用户选中不同，提示「设备正在推流（room x），是否切换摄像头」，
+      → `onCapability` 成功后发一次 `state/query`（`takeoverRid` 配对，不吃状态页的周期查询），
+      `onMachineStatus` 里接管：置 LIVE + activeRoom/activeCamera，Spinner 跟随选中推流摄像头。
+- [x] 若 `video.streaming == true` 但设备与用户选中不同，提示「设备正在推流（room x），是否切换摄像头」，
       切换走已有的 `video/start/request`（复用房间号语义）。
-- [ ] 自动接管失败（WHEP 拉流失败）时回退到正常的手动推流流程，并给出可读原因。
+      → 实现为直接接管并在 Spinner 选中实际推流的摄像头（同一时刻设备只有一路流，
+      接管显示即为用户想看的内容；推流设备不在能力清单时也能播）。
+- [x] 自动接管失败（WHEP 拉流失败）时回退到正常的手动推流流程，并给出可读原因。
+      → 复用既有 `onPlayerError`：stopStream + 「播放失败: …」文案。
 
 ### 验收标准
 
 - App 全新启动（或杀掉后台）后进入控制页，设备正在推流 → 画面自动出现，无需交互。
 - 设备未推流 → 控制页仍是「点击开始推流」的空态。
 - 设备端 ffmpeg 异常退出后，下一次 `state/query` 返回 `streaming: false`。
+
+### 验证记录（2026-10-30）
+
+- `./gradlew :app:testDebugUnitTest`：**57 个单测全部通过**（StatusSnapshotTest 8 个，含 3 个 video 分组新用例）。
+- `python3 linux/selftest_topics.py`：全部通过（新增第 11 节 video 快照：未推流/推流中/进程已退出 3 种形态）。
+- 设备端 MQTT 实测（本机 lavfi testsrc2 假摄像头推流，room=887766）：
+  - 推流前 `state/result.video.streaming=false`（其余字段全 null）；
+  - `video/start/result` result=0 后，`state/result.video` 回显 room/device/pid/uptime_sec/audio。
+- App 端到端：emulator-5554 全新启动 → aigo「控制」页 → **未点任何按钮**，
+  自动用 state 里的 room=887766 发起 WHEP 拉流（日志 `POST WHEP -> HTTP 201, stream=887766`，
+  PeerConnection CONNECTED），画面渲染出测试图，状态「● 推流中」，无崩溃。
+- 测试流已通过 `video/stop/request` 正常停止（result=0, stopped=true）。
+- 协议文档 `doc/MQTT_protocol_convention.md` §4.3 已补 video 分组说明。
 
 ### 涉及文件
 

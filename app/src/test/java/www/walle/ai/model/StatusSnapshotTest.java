@@ -120,6 +120,46 @@ public class StatusSnapshotTest {
         assertTrue(s.usb.devices.get(0).blockNodes.isEmpty());
     }
 
+    @Test
+    public void parsesStreamingVideoGroup() {
+        StatusSnapshot s = StatusSnapshot.parse(json(
+                "{\"video\":{\"streaming\":true,\"room_number\":\"545754\","
+                + "\"video_device\":\"/dev/video0\",\"pid\":12345,"
+                + "\"started_at\":\"2026-10-30 18:47:42\",\"uptime_sec\":128.5,"
+                + "\"audio\":{\"available\":true,\"device\":\"default\"}}}"));
+        assertNotNull(s.video);
+        assertTrue(s.video.streaming);
+        assertTrue(s.video.takeoverReady());
+        assertEquals("545754", s.video.roomNumber);
+        assertEquals("/dev/video0", s.video.videoDevice);
+        assertEquals(12345, s.video.pid);
+        assertEquals("2026-10-30 18:47:42", s.video.startedAt);
+        assertEquals(128.5, s.video.uptimeSec, 0.001);
+        assertTrue(s.video.audioAvailable);
+    }
+
+    @Test
+    public void idleVideoGroupIsNotTakeoverReady() {
+        StatusSnapshot s = StatusSnapshot.parse(json(
+                "{\"video\":{\"streaming\":false,\"room_number\":null,\"video_device\":null,"
+                + "\"audio\":null,\"pid\":null,\"started_at\":null,\"uptime_sec\":null}}"));
+        assertNotNull(s.video);
+        assertTrue(!s.video.streaming);
+        assertTrue(!s.video.takeoverReady());
+        assertEquals("", s.video.roomNumber);
+        assertEquals("", s.video.videoDevice);
+        assertEquals(-1, s.video.pid);
+        assertEquals(-1, s.video.uptimeSec, 0.001);
+        assertTrue(!s.video.audioAvailable);
+    }
+
+    @Test
+    public void missingVideoGroupYieldsNull() {
+        // 旧设备端没有 video 分组：按「未推流」处理，不能崩
+        StatusSnapshot s = StatusSnapshot.parse(json("{\"datetime\":\"t\"}"));
+        assertNull(s.video);
+    }
+
     private static JSONObject json(String raw) {
         try {
             return new JSONObject(raw);

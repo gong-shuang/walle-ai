@@ -29,6 +29,8 @@ public final class StatusSnapshot {
     public final Network network;
     public final Usb usb;
     public final List<String> activeAlarms;
+    /** 推流状态（任务 1）：null 表示设备端未上报（旧版本），UI 按「未推流」处理。 */
+    public final VideoStatus video;
 
     private StatusSnapshot(JSONObject s) {
         uuid = optString(s, "uuid", "");
@@ -43,6 +45,7 @@ public final class StatusSnapshot {
         network = Network.parse(s.optJSONObject("network"));
         usb = Usb.parse(s.optJSONObject("usb"));
         activeAlarms = parseStringArray(s.optJSONObject("alarms"), "active");
+        video = VideoStatus.parse(s.optJSONObject("video"));
     }
 
     /** 解析状态快照；传入 null 返回 null（UI 直接展示「暂无数据」）。 */
@@ -257,6 +260,40 @@ public final class StatusSnapshot {
                 }
                 blockNodes = nodes;
             }
+        }
+    }
+
+    /** 推流状态分组（state/result 的 video）：设备正在推流时 App 控制页可直接接管播放。 */
+    public static final class VideoStatus {
+        public final boolean streaming;
+        public final String roomNumber;
+        public final String videoDevice;
+        public final int pid;
+        public final String startedAt;
+        /** 秒，未知为 -1 */
+        public final double uptimeSec;
+        /** 这路流是否带音频 */
+        public final boolean audioAvailable;
+
+        private VideoStatus(JSONObject o) {
+            streaming = o.optBoolean("streaming", false);
+            roomNumber = optString(o, "room_number", "");
+            videoDevice = optString(o, "video_device", "");
+            pid = o.optInt("pid", -1);
+            startedAt = optString(o, "started_at", "");
+            Double up = optDouble(o, "uptime_sec");
+            uptimeSec = up == null ? -1 : up;
+            JSONObject audio = o.optJSONObject("audio");
+            audioAvailable = audio != null && audio.optBoolean("available", false);
+        }
+
+        static VideoStatus parse(JSONObject o) {
+            return o == null ? null : new VideoStatus(o);
+        }
+
+        /** 可用于接管的推流：在推流且房间号/设备齐全。 */
+        public boolean takeoverReady() {
+            return streaming && !roomNumber.isEmpty() && !videoDevice.isEmpty();
         }
     }
 

@@ -53,6 +53,8 @@ public class ControlFragment extends Fragment {
     private String playingRoom = "";
     /** 程序化修改 Spinner 选中项时，忽略回调。 */
     private boolean bindingSpinner;
+    /** 详情页首次打开时点了设备、但 ViewModel 尚未就绪，待 onViewCreated 后补查能力。 */
+    private boolean pendingDeviceSwitchQuery;
 
     @Nullable
     @Override
@@ -102,6 +104,12 @@ public class ControlFragment extends Fragment {
                 viewModel.clearToast();
             }
         });
+
+        // 详情页首次打开就点了设备：这里补发能力查询，保证点设备正好两个主题
+        if (pendingDeviceSwitchQuery) {
+            pendingDeviceSwitchQuery = false;
+            viewModel.onDeviceSwitched();
+        }
     }
 
     // ---------------------------------------------------------------- 生命周期
@@ -109,12 +117,14 @@ public class ControlFragment extends Fragment {
     @Override
     public void onStart() {
         super.onStart();
-        viewModel.onScreenVisible();
+        // 隐藏的子页也会走 onStart：此时不能查能力，否则启动/切页会多发 capability/query
+        if (!isHidden()) viewModel.onScreenVisible();
     }
 
     @Override
     public void onStop() {
         viewModel.onScreenStopped();
+        releasePlayer();            // 离开页面只释放本地播放器，推流在设备端继续
         super.onStop();
     }
 
@@ -124,6 +134,7 @@ public class ControlFragment extends Fragment {
         if (viewModel == null) return;
         if (hidden) {
             viewModel.onScreenHidden();
+            releasePlayer();        // 切走 tab 同样只释放播放器，不下发 video/stop
         } else {
             viewModel.onScreenVisible();
         }
@@ -134,6 +145,21 @@ public class ControlFragment extends Fragment {
         if (viewModel != null) viewModel.onDestroyed();
         releasePlayer();
         super.onDestroyView();
+    }
+
+    /**
+     * 设备列表里显式点了某台设备：立即查一次能力（与状态页的 state/query 配对）。
+     * <p>即使本页当前不可见也要查，这样用户点「控制」tab 时能力已经就绪、不需再发一次。</p>
+     */
+    public void onDeviceSwitched() {
+        if (!isAdded()) return;
+        if (viewModel == null) {
+            // 详情页首次打开时本 Fragment 可能还没走 onViewCreated，先记下待查询
+            pendingDeviceSwitchQuery = true;
+            return;
+        }
+        pendingDeviceSwitchQuery = false;
+        viewModel.onDeviceSwitched();
     }
 
     // ---------------------------------------------------------------- 渲染
@@ -234,7 +260,7 @@ public class ControlFragment extends Fragment {
     }
 
     private void beginPlayback(String room) {
-        if (!isAdded()) return;
+        if (!isAdded() || isHidden()) return;   // 隐藏时不建播放器；回到前台由 onScreenVisible 补建
         String url = BuildConfig.WHEP_URL_TEMPLATE.replace("{room}", Uri.encode(room));
         playingRoom = room;
         player = new WhepSession(requireContext().getApplicationContext(), videoRenderer,

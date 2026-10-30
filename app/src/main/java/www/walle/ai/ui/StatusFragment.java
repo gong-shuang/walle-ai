@@ -12,13 +12,10 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-
-import com.google.android.material.button.MaterialButton;
 
 import java.util.Locale;
 
@@ -38,11 +35,7 @@ public class StatusFragment extends Fragment {
     private StatusViewModel viewModel;
     private LinearLayout container;
     private TextView tvEmpty, tvUpdated, tvCurrentDevice;
-    private MaterialButton btnQuery;
-    private SwitchCompat swAuto;
     private SwipeRefreshLayout swipe;
-    /** 避免 setChecked 触发监听器造成回环。 */
-    private boolean bindingSwitch;
 
     @Nullable
     @Override
@@ -59,18 +52,11 @@ public class StatusFragment extends Fragment {
         tvEmpty = view.findViewById(R.id.tvEmpty);
         tvUpdated = view.findViewById(R.id.tvUpdated);
         tvCurrentDevice = view.findViewById(R.id.tvCurrentDevice);
-        btnQuery = view.findViewById(R.id.btnQuery);
-        swAuto = view.findViewById(R.id.swAuto);
         swipe = view.findViewById(R.id.swipe);
 
-        btnQuery.setOnClickListener(v -> viewModel.query());
         swipe.setOnRefreshListener(() -> {
             viewModel.query();
             swipe.setRefreshing(false);   // 刷新指示由 UiState.refreshing 驱动
-        });
-        swAuto.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (bindingSwitch) return;
-            viewModel.setAutoRefresh(isChecked);
         });
 
         viewModel.state().observe(getViewLifecycleOwner(), this::render);
@@ -92,17 +78,16 @@ public class StatusFragment extends Fragment {
 
     private void render(StatusViewModel.UiState ui) {
         renderDeviceLabel(ui.device);
-        renderToolbar(ui);
 
         StatusSnapshot s = ui.snapshot;
         if (s == null) {
             container.removeAllViews();
             tvEmpty.setVisibility(View.VISIBLE);
-            tvUpdated.setText("");
+            tvUpdated.setText(getString(R.string.pull_to_refresh_hint, "—"));
             return;
         }
         tvEmpty.setVisibility(View.GONE);
-        tvUpdated.setText("最近更新：" + s.datetime);
+        tvUpdated.setText(getString(R.string.pull_to_refresh_hint, s.datetime));
         renderSnapshot(s);
     }
 
@@ -113,18 +98,6 @@ public class StatusFragment extends Fragment {
         } else {
             tvCurrentDevice.setText(getString(R.string.current_device, d.displayName())
                     + "（" + d.typeLabel() + " · uuid " + d.shortUuid() + "）");
-        }
-    }
-
-    private void renderToolbar(StatusViewModel.UiState ui) {
-        if (btnQuery != null) {
-            btnQuery.setEnabled(ui.canQuery());
-            btnQuery.setText(ui.refreshing ? R.string.refreshing : R.string.query_status);
-        }
-        if (swAuto != null) {
-            bindingSwitch = true;
-            swAuto.setChecked(ui.autoRefresh);
-            bindingSwitch = false;
         }
     }
 

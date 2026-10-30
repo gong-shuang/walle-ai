@@ -17,6 +17,7 @@ import java.util.List;
 import www.walle.ai.R;
 import www.walle.ai.model.CameraCapability;
 import www.walle.ai.model.DeviceCapability;
+import www.walle.ai.model.StatusSnapshot;
 import www.walle.ai.net.ConnState;
 import www.walle.ai.net.DeviceInfo;
 import www.walle.ai.net.MqttManager;
@@ -100,6 +101,8 @@ public class ControlViewModel extends MqttViewModel {
     private String selectedNode = "";
     private String capUuid = "";
     private boolean capabilityLoading;
+    /** 当前设备能力是否已拿到确定性应答：已加载则切回页面不再重查。 */
+    private boolean capabilityLoaded;
 
     private Phase phase = Phase.IDLE;
     private String status = "";
@@ -154,12 +157,29 @@ public class ControlViewModel extends MqttViewModel {
     // ---------------------------------------------------------------- 生命周期
 
     public void onScreenVisible() {
-        if (phase == Phase.LIVE) return;      // 从全屏页返回时不打断
+        if (phase == Phase.LIVE) {
+            // 从全屏页返回 / 切回本 tab：推流未停，重发一次状态让 Fragment 重建播放器
+            publish();
+            return;
+        }
+        // 能力已加载或查询在飞、且设备未变：不重查（点选设备时已查过一次，见 onDeviceSwitched）
+        if (capUuid.equals(mgr.getSelectedKey()) && (capabilityLoaded || capabilityLoading)) return;
         queryCapability();
     }
 
+    /**
+     * 设备列表里显式点了某台设备：立即查一次能力（与状态页的 state/query 配对）。
+     *
+     * <p>只要用户点设备就发 —— 不做「能力已加载就跳过」的去重，保证每次点击都正好是
+     * state/query + capability/query 两个主题。后台的设备上线 / 列表变化广播不会走到这里。</p>
+     */
+    public void onDeviceSwitched() {
+        if (phase == Phase.LIVE && mgr.getSelectedKey().equals(activeUuid)) return;  // 推流中的设备不打断
+        queryCapability();
+    }
+
+    /** Tab 切走：保持推流，不下发 video/stop；本地播放器由 Fragment 自行释放。 */
     public void onScreenHidden() {
-        stopStream(true);
     }
 
     public void onDestroyed() {
@@ -182,13 +202,9 @@ public class ControlViewModel extends MqttViewModel {
         publish();
     }
 
-    /** Fragment 在 onStop 时调用；handoff 期间不下发 stop。 */
+    /** Fragment 在 onStop 时调用；只清 handoff 标记，不下发 stop（离开页面不打断推流）。 */
     public void onScreenStopped() {
-        if (handoff) {
-            handoff = false;
-            return;
-        }
-        stopStream(true);
+        handoff = false;
     }
 
     // ---------------------------------------------------------------- 能力查询
@@ -197,6 +213,7 @@ public class ControlViewModel extends MqttViewModel {
         String uuid = mgr.getSelectedKey();
         capUuid = uuid;
         selectedNode = "";
+        capabilityLoaded = false;
         if (uuid.isEmpty()) {
             cameras = Collections.emptyList();
             audioCapture = DeviceCapability.AudioEnd.UNAVAILABLE;
@@ -227,6 +244,7 @@ public class ControlViewModel extends MqttViewModel {
         }
         pendingCapRid = "";
         capabilityLoading = false;
+        capabilityLoaded = true;      // 拿到确定性应答（无论有无摄像头），本设备不再重查
 
         DeviceCapability cap = DeviceCapability.parse(payload);
         cameras = cap.cameras;
@@ -240,6 +258,43 @@ public class ControlViewModel extends MqttViewModel {
             selectedNode = cameras.get(0).node;
             status = app().getString(R.string.video_cameras_found, cameras.size());
         }
+        publish();
+        // 任务 1：状态页的 state/query 结果会广播到本 VM（见 onMachineStatus）；
+        // 这里再补读一次 MqttManager 的状态缓存兜底，两个路径都不额外发报文。
+        tryTakeover(mgr.getStatus(capUuid));
+    }
+
+    /**
+     * 接管探测（任务 1）：state/result 广播到所有 Listener，挑「当前设备 + 正在推流」的接管。
+     * 不发自己的 state/query——状态页查询/周期结果路过时就够用了。
+     */
+    @Override
+    public void onMachineStatus(JSONObject payload) {
+        if (payload == null) return;
+        String uuid = payload.optString("uuid", "");
+        if (!uuid.isEmpty() && !uuid.equals(capUuid)) return;
+        tryTakeover(payload);
+    }
+
+    private void tryTakeover(JSONObject payload) {
+        if (payload == null) return;
+        if (phase != Phase.IDLE || !activeRoom.isEmpty()) return;
+
+        StatusSnapshot snap = StatusSnapshot.parse(payload);
+        if (snap == null || snap.video == null || !snap.video.takeoverReady()) return;
+
+        activeUuid = capUuid;
+        activeRoom = snap.video.roomNumber;
+        activeCamera = snap.video.videoDevice;
+        // 推流摄像头在能力清单里时，Spinner 跟着选中，保持 UI 一致
+        for (CameraCapability.Camera c : cameras) {
+            if (c.node.equals(activeCamera)) {
+                selectedNode = c.node;
+                break;
+            }
+        }
+        phase = Phase.LIVE;
+        status = "● 推流中（已接管设备正在进行的推流）";
         publish();
     }
 
@@ -385,14 +440,18 @@ public class ControlViewModel extends MqttViewModel {
     public void onDevicesChanged() {
         boolean nowConnected = mgr.isConnected();
         hasDevice = !mgr.getSelectedKey().isEmpty();
-        boolean changed = !mgr.getSelectedKey().equals(capUuid);
         connected = nowConnected;
-        if (changed) {
+        if (!mgr.getSelectedKey().equals(capUuid)) {
+            // 选中设备变了（用户点了另一台，或该设备重启换了 uuid）：清掉旧能力并停掉旧推流，
+            // 但**不在这里发查询** —— 查询只由用户显式切换触发（onDeviceSwitched）。
             stopStream(true);
-            queryCapability();
-        } else {
-            publish();
+            cameras = Collections.emptyList();
+            selectedNode = "";
+            capabilityLoaded = false;
+            capabilityLoading = false;
+            status = app().getString(R.string.video_querying_capability);
         }
+        publish();
     }
 
     @Override

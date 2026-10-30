@@ -22,6 +22,8 @@ import argparse
 import importlib.util
 import json
 import sys
+import threading
+import time
 import types
 from pathlib import Path
 
@@ -285,6 +287,54 @@ def main():
     for legacy in ("TOPIC_ALARM", "TOPIC_ONLINE", "TOPIC_CMD_EXEC", "TOPIC_SCHEME",
                    "V1_TO_V2_RESOURCE", "V2_PROTO"):
         check(f"无 {legacy}", hasattr(m, legacy), False)
+
+    print("\n== 11. 推流状态快照（任务 1：state/result 的 video 分组）==")
+
+    vs = m.RpiMonitor.__new__(m.RpiMonitor)
+    vs.video_lock = threading.Lock()
+
+    # 未推流：streaming=False，其余全 null
+    vs.video_proc = None
+    vs.video_meta = {}
+    idle = vs._video_status()
+    check("未推流 streaming", idle.get("streaming"), False)
+    check("未推流 room_number 为 null", idle.get("room_number"), None)
+    check("未推流 video_device 为 null", idle.get("video_device"), None)
+
+    # 推流中：复用 video_meta，字段齐全
+    class FakeProc:
+        def __init__(self):
+            self.pid = 4242
+
+        def poll(self):
+            return None           # 仍在运行
+
+    vs.video_proc = FakeProc()
+    vs.video_meta = {
+        "room_number": "545754",
+        "video_device": "/dev/video0",
+        "pid": 4242,
+        "started_at": "2026-10-30 18:47:42",
+        "started_ts": time.time() - 12.5,
+        "audio": {"available": True, "device": "default"},
+    }
+    live = vs._video_status()
+    check("推流中 streaming", live.get("streaming"), True)
+    check("推流中 room_number", live.get("room_number"), "545754")
+    check("推流中 video_device", live.get("video_device"), "/dev/video0")
+    check("推流中 pid", live.get("pid"), 4242)
+    check("推流中 started_at", live.get("started_at"), "2026-10-30 18:47:42")
+    check("推流中 audio 透传", (live.get("audio") or {}).get("available"), True)
+    check("推流中 uptime_sec 约 12.5", 12.0 <= (live.get("uptime_sec") or 0) <= 13.5, True)
+
+    # 进程已退出（看护线程还来不及清理）：按未推流返回，不误报
+    class DeadProc(FakeProc):
+        def poll(self):
+            return 1
+
+    vs.video_proc = DeadProc()
+    dead = vs._video_status()
+    check("进程已退出 streaming", dead.get("streaming"), False)
 
     print()
     if failures:

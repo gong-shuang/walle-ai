@@ -114,8 +114,10 @@ public class DeviceDetailFragment extends Fragment {
             TabLayout.Tab t = tabs.getTabAt(0);
             if (t != null) t.select();
         }
-        // 标题由 ConnectionViewModel 观察自动刷新，这里只需重置子页并查询
+        // 点设备只发两个主题：状态页的 state/query + 控制页的 capability/query。
+        // 控制页此时即使不可见也要查，这样点「控制」tab 时能力已就绪，不必再发一次。
         if (statusFragment != null) statusFragment.onDeviceSwitched();
+        if (controlFragment != null) controlFragment.onDeviceSwitched();
     }
 
     private void updateDeviceLabel(@Nullable DeviceInfo d) {
