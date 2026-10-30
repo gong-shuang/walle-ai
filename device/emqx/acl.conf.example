@@ -1,0 +1,28 @@
+%% ============================================================
+%% walle 多租户 ACL（EMQX 5.x / 6.x acl.conf 语法）
+%% 用法：EMQX Dashboard → 访问控制 → 客户端授权 → File → 设置
+%%       把本段插到文件最前面（保留原有的 $SYS / 127.0.0.1 / deny 规则），保存即热加载
+%%
+%% 约定：主题 = walle/{tenant}/{device}/{resource}
+%%   tenant = 手机 App 的登录用户名
+%%   device = 设备 client_id（脚本里的 device_id，16 位十六进制）
+%%
+%% 把 home / RaspPi5 换成你的实际值：
+%%   home    —— 手机端账号（也是租户名；家庭成员共用同一账号时，所有人填它）
+%%   RaspPi5 —— 设备账号
+%% ============================================================
+
+%% 手机端：读写本租户整棵子树
+{allow, {username, {re, "^home$"}}, all, ["walle/home/#"]}.
+
+%% 设备端：只读写自己的子树，并能收到租户内的发现广播
+{allow, {username, {re, "^RaspPi5$"}}, publish,   ["walle/home/${clientid}/#"]}.
+{allow, {username, {re, "^RaspPi5$"}}, subscribe, ["walle/home/${clientid}/#",
+                                                   "walle/home/discovery/query"]}.
+
+%% ============================================================
+%% 以下为 EMQX 自带默认规则，保留
+%% ============================================================
+{allow, {username, {re, "^dashboard$"}}, subscribe, ["$SYS/#"]}.
+{allow, {ipaddr, "127.0.0.1"}, all, ["$SYS/#", "#"]}.
+{deny, all, subscribe, ["$SYS/#", {eq, "#"}, {eq, "+/#"}]}.

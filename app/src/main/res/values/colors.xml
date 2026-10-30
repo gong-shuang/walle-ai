@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ============ 深色主题调色板：深空蓝底 + 玻璃卡片 + 青蓝高亮 ============ -->
+    <color name="screen_bg_top">#050A14</color>
+    <color name="screen_bg">#080E1C</color>
+    <color name="screen_bg_bottom">#0F1D33</color>
+    <color name="nav_bg">#0A1324</color>
+
+    <color name="brand_primary">#38BDF8</color>
+    <color name="brand_primary_dark">#0EA5E9</color>
+    <color name="brand_accent">#2DD4BF</color>
+
+    <color name="white">#FFFFFFFF</color>
+    <color name="text_primary">#EAF1FF</color>
+    <color name="text_secondary">#95A6C4</color>
+    <color name="text_hint">#5D6D8A</color>
+    <color name="card_bg">#131F36</color>
+    <color name="card_bg_alt">#101A2E</color>
+    <color name="card_stroke">#28405F</color>
+    <color name="divider">#22334D</color>
+    <color name="on_accent">#04121F</color>
+
+    <color name="warn_bg">#33260C</color>
+    <color name="warn_text">#FBBF24</color>
+
+    <color name="state_idle">#8797B3</color>
+    <color name="state_connecting">#FBBF24</color>
+    <color name="state_connected">#34D399</color>
+    <color name="state_error">#F87171</color>
+
+    <!-- 首次启动引导页 -->
+    <color name="onboarding_bg">#05070F</color>
+    <color name="onboarding_text">#F0F5FF</color>
+    <color name="onboarding_muted">#A9B7D0</color>
+    <color name="onboarding_dim">#7C8DB5</color>
+    <color name="onboarding_accent_1">#38BDF8</color>
+    <color name="onboarding_accent_2">#2DD4BF</color>
+    <color name="onboarding_accent_3">#A78BFA</color>
+</resources>

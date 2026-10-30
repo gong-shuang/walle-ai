@@ -1,0 +1,39 @@
+# ---------- Gradle / 构建产物 ----------
+.gradle/
+build/
+*/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ---------- Android ----------
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# ---------- IDE ----------
+.idea/
+*.iml
+*.ipr
+*.iws
+.settings/
+.project
+.classpath
+
+# ---------- 系统 ----------
+.DS_Store
+Thumbs.db
+
+# ---------- 调试/日志 ----------
+*.hprof
+*.log
+
+# ---------- Python（设备端） ----------
+__pycache__/
+*.py[cod]
+device/.venv/
+device/log/
+device/*.log

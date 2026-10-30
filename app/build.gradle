@@ -1,0 +1,117 @@
+plugins {
+    id 'com.android.application'
+}
+
+// ---------------- MQTT 默认连接参数 ----------------
+// 明文凭据不再硬编码在 Java 源码里，统一在构建期注入，便于按环境覆盖：
+//   方式一：gradle.properties 里写 mqttHost / mqttPort
+//   方式二：命令行 -PmqttHost=xxx -PmqttPort=8883
+//   方式三：环境变量 MQTT_DEFAULT_HOST / MQTT_DEFAULT_PORT
+// 注意：只注入主机与端口；用户名 / 密码由用户在 App 内输入，经 Keystore 加密保存。
+def mqttProp = { String propKey, String envKey, String fallback ->
+    String v = project.findProperty(propKey)?.toString()
+    if (v == null || v.trim().isEmpty()) v = System.getenv(envKey)
+    if (v == null || v.trim().isEmpty()) v = fallback
+    return v
+}
+// 生成 BuildConfig 字符串字面量时的转义，避免引号/反斜杠破坏 Java 代码
+def mqttEscape = { String s -> s.replace('\\', '\\\\').replace('"', '\\"') }
+
+def mqttHost = mqttProp('mqttHost', 'MQTT_DEFAULT_HOST', 'www.baidong.xyz')
+// 默认走 TLS：8883 是 EMQX 的 ssl 监听，配合 MqttConfig.tls 默认值保持一致；
+// 需要明文时显式传 -PmqttPort=1883，此时 TLS 开关会自动关闭。
+def mqttPort = Integer.parseInt(mqttProp('mqttPort', 'MQTT_DEFAULT_PORT', '8883').trim())
+
+android {
+    namespace 'www.walle.ai'
+    // Play 2026-08 起要求 targetSdk >= 36；compileSdk 同步到 36，build-tools 固定 36.0.0
+    compileSdk 36
+    buildToolsVersion '36.0.0'
+
+    defaultConfig {
+        applicationId "www.walle.ai"
+        minSdk 26
+        targetSdk 36
+        // 1.8：协议改为 walle/{tenant}/{device}/...（v1 全局主题已删除，不兼容旧设备/旧 App）
+        //      同时 targetSdk 36、edge-to-edge、R8、引导页按需解码
+        versionCode 1
+        versionName "0.1"
+
+        // WHEP 拉流地址（演示服务器），生产环境替换为正式地址
+        buildConfigField "String", "WHEP_URL", "\"https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream=123456\""
+        // 按房间号拼接的 WHEP 拉流地址模板：{room} 会被替换成 video/start/result 里的 room_number
+        // app 必须与设备端 RTMP 推流路径中的 app 一致（rtmp://124.220.197.223:1935/live/<room> → app=live）
+        buildConfigField "String", "WHEP_URL_TEMPLATE", "\"https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream={room}\""
+
+        // ABI 过滤：WebRTC 的 .so 占 41 MB（4 个 ABI），手机端只需要 arm64-v8a / armeabi-v7a。
+        // x86 / x86_64 仅模拟器需要；如果你的模拟器是 x86 镜像，临时把对应 ABI 加回这一行。
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
+
+        // MQTT 默认连接参数（源码里不出现明文凭据；账号密码由用户在 App 内输入）
+        buildConfigField "String", "MQTT_DEFAULT_HOST", "\"${mqttEscape(mqttHost)}\""
+        buildConfigField "int", "MQTT_DEFAULT_PORT", "${mqttPort}"
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            // R8：代码混淆 + 无用类剔除；shrinkResources 清理未引用的 res 与 so
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        unitTests {
+            // 纯 JVM 单测（TopicNames / DeviceInfo）不碰 Android API；
+            // 打开这个开关后，万一以后测到 android.* 也只是返回默认值而不是抛 "not mocked"。
+            returnDefaultValues = true
+        }
+    }
+
+    bundle {
+        // 上传 Play 时按 ABI / 语言拆包，单台设备只下载自己那套 .so
+        abi {
+            enableSplit true
+        }
+        density {
+            enableSplit true
+        }
+        language {
+            enableSplit true
+        }
+    }
+
+    buildFeatures {
+        // 需要生成 BuildConfig（PlayerActivity 从 BuildConfig.WHEP_URL 取拉流地址）
+        buildConfig true
+        // activity_player.xml 通过 ViewBinding 访问控件
+        viewBinding true
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.viewpager2:viewpager2:1.0.0'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    implementation 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5'
+
+    // WebRTC 官方 API 的社区维护分支（包名仍为 org.webrtc）
+    implementation "io.getstream:stream-webrtc-android:1.3.8"
+
+    // 单元测试：./gradlew :app:testDebugUnitTest
+    testImplementation 'junit:junit:4.13.2'
+}

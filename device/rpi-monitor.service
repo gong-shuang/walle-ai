@@ -1,0 +1,19 @@
+[Unit]
+Description=RaspberryPi System Monitor over MQTT
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gs
+# install.sh 会把安装目录 / 用户替换成实际值；手动部署时按需修改
+WorkingDirectory=/home/gs/mqtt_demo
+EnvironmentFile=-/etc/rpi-monitor.env
+ExecStart=/home/gs/mqtt_demo/.venv/bin/python /home/gs/mqtt_demo/rpi_monitor.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

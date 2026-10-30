@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  统一的半透明深色胶囊背景：圆角 8dp，颜色 60% 黑。
+  用于全屏播放页的返回按钮、摄像头切换 Spinner、状态条——三个控件视觉完全一致。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#66000000" />
+    <corners android:radius="8dp" />
+</shape>

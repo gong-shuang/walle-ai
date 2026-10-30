@@ -1,0 +1,21 @@
+// Top-level build file
+buildscript {
+    repositories {
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // AGP 9.4.1：compileSdk 36 / targetSdk 36 要求 AGP >= 8.9.1，这里直接对齐本机 Studio 2026.2 的 AGP 9.x
+        classpath 'com.android.tools.build:gradle:9.4.1'
+    }
+}
+allprojects {
+    repositories {
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        google()
+        mavenCentral()
+    }
+}

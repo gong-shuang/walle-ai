@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">树莓派控制器</string>
+    <string name="settings_title">连接设置</string>
+
+    <string name="tab_devices">设备列表</string>
+    <string name="tab_detail">设备详情</string>
+    <string name="tab_settings">设置</string>
+
+    <!-- 设备详情内的子页 -->
+    <string name="subtab_status">状态</string>
+    <string name="subtab_control">控制</string>
+    <string name="subtab_command">命令</string>
+    <string name="current_device_detail">当前设备：%1$s（%2$s · uuid %3$s）</string>
+    <string name="video_placeholder">视频流视图，先保留，以后实现</string>
+    <string name="video_placeholder_sub">后续接入摄像头推流（RTSP / WebRTC）后在此预览</string>
+
+    <!-- 设置页 -->
+    <string name="section_server">服务器配置</string>
+    <string name="section_alarm">告警</string>
+    <string name="save_and_reconnect">保存并重连</string>
+    <string name="security_tip">提示：当前 broker 使用明文 1883 与弱密码，仅用于 Demo。生产环境建议使用 TLS(8883)、强密码及账号 ACL 权限控制。</string>
+
+    <string name="connect">连接</string>
+    <string name="disconnect">断开</string>
+    <string name="connecting">连接中</string>
+
+    <string name="device_offline">设备离线</string>
+    <string name="device_unknown">设备状态未知</string>
+
+    <string name="query_status">查询状态</string>
+    <string name="auto_refresh">自动刷新</string>
+    <string name="no_status_yet">暂无数据，点击“查询状态”获取设备实时状态</string>
+    <string name="refreshing">正在采集（约 1 秒）…</string>
+
+    <string name="no_alarms">暂无告警 / 事件\n设备产生的告警与 USB 插拔会实时出现在这里</string>
+    <string name="clear_alarms">清空</string>
+
+    <string name="cmd_hint">输入 shell 命令，例如：vcgencmd measure_temp</string>
+    <string name="timeout_hint">超时(秒)</string>
+    <string name="no_cmd_result">暂无执行结果，输入命令后点击“执行”</string>
+    <string name="run">执行</string>
+    <string name="running">执行中…</string>
+    <string name="cmd_safety_tip">⚠ 命令将以 shell 在目标设备上真实执行，请确认命令安全。</string>
+    <string name="quick_cmds">常用命令</string>
+    <string name="history">本次历史</string>
+    <string name="result_title">执行结果</string>
+
+    <string name="notif_channel">MQTT 服务</string>
+
+    <!-- 设备发现 -->
+    <string name="scan_devices">重新扫描</string>
+    <string name="scanning">正在扫描设备…</string>
+    <string name="no_devices">尚未发现设备\n请确认手机与设备都已连上 MQTT 服务器，然后点击“重新扫描”</string>
+    <string name="devices_found">已发现 %1$d 台设备（在线 %2$d）</string>
+    <string name="no_device_selected">请先在“设备”页选择一台设备</string>
+    <string name="current_device">当前设备：%1$s</string>
+    <string name="tap_to_use">点击卡片切换当前设备</string>
+    <!-- v1.4 全屏 + 设置页入口 -->
+    <string name="back">返回</string>
+    <string name="server_settings_title">服务器设置</string>
+    <string name="alarm_title">告警</string>
+    <string name="settings_server_row">服务器连接</string>
+    <string name="settings_alarm_row">告警</string>
+    <string name="server_row_fmt">服务器连接（%1$s）</string>
+    <string name="state_connected">已连接</string>
+    <string name="state_connecting">正在连接</string>
+    <string name="state_disconnected">未连接</string>
+    <string name="state_error">连接失败</string>
+
+    <!-- 用户名 / 密码：首次由用户输入，之后从本地加密存储恢复 -->
+    <string name="need_credentials_tip">请先在「设置 → 服务器连接」填写 MQTT 用户名和密码</string>
+    <string name="need_credentials_save_tip">请先填写并保存 MQTT 用户名和密码</string>
+    <string name="credentials_required_user">请填写 MQTT 用户名</string>
+    <string name="credentials_required_pass">请填写 MQTT 密码</string>
+
+    <!-- 控制页：摄像头能力 / 视频推流 -->
+    <string name="video_camera_label">摄像头设备</string>
+    <string name="video_querying_capability">正在查询摄像头能力…</string>
+    <string name="video_no_device">请先在“设备”页选择一台设备</string>
+    <string name="video_no_camera">设备未检测到摄像头</string>
+    <string name="video_cameras_found">已发现 %1$d 个摄像头，点击画面开始推流</string>
+    <string name="video_max_res">最高 %1$s</string>
+    <string name="video_starting">正在启动推流（房间号 %1$s）…</string>
+    <string name="video_start_failed">推流启动失败：%1$s</string>
+    <string name="video_play_error">视频连接失败：%1$s</string>
+    <string name="video_stop_failed">停止推流失败：%1$s</string>
+    <string name="video_tap_to_play">点击画面开始推流</string>
+    <string name="video_fullscreen">放大观看</string>
+    <string name="video_fullscreen_playing">已切换到全屏播放，退出全屏后推流将继续播放</string>
+
+    <!-- 首次启动引导页 -->
+    <string name="onboarding_skip">跳过</string>
+    <string name="onboarding_next">下一步</string>
+    <string name="onboarding_start">开始使用</string>
+    <string name="onboarding_swipe_hint">继续左滑即可进入</string>
+    <string name="onboarding_page_of">第 %1$d / 3 页</string>
+
+    <string name="onboarding_eyebrow_1">LINUX DEVICE HUB</string>
+    <string name="onboarding_title_1">远程掌控你的 Linux 设备</string>
+    <string name="onboarding_desc_1">实时查看 CPU、内存、磁盘、温度等详细状态\n异常自动告警，支持同时查看和管理多台设备</string>
+    <string name="onboarding_a11y_1">第一页：LINUX DEVICE HUB，远程掌控你的 Linux 设备。实时查看 CPU、内存、磁盘、温度等详细状态，异常自动告警，支持同时查看和管理多台设备</string>
+
+    <string name="onboarding_eyebrow_2">CAMERA &amp; CONTROL</string>
+    <string name="onboarding_title_2">远程查看画面，控制外部设备</string>
+    <string name="onboarding_desc_2">随时查看摄像头采集的实时画面\n远程控制电机、舵机等外接硬件</string>
+    <string name="onboarding_a11y_2">第二页：CAMERA &amp; CONTROL，远程查看画面，控制外部设备。随时查看摄像头采集的实时画面，远程控制电机、舵机等外接硬件</string>
+
+    <string name="onboarding_eyebrow_3">AI AGENT</string>
+    <string name="onboarding_title_3">Agent 帮你管理设备</string>
+    <string name="onboarding_desc_3">向 Agent 下发任务，自动完成设备管理与运维\n打造属于你的专属智能机器人</string>
+    <string name="onboarding_a11y_3">第三页：AI AGENT，Agent 帮你管理设备。向 Agent 下发任务，自动完成设备管理与运维，打造属于你的专属智能机器人</string>
+
+    <!-- 设置页：重看引导 -->
+    <string name="onboarding_replay">重看新手引导</string>
+    <string name="onboarding_replay_sub">再次查看首次启动时的功能介绍</string>
+</resources>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  明文流量策略
+  · 默认全站禁止明文（cleartextTrafficPermitted=false）：WHEP 必须走 https，WebSocket 必须走 wss。
+  · MQTT 由 Paho 直接建原始 Socket，不经过 NetworkSecurityPolicy，
+    因此「是否加密」由 App 内的 TLS 开关决定（默认 8883 + ssl://）。
+  · debug 包额外信任用户安装的 CA，方便用自签证书联调；release 只信任系统 CA。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="user" />
+            <certificates src="system" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

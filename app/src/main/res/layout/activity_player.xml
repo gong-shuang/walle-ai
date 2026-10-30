@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  播放页布局。
+
+  设计要点：
+  1. 根布局背景为白色。视频使用 SurfaceViewRenderer 的 SCALE_ASPECT_FIT
+     等比例缩放（不裁剪），当视频宽高比与横屏屏幕不一致时，画面上下或左右
+     会露出未覆盖区域，这些区域显示根布局的白色。
+  2. SurfaceViewRenderer 宽高均为 0dp 并四边约束到父布局，表示「占满整个
+     父容器」；真正的等比例缩放由渲染器内部根据视频分辨率完成。
+  3. 所有悬浮控件（返回、摄像头切换、状态条）都共用同一份视觉参数：
+     bg_overlay_scrim（半透黑 8dp 圆角）+ white + textSize=14sp + padding 12/8dp，
+     三处视觉完全一致。Spinner 的触发器外观由 item_spinner_camera_selected_dark
+     控制，背景再叠加 bg_overlay_scrim 做统一外壳。
+-->
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/screen_bg_top">
+
+    <org.webrtc.SurfaceViewRenderer
+        android:id="@+id/remoteRenderer"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintDimensionRatio="4:3"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <View
+        android:id="@+id/firstFrameMask"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="@color/screen_bg_top"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- 左上角返回按钮 -->
+    <TextView
+        android:id="@+id/backButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="8dp"
+        android:background="@drawable/bg_overlay_scrim"
+        android:gravity="center"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp"
+        android:text="@string/back"
+        android:textColor="@color/white"
+        android:textSize="14sp"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- 右上角摄像头切换 Spinner -->
+    <Spinner
+        android:id="@+id/spinnerCamera"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="8dp"
+        android:background="@drawable/bg_overlay_scrim"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp"
+        android:popupBackground="@drawable/bg_popup_dark"
+        android:dropDownVerticalOffset="6dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- 左下角连接状态条 -->
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:background="@drawable/bg_overlay_scrim"
+        android:gravity="center"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp"
+        android:text="正在连接…"
+        android:textColor="@color/white"
+        android:textSize="14sp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

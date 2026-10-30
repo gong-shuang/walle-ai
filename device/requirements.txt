@@ -1,0 +1,3 @@
+# 树莓派监控 Agent 运行依赖
+paho-mqtt>=2.0
+psutil>=5.9

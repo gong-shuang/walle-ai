@@ -1,0 +1,50 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;36.0.0'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # 单元测试：TopicNames / DeviceInfo 的主题与标识契约
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
+      # 编译 debug APK（顺带验证 R8 未开启时的资源/清单/Java 编译链路）
+      - name: Assemble debug
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      # 设备端：主题契约自检 + 部署脚本语法检查（不需要树莓派）
+      - name: Device contract self-test
+        run: |
+          python3 device/selftest_topics.py
+          bash -n device/install.sh
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
