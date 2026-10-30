@@ -9,10 +9,10 @@
 > | 等级 | 含义 | 条目 | ✅ | ◐ | ⭕ |
 > |---|---|:--:|:--:|:--:|:--:|
 > | 严重 | 安全 / 上架 / 崩溃级 | 15 | 15 | 0 | 0 |
-> | 一般 | 架构、可靠性、性能、工程化 | 14 | 5 | 4 | 5 |
+> | 一般 | 架构、可靠性、性能、工程化 | 14 | 7 | 2 | 5 |
 > | 忽略 | 技术栈升级（现阶段收益低于成本） | 10 | 0 | 0 | 10 |
 >
-> **结论**：**严重项已全部清零**（15/15）；一般项已完成 5 条（N4 请求配对、N5 异步发布、N8 前台服务类型、N9 包体、N14 版本号）。剩下 **5 条一般项未开始 + 4 条部分完成**，以及 10 条忽略项，均不阻塞当前开发与使用。
+> **结论**：**严重项已全部清零**（15/15）；一般项已完成 7 条（N4 请求配对、N5 异步发布、N8 前台服务类型、N9 包体、N12 单测/CI、N13 git 基线、N14 版本号）。剩下 **5 条一般项未开始 + 2 条部分完成**，以及 10 条忽略项，均不阻塞当前开发与使用。
 
 ---
 
@@ -32,8 +32,8 @@
 | N2 | UI 无 ViewModel、无单一数据源 | 0 个 ViewModel/StateFlow；`findViewById` **89 处**；`StatusFragment` 里 **55 处 `optXxx`**；全项目 **51 处 `requireActivity()/requireContext()`** | ViewModel + StateFlow + `repeatOnLifecycle`；协议解析下沉到数据类 | 1–2 周 | ⭕ |
 | N3 | 视频管道两份实现 | `PlayerActivity` 649 行 / `WhepPlayer` 205 唯一行，交集 **82 行（40%）** | 抽 `WhepSession`，播放页与控制页共用 | 2–3 天 | ⭕ |
 | N14 | ~~协议已大改，版本号没动~~ | 已提为 `versionCode 9` / `versionName "1.8"`，并在 build.gradle 注释与 README 徽章里标明「v1 主题已删除，不兼容旧设备/旧 App」 | 完成 | 10 分钟 | ✅ |
-| N12 | Android 侧零自动化测试、无 CI | `app/src` 下只有 `main`，无 `test`/`androidTest`；无 `.github` | 先补 `TopicNames`/`DeviceInfo` 单测 + `MqttManager` 路由去重测试；GitHub Actions 跑 `assembleDebug + lint + test` | 2–3 天 | ◐ |
-| N13 | 非 git 仓库 | 无 `.git`（`gradlew` 已补齐） | `git init` + `.gitignore` + 首次提交 | 10 分钟 | ◐ |
+| N12 | ~~Android 侧零自动化测试、无 CI~~ | 已补 `app/src/test/.../TopicNamesTest`、`DeviceInfoTest`（16 个用例）+ `.github/workflows/android-ci.yml`（单测 → debug 构建 → 设备端自检 → 上传 APK） | 已改完；单测本地 `JUnitCore` 跑通，`./gradlew :app:testDebugUnitTest` 可复跑 | 2–3 天 | ✅ |
+| N13 | ~~非 git 仓库~~ | 已 `git init`（分支 `main`）+ `.gitignore` + 基线提交 `4a11c14`；构建产物/本地配置已排除 | 完成 | 10 分钟 | ✅ |
 | N7 | 设备发现是租户内广播，设备数增长后是 O(N) | `requestDeviceInfo()` 发 `walle/{tenant}/discovery/query`，每台设备各回一条 | 设备数上量后改 MQTT5 响应主题或 `$share/` 聚合 | 等需求 | ◐ |
 | N6 | `cleanSession=false` 与 `MemoryPersistence` 语义矛盾 | `MqttManager:300` 仍 `setCleanSession(false)` + `MemoryPersistence`（已加旧订阅清理，解决了「升级后订阅残留」，但在途 QoS1 消息仍不持久化） | 改 `MqttDefaultFilePersistence`，或改 `cleanSession=true` 靠业务补偿 | 1 天 | ◐ |
 
@@ -88,6 +88,8 @@
 | App 不再自收自发 | App | 订阅改为 8 个精确响应主题（不再 `walle/{t}/#`）；连接时先退订旧会话遗留过滤器（`cleanSession=false` 坑） |
 | 设备端命令应答日志 | 设备端 | 新增 `_publish_cmd_result()`：发布 + `已响应命令执行 -> .../cmd/result（request_id=…，status=…，耗时 …）`，覆盖禁用/空命令/白名单/失败/超时全部分支 |
 | 设备端工程化 | `device/` | 新增一键部署 `install.sh`（首次交互式必填 5 项）、`--check` 配置自检、环境文件自动加载、`selftest_topics.py` 扩展为 8 组断言 |
+| **单测 + CI（N12）** | `app/src/test/`、`.github/workflows/android-ci.yml`、`app/build.gradle` | 16 个 JVM 单测锁住主题命名/清洗/订阅/配对与设备标识规则；CI 依次跑单测、debug 构建、设备端契约自检，并上传 APK |
+| **git 基线（N13）** | 仓库根 | `git init -b main` + `.gitignore`（排除 build/.gradle/local.properties/venv/日志）+ 基线提交，共 120 个文件 |
 | **异步发布（N5）** | `net/MqttManager.java` | `publish()` 只入队，发送在单线程 `mqtt-publish` 执行器执行（保序）；队列上限 200，满时回错误给 UI；`doPublish()` 内重新校验连接状态 |
 | **请求配对（N4）** | App + 设备端 | 6 类请求全部带 `request_id`，设备 6 类应答全部回显；App 侧 cmd/video/capability 严格配对、state/discovery 宽松配对；video 链路加 8s 超时复位，不再靠 `starting`/`pendingCamera` 布尔位猜 |
 | **前台服务类型（N8）** | `AndroidManifest.xml`、`MqttService.java` | `dataSync` → `connectedDevice`（避开 Android 15 的 6h/天配额），补 `FOREGROUND_SERVICE_CONNECTED_DEVICE` + `CHANGE_NETWORK_STATE`；保留 dataSync 作兜底并在日志里提示 |
@@ -100,9 +102,8 @@
 ## 四、建议顺序
 
 1. **量测 N9 / 验证 N8**（10 分钟）：`./gradlew :app:assembleDebug` 看 APK 大小；装包后看 logcat 有无「connectedDevice 被拒绝」回退日志。
-2. **N13 + N12**（1–2 天）：`git init` 提交基线；补 `TopicNames`/`DeviceInfo` 单测与 CI（设备端 `selftest_topics.py` 可一并入 CI）。
-3. **N1 + N2 + N3**（1–2 周）：分层改造一次性做完，同时处理 N11（Room 持久化）。
-4. N6/N7/N10 随手清理；忽略项等业务上量后再做。
+2. **N1 + N2 + N3**（1–2 周）：分层改造一次性做完，同时处理 N11（Room 持久化）。
+3. N6/N7/N10 随手清理；忽略项等业务上量后再做。
 
 ---
 

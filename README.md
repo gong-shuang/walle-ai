@@ -211,6 +211,36 @@ echo | openssl s_client -connect www.baidong.xyz:443 -servername www.baidong.xyz
 
 ---
 
+## 开发与测试
+
+```bash
+# 单元测试（主题命名契约 + 设备标识推导，纯 JVM，无需模拟器）
+./gradlew :app:testDebugUnitTest
+
+# 只看测试报告
+open app/build/reports/tests/testDebugUnitTest/index.html
+
+# 设备端主题契约自检（不需要树莓派）
+python3 device/selftest_topics.py
+python3 device/selftest_topics.py --tenant home --device 666feb85d43410b2
+
+# 部署脚本语法检查
+bash -n device/install.sh
+```
+
+CI：`.github/workflows/android-ci.yml` 在 push / PR 时依次执行
+**单测 → debug 构建 → 设备端自检 → 上传 APK**。
+
+测试覆盖的契约（改主题或报文格式时，这里会先失败）：
+
+| 测试 | 覆盖内容 |
+|---|---|
+| `TopicNamesTest` | 段清洗（含通配符 `+ #` 必须被丢弃）、请求 `query/exec/request` 与应答 `result` 的命名约定、8 个订阅主题、`discovery/query` 不被误解析、旧订阅清理列表 |
+| `DeviceInfoTest` | 主题里的设备段推导（`device_id` > hostname > uuid）、非法字符清洗、`key()`/`displayName()` 优先级 |
+| `device/selftest_topics.py` | 与 App 端**同一套**清洗用例交叉验证、主题拼装、订阅清单、请求路由、**应答回显 request_id** |
+
+---
+
 ## 项目结构
 
 ```
