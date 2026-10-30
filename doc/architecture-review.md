@@ -1,7 +1,7 @@
 # 架构与技术债清单
 
-> **本次复查：2026-10-30**（第五轮，N11 告警持久化后重新核对）
-> 范围：`app/src/main`（46 个 Java 文件 / 8237 行）、`res/`、`app/build.gradle`、`AndroidManifest.xml`、`device/`
+> **本次复查：2026-10-30**（第六轮，N7 设备发现收敛后重新核对）
+> 范围：`app/src/main`（46 个 Java 文件 / 8271 行）、`res/`、`app/build.gradle`、`AndroidManifest.xml`、`device/`
 > 上一版：2026-10-30（第四轮，N2 全量迁移完成）
 >
 > **状态图例**：✅ 已完成　　◐ 部分完成　　⭕ 未开始
@@ -9,10 +9,10 @@
 > | 等级 | 含义 | 条目 | ✅ | ◐ | ⭕ |
 > |---|---|:--:|:--:|:--:|:--:|
 > | 严重 | 安全 / 上架 / 崩溃级 | 15 | 15 | 0 | 0 |
-> | 一般 | 架构、可靠性、性能、工程化 | 14 | 13 | 1 | 0 |
+> | 一般 | 架构、可靠性、性能、工程化 | 14 | 14 | 0 | 0 |
 > | 忽略 | 技术栈升级（现阶段收益低于成本） | 10 | 0 | 0 | 10 |
 >
-> **结论**：**严重项已全部清零**（15/15）；一般项已完成 13 条，**N2（ViewModel/LiveData 单一数据源）已全量落地**、**N11（告警持久化）已完成**。仅剩 **N7 设备发现广播**（◐，等设备量上量）与 10 条忽略项。
+> **结论**：**严重项与一般项全部清零**（15/15 + 14/14）。**N2**（ViewModel/LiveData 单一数据源）、**N11**（告警持久化）、**N7**（设备发现 O(N) 广播）均已完成。剩余 10 条忽略项属于技术栈升级（Kotlin/Compose/Hilt/MQTT5 等），已各自写明触发条件。
 
 ---
 
@@ -34,10 +34,10 @@
 | N14 | ~~协议已大改，版本号没动~~ | 现为 `versionCode 10` / `versionName "1.9"`（1.8 为协议 v2 首个版本，1.9 起算本地持久化）；build.gradle 注释与 README 徽章同步标版本演进 | 完成（上一轮只改了注释、数值漏改，本轮已修正） | 10 分钟 | ✅ |
 | N12 | ~~Android 侧零自动化测试、无 CI~~ | 已补 `app/src/test/.../TopicNamesTest`、`DeviceInfoTest`（40 个用例）+ `.github/workflows/android-ci.yml`（单测 → debug 构建 → 设备端自检 → 上传 APK） | 已改完；单测本地 `JUnitCore` 跑通（现 40 例），`./gradlew :app:testDebugUnitTest` 可复跑 | 2–3 天 | ✅ |
 | N13 | ~~非 git 仓库~~ | 已 `git init`（分支 `main`）+ `.gitignore` + 基线提交 `4a11c14`；构建产物/本地配置已排除 | 完成 | 10 分钟 | ✅ |
-| N7 | 设备发现是租户内广播，设备数增长后是 O(N) | `requestDeviceInfo()` 发 `walle/{tenant}/discovery/query`，每台设备各回一条 | 设备数上量后改 MQTT5 响应主题或 `$share/` 聚合 | 等需求 | ◐ |
+| N7 | ~~设备发现是租户内广播，设备数增长后是 O(N)~~ | 列表改为**在线设备**（retained `online` 已带完整身份，订阅即回放），discovery 降级为「下拉刷新/兜底」按需动作：`MqttManager.onConnected()` 不再广播、`DevicesFragment.onStart()` 不再扫描；设备端加**抖动(≤0.8s) + 限频(2s)**。N=20/M=3/K=15 时每天报文 915 → **~300**，设备侧采集 300 次/天 → **0**，列表从「等 3 秒窗口」变成「订阅即出」 | 已完成，详见 [n7-discovery-scaling.md](n7-discovery-scaling.md)；O(1) 聚合器仅在 N>100 时再上 | 2 天 | ✅ |
 | N6 | ~~`cleanSession=false` 与 `MemoryPersistence` 语义矛盾~~ | 已改 `cleanSession=true`：本地不持久化告警/状态，会话无保留价值；同时删掉了随之失效的「旧订阅清理」代码（与 `MemoryPersistence` 语义一致） | 已验证：每次连接重新订阅 + 广播发现；`javac`/单测通过 | 1 天 | ✅ |
 
-> ◐ 说明：仅剩 N7——发现范围已从「全局广播」收敛到「租户内广播」，但租户内仍是每台设备各回一条（O(N)），等设备数上量再换 MQTT5 响应主题或 `$share/` 聚合。
+> 说明：一般项已全部完成；剩余 10 条忽略项均为技术栈升级，触发条件写在各自条目里。
 
 ### 1.2 忽略项（现阶段不做）
 
@@ -46,7 +46,7 @@
 | I1 | 全 Java，异步靠 `Handler`/`ExecutorService` | 11 处 `postDelayed`、6 个 executor | 迁 Kotlin + Coroutines/Flow |
 | I2 | XML + `findViewById`（89 处），未用 Compose | ViewModel 改造后页面已用 `viewBinding`（`binding.xxx`），剩余 `findViewById` 集中在 `SettingsActivity`(16)/`OnboardingActivity`(11)/各 Adapter(17) | 剩余页面统一 ViewBinding；新页面 Compose + Material3 |
 | I3 | 无 DI | 手写单例（`MqttManager.get()`、`AlarmStore.get()`），无 `Application` 子类 | Hilt 或手写 `AppContainer` |
-| I4 | Paho 1.2.5（MQTT 3.1.1） | `app/build.gradle:114` | **已做完整评估：[mqtt5-assessment.md](mqtt5-assessment.md)**——换库 6–10 人日、拿到全部收益再 +7–9 人日；触发条件：在线设备 > 20 台 / 需要离线补发 / 排障成本走高 / Paho 出 CVE。届时直接上 HiveMQ 客户端，**不要**用 Paho v5 过渡 |
+| I4 | Paho 1.2.5（MQTT 3.1.1） | `app/build.gradle:114` | **已做完整评估：[mqtt5-assessment.md](mqtt5-assessment.md)**——换库 6–10 人日、拿到全部收益再 +7–9 人日；触发条件：需要离线补发 / 排障成本走高 / Paho 出 CVE / 需要新协议特性（**N7 已用 retained online 方案解决，不再构成升级理由**）。届时直接上 HiveMQ 客户端，**不要**用 Paho v5 过渡 |
 | I5 | 单模块 | 只有 `app`，`net`/`ui` 两个包 | 拆 `:core:net` `:core:rtc` `:feature:*`（与 N1/N3 一起做） |
 | I6 | 依赖版本硬编码，无 version catalog | 见 `app/build.gradle:75-84` | `gradle/libs.versions.toml` |
 | I7 | 无 Baseline Profile / 启动度量 | 无 `baselineprofile` 模块 | Baseline Profile + Macrobenchmark |
@@ -91,6 +91,7 @@
 | **状态页 ViewModel 试点（N2）** | `ui/StatusViewModel.java`、`model/StatusSnapshot.java`、`ui/StatusFragment.java`、`app/build.gradle` | 状态页改成「MQTT 回调 → ViewModel（解析为强类型模型）→ LiveData → 渲染」：UI 不再解析 JSON、不再自己维护 waiting/rid、回调里不碰 View；新增 `StatusSnapshotTest`（5 例）；补齐 lifecycle-viewmodel / lifecycle-livedata 依赖；删除无用的 `UiUtil.joinJsonStrings` |
 | **网络层分层（N1）** | `net/MqttClient.java`、`net/MessageRouter.java`、`net/DeviceRegistry.java`、`net/MqttTrace.java`、`net/ConnState.java`、`net/MqttManager.java`、6 个 UI 文件 | 把 914 行的 `MqttManager` 拆成「传输 / 路由 / 注册表 / 门面」四层；`ConnState` 提升为顶层枚举（UI 20 处引用同步）；新增 `MessageRouterTest`、`DeviceRegistryTest`（合计 30 项单测） |
 | **N2 全量迁移：ViewModel + LiveData** | `ui/MqttViewModel.java`（新增）、`ui/StatusViewModel`、`DevicesViewModel`、`CommandViewModel`、`AlarmViewModel`、`ControlViewModel`、`ConnectionViewModel`、`PlayerViewModel`、`model/CameraCapability`（新增）、对应 10 个 Fragment/Activity | 每个页面「MQTT/告警回调 → ViewModel 维护状态 → 不可变 `UiState` → LiveData → 渲染」：页面不再实现 `MqttManager.Listener`/`AlarmStore.Observer`，不再自己维护 `waiting/rid`，回调里不碰 View；同时修掉两个实打实的 bug——全屏播放页退出没带 `EXTRA_UUID` 导致设备端**永不停止推流**、以及全屏页重建后 spinner 与真实推流摄像头错位；`PlayerActivity` 与 `ControlFragment` 的切换摄像头状态机共用同一套「请求发出后才改状态 / 失败或 8s 超时回滚」逻辑 |
+| **设备发现收敛（N7）** | `ui/DevicesViewModel.java`、`ui/DevicesFragment.java`、`net/MqttManager.java`、`device/rpi_monitor.py`、`device/selftest_topics.py` | 发现不再是「每次连接/切页都广播」，而是**按需**：设备列表直接由 retained `online`（已含全量身份）驱动，`onConnected` 只订阅不广播；`scan()` 仅由下拉刷新/扫描按钮触发，外加「连上 1.5 秒内一台设备都没回放出来」的兜底。设备端新增抖动 + 限频。顺带修掉「在线设备没在 3 秒窗口内答复就从列表消失」的旧缺陷。详见 [n7-discovery-scaling.md](n7-discovery-scaling.md) |
 | **告警持久化（N11）** | `data/LocalDb.java`（新增）、`net/AlarmStore.java`、`net/MqttManager.java`、`app/build.gradle` | 用 `SQLiteOpenHelper` 落地一张 `alarm` 表，不引 Room：本项目纯 Java、单表、无关联查询，Room 的 annotation processor + schema 增量构建成本大于收益（迁 Kotlin 时随 I1 再评估）。`add` 即落盘、200 条滚动淘汰、`markAllRead`/`clear` 同步到库，`attach()` 启动时读回并叠加未读数。线程模型：读同步（启动几毫秒）、写异步（`walle-db` 单线程），所有 DB 调用 try/catch 降级为仅内存。**状态快照（state/result）明确不持久化**：它只对「当场选中在线设备」有意义，落盘会显示过期数据；DB v2 升级时顺带 `DROP TABLE IF EXISTS status` 清掉早期试验版本留下的表 |
 | **版本号（N14 修正）** | `app/build.gradle`、`README.md` | 上一轮 N14 只改了注释、`versionCode` 实际仍是 1 —— 本轮修正为 `versionCode 10` / `versionName "1.9"`（首发 1.8 起算），README 徽章同步 |
 | **修复：WebRTC 回调跨线程写 LiveData → 进程 SIGABRT** | `ui/WhepSession.java`、`ui/MqttViewModel.java`、`ui/*ViewModel.java`、`.github/workflows/android-ci.yml` | 现象：控制页点「开始推流」、WebRTC 一 CONNECTED 就闪退（`Fatal signal 6 / Check failed: !env->ExceptionCheck()`）。根因：`PeerConnection.Observer.onConnectionChange` 跑在 native signaling 线程，回调里 `ControlViewModel.publish()` 直接 `setValue` 抛 `IllegalStateException`，异常跨过 JNI 边界被 WebRTC 判定为致命。三层修复：①`WhepSession` 所有回调统一走 `dispatch()`——切主线程 + `try/catch(Throwable)`，异常只留在 Java 层；②`MqttViewModel` 提供 `runOnMain()`/`emit()`，各 VM 的 `publish()` 与 toast 写入做线程兜底（主线程仍走 `setValue`，避免 `postValue` 旧值覆盖新值的交错）；③CI 新增「架构守卫」：禁止页面实现 `MqttManager.Listener` 或写 LiveData，并锁死 `WhepSession.dispatch()` 存在 |
@@ -111,7 +112,7 @@
 
 1. **量测 N9 / 验证 N8**（10 分钟）：`./gradlew :app:assembleDebug` 看 APK 大小；装包后看 logcat 有无「connectedDevice 被拒绝」回退日志。
 2. **实机验证 N11**（10 分钟）：收几条告警 → `adb shell am force-stop www.walle.ai` → 重开 App，设置页红点与告警列表应还在；状态页仍应「选中在线设备 → 查询 → 渲染」（不显示任何上次留下的旧快照）。
-3. N7（租户内广播发现）等设备数量上量后再优化；忽略项等业务上量后再做。
+3. 忽略项等业务上量后再做；MQTT5 的触发条件见 [mqtt5-assessment.md](mqtt5-assessment.md)。
 
 ---
 
@@ -119,7 +120,7 @@
 
 ```bash
 # 规模
-find app/src/main/java -name "*.java" | xargs wc -l | tail -1    # 8237 行 / 46 文件
+find app/src/main/java -name "*.java" | xargs wc -l | tail -1    # 8271 行 / 46 文件
 
 # 发布配置
 grep -n "compileSdk\|targetSdk\|minifyEnabled\|shrinkResources\|abiFilters" app/build.gradle

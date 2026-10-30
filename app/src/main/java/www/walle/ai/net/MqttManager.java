@@ -387,9 +387,11 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
 
     @Override
     public void onConnected(boolean reconnect) {
-        // 每次连上（含自动重连）都重新订阅并广播一次发现：cleanSession=true 会话不保留订阅
+        // 每次连上（含自动重连）都要重新订阅：cleanSession=true 会话不保留订阅。
+        // 这里**不再**广播 discovery —— 设备上线时发布的 retained online 已带完整身份，
+        // broker 回放一次就能建好设备列表（N7）。discovery 改为按需（手动刷新/兜底），
+        // 由 DevicesViewModel 决定何时发。
         client.subscribe(TopicNames.responseSubscriptions(tenant), Topics.QOS);
-        requestDeviceInfo();
     }
 
     @Override

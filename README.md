@@ -40,8 +40,8 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 ## 功能特性
 
 ### 🗂 设备管理
-- 自动发现同一 Broker 下的多台设备，在线优先排序，顶部展示「已发现 N 台（在线 M）」
-- 下拉刷新 / 手动重新扫描（广播查询，3 秒收敛窗口）
+- 列表 = **当前在线设备**：直接来自设备发布的上线 retained 报文（已含完整身份），订阅即回放，不广播请求
+- 下拉刷新 / 手动重新扫描：按需广播一次 `discovery/query` 刷新设备身份详情（连上后一台设备都没回放出来时会自动兜底一次）
 - 设备唯一标识以 `uuid` 为主键，设备重启换 `uuid` 时按 `device_id` 自动归并，不会产生幽灵卡片
 
 ### 📊 实时状态
@@ -98,10 +98,11 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 - `tenant` = App 登录用的 MQTT 用户名（清洗后），Broker 用 `walle/${username}/#` 做 ACL；
 - `device` = 设备端稳定的 `device_id`（MAC + CPU + 内存的 md5 前 16 位，重启不变）；
 - 所有报文均为 JSON，QoS 1，Keep Alive 60s；除发现广播外，请求必须带匹配的 `uuid`。
+- `online` 为 retained：设备上线时发布（含完整身份字段），掉线由遗嘱发布 `online:false`。
 
 | 用途 | App → 设备（请求） | 设备 → App（应答） | 关键字段 |
 |---|---|---|---|
-| 设备发现 | `walle/{t}/discovery/query` | `walle/{t}/{d}/discovery/result` | 请求：`request_id`；应答：`request_id`、`uuid`、`device_id`、型号 / 系统 / IP / MAC … |
+| 设备发现（按需） | `walle/{t}/discovery/query` | `walle/{t}/{d}/discovery/result` | 请求：`request_id`；应答：`request_id`、`uuid`、`device_id`、型号 / 系统 / IP / MAC …（日常列表不靠它，见 [N7](doc/n7-discovery-scaling.md)） |
 | 状态 | `walle/{t}/{d}/state/query` | `walle/{t}/{d}/state/result` | 请求：`uuid`、`request_id`；应答：`request_id`、`system`、`cpu`、`memory`、`disk`、`network` |
 | 远程命令 | `walle/{t}/{d}/cmd/exec` | `walle/{t}/{d}/cmd/result` | 请求：`uuid`、`cmd`、`request_id`、`timeout`；应答：`request_id`、`status` |
 | 摄像头能力 | `walle/{t}/{d}/camera/capability/query` | `walle/{t}/{d}/camera/capability/result` | 请求：`uuid`、`request_id`；应答：`request_id`、节点 / 格式 / 分辨率 / 帧率 |
@@ -339,6 +340,7 @@ walle_android/
 
 ## 相关文档
 
+- [设备发现收敛（N7）](doc/n7-discovery-scaling.md) — 列表改由 retained `online` 驱动，discovery 降级为按需
 - [MQTT5 升级评估](doc/mqtt5-assessment.md) — 工作量（6–10 / 13–19 人日）、收益排序、ACL 代价与触发条件
 - [架构与技术评审](doc/architecture-review.md) — 分层、安全、性能、可测试性现状与 P0/P1/P2 升级路线
 - [targetSdk 36 升级指南](doc/s4-target-sdk-36-migration.md) — 工具链升级、edge-to-edge 适配、视觉回归清单与设备端影响

@@ -261,7 +261,26 @@ def main():
     routed_obj._handle_request(f"{base}/video/start/request", '{"uuid":"x"}')
     check("video/start/request 被路由", routed[-1][0], "video")
 
-    print("\n== 9. v1 常量已删除 ==")
+    print("\n== 9. 设备发现防抖（N7）==")
+    # 关掉抖动、把限频窗口缩到 0.2s，好让用例快速跑完
+    saved_jitter, saved_interval = m.DISCOVERY_JITTER_SEC, m.DISCOVERY_MIN_INTERVAL_SEC
+    m.DISCOVERY_JITTER_SEC = 0
+    m.DISCOVERY_MIN_INTERVAL_SEC = 0.2
+    try:
+        debounce = m.RpiMonitor.__new__(m.RpiMonitor)
+        debounce.client = FakeClient()
+        debounce.build_device_info = lambda: {}
+        debounce.handle_device_query('{"request_id":"rid-d1"}')
+        first = len(debounce.client.sent)
+        debounce.handle_device_query('{"request_id":"rid-d2"}')   # 0.2s 内的重复查询应被丢弃
+        second = len(debounce.client.sent)
+        check("第一条发现查询正常应答", first, 1)
+        check("限频窗口内的重复查询被忽略", second, 1)
+        check("应答回显 request_id", json.loads(debounce.client.sent[0][1]).get("request_id"), "rid-d1")
+    finally:
+        m.DISCOVERY_JITTER_SEC, m.DISCOVERY_MIN_INTERVAL_SEC = saved_jitter, saved_interval
+
+    print("\n== 10. v1 常量已删除 ==")
     for legacy in ("TOPIC_ALARM", "TOPIC_ONLINE", "TOPIC_CMD_EXEC", "TOPIC_SCHEME",
                    "V1_TO_V2_RESOURCE", "V2_PROTO"):
         check(f"无 {legacy}", hasattr(m, legacy), False)

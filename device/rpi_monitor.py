@@ -54,6 +54,7 @@ import json
 import logging
 import os
 import platform
+import random
 import re
 import signal
 import socket
@@ -160,6 +161,13 @@ RES_VIDEO_STOP_RESULT = "video/stop/result"         # 收到 video/stop/request 
 
 # ---- 主动上报（设备 -> App，不必等查询）----
 RES_ONLINE = "online"                       # retained + 遗嘱
+
+# ---- 设备发现防抖（N7）----
+# 正常情况下 App 不再自动广播 discovery，改为订阅 retained online 建列表；
+# discovery 只在「手动下拉刷新」和「一台设备都没回放出来」时出现。
+# 但多台手机同时点刷新仍会让 N 台设备同时回包，因此设备侧再加两道保护：
+DISCOVERY_JITTER_SEC = 0.8                  # 首次应答前的随机延迟上限（秒），避免同时回包
+DISCOVERY_MIN_INTERVAL_SEC = 2.0            # 同一台设备两次应答的最小间隔（秒）
 RES_ALARM = "alarm"                         # 告警 / 恢复 / USB 插拔
 
 # ---- 订阅的请求（App -> 设备）----
@@ -975,6 +983,8 @@ class RpiMonitor:
         self.video_proc = None
         self.video_lock = threading.Lock()
         self.video_meta = {}
+        # 上一次应答 discovery 的时间（单调时钟），用于限频
+        self._last_discovery_at = 0.0
 
     def _will_message(self):
         """遗嘱消息：掉线时由 broker 代发 offline 到 walle/{t}/{d}/online。"""
@@ -1209,6 +1219,20 @@ class RpiMonitor:
 
     def handle_device_query(self, payload):
         rid = self._rid(self._safe_json(payload))
+        # 限频：一台设备在 DISCOVERY_MIN_INTERVAL_SEC 内只应答一次，避免多台手机重复扫描
+        now = time.monotonic()
+        # getattr 兜底：自检脚本等场景会用未走 __init__ 的实例。
+        # 0 表示「还没应答过」——不能用 now - 0 比较，否则刚开机的机器
+        # （monotonic < 2s）会把第一条查询丢掉。
+        last = getattr(self, "_last_discovery_at", 0.0)
+        if last > 0 and now - last < DISCOVERY_MIN_INTERVAL_SEC:
+            logging.info("忽略重复的设备身份查询（%.1fs 内已应答过，request_id=%s）",
+                         now - last, rid or "-")
+            return
+        self._last_discovery_at = now
+        # 抖动：N 台设备同时收到广播时错开回包，避免瞬间灌满 App 与 broker
+        if DISCOVERY_JITTER_SEC > 0:
+            time.sleep(random.uniform(0, DISCOVERY_JITTER_SEC))
         try:
             info = self.build_device_info()
             info["request_id"] = rid

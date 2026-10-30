@@ -81,8 +81,9 @@ public class DevicesFragment extends Fragment {
     @Override
     public void onStart() {
         super.onStart();
-        // 打开 App / 回到本页即扫描一次（ViewModel 会判断是否已连接）
-        viewModel.scan(false);
+        // 回到本页只重渲染（列表来自 retained online），不再广播发现；
+        // 一台设备都没回放出来时 ViewModel 会自己兜底广播一次。
+        viewModel.onScreenVisible();
     }
 
     private void onCardClick(DeviceInfo d) {
