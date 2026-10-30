@@ -30,7 +30,7 @@ N=20、M=3、K=15 时 ≈ **915 条/天**，而且每台设备每次都要被**�
 设备上线时发布的 retained 报文是这样的：
 
 ```python
-# device/rpi_monitor.py: build_online_payload()
+# linux/rpi_monitor.py: build_online_payload()
 info = self.build_device_info()          # 完整身份：device_id / uuid / model / serial /
 payload = {"device_id": …, "uuid": …, "online": True}   # os / cpu / memory / disk / ip / mac …
 ```
@@ -76,7 +76,7 @@ payload = {"device_id": …, "uuid": …, "online": True}   # os / cpu / memory 
 顺带修掉一个旧缺陷：以前「在线但没在 3 秒窗口内答复 discovery」的设备会从列表消失
 （设备忙、`build_device_info` 慢、网络抖动都会触发）；现在列表跟着 `online` 状态走，不会再漏。
 
-### 设备端（`device/rpi_monitor.py`）
+### 设备端（`linux/rpi_monitor.py`）
 
 ```python
 DISCOVERY_JITTER_SEC = 0.8        # 应答前随机延迟上限，N 台设备错开回包
@@ -113,5 +113,5 @@ adb logcat -s MqttTrace | grep discovery/query      # 只应在下拉刷新/兜�
 |---|---|
 | Broker 无 retained（持久化关闭/刚重启） | 1.5 秒兜底广播一次 discovery |
 | 老固件 `online` 不带完整身份 | 兜底 discovery 的 `applyInfo` 会补全；建议随本版一起升级设备脚本 |
-| 设备端抖动/限频需重新部署才生效 | `scp device/rpi_monitor.py … && systemctl restart rpi-monitor` |
+| 设备端抖动/限频需重新部署才生效 | `scp linux/rpi_monitor.py … && systemctl restart rpi-monitor` |
 | 设备数继续增长（>100） | 上 L4 聚合器；届时 App 只需订 1 条主题 |

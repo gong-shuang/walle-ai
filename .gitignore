@@ -35,8 +35,8 @@ Thumbs.db
 # ---------- Python（设备端） ----------
 __pycache__/
 *.py[cod]
-device/.venv/
-device/log/
-device/*.log
+linux/.venv/
+linux/log/
+linux/*.log
 #本地调试，忽略此文件
-device/rpi-monitor.env.example
+linux/rpi-monitor.env.example

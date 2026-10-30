@@ -16,9 +16,9 @@
 | 订阅模型 | 固定 **8 个**响应主题（`cleanSession=true`，每次连上都重订） | `TopicNames.subscriptions()` |
 | 请求配对 | 自制 `request_id`（8 位 hex）+ 按 id 严格配对；6 类请求 | `MqttManager` / 设备 `REQUEST_HANDLERS` |
 | 去重 | 2 秒窗口去重（QoS1 至少一次语义下的重复投递） | `MessageRouter` |
-| 设备端 | **paho-mqtt 2.x（Python）**，已用 `CallbackAPIVersion.VERSION2` 回调签名 | `device/rpi_monitor.py:1927` |
-| Broker | EMQX **5.x / 6.x**（原生支持 MQTT5，无需升级） | `device/README.md:61` |
-| ACL | File 规则，已用 `${clientid}` 占位符 | `device/emqx/acl.conf.example` |
+| 设备端 | **paho-mqtt 2.x（Python）**，已用 `CallbackAPIVersion.VERSION2` 回调签名 | `linux/rpi_monitor.py:1927` |
+| Broker | EMQX **5.x / 6.x**（原生支持 MQTT5，无需升级） | `linux/README.md:61` |
+| ACL | File 规则，已用 `${clientid}` 占位符 | `linux/emqx/acl.conf.example` |
 | 单测 | 50 例，**全部不依赖 Paho**（主题/路由/注册表/告警/快照/摄像头能力） | `app/src/test/` |
 
 **这意味着换协议最大的好消息：传输层是隔离的**。换库 = 重写 `MqttClient.java` 一个文件 + 设备端 `connect/publish` 几处，业务层几乎不动。
@@ -64,7 +64,7 @@
 | 7 | ACL 放开：设备 publish 需要 `walle/{t}/app/+/#`（打破「设备只能写自己子树」的隔离，见 §6.1） | 0.5 |
 | 8 | 设备发现改造：设备按请求里的 `ResponseTopic` 回发现结果 → **N7 的 O(N) 问题顺带解决** | 1–2 |
 | 9 | 双栈/兼容期：v5 App ↔ 3.1.1 设备（线上旧设备）互操作验证 + 特性探测降级 | 2–3 |
-| 10 | 文档重写：`device/README.md` 排障表、协议文档、`doc/` 全部按 v5 术语更新 | 1 |
+| 10 | 文档重写：`linux/README.md` 排障表、协议文档、`doc/` 全部按 v5 术语更新 | 1 |
 | | **合计（叠加第一步）** | **13–19** |
 
 ---
@@ -74,7 +74,7 @@
 | 收益 | 说明 | 对本项目价值 |
 |---|---|:--:|
 | **① 请求/响应正名** | `ResponseTopic` + `CorrelationData` 替代自制的 `request_id` + 8 个固定响应主题；设备把结果直达请求方 | **高**：顺带解决 N7（租户内广播 O(N)），订阅/ACL 从「每条资源一个主题」收敛为「每个 App 一个主题」 |
-| **② Reason Code** | 区分「ACL 拒绝(0x87)」「主题无效」「会话/配额超限」「设备真的执行失败」；现在全塞进 payload 的 `result`/`error`，排障靠 `device/README` 的对照表 | **高**：现场支持成本直接下降 |
+| **② Reason Code** | 区分「ACL 拒绝(0x87)」「主题无效」「会话/配额超限」「设备真的执行失败」；现在全塞进 payload 的 `result`/`error`，排障靠 `linux/README` 的对照表 | **高**：现场支持成本直接下降 |
 | **③ Will Delay** | 设备重启 3 秒内重连不再产生「离线→在线」抖动 | **中高**：直接减少告警噪音（`online` LWT 抖一次 = 一条告警 + 红点） |
 | **④ Message Expiry** | retained `online` 过期自动失效，broker 里不再躺「幽灵在线」 | **中**：现在靠「未知设备 offline 忽略 + 2s 去重」兜底，属打补丁 |
 | **⑤ Session Expiry + 离线队列** | 为「设备离线期间的命令/告警补发」铺路 | **低（当前无此需求）**；产品真做「离线告警补偿」时才变高 |
@@ -118,7 +118,7 @@
 
 ### 6.4 Broker 版本假设
 
-`device/README` 写的是「EMQX 5.x / 6.x」，但如果现场有 4.x：`Session Expiry`、`Message Expiry`、部分 reason code 行为会退化/不一致 → 需要版本探测或在部署文档里硬性要求 5.x+。
+`linux/README` 写的是「EMQX 5.x / 6.x」，但如果现场有 4.x：`Session Expiry`、`Message Expiry`、部分 reason code 行为会退化/不一致 → 需要版本探测或在部署文档里硬性要求 5.x+。
 
 ### 6.5 共用账号（你们选的方案 A）与响应主题
 

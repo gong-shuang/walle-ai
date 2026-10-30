@@ -1,7 +1,7 @@
 # 架构与技术债清单
 
 > **本次复查：2026-10-30**（第六轮，N7 设备发现收敛后重新核对）
-> 范围：`app/src/main`（46 个 Java 文件 / 8271 行）、`res/`、`app/build.gradle`、`AndroidManifest.xml`、`device/`
+> 范围：`app/src/main`（46 个 Java 文件 / 8271 行）、`res/`、`app/build.gradle`、`AndroidManifest.xml`、`linux/`
 > 上一版：2026-10-30（第四轮，N2 全量迁移完成）
 >
 > **状态图例**：✅ 已完成　　◐ 部分完成　　⭕ 未开始
@@ -64,7 +64,7 @@
 | S1b | 默认安全化：默认端口 8883、`tls` 默认跟随端口、清单改用 `network_security_config`、端口与协议双向纠正 | 清单已无 `usesCleartextTraffic`（`AndroidManifest.xml:17` 为 `networkSecurityConfig`） |
 | S2 | 删除 WHEP 的 trust-all 与恒 true 的 HostnameVerifier | `WhepClient` 改为系统 CA + 默认主机名校验；线上证书实测链 OK |
 | S3 | 多租户主题 v2：`walle/{tenant}/{device}/{resource}` | `TopicNames` + `MqttManager`；v1 全局主题已删除 |
-| S3b | EMQX 按账号 ACL（`walle/${username}/#`、设备 `walle/{t}/${clientid}/#`） | `device/emqx/acl.conf.example`；已实测越权收不到 |
+| S3b | EMQX 按账号 ACL（`walle/${username}/#`、设备 `walle/{t}/${clientid}/#`） | `linux/emqx/acl.conf.example`；已实测越权收不到 |
 | S3-回归 | 同一事件重复投递 → 渲染器二次 init 崩溃 | `MqttManager` 2 秒窗口去重 + `ControlFragment` 同房间幂等 + `WhepSession` 渲染器只 init 一次 |
 | S4 | targetSdk/compileSdk 36、AGP 9.4.1、Gradle 9.6、edge-to-edge | `app/build.gradle:28/34`；运行日志 `target_sdk_version=36` 证明构建生效；视觉回归见 `doc/s4-target-sdk-36-migration.md` |
 | S5 | release 开 R8 + 资源压缩 | `minifyEnabled true` / `shrinkResources true`（`app/build.gradle:55-56`）+ 完整 keep 规则 |
@@ -87,11 +87,11 @@
 | 修复设备发现不应答 | 设备端 | `walle/{t}/discovery/query` 只有 3 段，原统一按 4 段解析导致 `resource="query"` 匹配不到 handler |
 | App 不再自收自发 | App | 订阅改为 8 个精确响应主题（不再 `walle/{t}/#`）；连接时先退订旧会话遗留过滤器（`cleanSession=false` 坑） |
 | 设备端命令应答日志 | 设备端 | 新增 `_publish_cmd_result()`：发布 + `已响应命令执行 -> .../cmd/result（request_id=…，status=…，耗时 …）`，覆盖禁用/空命令/白名单/失败/超时全部分支 |
-| 设备端工程化 | `device/` | 新增一键部署 `install.sh`（首次交互式必填 5 项）、`--check` 配置自检、环境文件自动加载、`selftest_topics.py` 扩展为 8 组断言 |
+| 设备端工程化 | `linux/` | 新增一键部署 `install.sh`（首次交互式必填 5 项）、`--check` 配置自检、环境文件自动加载、`selftest_topics.py` 扩展为 8 组断言 |
 | **状态页 ViewModel 试点（N2）** | `ui/StatusViewModel.java`、`model/StatusSnapshot.java`、`ui/StatusFragment.java`、`app/build.gradle` | 状态页改成「MQTT 回调 → ViewModel（解析为强类型模型）→ LiveData → 渲染」：UI 不再解析 JSON、不再自己维护 waiting/rid、回调里不碰 View；新增 `StatusSnapshotTest`（5 例）；补齐 lifecycle-viewmodel / lifecycle-livedata 依赖；删除无用的 `UiUtil.joinJsonStrings` |
 | **网络层分层（N1）** | `net/MqttClient.java`、`net/MessageRouter.java`、`net/DeviceRegistry.java`、`net/MqttTrace.java`、`net/ConnState.java`、`net/MqttManager.java`、6 个 UI 文件 | 把 914 行的 `MqttManager` 拆成「传输 / 路由 / 注册表 / 门面」四层；`ConnState` 提升为顶层枚举（UI 20 处引用同步）；新增 `MessageRouterTest`、`DeviceRegistryTest`（合计 30 项单测） |
 | **N2 全量迁移：ViewModel + LiveData** | `ui/MqttViewModel.java`（新增）、`ui/StatusViewModel`、`DevicesViewModel`、`CommandViewModel`、`AlarmViewModel`、`ControlViewModel`、`ConnectionViewModel`、`PlayerViewModel`、`model/CameraCapability`（新增）、对应 10 个 Fragment/Activity | 每个页面「MQTT/告警回调 → ViewModel 维护状态 → 不可变 `UiState` → LiveData → 渲染」：页面不再实现 `MqttManager.Listener`/`AlarmStore.Observer`，不再自己维护 `waiting/rid`，回调里不碰 View；同时修掉两个实打实的 bug——全屏播放页退出没带 `EXTRA_UUID` 导致设备端**永不停止推流**、以及全屏页重建后 spinner 与真实推流摄像头错位；`PlayerActivity` 与 `ControlFragment` 的切换摄像头状态机共用同一套「请求发出后才改状态 / 失败或 8s 超时回滚」逻辑 |
-| **设备发现收敛（N7）** | `ui/DevicesViewModel.java`、`ui/DevicesFragment.java`、`net/MqttManager.java`、`device/rpi_monitor.py`、`device/selftest_topics.py` | 发现不再是「每次连接/切页都广播」，而是**按需**：设备列表直接由 retained `online`（已含全量身份）驱动，`onConnected` 只订阅不广播；`scan()` 仅由下拉刷新/扫描按钮触发，外加「连上 1.5 秒内一台设备都没回放出来」的兜底。设备端新增抖动 + 限频。顺带修掉「在线设备没在 3 秒窗口内答复就从列表消失」的旧缺陷。详见 [n7-discovery-scaling.md](n7-discovery-scaling.md) |
+| **设备发现收敛（N7）** | `ui/DevicesViewModel.java`、`ui/DevicesFragment.java`、`net/MqttManager.java`、`linux/rpi_monitor.py`、`linux/selftest_topics.py` | 发现不再是「每次连接/切页都广播」，而是**按需**：设备列表直接由 retained `online`（已含全量身份）驱动，`onConnected` 只订阅不广播；`scan()` 仅由下拉刷新/扫描按钮触发，外加「连上 1.5 秒内一台设备都没回放出来」的兜底。设备端新增抖动 + 限频。顺带修掉「在线设备没在 3 秒窗口内答复就从列表消失」的旧缺陷。详见 [n7-discovery-scaling.md](n7-discovery-scaling.md) |
 | **告警持久化（N11）** | `data/LocalDb.java`（新增）、`net/AlarmStore.java`、`net/MqttManager.java`、`app/build.gradle` | 用 `SQLiteOpenHelper` 落地一张 `alarm` 表，不引 Room：本项目纯 Java、单表、无关联查询，Room 的 annotation processor + schema 增量构建成本大于收益（迁 Kotlin 时随 I1 再评估）。`add` 即落盘、200 条滚动淘汰、`markAllRead`/`clear` 同步到库，`attach()` 启动时读回并叠加未读数。线程模型：读同步（启动几毫秒）、写异步（`walle-db` 单线程），所有 DB 调用 try/catch 降级为仅内存。**状态快照（state/result）明确不持久化**：它只对「当场选中在线设备」有意义，落盘会显示过期数据；DB v2 升级时顺带 `DROP TABLE IF EXISTS status` 清掉早期试验版本留下的表 |
 | **版本号（N14 修正）** | `app/build.gradle`、`README.md` | 上一轮 N14 只改了注释、`versionCode` 实际仍是 1 —— 本轮修正为 `versionCode 10` / `versionName "1.9"`（首发 1.8 起算），README 徽章同步 |
 | **修复：WebRTC 回调跨线程写 LiveData → 进程 SIGABRT** | `ui/WhepSession.java`、`ui/MqttViewModel.java`、`ui/*ViewModel.java`、`.github/workflows/android-ci.yml` | 现象：控制页点「开始推流」、WebRTC 一 CONNECTED 就闪退（`Fatal signal 6 / Check failed: !env->ExceptionCheck()`）。根因：`PeerConnection.Observer.onConnectionChange` 跑在 native signaling 线程，回调里 `ControlViewModel.publish()` 直接 `setValue` 抛 `IllegalStateException`，异常跨过 JNI 边界被 WebRTC 判定为致命。三层修复：①`WhepSession` 所有回调统一走 `dispatch()`——切主线程 + `try/catch(Throwable)`，异常只留在 Java 层；②`MqttViewModel` 提供 `runOnMain()`/`emit()`，各 VM 的 `publish()` 与 toast 写入做线程兜底（主线程仍走 `setValue`，避免 `postValue` 旧值覆盖新值的交错）；③CI 新增「架构守卫」：禁止页面实现 `MqttManager.Listener` 或写 LiveData，并锁死 `WhepSession.dispatch()` 存在 |
@@ -104,7 +104,7 @@
 | **前台服务类型（N8）** | `AndroidManifest.xml`、`MqttService.java` | `dataSync` → `connectedDevice`（避开 Android 15 的 6h/天配额），补 `FOREGROUND_SERVICE_CONNECTED_DEVICE` + `CHANGE_NETWORK_STATE`；保留 dataSync 作兜底并在日志里提示 |
 | **包体优化（N9）** | `app/build.gradle` | 加 ABI 过滤（arm64-v8a + armeabi-v7a）+ App Bundle 按 ABI/语言/密度拆分；WebRTC `.so` 从 41 MB 降到 17.3 MB，debug APK 预计 ~27 MB、Bundle 单机下载 ~16 MB |
 | **版本号提升（N14）** | `app/build.gradle`、`README.md` | 目标 `versionCode 9` / `versionName "1.8"`，标注「v1 主题已删除，与旧设备/旧 App 不兼容」（**注：当时只落了注释，数值漏改，已在 1.9 一并修正为 versionCode 10**） |
-| 修掉 `requirements.txt` 被误存为需求文档的问题 | `device/` | 恢复为 `paho-mqtt>=2.0` / `psutil>=5.9`；原 674 行文档归档到 `device/docs/legacy-v1-spec.md` |
+| 修掉 `requirements.txt` 被误存为需求文档的问题 | `linux/` | 恢复为 `paho-mqtt>=2.0` / `psutil>=5.9`；原 674 行文档归档到 `linux/docs/legacy-v1-spec.md` |
 
 ---
 

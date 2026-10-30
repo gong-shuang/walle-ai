@@ -104,12 +104,12 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 `…/result` 且只在收到对应请求后发布，并原样回显 `request_id` 供 App 配对；
 主动上报只有 `online` 与 `alarm`。
 
-> **完整的报文字段定义、设计原则与修改流程见 [doc/MQTT_protocol.md](doc/MQTT_protocol_convention.md)。**
+> **完整的报文字段定义、设计原则与修改流程见 [MQTT_protocol_convention.md](doc/MQTT_protocol_convention.md)。**
 > 改主题或报文格式前请先读它。
 
 推流成功后在 App 侧按 `room_number` 拼接 WHEP 地址拉流（`BuildConfig.WHEP_URL_TEMPLATE`）。
 
-> 设备端实现与部署见 [`device/README.md`](device/README.md)。
+> 设备端实现与部署见 [`linux/README.md`](linux/README.md)。
 
 ---
 
@@ -118,7 +118,7 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 | 重要文档 | 介绍 |
 |---|---|
 | [doc/quick_start.md](doc/quick_start.md) | 服务器配置、证书与权限，app如何连接服务器，如何使用|
-| [device/README.md](device/README.md) | linux设备端部署说明，一键安装脚本、配置项与排障。|
+| [linux/README.md](linux/README.md) | linux设备端部署说明，一键安装脚本、配置项与排障。|
 
 
 
@@ -168,13 +168,14 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 ## 相关文档
 
 - [快速上手指南](doc/quick_start.md) — 环境要求、构建、Broker 配置、证书与权限
+- [任务清单](doc/tasks.md) — 待开发任务与验收标准
 - [MQTT 协议约定（协议 v2）](doc/MQTT_protocol_convention.md) — 全部报文字段定义、设计原则与修改流程（改协议前必读）
-- [设备发现收敛（N7）](doc/n7-discovery-scaling.md) — 列表改由 retained `online` 驱动，discovery 降级为按需
-- [MQTT5 升级评估](doc/mqtt5-assessment.md) — 工作量（6–10 / 13–19 人日）、收益排序、ACL 代价与触发条件
-- [架构与技术评审](doc/architecture-review.md) — 分层、安全、性能、可测试性现状与 P0/P1/P2 升级路线
-- [targetSdk 36 升级指南](doc/s4-target-sdk-36-migration.md) — 工具链升级、edge-to-edge 适配、视觉回归清单与设备端影响
-- [多租户主题方案（协议 v2）](doc/s3-multi-tenant-topics.md) — 主题契约、EMQX ACL 步骤与验收
-- [设备端部署说明](device/README.md) — 树莓派一键安装脚本、配置项与排障
+- [设备发现收敛（N7）](doc/dev_record/n7-discovery-scaling.md) — 列表改由 retained `online` 驱动，discovery 降级为按需
+- [MQTT5 升级评估](doc/dev_record/mqtt5-assessment.md) — 工作量（6–10 / 13–19 人日）、收益排序、ACL 代价与触发条件
+- [架构与技术评审](doc/dev_record/architecture-review.md) — 分层、安全、性能、可测试性现状与 P0/P1/P2 升级路线
+- [targetSdk 36 升级指南](doc/dev_record/s4-target-sdk-36-migration.md) — 工具链升级、edge-to-edge 适配、视觉回归清单与设备端影响
+- [多租户主题方案（协议 v2）](doc/dev_record/s3-multi-tenant-topics.md) — 主题契约、EMQX ACL 步骤与验收
+- [设备端部署说明](linux/README.md) — 树莓派一键安装脚本、配置项与排障
 
 ## 许可
 

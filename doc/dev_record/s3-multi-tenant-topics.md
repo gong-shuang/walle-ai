@@ -1,7 +1,7 @@
 # 多租户 MQTT 主题（协议 v2）
 
 > 状态：**已完成并上线使用**。v1 的全局主题（`device/online`、`cmd/exec` 等）已从 Android 与设备端全部删除。
-> 相关实现：App `net/TopicNames.java`、`net/MqttManager.java`；设备 `device/rpi_monitor.py`。
+> 相关实现：App `net/TopicNames.java`、`net/MqttManager.java`；设备 `linux/rpi_monitor.py`。
 
 ---
 
@@ -96,7 +96,7 @@ App 的租户由「设置页里的 MQTT 用户名」推导，**没有单独的�
                                                    "walle/home/discovery/query"]}.
 ```
 
-完整文件见 [`device/emqx/acl.conf.example`](../device/emqx/acl.conf.example)。
+完整文件见 [`linux/emqx/acl.conf.example`](../../linux/emqx/acl.conf.example)。
 
 > 占位符是 EMQX 5/6 的写法：`${username}`、`${clientid}`；`%u` 是 Mosquitto / EMQX 4 的写法，在 6.x 上不生效。
 > 若版本不支持 `${clientid}`，把设备规则里的 `${clientid}` 换成 `+`。

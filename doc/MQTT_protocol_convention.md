@@ -1,13 +1,13 @@
 # MQTT 协议约定（协议 v2 · 多租户主题）
 
-> 本文是 App（Android）与设备端（`device/rpi_monitor.py`）之间 MQTT 报文契约的**唯一权威文档**。
+> 本文是 App（Android）与设备端（`linux/rpi_monitor.py`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
 > - 协议版本：**v2**（多租户主题）。v1 旧主题已彻底删除，无兼容层。
 > - 传输：MQTT 3.1.1，报文一律 **JSON（UTF-8）**，**QoS 1**，Keep Alive 60s。
 > - App 端实现：`app/src/main/java/www/walle/ai/net/`（TopicNames / MessageRouter / MqttManager）
-> - 设备端实现：`device/rpi_monitor.py`
-> - 契约交叉验证：`app` 单测（TopicNamesTest / MessageRouterTest / …）+ `device/selftest_topics.py`
+> - 设备端实现：`linux/rpi_monitor.py`
+> - 契约交叉验证：`app` 单测（TopicNamesTest / MessageRouterTest / …）+ `linux/selftest_topics.py`
 
 ---
 
@@ -76,7 +76,7 @@ walle/{tenant}/{device}/{resource}
 | `…/result` | 应答，**只在收到对应请求后发布**，绝不主动上报 | `state/result` |
 | 无后缀 | 主动上报，只有 `online` 和 `alarm` 两个 | — |
 
-这套约定由 `device/selftest_topics.py` 第 4 节强制检查：每个 `REQ_*` 必须在
+这套约定由 `linux/selftest_topics.py` 第 4 节强制检查：每个 `REQ_*` 必须在
 `REQUEST_TO_RESULT` 里登记对应的 `RES_*`，不允许存在「没人请求的 /result 主题」。
 
 ### 2.4 请求-应答严格配对：request_id + uuid 双校验
@@ -385,13 +385,13 @@ App 解析：`model/CameraCapability.java`，兼容两种形态——设备端�
 3. 同步更新测试，**缺一不可**：
    - App：`TopicNamesTest`（主题命名/清洗）、`MessageRouterTest`（路由/去重）、
      以及对应模型的解析测试（`StatusSnapshotTest` 等）
-   - 设备端：`device/selftest_topics.py`（清洗对照、订阅清单、命名成对、request_id 回显）
+   - 设备端：`linux/selftest_topics.py`（清洗对照、订阅清单、命名成对、request_id 回显）
 4. 本地验证后提交，CI 会跑：单测 → debug 构建 → 设备端自检（见 `.github/workflows/android-ci.yml`）。
 
 ```bash
 ./gradlew :app:testDebugUnitTest        # App 契约测试
-python3 device/selftest_topics.py       # 设备端契约自检
-bash -n device/install.sh               # 部署脚本语法检查
+python3 linux/selftest_topics.py       # 设备端契约自检
+bash -n linux/install.sh               # 部署脚本语法检查
 ```
 
 **三条铁律**：
@@ -402,7 +402,7 @@ bash -n device/install.sh               # 部署脚本语法检查
 
 ## 6. 两端代码对照表
 
-| 职责 | App（`app/src/main/java/www/walle/ai/net/`） | 设备端（`device/rpi_monitor.py`） |
+| 职责 | App（`app/src/main/java/www/walle/ai/net/`） | 设备端（`linux/rpi_monitor.py`） |
 |---|---|---|
 | 主题拼装/解析/清洗 | `TopicNames.java` | `sanitize_segment` / `v2_topic` / `_handle_request` |
 | 报文路由 + QoS1 去重 | `MessageRouter.java` | `_handle_request` + `REQUEST_HANDLERS` |
@@ -423,4 +423,4 @@ bash -n device/install.sh               # 部署脚本语法检查
 - [设备发现收敛（n7）](n7-discovery-scaling.md) — retained 驱动列表的演进
 - [MQTT5 升级评估](mqtt5-assessment.md) — 未来升级的工作量与触发条件
 - [架构与技术评审](architecture-review.md) — 分层与技术债全景
-- [设备端部署说明](../device/README.md) — rpi_monitor 安装与配置
+- [设备端部署说明](../linux/README.md) — rpi_monitor 安装与配置

@@ -71,7 +71,7 @@ echo "  源码目录  : $SRC_DIR"
 echo "  目标用户  : $TARGET_USER"
 [ "$DRY_RUN" = 1 ] && echo "  ${YELLOW}dry-run：不会修改任何文件${RESET}"
 
-[ -f "$SRC_DIR/rpi_monitor.py" ] || die "找不到 $SRC_DIR/rpi_monitor.py（请在 device/ 目录内运行）"
+[ -f "$SRC_DIR/rpi_monitor.py" ] || die "找不到 $SRC_DIR/rpi_monitor.py（请在 linux/ 目录内运行）"
 
 # ------------------------------------------------------------------ 读取已有配置（只认白名单键，不 source）
 MQTT_HOST="${MQTT_HOST:-}"
@@ -299,5 +299,5 @@ cat <<EOF
   4) 手机 App 填写：   Broker=${MQTT_HOST}  端口=${MQTT_PORT}
                       用户名=${MQTT_TENANT}  密码=<手机账号口令>
                       ${DIM}（租户 = 用户名，App 自动订阅 walle/${MQTT_TENANT}/#）${RESET}
-  5) EMQX 授权：      见 device/emqx/acl.conf.example
+  5) EMQX 授权：      见 linux/emqx/acl.conf.example
 EOF

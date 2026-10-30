@@ -62,12 +62,12 @@ App 据此把结果与请求对上（日志里也会打印 `request_id=...` 方�
 
 ### 3.2 方式 A：一键脚本（推荐）
 
-在 Mac/PC 上把 `device/` 目录整体拷到树莓派，然后运行：
+在 Mac/PC 上把 `linux/` 目录整体拷到树莓派，然后运行：
 
 ```bash
-scp -r device gs@<树莓派IP>:~/
+scp -r linux gs@<树莓派IP>:~/
 ssh gs@<树莓派IP>
-cd ~/device
+cd ~/linux
 sudo ./install.sh
 ```
 
@@ -107,7 +107,7 @@ sudo apt update && sudo apt install -y python3-venv v4l-utils ffmpeg
 
 # 2) 代码与虚拟环境
 mkdir -p ~/mqtt_demo && cd ~/mqtt_demo
-cp /path/to/device/{rpi_monitor.py,selftest_topics.py,requirements.txt} .
+cp /path/to/linux/{rpi_monitor.py,selftest_topics.py,requirements.txt} .
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 
@@ -124,7 +124,7 @@ MQTT_CA_FILE=
 EOF
 
 # 4) 服务
-sudo cp /path/to/device/rpi-monitor.service /etc/systemd/system/
+sudo cp /path/to/linux/rpi-monitor.service /etc/systemd/system/
 sudo sed -i "s#/home/gs/mqtt_demo#$HOME/mqtt_demo#g; s/^User=.*/User=$USER/" /etc/systemd/system/rpi-monitor.service
 sudo systemctl daemon-reload && sudo systemctl enable --now rpi-monitor
 
@@ -299,7 +299,7 @@ mosquitto_pub -h www.baidong.xyz -p 8883 -u home -P '<口令>' \
 ## 七、目录结构
 
 ```
-device/
+linux/
 ├── rpi_monitor.py              # 主程序（单文件）
 ├── requirements.txt            # paho-mqtt / psutil
 ├── selftest_topics.py          # 主题契约自检
