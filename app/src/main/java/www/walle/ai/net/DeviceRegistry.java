@@ -19,6 +19,20 @@ import java.util.Map;
  */
 public class DeviceRegistry {
 
+    /**
+     * 状态快照落盘端口（实现见 {@code data/LocalDb}）。
+     *
+     * <p>只做「最近一次快照」的旁路保存：进程被杀后重新打开 App，设备卡片上能立刻显示
+     * 上次的 CPU/磁盘/在线信息，不必等到下一次 state/result 回来。</p>
+     */
+    public interface StatusCache {
+        /** 异步写入；实现方必须立即返回，不得阻塞调用线程。 */
+        void save(String key, JSONObject status);
+
+        /** 同步读取全部缓存（启动时一次）。 */
+        Map<String, JSONObject> loadAll();
+    }
+
     /** 已发现的设备，键为 {@link DeviceInfo#key()} */
     private final Map<String, DeviceInfo> devices = new LinkedHashMap<>();
     /** 每台设备最近一次 state/result 快照，键同上 */
@@ -26,6 +40,8 @@ public class DeviceRegistry {
 
     private volatile String selectedKey = "";
     private volatile JSONObject latestStatus;
+    /** 状态快照落盘端口；null = 纯内存模式 */
+    private volatile StatusCache statusCache;
 
     // ---------------------------------------------------------------- 查询
 
@@ -78,6 +94,33 @@ public class DeviceRegistry {
 
     // ---------------------------------------------------------------- 写入
 
+    /**
+     * 挂上状态快照持久化（幂等），并把上次运行留下的快照读回内存。
+     *
+     * <p>已有实时快照优先：缓存只填空缺，绝不覆盖刚收到的状态。</p>
+     */
+    public synchronized void attachStatusCache(StatusCache cache) {
+        if (cache == null || statusCache != null) return;
+        statusCache = cache;
+        Map<String, JSONObject> stored;
+        try {
+            stored = cache.loadAll();
+        } catch (Throwable t) {
+            statusCache = null;
+            return;
+        }
+        long newest = -1;
+        for (Map.Entry<String, JSONObject> e : stored.entrySet()) {
+            if (e.getKey() == null || e.getKey().isEmpty() || e.getValue() == null) continue;
+            if (!statusByKey.containsKey(e.getKey())) statusByKey.put(e.getKey(), e.getValue());
+            long ts = e.getValue().optLong("ts", 0);
+            if (latestStatus == null || ts > newest) {
+                newest = ts;
+                latestStatus = e.getValue();
+            }
+        }
+    }
+
     /** 缓存一次 state/result 快照（键用报文里的 uuid）。 */
     public void putStatus(String key, JSONObject status) {
         if (key == null || key.isEmpty() || status == null) return;
@@ -85,6 +128,14 @@ public class DeviceRegistry {
             statusByKey.put(key, status);
         }
         latestStatus = status;
+        StatusCache cache = statusCache;
+        if (cache != null) {
+            try {
+                cache.save(key, status);
+            } catch (Throwable t) {
+                // 落盘失败不影响内存状态
+            }
+        }
     }
 
     /**

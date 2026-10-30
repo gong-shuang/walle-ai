@@ -4,7 +4,7 @@
 
 **用手机远程监控与操控 Linux / 树莓派设备的 Android 客户端**
 
-![version](https://img.shields.io/badge/version-1.8-blue)
+![version](https://img.shields.io/badge/version-1.9-blue)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)
 ![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)
 ![MQTT](https://img.shields.io/badge/MQTT-3.1.1-660066)
@@ -231,7 +231,7 @@ bash -n device/install.sh
 CI：`.github/workflows/android-ci.yml` 在 push / PR 时依次执行
 **单测 → debug 构建 → 设备端自检 → 上传 APK**。
 
-测试覆盖的契约（改主题或报文格式时，这里会先失败；当前 **40 个用例**）：
+测试覆盖的契约（改主题或报文格式时，这里会先失败；当前 **54 个用例**）：
 
 | 测试 | 覆盖内容 |
 |---|---|
@@ -240,6 +240,7 @@ CI：`.github/workflows/android-ci.yml` 在 push / PR 时依次执行
 | `DeviceRegistryTest` | online 新增/合并/离线忽略、discovery 按 device_id 替换旧 uuid、选中项兜底、状态缓存、在线优先排序 |
 | `StatusSnapshotTest` | state/result 全字段解析、缺失分组归空、异常数值归一为 null、USB 无 product 时回退 sysfs、网卡按名称排序 |
 | `DeviceInfoTest` | 主题里的设备段推导（`device_id` > hostname > uuid）、非法字符清洗、`key()`/`displayName()` 优先级 |
+| `AlarmStoreTest` | 告警落盘契约：插入即持久化、200 条滚动淘汰、`markAllRead`/`clear` 同步到库、重启后历史与未读数恢复、attach 幂等、持久化损坏时降级为仅内存 |
 | `CameraCapabilityTest` | 设备端 `cameras` 数组与控制页透传的裸数组两种形态、无 `node` 条目过滤、缺字段回退空值、非法 JSON 退化为空列表 |
 | `device/selftest_topics.py` | 与 App 端**同一套**清洗用例交叉验证、主题拼装、订阅清单、请求路由、**应答回显 request_id** |
 
@@ -254,6 +255,8 @@ walle_android/
 │   └── src/main/
 │       ├── AndroidManifest.xml
 │       ├── java/www/walle/ai/
+│       │   ├── data/
+│       │   │   └── LocalDb.java          # 本地 SQLite：告警收件箱 + 状态快照（读同步、写异步）
 │       │   ├── model/
 │       │   │   ├── StatusSnapshot.java   # 状态快照的强类型模型 + 唯一解析入口
 │       │   │   └── CameraCapability.java # 摄像头能力的强类型模型 + 解析
@@ -266,7 +269,7 @@ walle_android/
 │       │   │   ├── MqttService.java      # 前台服务保活
 │       │   │   ├── Topics.java           # 主题与默认参数常量
 │       │   │   ├── DeviceInfo.java       # 设备身份模型
-│       │   │   ├── AlarmStore.java       # 全局告警收件箱
+│       │   │   ├── AlarmStore.java       # 全局告警收件箱（落盘端口 + 内存权威源）
 │       │   │   ├── MqttConfig.java       # 连接配置模型
 │       │   │   ├── MqttConfigStore.java  # 配置持久化（凭据加密后落盘）
 │       │   │   ├── CredentialCrypto.java  # Android Keystore AES-GCM 凭据加解密
@@ -303,7 +306,7 @@ walle_android/
 | 网络协议 | MQTT 3.1.1（Eclipse Paho 1.2.5，QoS 1、自动重连、LWT） |
 | 视频 | WebRTC（`io.getstream:stream-webrtc-android`）+ WHEP 信令 |
 | 序列化 | `org.json` |
-| 持久化 | SharedPreferences + Android Keystore（AES-GCM 加密凭据） |
+| 持久化 | SQLite（告警收件箱 + 每台设备最近状态，`data/LocalDb`）、SharedPreferences + Android Keystore（AES-GCM 加密凭据） |
 | 构建 | AGP 9.4.1 / Gradle 9.6.0 / compileSdk 36 / targetSdk 36 / minSdk 26 |
 
 ---

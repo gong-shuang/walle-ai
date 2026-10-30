@@ -14,6 +14,8 @@ import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import www.walle.ai.data.LocalDb;
+
 /**
  * MQTT 门面（facade）：对 UI 暴露「设备 / 状态 / 命令 / 视频 / 连接状态」这些业务 API，
  * 自身只做编排，具体职责拆给四个组件：
@@ -115,6 +117,11 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         this.config = store.load();
         this.tenant = TopicNames.tenantOf(this.config.username);
         this.client = new MqttClient(ctx, this);
+        // 本地持久化（N11）：告警收件箱 + 每台设备最近一次状态快照。
+        // 放在这里是因为它一定有 Application Context，且早于任何 MQTT 报文到达。
+        LocalDb db = LocalDb.init(ctx);
+        AlarmStore.get().attach(db);
+        registry.attachStatusCache(db);
     }
 
     // ---------------------------------------------------------------- 监听

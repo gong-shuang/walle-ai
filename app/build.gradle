@@ -32,10 +32,11 @@ android {
         applicationId "www.walle.ai"
         minSdk 26
         targetSdk 36
+        // 1.9：告警与设备状态落本地 SQLite（杀进程后告警不丢、卡片先渲染缓存）
         // 1.8：协议改为 walle/{tenant}/{device}/...（v1 全局主题已删除，不兼容旧设备/旧 App）
         //      同时 targetSdk 36、edge-to-edge、R8、引导页按需解码
-        versionCode 1
-        versionName "0.1"
+        versionCode 10
+        versionName "1.9"
 
         // WHEP 拉流地址（演示服务器），生产环境替换为正式地址
         buildConfigField "String", "WHEP_URL", "\"https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream=123456\""
