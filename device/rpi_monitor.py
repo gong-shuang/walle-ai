@@ -328,6 +328,16 @@ VIDEO_GOP = 60                           # 关键帧间隔
 VIDEO_STARTUP_GRACE = 3.0                # 启动宽限：ffmpeg 活过这段时间即视为推流成功（秒）
 VIDEO_ROOM_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"  # 房间号白名单，防注入/防拼错
 
+# ---- 音频采集（检测到麦克风时自动把默认录音源混入推流）----
+VIDEO_AUDIO_ENABLE = _env_flag("VIDEO_AUDIO_ENABLE", True)  # 不需要声音时置 False
+VIDEO_AUDIO_DEVICE = "default"           # ffmpeg pulse 输入设备名（PulseAudio 默认录音源）
+VIDEO_PACTL_BIN = "pactl"                # pactl 可执行文件（来自 pulseaudio-utils）
+VIDEO_AUDIO_PROBE_TIMEOUT = 3            # 麦克风探测超时（秒）
+VIDEO_AUDIO_CODEC = "aac"                # 音频编码
+VIDEO_AUDIO_BITRATE = "128k"             # 音频码率
+VIDEO_AUDIO_FRAGMENT_SIZE = 1024         # pulse 采集分片（字节）：越小采集端延迟越低，
+                                         # 过大是混音后播放端延迟明显增大的主要原因
+
 
 # ============================== 工具函数 ==============================
 
@@ -795,12 +805,116 @@ def list_cameras():
 
 # ==================== 视频推流（ffmpeg -> RTMP） ====================
 
-def build_ffmpeg_cmd(video_device, room_number):
+def _pulse_has_input_source():
+    """
+    用 pactl 判断 PulseAudio 上是否存在真实录音源（排除 *.monitor 回环源）。
+    （*.monitor 是输出设备把播放内容回环出来的虚拟源，不是麦克风。）
+
+    返回 (state, reason)：
+      state=True  有录音源
+      state=False 没有录音源
+      state=None  无法判断（pactl 未安装 / PulseAudio 未运行等），reason 为原因
+    """
+    try:
+        proc = subprocess.run(
+            [VIDEO_PACTL_BIN, "list", "short", "sources"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=VIDEO_AUDIO_PROBE_TIMEOUT,
+        )
+    except FileNotFoundError:
+        return None, "未安装 pactl（sudo apt install -y pulseaudio-utils）"
+    except subprocess.TimeoutExpired:
+        return None, f"pactl 探测超时（>{VIDEO_AUDIO_PROBE_TIMEOUT}s）"
+    except Exception as e:  # noqa: BLE001
+        return None, f"调用 pactl 失败: {e}"
+
+    if proc.returncode != 0:
+        detail = (proc.stderr or b"").decode("utf-8", "replace").strip()[:200]
+        return None, f"pactl 返回 {proc.returncode}（PulseAudio 未运行？）{detail}"
+
+    for line in (proc.stdout or b"").decode("utf-8", "replace").splitlines():
+        # 输出形如：0<TAB>alsa_input.usb-xxx<TAB>module-alsa-card.c<TAB>s16le ...
+        cols = line.split("\t")
+        name = cols[1].strip() if len(cols) > 1 else ""
+        if name and not name.endswith(".monitor"):
+            return True, None
+    return False, "未检测到录音源（没有麦克风，或只有 *.monitor 回环源）"
+
+
+def _ffmpeg_audio_probe(device):
+    """pactl 不可用时，用 ffmpeg 试读 0.2 秒，验证 `-f pulse` 录音通路确实可用"""
+    try:
+        proc = subprocess.run(
+            [VIDEO_FFMPEG_BIN, "-hide_banner", "-loglevel", "error",
+             "-f", "pulse", "-i", device, "-t", "0.2", "-f", "null", "-"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=VIDEO_AUDIO_PROBE_TIMEOUT + 3,
+        )
+    except FileNotFoundError:
+        return False, "未安装 ffmpeg，请执行: sudo apt install -y ffmpeg"
+    except subprocess.TimeoutExpired:
+        return False, "ffmpeg 音频探测超时"
+    except Exception as e:  # noqa: BLE001
+        return False, f"ffmpeg 音频探测失败: {e}"
+
+    if proc.returncode == 0:
+        return True, None
+    tail = (proc.stdout or b"").decode("utf-8", "replace").strip().splitlines()[-1:]
+    return False, "ffmpeg 无法读取默认录音源" + (f": {tail[0][:200]}" if tail else "")
+
+
+def detect_microphone():
+    """
+    判断本机是否有可用麦克风，决定推流是否带声音。
+
+    判定顺序：
+      1) VIDEO_AUDIO_ENABLE=False → 直接纯视频；
+      2) pactl 有真实录音源（排除 *.monitor）→ 用默认录音源；
+      3) pactl 不可用/未运行（精简系统常见）→ 退化为 ffmpeg 试读一次。
+
+    返回 {"available","device","reason","codec","bitrate"}，
+    该结构会原样回填到 video/start/result 的 audio 字段，便于 App/日志排查。
+    """
+    info = {
+        "available": False,
+        "device": None,
+        "reason": None,
+        "codec": VIDEO_AUDIO_CODEC,
+        "bitrate": VIDEO_AUDIO_BITRATE,
+    }
+
+    if not VIDEO_AUDIO_ENABLE:
+        info["reason"] = "音频采集已关闭（VIDEO_AUDIO_ENABLE=False）"
+        return info
+
+    state, reason = _pulse_has_input_source()
+    if state is None:
+        ok, ff_reason = _ffmpeg_audio_probe(VIDEO_AUDIO_DEVICE)
+        if not ok:
+            info["reason"] = f"{reason}；{ff_reason}"
+            return info
+    elif state is False:
+        info["reason"] = reason
+        return info
+
+    info["available"] = True
+    info["device"] = VIDEO_AUDIO_DEVICE
+    return info
+
+
+def build_ffmpeg_cmd(video_device, room_number, audio=None):
     """
     按收到的请求动态拼 ffmpeg 参数（视频设备、房间号都不写死）。
     用参数列表而不是 shell 字符串，避免命令注入。
+
+    audio: detect_microphone() 的返回值；available=True 时追加 PulseAudio 默认
+    录音源（-f pulse -i default）并编码为 AAC，否则保持 -an 纯视频。
     """
-    return [
+    cmd = [
         VIDEO_FFMPEG_BIN,
         # 不加 -hide_banner：日志里保留 ffmpeg 版本/编译选项/流信息，便于排查
         "-loglevel", VIDEO_LOG_LEVEL,
@@ -809,16 +923,55 @@ def build_ffmpeg_cmd(video_device, room_number):
         "-video_size", VIDEO_VIDEO_SIZE,
         "-framerate", str(VIDEO_FRAMERATE),
         "-i", video_device,
+    ]
+
+    has_audio = bool(audio and audio.get("available"))
+    if has_audio:
+        # 音频输入必须紧跟视频输入之后、编码参数之前，且单独给足队列；
+        # fragment_size 限制 PulseAudio 每次攒的采样量，直接决定采集端缓冲时长
+        cmd += [
+            "-thread_queue_size", "8192",
+            "-f", "pulse",
+            "-fragment_size", str(VIDEO_AUDIO_FRAGMENT_SIZE),
+            "-i", audio.get("device") or VIDEO_AUDIO_DEVICE,
+        ]
+
+    cmd += [
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-tune", "zerolatency",
         "-pix_fmt", "yuv420p",
         "-g", str(VIDEO_GOP),
         "-b:v", VIDEO_BITRATE,
-        "-an",
+    ]
+
+    if has_audio:
+        cmd += [
+            "-c:a", VIDEO_AUDIO_CODEC,
+            "-b:a", VIDEO_AUDIO_BITRATE,
+        ]
+    else:
+        cmd += ["-an"]
+
+    # 低延迟封装参数（混音流验证过；纯视频流保持原参数不动）：
+    #   -vsync passthrough        时间戳直通，不为凑 CFR 复制/丢弃帧
+    #   -max_interleave_delta 0   不缓存交错，音视频随到随发（音画等待是延迟主因）
+    #   -muxdelay 0.1 -muxpreload 0  最小化 flv 复用器的起始缓冲
+    #   -rtmp_live live           声明直播流，rtmp 发送不攒包
+    if has_audio:
+        cmd += [
+            "-vsync", "passthrough",
+            "-max_interleave_delta", "0",
+            "-muxdelay", "0.1",
+            "-muxpreload", "0",
+            "-rtmp_live", "live",
+        ]
+
+    cmd += [
         "-f", "flv",
         VIDEO_RTMP_URL_TEMPLATE.format(room=room_number),
     ]
+    return cmd
 
 
 def build_rtmp_url(room_number):
@@ -1387,13 +1540,15 @@ class RpiMonitor:
             logging.warning("推流进程异常退出（room=%s, exit=%s）%s",
                             room_number, code, f"，stderr: {tail}" if tail else "")
 
-    def _start_video_stream(self, video_device, room_number):
+    def _start_video_stream(self, video_device, room_number, audio=None):
         """
         启动 ffmpeg 推流。返回 (proc, error)：
           - proc 不为 None：启动宽限期内未退出，视为推流成功
           - proc 为 None：error 为失败原因
+
+        audio: detect_microphone() 的结果，决定是否混入音频（见 build_ffmpeg_cmd）。
         """
-        cmd = build_ffmpeg_cmd(video_device, room_number)
+        cmd = build_ffmpeg_cmd(video_device, room_number, audio)
         rtmp = build_rtmp_url(room_number)
         # 日志文件开头写一段分隔头，记录这次推流的时间/房间号/设备/实际命令
         header = (
@@ -1444,6 +1599,7 @@ class RpiMonitor:
                 "started_at": now_str(),
                 "started_ts": time.time(),
                 "rtmp_url": mask_rtmp_url(build_rtmp_url(room_number)),
+                "audio": audio or {"available": False, "reason": None},
             }
         threading.Thread(target=self._video_watch, args=(proc, room_number, sink),
                          daemon=True, name="video-watch").start()
@@ -1501,6 +1657,7 @@ class RpiMonitor:
                 "rtmp_url": mask_rtmp_url(build_rtmp_url(room_number)),
                 "pid": cur_meta.get("pid"),
                 "started_at": cur_meta.get("started_at"),
+                "audio": cur_meta.get("audio") or {"available": False, "reason": None},
                 "uptime_sec": round(
                     time.time() - (cur_meta.get("started_ts") or time.time()), 1
                 ),
@@ -1512,13 +1669,22 @@ class RpiMonitor:
         previous_device = cur_meta.get("video_device") if streaming else None
         self._stop_video_stream("收到新的推流请求")
 
-        # 4) 启动 ffmpeg 推流
-        proc, err = self._start_video_stream(video_device, room_number)
+        # 4) 检测麦克风：有可用录音源就带上声音，否则纯视频（-an）
+        audio = detect_microphone()
+        if audio["available"]:
+            logging.info("检测到麦克风，推流将混入音频（device=%s, %s/%s）",
+                         audio["device"], audio["codec"], audio["bitrate"])
+        else:
+            logging.info("未启用音频推流：%s", audio["reason"] or "未检测到麦克风")
+
+        # 5) 启动 ffmpeg 推流
+        proc, err = self._start_video_stream(video_device, room_number, audio)
         extra = {
             "rtmp_url": mask_rtmp_url(build_rtmp_url(room_number)),
-            "command": " ".join(build_ffmpeg_cmd(video_device, room_number)).replace(
+            "command": " ".join(build_ffmpeg_cmd(video_device, room_number, audio)).replace(
                 build_rtmp_url(room_number), mask_rtmp_url(build_rtmp_url(room_number))),
             "pid": proc.pid if proc else None,
+            "audio": audio,
         }
         extra["action"] = "restarted" if previous_room else "started"
         if previous_room:
@@ -1598,6 +1764,7 @@ class RpiMonitor:
             "video_device": meta.get("video_device"),
             "pid": meta.get("pid"),
             "started_at": meta.get("started_at"),
+            "audio": meta.get("audio") or {"available": False, "reason": None},
             "stopped": True,
         })
 

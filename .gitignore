@@ -22,6 +22,7 @@ captures/
 .settings/
 .project
 .classpath
+.vscode/
 
 # ---------- 系统 ----------
 .DS_Store
@@ -37,3 +38,5 @@ __pycache__/
 device/.venv/
 device/log/
 device/*.log
+#本地调试，忽略此文件
+device/rpi-monitor.env.example
