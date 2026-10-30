@@ -46,7 +46,7 @@
 | I1 | 全 Java，异步靠 `Handler`/`ExecutorService` | 11 处 `postDelayed`、6 个 executor | 迁 Kotlin + Coroutines/Flow |
 | I2 | XML + `findViewById`（89 处），未用 Compose | ViewModel 改造后页面已用 `viewBinding`（`binding.xxx`），剩余 `findViewById` 集中在 `SettingsActivity`(16)/`OnboardingActivity`(11)/各 Adapter(17) | 剩余页面统一 ViewBinding；新页面 Compose + Material3 |
 | I3 | 无 DI | 手写单例（`MqttManager.get()`、`AlarmStore.get()`），无 `Application` 子类 | Hilt 或手写 `AppContainer` |
-| I4 | Paho 1.2.5（MQTT 3.1.1） | `app/build.gradle:81` | HiveMQ Client（MQTT5：会话过期、响应主题、原因码） |
+| I4 | Paho 1.2.5（MQTT 3.1.1） | `app/build.gradle:114` | **已做完整评估：[mqtt5-assessment.md](mqtt5-assessment.md)**——换库 6–10 人日、拿到全部收益再 +7–9 人日；触发条件：在线设备 > 20 台 / 需要离线补发 / 排障成本走高 / Paho 出 CVE。届时直接上 HiveMQ 客户端，**不要**用 Paho v5 过渡 |
 | I5 | 单模块 | 只有 `app`，`net`/`ui` 两个包 | 拆 `:core:net` `:core:rtc` `:feature:*`（与 N1/N3 一起做） |
 | I6 | 依赖版本硬编码，无 version catalog | 见 `app/build.gradle:75-84` | `gradle/libs.versions.toml` |
 | I7 | 无 Baseline Profile / 启动度量 | 无 `baselineprofile` 模块 | Baseline Profile + Macrobenchmark |

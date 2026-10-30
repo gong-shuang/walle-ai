@@ -339,6 +339,7 @@ walle_android/
 
 ## 相关文档
 
+- [MQTT5 升级评估](doc/mqtt5-assessment.md) — 工作量（6–10 / 13–19 人日）、收益排序、ACL 代价与触发条件
 - [架构与技术评审](doc/architecture-review.md) — 分层、安全、性能、可测试性现状与 P0/P1/P2 升级路线
 - [targetSdk 36 升级指南](doc/s4-target-sdk-36-migration.md) — 工具链升级、edge-to-edge 适配、视觉回归清单与设备端影响
 - [多租户主题方案（协议 v2）](doc/s3-multi-tenant-topics.md) — 主题契约、EMQX ACL 步骤与验收
