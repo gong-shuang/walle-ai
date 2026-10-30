@@ -117,11 +117,9 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         this.config = store.load();
         this.tenant = TopicNames.tenantOf(this.config.username);
         this.client = new MqttClient(ctx, this);
-        // 本地持久化（N11）：告警收件箱 + 每台设备最近一次状态快照。
+        // 本地持久化（N11）：只存告警收件箱；设备状态是实时查询的，不落盘。
         // 放在这里是因为它一定有 Application Context，且早于任何 MQTT 报文到达。
-        LocalDb db = LocalDb.init(ctx);
-        AlarmStore.get().attach(db);
-        registry.attachStatusCache(db);
+        AlarmStore.get().attach(LocalDb.init(ctx));
     }
 
     // ---------------------------------------------------------------- 监听

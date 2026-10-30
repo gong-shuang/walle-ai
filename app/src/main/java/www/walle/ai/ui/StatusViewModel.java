@@ -165,7 +165,6 @@ public class StatusViewModel extends AndroidViewModel implements MqttManager.Lis
         }
         // 即使 rid 不匹配（迟到结果）也渲染：数据本身仍然有效
         cache = StatusSnapshot.parse(payload);
-        freshReport = true;
         publish();
     }
 
@@ -179,7 +178,6 @@ public class StatusViewModel extends AndroidViewModel implements MqttManager.Lis
     public void onDevicesChanged() {
         // 切设备后缓存/快照都要重新取
         cache = null;
-        freshReport = false;
         autoQueryIfIdle();
         publish();
     }
@@ -194,16 +192,12 @@ public class StatusViewModel extends AndroidViewModel implements MqttManager.Lis
 
     /** 最近一次渲染的快照（用于状态变化时重发同一个 UiState）。 */
     private StatusSnapshot cache;
-    /** 当前快照是否来自本进程收到的实时报文（false = 来自本地缓存，需要补一次查询）。 */
-    private boolean freshReport;
 
     private void autoQueryIfIdle() {
         if (refreshing) return;
         if (mgr.getState() != ConnState.CONNECTED) return;
         if (mgr.getSelectedKey().isEmpty()) return;
-        // 注意：不能用「有没有状态」判断——本地缓存也算有状态（N11），
-        // 否则杀进程重启后会一直展示上次的旧数据、从不刷新。
-        if (freshReport) return;
+        if (mgr.getStatus(mgr.getSelectedKey()) != null) return;
         query();
     }
 

@@ -1,7 +1,7 @@
 # 架构与技术债清单
 
-> **本次复查：2026-10-30**（第五轮，N11 本地持久化后重新核对）
-> 范围：`app/src/main`（46 个 Java 文件 / 8359 行）、`res/`、`app/build.gradle`、`AndroidManifest.xml`、`device/`
+> **本次复查：2026-10-30**（第五轮，N11 告警持久化后重新核对）
+> 范围：`app/src/main`（46 个 Java 文件 / 8237 行）、`res/`、`app/build.gradle`、`AndroidManifest.xml`、`device/`
 > 上一版：2026-10-30（第四轮，N2 全量迁移完成）
 >
 > **状态图例**：✅ 已完成　　◐ 部分完成　　⭕ 未开始
@@ -12,7 +12,7 @@
 > | 一般 | 架构、可靠性、性能、工程化 | 14 | 13 | 1 | 0 |
 > | 忽略 | 技术栈升级（现阶段收益低于成本） | 10 | 0 | 0 | 10 |
 >
-> **结论**：**严重项已全部清零**（15/15）；一般项已完成 13 条，**N2（ViewModel/LiveData 单一数据源）已全量落地**、**N11（告警/状态持久化）已完成**。仅剩 **N7 设备发现广播**（◐，等设备量上量）与 10 条忽略项。
+> **结论**：**严重项已全部清零**（15/15）；一般项已完成 13 条，**N2（ViewModel/LiveData 单一数据源）已全量落地**、**N11（告警持久化）已完成**。仅剩 **N7 设备发现广播**（◐，等设备量上量）与 10 条忽略项。
 
 ---
 
@@ -27,7 +27,7 @@
 | N4 | ~~视频链路无 `request_id`，靠布尔位防重入~~ | 已扩展到**所有请求**（discovery/state/capability/cmd/video start/stop）都带 `request_id`，设备端全部原样回显；App 按 id 配对，video 链路加 8s 超时复位 | 已改完；`selftest_topics.py` 新增「所有应答回显 rid」断言 | 1 天（两端） | ✅ |
 | N5 | ~~`publish()` 在调用线程执行（多为 UI 线程），重连期可能卡顿~~ | 已改为异步：`publish()` 只入队，实际发送在单线程 `mqtt-publish` 执行器里做；队列上限 200，满时直接报错给 UI | 已改完；`adb logcat -v thread -s MqttTrace` 可见发送日志来自 `mqtt-publish` 线程 | 0.5 天 | ✅ |
 | N10 | ~~`allowBackup=true` 且无 `dataExtractionRules`~~ | 已改 `allowBackup=false` + `fullBackupContent=false`：无有价值用户数据，备份只会带走 broker 地址与（换机后无法解密的）凭据 | 已完成；清单 `aapt2` 链接通过 | 0.5 天 | ✅ |
-| N11 | ~~告警、状态只在内存，进程被杀即丢~~ | 已落本地 SQLite（`data/LocalDb`，两张表 `alarm` / `status`）：告警插入即落盘、上限 200 条滚动清理、已读状态持久化；每台设备最近一次 `state/result` 快照旁路保存（上限 50 台），启动时读回内存，`DeviceRegistry.status()` 立刻有值。**读同步、写异步**（单线程 `walle-db` 执行器 + 状态写入合并），任何 DB 异常都降级为仅内存，不影响告警功能 | 已改完；`AlarmStoreTest`（10 例）用假 Persistence 锁住「重启后告警还在、未读数还准、超限滚动、落盘失败降级」；`DeviceRegistryTest` 新增 4 例锁住「缓存先渲染、实时状态优先、落盘失败不影响内存」 | 2 天 | ✅ |
+| N11 | ~~告警只在内存，进程被杀即丢~~ | 告警已落本地 SQLite（`data/LocalDb`，表 `alarm`）：插入即落盘、上限 200 条滚动清理、已读状态持久化，启动时读回内存并叠加未读数。**读同步、写异步**（单线程 `walle-db` 执行器），任何 DB 异常都降级为仅内存。**设备状态（state/result）刻意不落盘**：它表示「选中在线设备后当场查询到的那一刻」，设备列表本身就只展示在线设备，缓存旧快照只会造成「卡片在线、数据是昨天的」假象；状态页仍是选中→查询→渲染 | 已改完；`AlarmStoreTest`（10 例）用假 Persistence 锁住「重启后告警还在、未读数还准、超限滚动、落盘失败降级」 | 2 天 | ✅ |
 | N1 | ~~`MqttManager` 是 God object~~ | 已拆成四层：`MqttClient`（连接/订阅/异步发布，370 行）、`MessageRouter`（主题→事件 + 去重，162 行）、`DeviceRegistry`（设备/状态/选中，228 行）、`MqttTrace`（日志，49 行）+ `ConnState`；`MqttManager` 退化为门面（479 行，原 914 行） | 已改完；四组单测 30 项通过 | 3–5 天 | ✅ |
 | N2 | ~~UI 无 ViewModel、无单一数据源~~ | **全部页面已迁移**：`MqttViewModel` 基类（统一注册/注销 MQTT 监听）+ 7 个页面级 ViewModel，8 个文件共 1483 行；每个页面只 observe 一个不可变 `UiState`。Fragment/Activity **零** `MqttManager.Listener`、零 `AlarmStore.Observer`；`ui/` 里 JSON 解析只剩 ViewModel 与 2 个 Adapter 展示格式化（共 35 处，改造前状态页单文件就 55 处）；`runOnUiThread` 仅剩 1 处 | 已改完；纯 Java 用 LiveData，StateFlow 随 Kotlin 迁移（I1） | 1–2 周 | ✅ |
 | N3 | ~~视频管道两份实现~~ | 已抽 `WhepSession`（497 行）：EGL/Factory/PeerConnection/WHEP 协商/首帧/释放 只此一份；`PlayerActivity` 649→**376 行**，重复代码交集从 **40% 降到 2%**；协商代码全项目只在 `WhepSession` 出现 | 已改完；`javac` 通过 | 2–3 天 | ✅ |
@@ -91,7 +91,7 @@
 | **状态页 ViewModel 试点（N2）** | `ui/StatusViewModel.java`、`model/StatusSnapshot.java`、`ui/StatusFragment.java`、`app/build.gradle` | 状态页改成「MQTT 回调 → ViewModel（解析为强类型模型）→ LiveData → 渲染」：UI 不再解析 JSON、不再自己维护 waiting/rid、回调里不碰 View；新增 `StatusSnapshotTest`（5 例）；补齐 lifecycle-viewmodel / lifecycle-livedata 依赖；删除无用的 `UiUtil.joinJsonStrings` |
 | **网络层分层（N1）** | `net/MqttClient.java`、`net/MessageRouter.java`、`net/DeviceRegistry.java`、`net/MqttTrace.java`、`net/ConnState.java`、`net/MqttManager.java`、6 个 UI 文件 | 把 914 行的 `MqttManager` 拆成「传输 / 路由 / 注册表 / 门面」四层；`ConnState` 提升为顶层枚举（UI 20 处引用同步）；新增 `MessageRouterTest`、`DeviceRegistryTest`（合计 30 项单测） |
 | **N2 全量迁移：ViewModel + LiveData** | `ui/MqttViewModel.java`（新增）、`ui/StatusViewModel`、`DevicesViewModel`、`CommandViewModel`、`AlarmViewModel`、`ControlViewModel`、`ConnectionViewModel`、`PlayerViewModel`、`model/CameraCapability`（新增）、对应 10 个 Fragment/Activity | 每个页面「MQTT/告警回调 → ViewModel 维护状态 → 不可变 `UiState` → LiveData → 渲染」：页面不再实现 `MqttManager.Listener`/`AlarmStore.Observer`，不再自己维护 `waiting/rid`，回调里不碰 View；同时修掉两个实打实的 bug——全屏播放页退出没带 `EXTRA_UUID` 导致设备端**永不停止推流**、以及全屏页重建后 spinner 与真实推流摄像头错位；`PlayerActivity` 与 `ControlFragment` 的切换摄像头状态机共用同一套「请求发出后才改状态 / 失败或 8s 超时回滚」逻辑 |
-| **本地持久化（N11）** | `data/LocalDb.java`（新增）、`net/AlarmStore.java`、`net/DeviceRegistry.java`、`net/MqttManager.java`、`app/build.gradle` | 用 `SQLiteOpenHelper` 直接落两张表，不引 Room：本项目纯 Java、只有两张表、无关联查询，Room 的 annotation processor + schema 增量构建成本大于收益（迁 Kotlin 时随 I1 再评估）。告警：`add` 即落盘、200 条滚动淘汰、`markAllRead`/`clear` 同步到库，`attach()` 启动时读回并叠加未读数；状态：`putStatus` 走 `StatusCache` 端口异步落盘（同设备合并写、`CONFLICT_REPLACE`），`attachStatusCache()` 把上次运行的快照读回内存且**不覆盖**已收到的实时状态。线程模型：读同步（启动几毫秒，换界面不白屏）、写异步（`walle-db` 单线程），所有 DB 调用 try/catch 降级为仅内存 |
+| **告警持久化（N11）** | `data/LocalDb.java`（新增）、`net/AlarmStore.java`、`net/MqttManager.java`、`app/build.gradle` | 用 `SQLiteOpenHelper` 落地一张 `alarm` 表，不引 Room：本项目纯 Java、单表、无关联查询，Room 的 annotation processor + schema 增量构建成本大于收益（迁 Kotlin 时随 I1 再评估）。`add` 即落盘、200 条滚动淘汰、`markAllRead`/`clear` 同步到库，`attach()` 启动时读回并叠加未读数。线程模型：读同步（启动几毫秒）、写异步（`walle-db` 单线程），所有 DB 调用 try/catch 降级为仅内存。**状态快照（state/result）明确不持久化**：它只对「当场选中在线设备」有意义，落盘会显示过期数据；DB v2 升级时顺带 `DROP TABLE IF EXISTS status` 清掉早期试验版本留下的表 |
 | **版本号（N14 修正）** | `app/build.gradle`、`README.md` | 上一轮 N14 只改了注释、`versionCode` 实际仍是 1 —— 本轮修正为 `versionCode 10` / `versionName "1.9"`（首发 1.8 起算），README 徽章同步 |
 | **修复：WebRTC 回调跨线程写 LiveData → 进程 SIGABRT** | `ui/WhepSession.java`、`ui/MqttViewModel.java`、`ui/*ViewModel.java`、`.github/workflows/android-ci.yml` | 现象：控制页点「开始推流」、WebRTC 一 CONNECTED 就闪退（`Fatal signal 6 / Check failed: !env->ExceptionCheck()`）。根因：`PeerConnection.Observer.onConnectionChange` 跑在 native signaling 线程，回调里 `ControlViewModel.publish()` 直接 `setValue` 抛 `IllegalStateException`，异常跨过 JNI 边界被 WebRTC 判定为致命。三层修复：①`WhepSession` 所有回调统一走 `dispatch()`——切主线程 + `try/catch(Throwable)`，异常只留在 Java 层；②`MqttViewModel` 提供 `runOnMain()`/`emit()`，各 VM 的 `publish()` 与 toast 写入做线程兜底（主线程仍走 `setValue`，避免 `postValue` 旧值覆盖新值的交错）；③CI 新增「架构守卫」：禁止页面实现 `MqttManager.Listener` 或写 LiveData，并锁死 `WhepSession.dispatch()` 存在 |
 | **视频管道去重（N3）** | `ui/WhepSession.java`（新增）、`ui/PlayerActivity.java`、`ui/ControlFragment.java` | 抽出 `WhepSession`：EGL/Factory/PeerConnection/WHEP 协商/首帧/释放 唯一实现；播放页删掉自管的 240 余行 WebRTC 代码，只保留 UI（状态文案/首帧遮罩/摄像头切换/退出）；控制页沿用同一会话并保留自己的状态文案 |
@@ -110,7 +110,7 @@
 ## 四、建议顺序
 
 1. **量测 N9 / 验证 N8**（10 分钟）：`./gradlew :app:assembleDebug` 看 APK 大小；装包后看 logcat 有无「connectedDevice 被拒绝」回退日志。
-2. **实机验证 N11**（10 分钟）：收几条告警 → `adb shell am force-stop www.walle.ai` → 重开 App，设置页红点与告警列表应还在；状态页在 `state/result` 回来前就应显示上次的 CPU/磁盘数据。
+2. **实机验证 N11**（10 分钟）：收几条告警 → `adb shell am force-stop www.walle.ai` → 重开 App，设置页红点与告警列表应还在；状态页仍应「选中在线设备 → 查询 → 渲染」（不显示任何上次留下的旧快照）。
 3. N7（租户内广播发现）等设备数量上量后再优化；忽略项等业务上量后再做。
 
 ---
@@ -119,7 +119,7 @@
 
 ```bash
 # 规模
-find app/src/main/java -name "*.java" | xargs wc -l | tail -1    # 8359 行 / 46 文件
+find app/src/main/java -name "*.java" | xargs wc -l | tail -1    # 8237 行 / 46 文件
 
 # 发布配置
 grep -n "compileSdk\|targetSdk\|minifyEnabled\|shrinkResources\|abiFilters" app/build.gradle
