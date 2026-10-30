@@ -13,8 +13,14 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!--
+        不做云备份/整机迁移：本 App 没有值得备份的用户数据（告警在内存、配置是设备相关），
+        而备份会把 broker 地址与加密凭据一起带走；换机重新输入凭据更安全也更简单。
+        凭据本身已用 Android Keystore 加密，换机后旧密文本来也无法解密。
+    -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"

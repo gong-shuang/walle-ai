@@ -69,11 +69,10 @@ walle/{tenant}/{device}/{resource}
 | `net/DeviceInfo.java` | `topicDeviceId()`：device_id → hostname → uuid 的稳定设备段 |
 | `net/MqttManager.java` | `tenant = TopicNames.tenantOf(username)`；订阅 8 个「设备 → App」主题（`walle/{tenant}/+/{online,alarm,discovery/result,state/result,cmd/result,camera/capability/result,video/start/result,video/stop/result}`）；按资源名分发；2 秒窗口去重（挡 QoS1 重复投递）；发布失败回调带「事件种类」而非主题名 |
 
-> **升级遗留订阅的坑**：App 用 `cleanSession=false`（会话持久化），broker 会把该 clientId 的订阅一直保留。
-> 于是从旧版本升级后会出现「新旧订阅并存」：旧版订过 `walle/{tenant}/#` 与 v1 全局主题，新版又订 8 个精确主题
-> → 同一条 `identity` 被投递两次、自发 `discovery/query` 也被 `#` 收回来。
-> 修复方式：每次连接先 `unsubscribe` 一组「旧过滤器黑名单」（`TopicNames.staleSubscriptionFilters()`，
-> 只用于清理、不参与收发），再订阅本版本需要的主题。日志会打印 `cleared N stale subscriptions`。
+> **会话策略**：App 使用 `cleanSession=true`（洁净会话）。本地不持久化告警/状态，
+> 会话里没有值得保留的东西；而持久会话会让 broker 一直留着旧订阅——改协议后就会出现
+> 「订阅的是旧主题、新报文收不到」这类坑。代价是断线期间的消息不补发，
+> 但 App 每次连上都会重新订阅并主动广播一次设备发现，状态由下一次查询补齐。
 
 > 为什么不是订阅 `walle/{tenant}/#`：MQTT 3.1.1 没有 no-local 标志，broker 会把客户端自己发布的
 > 报文也投递回来。App 会在同一个租户空间里发布 `state/query`、`cmd`、`video/start`、`discovery/query`，

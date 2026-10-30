@@ -312,7 +312,10 @@ public class MqttManager {
             if (config.password != null) {
                 opts.setPassword(config.password.toCharArray());
             }
-            opts.setCleanSession(false);
+            // 洁净会话：本地不持久化任何告警/状态（见技术债 N11），会话里也没有值得保留的东西；
+            // 反而持久会话会让 broker 一直留着旧订阅（改协议后就是「收不到新主题」的坑）。
+            // 每次连上都会重新订阅并广播一次设备发现。
+            opts.setCleanSession(true);
             opts.setKeepAliveInterval(Topics.KEEP_ALIVE);
             opts.setConnectionTimeout(15);
             opts.setAutomaticReconnect(config.autoReconnect);
@@ -449,18 +452,8 @@ public class MqttManager {
     private void subscribeAll() {
         if (client == null || !client.isConnected()) return;
 
-        // ① 先退订旧版本遗留在会话里的过滤器（cleanSession=false，broker 会一直保留）。
-        //    不清理的话：旧版订过 walle/{tenant}/# 与 v1 主题，新版又订精确主题，
-        //    同一条 identity 会被投递两次，自发请求也会被 # 收回来。
-        String[] stale = TopicNames.staleSubscriptionFilters(tenant);
-        try {
-            client.unsubscribe(stale);
-            Log.i("MqttManager", "cleared " + stale.length + " stale subscriptions");
-        } catch (MqttException e) {
-            Log.w("MqttManager", "clear stale subscriptions failed", e);
-        }
-
-        // ② 再订阅本版本需要的「设备 → App」响应主题
+        // cleanSession=true：每次连接都是全新会话，broker 不会保留旧订阅，
+        // 因此这里只需要订阅本版本需要的「设备 → App」主题，不需要额外清理。
         String[] topics = TopicNames.responseSubscriptions(tenant);
         try {
             for (String t : topics) client.subscribe(t, Topics.QOS);

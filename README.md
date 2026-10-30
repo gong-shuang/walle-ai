@@ -235,7 +235,7 @@ CI：`.github/workflows/android-ci.yml` 在 push / PR 时依次执行
 
 | 测试 | 覆盖内容 |
 |---|---|
-| `TopicNamesTest` | 段清洗（含通配符 `+ #` 必须被丢弃）、请求 `query/exec/request` 与应答 `result` 的命名约定、8 个订阅主题、`discovery/query` 不被误解析、旧订阅清理列表 |
+| `TopicNamesTest` | 段清洗（含通配符 `+ #` 必须被丢弃）、请求 `query/exec/request` 与应答 `result` 的命名约定、8 个订阅主题、`discovery/query` 不被误解析 |
 | `DeviceInfoTest` | 主题里的设备段推导（`device_id` > hostname > uuid）、非法字符清洗、`key()`/`displayName()` 优先级 |
 | `device/selftest_topics.py` | 与 App 端**同一套**清洗用例交叉验证、主题拼装、订阅清单、请求路由、**应答回显 request_id** |
 
@@ -314,6 +314,7 @@ walle_android/
 
 - MQTT 默认走 `ssl://:8883`；清单已禁止明文流量（`network_security_config`，debug 包允许用户 CA），仅当显式改用 1883 明文端口时才会以 `tcp://` 连接。
 - 凭据已用 Android Keystore 加密存储；MQTT 与 WHEP 均使用系统 CA 严格校验，服务端证书需要是公共 CA 签发且 SAN 与填写域名一致。
+- **不做云备份/整机迁移**（`allowBackup=false`）：换机后需要重新输入 Broker 账号密码；这是刻意的取舍，避免凭据随备份外流。
 - 仓库不含设备端采集脚本与 Broker 配置，需自行部署。
 - 目前的架构与技术债清单、升级路线见 [`doc/architecture-review.md`](doc/architecture-review.md)。
 

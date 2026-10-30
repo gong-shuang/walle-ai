@@ -136,16 +136,6 @@ public class TopicNamesTest {
     }
 
     @Test
-    public void staleFiltersCleanOldSubscriptions() {
-        String[] stale = TopicNames.staleSubscriptionFilters(TENANT);
-        String joined = String.join(",", stale);
-        assertTrue(joined.contains("walle/home/#"));          // v2 初版通配订阅
-        assertTrue(joined.contains("device/online"));         // v1 全局主题
-        assertTrue(joined.contains("cmd/exec"));
-        assertTrue(joined.contains("walle/home/+/state"));    // 改名前的响应主题
-    }
-
-    @Test
     public void sanitizeKeepsSegmentShortAndStable() {
         String longTenant = "a".repeat(100);
         String seg = TopicNames.sanitize(longTenant);

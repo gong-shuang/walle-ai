@@ -168,34 +168,6 @@ public final class TopicNames {
         };
     }
 
-    /**
-     * 旧版本遗留在 broker 会话里的订阅过滤器，**只用于退订清理，不参与任何收发**。
-     *
-     * <p>App 用的是 {@code cleanSession=false}（会话持久化），broker 会把该 clientId 的订阅
-     * 一直保留到下次 UNSUBSCRIBE 或会话过期。于是升级 App 后会出现新旧订阅并存：
-     * 旧版订过 {@code walle/{tenant}/#} 与 v1 的全局主题，新版本又订了 8 个精确主题，
-     * 结果同一条 identity 会被投递两次，自发的 discovery 也会被 {@code #} 收回来。
-     * 每次连接时先退订这些过滤器即可一次性清理干净（对没订过的过滤器退订是无害的）。</p>
-     */
-    public static String[] staleSubscriptionFilters(String tenant) {
-        return new String[]{
-                ROOT + "/" + sanitize(tenant) + "/#",   // v2 初版的通配订阅
-                // 上一版 v2 的响应主题（改名前的名字，仅用于退订）
-                ROOT + "/" + sanitize(tenant) + "/+/identity",
-                ROOT + "/" + sanitize(tenant) + "/+/state",
-                ROOT + "/" + sanitize(tenant) + "/+/camera/capability",
-                // v1（已废弃）的全局主题，仅为清理旧会话而保留
-                "device/online",
-                "online/device/query", "online/device/result",
-                "device/detail/query", "device/detail/result",
-                "alarm/device",
-                "cmd/exec", "cmd/result",
-                "capability/query", "capability/result",
-                "video/request/send", "video/request/result",
-                "video/stop/send", "video/stop/result",
-        };
-    }
-
     // ================= App → 设备（按语义命名）=================
     /** 查询状态。 */
     public static String stateQuery(String tenant, String device) {
