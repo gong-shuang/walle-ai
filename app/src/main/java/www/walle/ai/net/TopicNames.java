@@ -55,6 +55,10 @@ public final class TopicNames {
     public static final String KIND_VIDEO_START = "video/start";
     /** 停止推流失败 */
     public static final String KIND_VIDEO_STOP = "video/stop";
+    /** 开启手机麦克风音频上行失败 */
+    public static final String KIND_PHONE_AUDIO_SEND = "phone/audio/send";
+    /** 关闭手机麦克风音频上行失败 */
+    public static final String KIND_PHONE_AUDIO_STOP = "phone/audio/stop";
 
     // ---------------------------------------------------------------- 清洗
 
@@ -192,6 +196,21 @@ public final class TopicNames {
     /** 停止推流（动作类，用 /request）。 */
     public static String videoStopRequest(String tenant, String device) {
         return deviceBase(tenant, device) + "/video/stop/request";
+    }
+
+    /**
+     * 开启手机麦克风上行（App → 设备，单向动作）。
+     * <p>{@code phone/audio/*} 描述的是「手机侧发起的动作」，不是设备的推流；
+     * 设备收到后自行从 RTMP 拉 {@code {room}_audio} 播放。载荷含 room_number，
+     * 设备据此拼拉流地址，因此不需要 result 回执也不影响两端状态一致。</p>
+     */
+    public static String phoneAudioSend(String tenant, String device) {
+        return deviceBase(tenant, device) + "/phone/audio/send";
+    }
+
+    /** 关闭手机麦克风上行（App → 设备，单向动作）。 */
+    public static String phoneAudioStop(String tenant, String device) {
+        return deviceBase(tenant, device) + "/phone/audio/stop";
     }
 
     // ---------------------------------------------------------------- 解析

@@ -43,8 +43,11 @@ walle/{tenant}/{device}/{resource}
 | 6 | 开始推流 | `walle/{t}/{d}/video/start/request` | `walle/{t}/{d}/video/start/result` | 请求-应答 |
 | 7 | 停止推流 | `walle/{t}/{d}/video/stop/request` | `walle/{t}/{d}/video/stop/result` | 请求-应答 |
 | 8 | 告警 | — | `walle/{t}/{d}/alarm` | 主动上报 |
+| 9 | 手机音频上行·开 | `walle/{t}/{d}/phone/audio/send` | `walle/{t}/{d}/phone/audio/send/result` | 单向动作（App 不订阅应答） |
+| 10 | 手机音频上行·关 | `walle/{t}/{d}/phone/audio/stop` | `walle/{t}/{d}/phone/audio/stop/result` | 单向动作（App 不订阅应答） |
 
 > `{t}` = tenant，`{d}` = device_id。
+> 9/10 只承载「开/关」控制，音频本身走独立 RTMP（§4.9）。
 
 ---
 
@@ -74,6 +77,8 @@ walle/{tenant}/{device}/{resource}
 | `…/exec` | 命令执行（写，有副作用） | `cmd/exec` |
 | `…/request` | 动作请求（生命周期管理） | `video/start/request` |
 | `…/result` | 应答，**只在收到对应请求后发布**，绝不主动上报 | `state/result` |
+| `…/send` | 手机侧发起「开始上行」的新后缀（App 是动作发起方，不是设备推流） | `phone/audio/send` |
+| `…/stop` | 手机侧发起「停止上行」的新后缀（无 room 也可发，用于退出兜底） | `phone/audio/stop` |
 | 无后缀 | 主动上报，只有 `online` 和 `alarm` 两个 | — |
 
 这套约定由 `linux/selftest_topics.py` 第 4 节强制检查：每个 `REQ_*` 必须在
@@ -391,6 +396,53 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 抖动反复报警。阈值均可用环境变量覆盖（`THRESH_CPU`/`THRESH_MEM`/`THRESH_DISK`/
 `THRESH_TEMP`/`THRESH_NET_MIB`），监控周期 `MONITOR_INTERVAL`（默认 5s）。
 
+### 4.9 手机麦克风上行 phone/audio/send|stop（控制面）＋ RTMP（媒体面）
+
+**作用**：把手机麦克风的声音实时送到设备扬声器（「反向音频」）。**媒体不走 MQTT**，
+走独立 RTMP：App 推 `rtmp://www.baidong.xyz:1935/live/{room}_audio`，
+设备端 ffmpeg 拉同一路流并播放到本机扬声器。MQTT 只负责「开 / 关」控制。
+
+- 开启请求：`walle/{t}/{d}/phone/audio/send` → 应答 `.../send/result`
+- 关闭请求：`walle/{t}/{d}/phone/audio/stop` → 应答 `.../stop/result`
+
+请求字段：`{uuid, request_id, room_number}`；`stop` 的 `room_number` 可选
+（退出 App 兜底时不带，表示「停掉当前任何一路手机音频」）。
+
+应答字段：
+
+| 字段 | 说明 |
+|---|---|
+| `result` | **0** 成功（`send` 时含 `already_playing`）/ **-1** 当前没有音频流（仅 stop）/ **-2** 失败（未装 ffmpeg、输出设备不可用、参数非法等） |
+| `cause` | 可读原因 |
+| `action` | `send`：`started` / `already_playing` / `failed` |
+| `stopped` | `stop`：是否真的停了一路播放 |
+| `room_number` / `rtmp_url`（已脱敏）/ `pid` / `started_at` / `output` | 成功时的播放进程信息 |
+| `error` | 失败时的具体错误（含 ffmpeg 退出码与日志路径） |
+| `request_id` 及公共字段 | — |
+
+**关键约定**：
+
+- **流名 = `{room}_audio`**（设备端 `build_rtmp_url(room + "_audio")`，可用
+  `PHONE_AUDIO_STREAM_SUFFIX` 覆盖）。与设备自己推的视频流 `live/{room}` 错开，
+  避免两端抢同一路 stream。
+- **先连上再通知**：App 必须等 RTMP `publish` 握手成功（`onConnected`）才发
+  `phone/audio/send`，否则设备端 ffmpeg 面对不存在的流会在启动宽限期（2s）内退出。
+- **App 不订阅两个 `/result`**：App 侧是单向动作，按钮状态由本地推流结果驱动
+  （`responseSubscriptions()` 不含 `phone/audio/*`）。设备端仍会发布 result，供日志、
+  调试与其他客户端使用。
+- **一致性校验**：`stop` 带了 `room_number` 且与当前播放房间号不一致 → `result=-1`
+  并在 `error` 里说明，**不会误停别人**。
+- **旧停新启**：`send` 时若已有别的房间在播，先停旧的再起新的（同一时刻设备只有一路）。
+- **退出即关**：`PlayerActivity.onDestroy()` 与进程退出都会发 `phone/audio/stop`，
+  设备端 `run()` 的 finally 也会 `_stop_phone_audio`，避免扬声器残留出声。
+- 设备端开关与输出可配：`PHONE_AUDIO_ENABLE`（默认 True）、`PHONE_AUDIO_OUTPUT`
+  （默认 `pulse`，无 pulse 的板子设 `alsa`）、`PHONE_AUDIO_DEVICE`（默认 `default`）。
+
+**媒体面参数（App 端）**：`AudioRecord` 44.1kHz / 单声道 / PCM16 → MediaCodec
+`audio/mp4a-latm`（AAC-LC，64kbps）→ 自拼 FLV audio tag（`0xAE` + 序列头/原始帧）
+→ `librtmp`（`io.antmedia:rtmp-client`）`write`。推流 URL 模板在 `build.gradle` 的
+`RTMP_AUDIO_URL_TEMPLATE`，运行时把 `{room}` 替换成当前房间号。
+
 ---
 
 ## 5. 修改协议的流程（改前必读）
@@ -428,6 +480,7 @@ bash -n linux/install.sh               # 部署脚本语法检查
 | 命令执行 | `CommandViewModel.java`（消费） | `handle_cmd_exec` / `_publish_cmd_result` |
 | 设备能力 | `DeviceCapability.java`（解析，摄像头部分复用 `CameraCapability`） | `build_capability` / `probe_audio_capture` / `probe_audio_playback` / `handle_capability_query` |
 | 推流控制 | `ControlViewModel` / `PlayerViewModel`（消费） | `handle_video_request` / `handle_video_stop` |
+| 手机音频上行 | `PlayerActivity`（按钮/开关）+ `MqttManager`（发 send/stop）+ `RtmpAudioStreamer`（采集/AAC/FLV/librtmp 推流） | `handle_phone_audio_send` / `handle_phone_audio_stop` / `_start_phone_audio`（ffmpeg 拉流播放） |
 | 告警 | `AlarmStore.java`（落盘）/ `AlarmViewModel` | `_event` / `check_threshold` / `check_usb` |
 | uuid 校验 | —（App 负责携带） | `verify_uuid` |
 | 配置/常量 | `Topics.java`（QoS=1、KeepAlive=60s） | 模块顶部常量（`MQTT_QOS`、阈值、开关） |

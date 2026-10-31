@@ -1,5 +1,7 @@
 package www.walle.ai.ui;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -10,6 +12,7 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.AdapterView;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
@@ -25,6 +28,8 @@ import www.walle.ai.BuildConfig;
 import www.walle.ai.R;
 import www.walle.ai.databinding.ActivityPlayerBinding;
 import www.walle.ai.model.CameraCapability;
+import www.walle.ai.net.MqttManager;
+import www.walle.ai.net.RtmpAudioStreamer;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -80,6 +85,17 @@ public class PlayerActivity extends AppCompatActivity {
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    // —— 反向音频（手机麦克风 → 设备端）——
+    private static final int REQ_RECORD_AUDIO = 2001;
+    private RtmpAudioStreamer audioStreamer;
+    /** 麦克风是否已成功开启（RTMP 已 publish）。 */
+    private boolean micOn;
+    /** 已点击开启、正在建立 RTMP 连接（此期间再点一次表示取消）。 */
+    private boolean micStarting;
+    /** 发 phone/audio/* 的目标设备（真实 uuid 优先，回退主题键）。 */
+    private String micTarget = "";
+    private MqttManager mgr;
+
     // region 生命周期
 
     @Override
@@ -127,6 +143,15 @@ public class PlayerActivity extends AppCompatActivity {
         viewModel.state().observe(this, this::render);
 
         binding.backButton.setOnClickListener(v -> finish());
+
+        // 反向音频：目标设备 + 麦克风按钮（默认关闭）
+        String deviceKey = orEmpty(getIntent().getStringExtra(EXTRA_DEVICE_KEY));
+        String deviceUuid = orEmpty(getIntent().getStringExtra(EXTRA_UUID));
+        micTarget = !deviceUuid.isEmpty() ? deviceUuid : deviceKey;
+        mgr = MqttManager.get(getApplicationContext());
+        audioStreamer = new RtmpAudioStreamer();
+        binding.micButton.setText(R.string.mic_off);
+        binding.micButton.setOnClickListener(v -> toggleMic());
 
         // 创建拉流会话（内部负责 EGL / Factory / 渲染器初始化）并开始协商
         binding.firstFrameMask.setAlpha(1f);
@@ -190,6 +215,9 @@ public class PlayerActivity extends AppCompatActivity {
         released = true;
         mainHandler.removeCallbacksAndMessages(null);
 
+        // 退出页面 = 退出这个播放会话：麦克风开着就停采集，并通知设备停止拉音频流
+        stopMic(true);
+
         // 释放拉流会话（EGL / Factory / 渲染器一起释放）
         if (session != null) {
             session.release();
@@ -205,6 +233,98 @@ public class PlayerActivity extends AppCompatActivity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) hideStatusBarAndKeepScreenOn();
+    }
+
+    // endregion
+
+    // region 反向音频（手机麦克风 → 设备端）
+
+    /** 麦克风按钮：关 →（开 RTMP + 通知设备）→ 开；再点一次 → 停采集 + 通知设备停止。 */
+    private void toggleMic() {
+        if (micStarting) {                       // 正在建立连接时再点 = 取消
+            micStarting = false;
+            if (audioStreamer != null) audioStreamer.stop();
+            updateMicUi();
+            viewModel.postStatus("已取消开启麦克风");
+            return;
+        }
+        if (micOn) {
+            stopMic(true);
+            viewModel.postStatus("麦克风已关闭，设备停止拉取音频");
+            return;
+        }
+        if (roomNumber.isEmpty()) {
+            viewModel.postStatus(getString(R.string.mic_no_room));
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_RECORD_AUDIO);
+            return;
+        }
+        startMic();
+    }
+
+    private void startMic() {
+        if (audioStreamer == null || audioStreamer.isRunning()) return;
+        // 音频流名固定为 {room}_audio，避免和设备推的视频抢同一个 stream
+        String url = BuildConfig.RTMP_AUDIO_URL_TEMPLATE.replace("{room}", roomNumber);
+        micStarting = true;
+        updateMicUi();
+        viewModel.postStatus("正在开启麦克风…");
+        audioStreamer.start(url, new RtmpAudioStreamer.Callback() {
+            @Override
+            public void onConnected() {
+                micStarting = false;
+                if (released) return;
+                micOn = true;
+                updateMicUi();
+                // 推流通道已就绪，再通知设备来拉，避免设备端 ffmpeg 面对不存在的流
+                if (mgr != null && !micTarget.isEmpty()) {
+                    mgr.sendPhoneAudio(micTarget, roomNumber);
+                }
+                viewModel.postStatus("麦克风已开启，设备开始拉取音频");
+            }
+
+            @Override
+            public void onError(String message) {
+                micStarting = false;
+                if (released) return;
+                micOn = false;
+                updateMicUi();
+                viewModel.postStatus(getString(R.string.mic_error, message));
+            }
+        });
+    }
+
+    /** 停止采集；只有在「真的开过」时才通知设备，避免退出时误发 stop。 */
+    private void stopMic(boolean notifyDevice) {
+        boolean wasOn = micOn;
+        micOn = false;
+        micStarting = false;
+        if (audioStreamer != null) audioStreamer.stop();
+        updateMicUi();
+        if (wasOn && notifyDevice && mgr != null && !micTarget.isEmpty()) {
+            mgr.stopPhoneAudio(micTarget, roomNumber);
+        }
+    }
+
+    private void updateMicUi() {
+        if (binding == null) return;
+        binding.micButton.setText(micStarting ? R.string.mic_starting
+                : (micOn ? R.string.mic_on : R.string.mic_off));
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQ_RECORD_AUDIO) return;
+        if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            startMic();
+        } else {
+            viewModel.postStatus(getString(R.string.mic_permission_denied));
+        }
     }
 
     // endregion
@@ -277,6 +397,7 @@ public class PlayerActivity extends AppCompatActivity {
             binding.backButton.setTranslationY(topInsets.top);
             binding.spinnerCamera.setTranslationY(topInsets.top);
             binding.statusText.setTranslationY(-navInsets.bottom);
+            binding.micButton.setTranslationY(-navInsets.bottom);
             return WindowInsetsCompat.CONSUMED;
         });
     }

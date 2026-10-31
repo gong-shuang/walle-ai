@@ -9,7 +9,7 @@
 | # | 任务 | 状态 | 优先级 |
 |---|---|---|---|
 | 1 | 状态报文携带推流信息，控制页自动接管正在进行的推流 | ✅ 已完成（2026-10-30） | 高 |
-| 2 | App → 设备端音频传输（反向音频） | 待开始 | 中 |
+| 2 | App → 设备端音频传输（反向音频） | ✅ 已完成（2026-10-31） | 中 |
 | 3 | 告警拆分为「当前」与「历史」两个 Fragment | 待开始 | 中 |
 | 4 | 设备能力从「摄像头」扩展为通用外设能力（麦克风、音响等） | ✅ 已完成（2026-10-30） | 中 |
 
@@ -106,22 +106,65 @@ MQTT 不适合传音频流（QoS1 + JSON + 小报文），必须走独立通道�
 | B. 独立 RTMP/RTSP 推流 | App 用 MediaCodec + 轻量 RTMP 客户端把 AAC 推给设备端 | App 需引入 RTMP/RTSP 客户端，设备端需接收并播放 |
 | C. 设备端常驻音频服务 | 设备端跑一个简单 UDP/HTTP 音频接收服务，App 直连（不走 Broker） | 需要设备端常驻进程与配对/鉴权机制 |
 
-- [ ] 与设备端确认流媒体服务能力后选定方案，并记录决策理由（写进 `doc/dev_record/`）。
-- [ ] 补充鉴权设计：不能让租户 A 的手机把音频推给租户 B 的设备。
+- [x] 与设备端确认流媒体服务能力后选定方案，并记录决策理由。
+      → **选定 B 方案（独立 RTMP 推流）**：设备端已有 RTMP 服务（视频推 `live/{room}`），
+      反向音频用独立流 `live/{room}_audio`，两端复用同一套 RTMP/ffmpeg 能力，
+      无需为反向流引入 WebRTC 接收端或设备端常驻 UDP 服务。协议与载荷见
+      [MQTT_protocol_convention.md §4.9](MQTT_protocol_convention.md)。
+- [x] 补充鉴权设计：不能让租户 A 的手机把音频推给租户 B 的设备。
+      → 控制面（MQTT）受 Broker ACL `walle/${username}/#` 约束；媒体面沿用 RTMP URL 的
+      `secret` 参数，且流名 = 房间号 + `_audio`（房间号随机、不对外暴露）。
+      局限：`secret` 目前全局共享，严格按租户隔离需要按租户下发独立推流凭证（记入遗留项）。
 
 ### 实现要点（选定方案后细化）
 
-- [ ] App：录音权限（`RECORD_AUDIO`）运行时申请；前台页录音时保持屏幕/服务活跃。
-- [ ] App：音频采集与编码（建议 16kHz/单声道/AAC 或 Opus），做成可开关的「按住说话 / 持续说话」。
-- [ ] 设备端：接收并播放（`aplay` / `pulseaudio` / ffplay），音量与设备选择可配。
-- [ ] 与任务 4 联动：设备能力里要能查到「有无音响、当前音量」。
-- [ ] 失败兜底：网络断开、设备忙、无扬声器时给 App 明确错误码。
+- [x] App：录音权限（`RECORD_AUDIO`）运行时申请；录音只在 `PlayerActivity` 前台进行。
+- [x] App：音频采集与编码：`AudioRecord` 44.1kHz/单声道/PCM16 → MediaCodec AAC-LC 64kbps，
+      自拼 FLV audio tag → librtmp（`io.antmedia:rtmp-client:3.2.0`）推 `live/{room}_audio`。
+      交互为「点一下开 / 再点一下关」的持续说话，默认关闭。
+- [x] 设备端：收到 `phone/audio/send` 后 ffmpeg 拉流播放（`-f pulse` 或 `alsa`、设备名可配）。
+- [x] 与任务 4 联动：`capability/result` 已含音响（sink）能力（任务 4 已完成）。
+- [x] 失败兜底：App 侧无权限 / 无房间号 / RTMP 连不上都有明确提示；设备端 ffmpeg 在
+      2 秒启动宽限期内退出会上报 `result=-2`，并带退出码与日志路径。
+
+### 实际改动
+
+**App 端**
+
+- `app/build.gradle`：新增 `io.antmedia:rtmp-client:3.2.0`；`RTMP_AUDIO_URL_TEMPLATE`
+  （`rtmp://www.baidong.xyz:1935/live/{room}_audio?secret=…`）。
+- `AndroidManifest.xml`：`RECORD_AUDIO`、`MODIFY_AUDIO_SETTINGS`。
+- `net/TopicNames.java`：`phoneAudioSend/Stop`；`responseSubscriptions` **不**新增 result 订阅。
+- `net/MqttManager.java`：`sendPhoneAudio(uuid, room)` / `stopPhoneAudio(uuid, room)`。
+- `net/RtmpAudioStreamer.java`（新增）：AudioRecord + MediaCodec + 自拼 FLV tag + librtmp。
+- `ui/PlayerActivity.java`：右下角麦克风按钮（默认「麦克风：关」），
+  RTMP `onConnected` 后才发 `phone/audio/send`；再点关闭发 `phone/audio/stop`；
+  `onDestroy()` 兜底发 stop。
+- `res/layout/activity_player.xml`、`res/values/strings.xml`：按钮与状态文案。
+
+**设备端**
+
+- `linux/rpi_monitor.py`：新增 `REQ/RES_PHONE_AUDIO_*`（订阅数 6→8）、
+  `handle_phone_audio_send/stop`、`_start_phone_audio`（ffmpeg 拉流 → pulse/alsa）、
+  启动宽限期与退出看护、`run()` finally 兜底停播；
+  配置项 `PHONE_AUDIO_ENABLE` / `PHONE_AUDIO_OUTPUT` / `PHONE_AUDIO_DEVICE` /
+  `PHONE_AUDIO_STREAM_SUFFIX`。
+- `linux/selftest_topics.py`：主题拼装、订阅清单、命名约定断言同步（订阅数 8）。
 
 ### 验收标准
 
-- 手机说话，设备端扬声器 1 秒内出声（同局域网）。
-- 关闭开关后设备端立即静音，无残留缓冲。
-- 未授权录音权限时功能入口不可用，并提示原因。
+- [x] 编译与契约测试通过：`./gradlew :app:assembleDebug :app:testDebugUnitTest`、
+      `python3 linux/selftest_topics.py` 全部通过。
+- [ ] 手机说话，设备端扬声器 1 秒内出声（同局域网）。——**由用户真机验证**
+      （按用户要求未安装 APK、未做模拟器联调）。
+- [ ] 关闭开关后设备端立即静音，无残留缓冲。——同上，真机验证。
+- [ ] 未授权录音权限时功能入口不可用，并提示原因。——代码已实现，真机验证。
+
+### 遗留
+
+- App 目前不订阅 `phone/audio/*/result`（单向动作，按钮只反映本地推流状态）。
+  若以后需要 UI 精确显示设备侧失败（如 ffmpeg 未安装），再补订阅并在 `MessageRouter` 加分发。
+- RTMP `secret` 为全局共享，租户级隔离需后续按租户下发独立凭证。
 
 ---
 

@@ -158,6 +158,8 @@ RES_CMD_RESULT = "cmd/result"                       # 收到 cmd/exec 后发布
 RES_CAPABILITY_RESULT = "capability/result"         # 收到 capability/query 后发布
 RES_VIDEO_START_RESULT = "video/start/result"       # 收到 video/start/request 后发布
 RES_VIDEO_STOP_RESULT = "video/stop/result"         # 收到 video/stop/request 后发布
+RES_PHONE_AUDIO_SEND_RESULT = "phone/audio/send/result"   # 收到 phone/audio/send 后发布
+RES_PHONE_AUDIO_STOP_RESULT = "phone/audio/stop/result"   # 收到 phone/audio/stop 后发布
 
 # ---- 主动上报（设备 -> App，不必等查询）----
 RES_ONLINE = "online"                       # retained + 遗嘱
@@ -177,6 +179,8 @@ REQ_CMD = "cmd/exec"
 REQ_CAPABILITY = "capability/query"
 REQ_VIDEO_START = "video/start/request"
 REQ_VIDEO_STOP = "video/stop/request"
+REQ_PHONE_AUDIO_SEND = "phone/audio/send"     # 手机麦上行：App 开始往 {room}_audio 推音频
+REQ_PHONE_AUDIO_STOP = "phone/audio/stop"     # 手机麦上行：App 停止推音频
 
 # ---- 设备标识 ----
 HOSTNAME = socket.gethostname()
@@ -245,6 +249,8 @@ REQUEST_TO_RESULT = {
     REQ_CAPABILITY: RES_CAPABILITY_RESULT,
     REQ_VIDEO_START: RES_VIDEO_START_RESULT,
     REQ_VIDEO_STOP: RES_VIDEO_STOP_RESULT,
+    REQ_PHONE_AUDIO_SEND: RES_PHONE_AUDIO_SEND_RESULT,
+    REQ_PHONE_AUDIO_STOP: RES_PHONE_AUDIO_STOP_RESULT,
 }
 
 # 请求资源 → 处理函数名
@@ -254,6 +260,8 @@ REQUEST_HANDLERS = {
     REQ_CAPABILITY: "handle_capability_query",
     REQ_VIDEO_START: "handle_video_request",
     REQ_VIDEO_STOP: "handle_video_stop",
+    REQ_PHONE_AUDIO_SEND: "handle_phone_audio_send",
+    REQ_PHONE_AUDIO_STOP: "handle_phone_audio_stop",
 }
 
 
@@ -270,6 +278,8 @@ def subscriptions():
         (f"{base}/{REQ_CAPABILITY}", MQTT_QOS),
         (f"{base}/{REQ_VIDEO_START}", MQTT_QOS),
         (f"{base}/{REQ_VIDEO_STOP}", MQTT_QOS),
+        (f"{base}/{REQ_PHONE_AUDIO_SEND}", MQTT_QOS),
+        (f"{base}/{REQ_PHONE_AUDIO_STOP}", MQTT_QOS),
         (v2_tenant_topic(REQ_DISCOVERY), MQTT_QOS),
     ]
 
@@ -337,6 +347,13 @@ VIDEO_AUDIO_CODEC = "aac"                # 音频编码
 VIDEO_AUDIO_BITRATE = "128k"             # 音频码率
 VIDEO_AUDIO_FRAGMENT_SIZE = 1024         # pulse 采集分片（字节）：越小采集端延迟越低，
                                          # 过大是混音后播放端延迟明显增大的主要原因
+
+# ---- 反向音频（phone/audio/*：手机麦 → RTMP → 本机扬声器）----
+PHONE_AUDIO_ENABLE = _env_flag("PHONE_AUDIO_ENABLE", True)  # 不需要时置 False
+PHONE_AUDIO_OUTPUT = os.environ.get("PHONE_AUDIO_OUTPUT", "pulse")   # ffmpeg 输出驱动：pulse / alsa
+PHONE_AUDIO_DEVICE = os.environ.get("PHONE_AUDIO_DEVICE", "default")  # 输出设备名
+PHONE_AUDIO_STARTUP_GRACE = 2.0          # 启动宽限：ffmpeg 活过这段时间即视为开始播放（秒）
+PHONE_AUDIO_STREAM_SUFFIX = "_audio"     # 音频流名后缀：与视频房间号错开，避免抢同一路 stream
 
 
 # ============================== 工具函数 ==============================
@@ -1236,6 +1253,10 @@ class RpiMonitor:
         self.video_proc = None
         self.video_lock = threading.Lock()
         self.video_meta = {}
+        # 反向音频：手机麦上行后在本地播放的 ffmpeg 进程（与视频互不影响）
+        self.audio_proc = None
+        self.audio_lock = threading.Lock()
+        self.audio_meta = {}
         # 上一次应答 discovery 的时间（单调时钟），用于限频
         self._last_discovery_at = 0.0
 
@@ -1890,6 +1911,228 @@ class RpiMonitor:
             "stopped": True,
         })
 
+    # ---------- phone/audio/send|stop 手机麦上行播放 ----------
+
+    def _phone_audio_url(self, room_number):
+        """手机推音频的流名 = 视频房间号 + _audio，避免与设备自己的视频流抢同一路 stream。"""
+        return build_rtmp_url(room_number + PHONE_AUDIO_STREAM_SUFFIX)
+
+    def _publish_phone_audio_result(self, resource, req, result_code, cause, extra=None):
+        """手机音频动作的结果报文（result 语义与 video 一致：0 成功 / -1 无流 / -2 失败）"""
+        payload = {
+            "device_id": DEVICE_ID,
+            "uuid": DEVICE_UUID,
+            "hostname": HOSTNAME,
+            "ip": self.lan_ip,
+            "room_number": req.get("room_number"),
+            "request_id": self._rid(req),
+            "result": result_code,
+            "cause": cause,
+            "timestamp": now_ts(),
+            "datetime": now_str(),
+        }
+        if extra:
+            payload.update(extra)
+        self.publish_json(resource, payload)
+        logging.info("手机音频结果 -> %s: request_id=%s result=%s cause=%s",
+                     v2_topic(resource), payload["request_id"] or "-", result_code, cause)
+        # 失败细节（ffmpeg 退出码/日志路径/stderr 摘要）App 不订阅 result，
+        # 本地日志必须打出来，否则设备侧只能看到「失败」看不到原因
+        err = payload.get("error")
+        if result_code != 0 and err:
+            logging.warning("手机音频失败详情: %s", err)
+        return payload
+
+    def _stop_phone_audio(self, reason=""):
+        """停掉正在播放的手机音频（如果有），返回是否真的停了一个在跑的进程"""
+        with self.audio_lock:
+            proc = self.audio_proc
+            meta = self.audio_meta
+            self.audio_proc = None
+            self.audio_meta = {}
+        if not proc or proc.poll() is not None:
+            return False
+        proc._intentional_stop = True
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        except Exception:
+            logging.exception("停止手机音频播放失败")
+        logging.info("已停止手机音频播放%s（room=%s, pid=%s）",
+                     f"：{reason}" if reason else "", meta.get("room_number"), meta.get("pid"))
+        return True
+
+    def _build_phone_audio_cmd(self, room_number):
+        """ffmpeg 从 RTMP 拉音频 → 本机默认扬声器（不落文件、不带视频）。
+
+        低延迟要点（缺了任何一个都会把「手机说话 → 扬声器出声」拖到数秒）：
+          -analyzeduration 100ms / 小 probesize：AAC 参数来自 FLV 序列头，
+              默认 5s 的探测窗口会被缓冲下来从头播，形成永久存在的秒级偏移。
+              但不能压到 0：RTMP 是网络流，0 会让 find_stream_info 在首个
+              FLV tag 到达前就放弃，报 "Output file does not contain any stream"
+              直接退出（文件输入无此问题，实测 RTMP 拉流必现）；
+          -fflags nobuffer：关掉 avformat 的输入攒包，收到就解码；
+          -rtmp_live live：按直播流处理，不尝试回放缓存。
+        """
+        return [
+            VIDEO_FFMPEG_BIN, "-nostdin", "-loglevel", "warning",
+            "-fflags", "nobuffer",          # 输入端不攒包
+            "-probesize", "4096",           # 覆盖 FLV 序列头+几帧即可（不能为 0，见上）
+            "-analyzeduration", "100000",   # 100ms 探测窗口（不能为 0，见上）
+            "-rtmp_live", "live",           # 按直播处理
+            "-i", self._phone_audio_url(room_number),
+            "-vn", "-ac", "2", "-ar", "48000",
+            "-af", "aresample=async=1:min_hard_comp=0.100:first_pts=0",
+            "-f", PHONE_AUDIO_OUTPUT, PHONE_AUDIO_DEVICE,
+        ]
+
+    def _phone_audio_watch(self, proc, room_number, sink):
+        """播放进程看护：退出后清理状态并记录原因"""
+        try:
+            code = proc.wait()
+        finally:
+            tail = sink.tail()
+            sink.close()
+            with self.audio_lock:
+                if self.audio_proc is proc:
+                    self.audio_proc = None
+                    self.audio_meta = {}
+        if getattr(proc, "_intentional_stop", False):
+            logging.info("手机音频播放已按要求停止（room=%s, exit=%s）", room_number, code)
+        elif code == 0:
+            logging.info("手机音频播放结束（room=%s）", room_number)
+        else:
+            logging.warning("手机音频播放异常退出（room=%s, exit=%s）%s",
+                            room_number, code, f"，stderr: {tail}" if tail else "")
+
+    def _start_phone_audio(self, room_number):
+        cmd = self._build_phone_audio_cmd(room_number)
+        url = self._phone_audio_url(room_number)
+        header = (
+            f"\n===== {now_str()} 启动手机音频播放 room={room_number} =====\n"
+            f"$ {' '.join(cmd).replace(url, mask_rtmp_url(url))}\n"
+        ).encode("utf-8", "replace")
+        sink = make_log_sink(header)
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=0,
+                start_new_session=True,
+            )
+        except FileNotFoundError:
+            sink.close()
+            return None, "未安装 ffmpeg，请执行: sudo apt install -y ffmpeg"
+        except Exception as e:  # noqa: BLE001
+            sink.close()
+            return None, f"启动 ffmpeg 失败: {e}"
+
+        threading.Thread(target=self._log_pump, args=(proc, sink),
+                         daemon=True, name="phone-audio-log").start()
+
+        # 宽限期内就退出：多半是流还不存在（App 推流未就绪）或输出设备不可用
+        try:
+            code = proc.wait(timeout=PHONE_AUDIO_STARTUP_GRACE)
+        except subprocess.TimeoutExpired:
+            code = None
+        if code is not None:
+            time.sleep(0.2)
+            tail = sink.error_line()
+            msg = f"ffmpeg 退出码 {code}（日志: {sink.path}）"
+            if PHONE_AUDIO_OUTPUT == "pulse":
+                msg += "；若提示 pulse 不可用，可设 PHONE_AUDIO_OUTPUT=alsa"
+            sink.close()
+            return None, msg + (f": {tail}" if tail else "")
+
+        with self.audio_lock:
+            self.audio_proc = proc
+            self.audio_meta = {
+                "room_number": room_number,
+                "pid": proc.pid,
+                "started_at": now_str(),
+                "started_ts": time.time(),
+                "rtmp_url": mask_rtmp_url(url),
+                "output": f"{PHONE_AUDIO_OUTPUT}/{PHONE_AUDIO_DEVICE}",
+            }
+        threading.Thread(target=self._phone_audio_watch,
+                         args=(proc, room_number, sink), daemon=True,
+                         name="phone-audio-watch").start()
+        return proc, None
+
+    def handle_phone_audio_send(self, payload):
+        ok, data = self.verify_uuid(payload, REQ_PHONE_AUDIO_SEND)
+        if not ok:
+            return
+
+        room_number = str(data.get("room_number") or "").strip()
+        req = {"room_number": room_number, "request_id": self._rid(data)}
+
+        if not PHONE_AUDIO_ENABLE:
+            self._publish_phone_audio_result(
+                RES_PHONE_AUDIO_SEND_RESULT, req, -2, "命令执行失败",
+                {"error": "反向音频已关闭（PHONE_AUDIO_ENABLE=False）"})
+            return
+        if not re.match(VIDEO_ROOM_PATTERN, room_number):
+            self._publish_phone_audio_result(
+                RES_PHONE_AUDIO_SEND_RESULT, req, -2, "命令执行失败",
+                {"error": "room_number 不合法（只允许 1-64 位字母/数字/下划线/短横线）"})
+            return
+
+        with self.audio_lock:
+            cur_proc = self.audio_proc
+            cur_meta = dict(self.audio_meta)
+        playing = bool(cur_proc is not None and cur_proc.poll() is None)
+        if playing and cur_meta.get("room_number") == room_number:
+            self._publish_phone_audio_result(
+                RES_PHONE_AUDIO_SEND_RESULT, req, 0, "ok",
+                {"action": "already_playing", "room_number": room_number,
+                 "pid": cur_meta.get("pid"), "started_at": cur_meta.get("started_at")})
+            return
+
+        self._stop_phone_audio("收到新的音频上行请求")
+        proc, err = self._start_phone_audio(room_number)
+        if proc is None:
+            self._publish_phone_audio_result(
+                RES_PHONE_AUDIO_SEND_RESULT, req, -2, "命令执行失败",
+                {"action": "failed", "error": err})
+            return
+        self._publish_phone_audio_result(
+            RES_PHONE_AUDIO_SEND_RESULT, req, 0, "ok",
+            {"action": "started", "room_number": room_number,
+             "rtmp_url": mask_rtmp_url(self._phone_audio_url(room_number)),
+             "pid": proc.pid, "output": f"{PHONE_AUDIO_OUTPUT}/{PHONE_AUDIO_DEVICE}"})
+
+    def handle_phone_audio_stop(self, payload):
+        ok, data = self.verify_uuid(payload, REQ_PHONE_AUDIO_STOP)
+        if not ok:
+            return
+
+        req_room = str(data.get("room_number") or "").strip()
+        req = {"room_number": req_room, "request_id": self._rid(data)}
+
+        with self.audio_lock:
+            cur_proc = self.audio_proc
+            cur_meta = dict(self.audio_meta)
+        playing = bool(cur_proc is not None and cur_proc.poll() is None)
+        current_room = cur_meta.get("room_number")
+        if playing and req_room and current_room and req_room != current_room:
+            self._publish_phone_audio_result(
+                RES_PHONE_AUDIO_STOP_RESULT, req, -1, "当前没有音频流",
+                {"stopped": False,
+                 "error": f"当前播放房间号是 {current_room}，与请求的 {req_room} 不一致"})
+            return
+
+        stopped = self._stop_phone_audio("收到停止音频上行请求")
+        self._publish_phone_audio_result(
+            RES_PHONE_AUDIO_STOP_RESULT, req,
+            0 if stopped else -1,
+            "ok" if stopped else "当前没有音频流",
+            {"stopped": stopped, "room_number": current_room})
+
     # ---------- device/detail/result 状态采集 ----------
 
     def sample_once(self, interval=1.0):
@@ -2307,6 +2550,7 @@ class RpiMonitor:
         finally:
             logging.info("正在退出，停止推流、发送 offline 并断开连接...")
             self._stop_video_stream("程序退出")
+            self._stop_phone_audio("程序退出")
             try:
                 # 双发：LWT 只挂了一个主题，正常退出时把另一套也置为 offline
                 self.publish_json(RES_ONLINE, self.build_online_payload(False), retain=True)

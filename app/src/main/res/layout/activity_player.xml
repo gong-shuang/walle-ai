@@ -85,4 +85,20 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
 
+    <!-- 右下角麦克风开关（反向音频：手机 → 设备端），默认关闭 -->
+    <TextView
+        android:id="@+id/micButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:background="@drawable/bg_overlay_scrim"
+        android:gravity="center"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp"
+        android:text="@string/mic_off"
+        android:textColor="@color/white"
+        android:textSize="14sp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>

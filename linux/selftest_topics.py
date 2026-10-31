@@ -115,17 +115,20 @@ def main():
         (m.RES_CAPABILITY_RESULT, "capability/result"),
         (m.RES_VIDEO_START_RESULT, "video/start/result"),
         (m.RES_VIDEO_STOP_RESULT, "video/stop/result"),
+        (m.RES_PHONE_AUDIO_SEND_RESULT, "phone/audio/send/result"),
+        (m.RES_PHONE_AUDIO_STOP_RESULT, "phone/audio/stop/result"),
     ]:
         check(f"{const}", const, resource)
         check(f"v2_topic({resource})", m.v2_topic(const), f"{base}/{resource}")
 
     print("\n== 3. 订阅清单（只含请求类，不含通配）==")
     subs = [t for t, _ in m.subscriptions()]
-    for req in (m.REQ_STATE, m.REQ_CMD, m.REQ_CAPABILITY, m.REQ_VIDEO_START, m.REQ_VIDEO_STOP):
+    for req in (m.REQ_STATE, m.REQ_CMD, m.REQ_CAPABILITY, m.REQ_VIDEO_START,
+                m.REQ_VIDEO_STOP, m.REQ_PHONE_AUDIO_SEND, m.REQ_PHONE_AUDIO_STOP):
         check(f"订阅 {req}", f"{base}/{req}" in subs, True)
     check("订阅 discovery/query", f"walle/{args.tenant}/discovery/query" in subs, True)
     check("不含通配子树", any(s.endswith("/#") for s in subs), False)
-    check("订阅数", len(subs), 6)
+    check("订阅数", len(subs), 8)
 
     print("\n== 4. 命名约定：请求按语义、应答一律 /result ==")
     # 请求命名规则：查询用 /query，命令用 /exec，动作（推流）用 /request
@@ -139,6 +142,10 @@ def main():
     ]:
         value = getattr(m, name, "")
         check(f"{name} 以 {suffix} 结尾", value.endswith(suffix), True)
+
+    # phone/audio/* 是「手机侧动作」，按语义用 /send 与 /stop（不是设备的推流 request）
+    check("REQ_PHONE_AUDIO_SEND 以 /send 结尾", m.REQ_PHONE_AUDIO_SEND.endswith("/send"), True)
+    check("REQ_PHONE_AUDIO_STOP 以 /stop 结尾", m.REQ_PHONE_AUDIO_STOP.endswith("/stop"), True)
 
     # 每个请求都要在 REQUEST_TO_RESULT 里登记
     for name in sorted(n for n in dir(m) if n.startswith("REQ_")):

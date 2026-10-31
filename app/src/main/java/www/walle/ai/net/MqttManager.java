@@ -316,6 +316,59 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         return rid;
     }
 
+    /**
+     * 开启手机麦克风上行：下发 {@code phone/audio/send}，设备收到后从
+     * {@code {room}_audio} 的 RTMP 流拉音频播放。
+     *
+     * <p>单向动作（用户交互即时反馈，不等设备回执）：设备端回执只写日志，
+     * App 不订阅 result，避免「点了按钮却没声音」时把等待感放大。</p>
+     *
+     * @return 本次 request_id；参数不合法时返回空串
+     */
+    public String sendPhoneAudio(String uuid, String roomNumber) {
+        if (uuid == null || uuid.isEmpty()) {
+            notifyDeliveryError(TopicNames.KIND_PHONE_AUDIO_SEND, "请先在设备页选择设备");
+            return "";
+        }
+        String room = roomNumber == null ? "" : roomNumber.trim();
+        if (!room.matches("[A-Za-z0-9_-]{1,64}")) {
+            notifyDeliveryError(TopicNames.KIND_PHONE_AUDIO_SEND, "没有可用的推流房间号");
+            return "";
+        }
+        final String rid = newRequestId();
+        JSONObject body = new JSONObject();
+        try {
+            body.put("uuid", uuid);
+            body.put("room_number", room);
+            body.put("request_id", rid);
+        } catch (JSONException ignore) {
+        }
+        client.publish(TopicNames.KIND_PHONE_AUDIO_SEND,
+                TopicNames.phoneAudioSend(tenant, deviceSegment(uuid)), body.toString());
+        return rid;
+    }
+
+    /** 关闭手机麦克风上行：下发 {@code phone/audio/stop}，设备停止拉音频流播放。 */
+    public String stopPhoneAudio(String uuid, String roomNumber) {
+        if (uuid == null || uuid.isEmpty()) {
+            notifyDeliveryError(TopicNames.KIND_PHONE_AUDIO_STOP, "请先在设备页选择设备");
+            return "";
+        }
+        final String rid = newRequestId();
+        JSONObject body = new JSONObject();
+        try {
+            body.put("uuid", uuid);
+            if (roomNumber != null && !roomNumber.trim().isEmpty()) {
+                body.put("room_number", roomNumber.trim());
+            }
+            body.put("request_id", rid);
+        } catch (JSONException ignore) {
+        }
+        client.publish(TopicNames.KIND_PHONE_AUDIO_STOP,
+                TopicNames.phoneAudioStop(tenant, deviceSegment(uuid)), body.toString());
+        return rid;
+    }
+
     /** 在租户内广播设备发现：{@code walle/{tenant}/discovery/query}。返回本次 request_id。 */
     public String requestDeviceInfo() {
         final String rid = newRequestId();

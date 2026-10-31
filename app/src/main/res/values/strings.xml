@@ -112,4 +112,12 @@
     <!-- 设置页：重看引导 -->
     <string name="onboarding_replay">重看新手引导</string>
     <string name="onboarding_replay_sub">再次查看首次启动时的功能介绍</string>
+
+    <!-- 播放页：反向音频（手机麦克风 → 设备端） -->
+    <string name="mic_off">麦克风：关</string>
+    <string name="mic_on">麦克风：开</string>
+    <string name="mic_starting">麦克风：开启中…</string>
+    <string name="mic_no_room">没有推流房间号，无法开启麦克风</string>
+    <string name="mic_permission_denied">未授权录音权限，无法开启麦克风</string>
+    <string name="mic_error">麦克风开启失败：%1$s</string>
 </resources>
