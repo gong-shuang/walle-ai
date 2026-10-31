@@ -141,10 +141,10 @@ public class LocalDb implements AlarmStore.Persistence {
         if (db == null) return out;
         Cursor c = null;
         try {
-            c = db.query("alarm", new String[]{"payload"}, null, null, null, null,
+            c = db.query("alarm", new String[]{"payload", "ts"}, null, null, null, null,
                     "_id DESC", String.valueOf(Math.max(1, limit)));
             while (c.moveToNext()) {
-                JSONObject o = parse(c.getString(0));
+                JSONObject o = withTimestamp(c.getString(0), c.getLong(1));
                 if (o != null) out.add(o);
             }
         } catch (Throwable t) {
@@ -156,19 +156,24 @@ public class LocalDb implements AlarmStore.Persistence {
     }
 
     @Override
-    public int unreadCount() {
+    public List<JSONObject> loadUnread(int limit) {
+        List<JSONObject> out = new ArrayList<>();
         SQLiteDatabase db = readable();
-        if (db == null) return 0;
+        if (db == null) return out;
         Cursor c = null;
         try {
-            c = db.rawQuery("SELECT COUNT(*) FROM alarm WHERE read = 0", null);
-            return c.moveToFirst() ? c.getInt(0) : 0;
+            c = db.query("alarm", new String[]{"payload", "ts"}, "read = 0", null, null, null,
+                    "_id DESC", String.valueOf(Math.max(1, limit)));
+            while (c.moveToNext()) {
+                JSONObject o = withTimestamp(c.getString(0), c.getLong(1));
+                if (o != null) out.add(o);
+            }
         } catch (Throwable t) {
-            Log.w(TAG, "统计未读失败: " + t);
-            return 0;
+            Log.w(TAG, "读取未读告警失败: " + t);
         } finally {
             close(c);
         }
+        return out;
     }
 
     // ---------------------------------------------------------------- 内部
@@ -206,6 +211,18 @@ public class LocalDb implements AlarmStore.Persistence {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** 解析报文并补上落盘时的接收时间：老记录的 payload 里没有 ts，ts 只在列里。 */
+    private static JSONObject withTimestamp(String json, long ts) {
+        JSONObject o = parse(json);
+        if (o != null && !o.has("ts") && ts > 0) {
+            try {
+                o.put("ts", ts);
+            } catch (Exception ignored) {
+            }
+        }
+        return o;
     }
 
     private static void close(Cursor c) {

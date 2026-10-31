@@ -31,8 +31,15 @@
     <string name="pull_to_refresh_hint">向下滑动屏幕会更新，最新更新：%1$s</string>
     <string name="no_status_yet">暂无数据，向下滑动屏幕获取设备实时状态</string>
 
-    <string name="no_alarms">暂无告警 / 事件\n设备产生的告警与 USB 插拔会实时出现在这里</string>
+    <string name="alarm_tab_today">今日</string>
+    <string name="alarm_tab_today_count">今日 (%1$d)</string>
+    <string name="alarm_tab_history">历史</string>
+    <string name="no_today_alarms">今天还没有收到告警\n设备产生的告警与 USB 插拔会实时出现在这里</string>
+    <string name="no_alarm_history">暂无历史记录\n今天之前收到的告警与事件会出现在这里</string>
     <string name="clear_alarms">清空</string>
+    <string name="clear_alarms_confirm_title">清空确认</string>
+    <string name="clear_alarms_confirm_message">「今日」和「历史」中的所有告警都会被清除，且不可恢复。是否继续？</string>
+    <string name="cancel">取消</string>
 
     <string name="cmd_hint">输入 shell 命令，例如：vcgencmd measure_temp</string>
     <string name="timeout_hint">超时(秒)</string>

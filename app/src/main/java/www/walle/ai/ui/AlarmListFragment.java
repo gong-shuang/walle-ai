@@ -8,7 +8,9 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.StringRes;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.LiveData;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -20,12 +22,21 @@ import java.util.List;
 
 import www.walle.ai.R;
 
-/** 告警列表：数据来自 AlarmStore，经 {@link AlarmViewModel} 暴露成 LiveData。 */
-public class AlarmFragment extends Fragment {
+/**
+ * 「当前」「历史」两个告警列表的公共骨架：同一套列表布局与空态文案机制，
+ * 子类只决定观察哪条数据、空态显示什么。
+ */
+public abstract class AlarmListFragment extends Fragment {
 
-    private AlarmViewModel viewModel;
     private AlarmAdapter adapter;
     private TextView tvEmpty;
+
+    /** 子类要观察的列表数据。 */
+    protected abstract LiveData<List<JSONObject>> observeAlarms(AlarmViewModel vm);
+
+    /** 列表为空时的提示文案。 */
+    @StringRes
+    protected abstract int emptyTextRes();
 
     @Nullable
     @Override
@@ -36,27 +47,16 @@ public class AlarmFragment extends Fragment {
 
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
-        viewModel = new ViewModelProvider(this).get(AlarmViewModel.class);
+        AlarmViewModel viewModel = new ViewModelProvider(this).get(AlarmViewModel.class);
 
         RecyclerView rv = view.findViewById(R.id.recyclerAlarm);
         tvEmpty = view.findViewById(R.id.tvAlarmEmpty);
+        tvEmpty.setText(emptyTextRes());
         rv.setLayoutManager(new LinearLayoutManager(requireContext()));
         adapter = new AlarmAdapter(new ArrayList<>());
         rv.setAdapter(adapter);
 
-        viewModel.alarms().observe(getViewLifecycleOwner(), this::render);
-    }
-
-    @Override
-    public void onStart() {
-        super.onStart();
-        // 进入告警页即把未读清零（设置 tab 的红点随之消失）
-        viewModel.onScreenVisible();
-    }
-
-    /** 由宿主页面（AlarmActivity）调用。 */
-    public void clearAlarms() {
-        if (viewModel != null) viewModel.clear();
+        observeAlarms(viewModel).observe(getViewLifecycleOwner(), this::render);
     }
 
     private void render(List<JSONObject> items) {

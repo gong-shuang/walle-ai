@@ -10,7 +10,7 @@
 |---|---|---|---|
 | 1 | 状态报文携带推流信息，控制页自动接管正在进行的推流 | ✅ 已完成（2026-10-30） | 高 |
 | 2 | App → 设备端音频传输（反向音频） | ✅ 已完成（2026-10-31） | 中 |
-| 3 | 告警拆分为「当前」与「历史」两个 Fragment | 待开始 | 中 |
+| 3 | 告警拆分为「今日」与「历史」两个 Fragment | ✅ 已完成（2026-10-31） | 中 |
 | 4 | 设备能力从「摄像头」扩展为通用外设能力（麦克风、音响等） | ✅ 已完成（2026-10-30） | 中 |
 
 ---
@@ -168,36 +168,83 @@ MQTT 不适合传音频流（QoS1 + JSON + 小报文），必须走独立通道�
 
 ---
 
-## 任务 3：告警中心拆分为「当前」与「历史」
+## 任务 3：告警中心拆分为「今日」与「历史」
 
 ### 目标
 
 告警页分两个 Tab/Fragment：
 
-- **当前**：尚未恢复的告警（同 `metric` 只保留最新一条，恢复后自动移出）；
-- **历史**：已恢复的告警 + 所有事件的完整流水（按时间倒序、可按级别/类型筛选）。
+- **今日**：今天（App 本地日历日）收到的全部告警与事件，新的在前；
+  （初版叫「当前」= 仅未恢复告警，按用户 2026-10-31 反馈改为按天筛选，见下方「需求调整」）
+- **历史**：所有事件的完整流水（按时间倒序）。
 
 ### 实现要点
 
-- [ ] `AlarmStore` 增加「活动告警」的判定：收到 `alarm` 事件进入活动集合；收到对应 `recover`
+- [x] `AlarmStore` 增加「活动告警」的判定：收到 `alarm` 事件进入活动集合；收到对应 `recover`
       从活动集合移除并转入历史。
-- [ ] 活动集合的 key 建议用 `metric + alarm_type`，同 key 重复告警只更新值与时间，不新增卡片。
-- [ ] USB 插拔事件（`usb_connect` / `usb_disconnect`）只进历史，不进「当前」。
-- [ ] 未读计数语义确认：只统计「当前」新增？还是两者都算？先定规则再改 UI（建议：红点只统计当前告警）。
-- [ ] UI：`AlarmFragment` 拆为 `ActiveAlarmFragment` + `AlarmHistoryFragment`，共用列表 item 布局。
-- [ ] 持久化：活动告警是否落盘需要决策（现有策略是告警全量落盘、设备状态不落盘）。
+      → 新增 `LinkedHashMap<String, JSONObject> active`：`add()` 时 `alarm` 入活动集合、
+      `recover` 移出；全量流水 `items` 不变，两条数据线互不影响。
+- [x] 活动集合的 key 建议用 `metric + alarm_type`，同 key 重复告警只更新值与时间，不新增卡片。
+      → 实际 key 为 `设备 + metric + alarm_type`（`AlarmStore.activeKey`）。设备段必须带上，
+      否则多台设备的同名指标会互相覆盖；同一 key 用 remove+put 移到队首（最近更新在前）。
+- [x] USB 插拔事件（`usb_connect` / `usb_disconnect`）只进历史，不进「当前」。
+      → 只有 `event=alarm/recover` 参与活动集合，其余事件仅进 `items`。
+- [x] 未读计数语义确认：只统计「当前」新增？还是两者都算？先定规则再改 UI（建议：红点只统计当前告警）。
+      → **规则：红点 = 「当前告警」中用户尚未看过的条数**。新 key 的 alarm 使 +1，同 key 更新不重复计数；
+      recover 时对应未读一起消失（问题已不存在，不必再提醒）。`markAllRead()` 只清红点、不清当前告警。
+- [x] UI：`AlarmFragment` 拆为两个 Fragment，共用列表 item 布局。
+      → 新增抽象基类 `AlarmListFragment`（共用 `fragment_alarm.xml` + `item_alarm.xml`，只覆写
+      「观察哪条 LiveData」与空态文案）；`AlarmActivity` 顶部加 `TabLayout`，两个 Tab 用
+      add + hide/show 切换以保留滚动位置；「今日」Tab 标题带条数（今日 (n)）。删除旧 `AlarmFragment`。
+      最终形态：`TodayAlarmFragment` + `AlarmHistoryFragment`。
+- [x] 持久化：活动告警是否落盘需要决策（现有策略是告警全量落盘、设备状态不落盘）。
       重启后活动告警可从历史里按「最近一条 alarm 且其后无 recover」重建。
+      → **活动告警不单独落盘**，`attach()` 时从历史流水重建：从新到旧扫描，某 key 第一次出现的
+      event 决定它是否仍告警（等价于「最近一条 alarm 且其后无 recover」）。
+      未读恢复改为 `Persistence.loadUnread()`（`read=0` 的行），只对「仍在活动集合里」的 key 计数，
+      避免已恢复/历史事件在重启后又点亮红点（`unreadCount()` 已删除）。
+
+### 需求调整（2026-10-31 用户反馈）
+
+1. 「当前」Tab 改为「今日」Tab：今天收到的告警全部展示，不再按「是否恢复」过滤。
+   → `AlarmStore.todayAlarms()` 按本地日历日筛选；设备报文没有 `ts`，`add()` 时补本地接收时间
+   （毫秒，兼容秒级 epoch），`LocalDb.load/loadUnread` 也会从 `ts` 列补回，跨重启仍能分天。
+   「当前告警」状态保留在 `activeAlarms()` 中，仅用于红点判定。
+1.1 「历史」排除当天：`AlarmStore.historyAlarms()` 只返回今天之前的记录，
+   今日的记录只留在「今日」页，两页互不重复（内存流水 `items()` 仍是全量，供落盘与重建）。
+2. 「清空」按钮加描边样式（`OutlinedButton` + 品牌色文字/边框），解决「看起来像纯文字、不知道能点」。
+3. 清空二次确认：`MaterialAlertDialogBuilder` 弹「清空确认 /『今日』和『历史』中的所有告警都会被清除，
+   且不可恢复。是否继续？」，确认后才 `AlarmStore.clear()`。
 
 ### 验收标准
 
-- 触发一条 CPU 告警 → 出现在「当前」，未读红点 +1；恢复后从「当前」消失，出现在「历史」。
-- 同一指标反复越限/恢复 10 次，「当前」始终最多 1 条，「历史」完整 20 条。
-- App 重启后「当前」与「历史」与重启前一致。
+- 触发一条 CPU 告警 → 出现在「今日」，未读红点 +1；恢复后「今日」仍保留告警与恢复两条，
+  且不进入「历史」。
+- 昨天收到的告警只出现在「历史」，今天的记录只出现在「今日」，两页不重复。
+- 「清空」按钮有明显边框；点击后先弹确认框，取消不清除，确认后两页同时清空。
+- App 重启后「今日」与「历史」与重启前一致。
+
+### 验证记录（2026-10-31）
+
+- `./gradlew :app:testDebugUnitTest`：**67 个单测全部通过**（AlarmStoreTest 20 个：
+  今日筛选与历史排除当天（跨天/秒级 epoch/各事件类型）、补接收时间、当前告警入/出、同 key 去重、
+  USB 不参与活动集合、红点语义、清空、上限、重启重建、未读只恢复仍活动项、
+  多设备同名指标不冲突、持久化损坏降级等）。
+- `./gradlew :app:assembleDebug`：BUILD SUCCESSFUL；APK 内含 `classes3.dex` 的
+  `TodayAlarmFragment`，`ActiveAlarmFragment` 与旧 `ui/AlarmFragment` 均无残留，
+  `resources.arsc` 含 `no_today_alarms`。按之前的约定未安装到设备。
+- 协议报文无改动（`alarm` 载荷不变），无需更新协议文档。
 
 ### 涉及文件
 
-- `net/AlarmStore.java`、`data/LocalDb.java`、`ui/AlarmFragment.java`、`ui/AlarmViewModel.java`、
-  `res/layout/` 告警相关布局、`AlarmStoreTest`
+- `net/AlarmStore.java`（`todayAlarms` / `activeAlarms` / 补本地 `ts`）、
+  `data/LocalDb.java`（`loadUnread` 取代 `unreadCount`，回填 `ts`）
+- `ui/AlarmViewModel.java`（`today()` / `history()`）、`ui/AlarmActivity.java`（Tab + 清空确认）、
+  `ui/AlarmListFragment.java`（新增）、`ui/TodayAlarmFragment.java`（新增）、
+  `ui/AlarmHistoryFragment.java`（新增，删除 `AlarmFragment.java` / `ActiveAlarmFragment.java`）
+- `res/layout/activity_alarm.xml`（TabLayout、描边清空按钮）、`res/layout/fragment_alarm.xml`、
+  `res/values/strings.xml`（Tab、空态与确认弹窗文案）
+- 测试：`AlarmStoreTest`（19 个用例）
 
 ---
 
