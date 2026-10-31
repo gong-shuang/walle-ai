@@ -27,6 +27,7 @@
     <color name="state_connecting">#FBBF24</color>
     <color name="state_connected">#34D399</color>
     <color name="state_error">#F87171</color>
+    <color name="state_warning">#FAAD14</color>
 
     <!-- 首次启动引导页 -->
     <color name="onboarding_bg">#05070F</color>

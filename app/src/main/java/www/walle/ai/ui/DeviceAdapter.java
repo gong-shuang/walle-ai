@@ -46,7 +46,7 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.VH> {
         DeviceInfo d = data.get(position);
         boolean selected = d.key().equals(selectedKey);
 
-        h.dot.setBackgroundResource(d.online ? R.drawable.dot_online : R.drawable.dot_gray);
+        h.dot.setBackgroundResource(d.online ? R.drawable.dot_online : R.drawable.dot_offline);
         h.tvName.setText(d.displayName());
         h.tvType.setText(d.typeLabel());
         h.tvCurrent.setVisibility(selected ? View.VISIBLE : View.GONE);

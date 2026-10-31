@@ -20,7 +20,7 @@
             android:id="@+id/dotOnline"
             android:layout_width="10dp"
             android:layout_height="10dp"
-            android:background="@drawable/dot_gray" />
+            android:background="@drawable/dot_warning" />
 
         <TextView
             android:id="@+id/tvName"

@@ -1,6 +1,9 @@
 package www.walle.ai.ui;
 
 import android.os.Bundle;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -8,6 +11,7 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.fragment.app.FragmentManager;
@@ -30,6 +34,7 @@ public class DeviceDetailFragment extends Fragment {
     private static final String T_COMMAND = "detail_command";
 
     private MqttManager mgr;
+    private View vDot;
     private TextView tvCurrentDevice;
     private TabLayout tabs;
 
@@ -47,6 +52,7 @@ public class DeviceDetailFragment extends Fragment {
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         mgr = MqttManager.get(requireContext());
+        vDot = view.findViewById(R.id.dotOnline);
         tvCurrentDevice = view.findViewById(R.id.tvCurrentDevice);
         tabs = view.findViewById(R.id.detailTabs);
 
@@ -120,14 +126,28 @@ public class DeviceDetailFragment extends Fragment {
         if (controlFragment != null) controlFragment.onDeviceSwitched();
     }
 
+    /** 顶部信息条：「当前设备：名称」+ 在线绿点 / 离线红点（离线附带换设备提示）。 */
     private void updateDeviceLabel(@Nullable DeviceInfo d) {
         if (tvCurrentDevice == null) return;
         if (d == null) {
+            vDot.setBackgroundResource(R.drawable.dot_warning);
             tvCurrentDevice.setText(R.string.no_device_selected);
-        } else {
-            tvCurrentDevice.setText(getString(R.string.current_device_detail,
-                    d.displayName(), d.typeLabel(), d.shortUuid()));
+            return;
         }
+
+        boolean online = d.online;
+        SpannableStringBuilder sb = new SpannableStringBuilder(
+                getString(R.string.current_device, d.displayName()));
+
+        if (!online) {
+            sb.append(' ').append(getString(R.string.current_device_offline_hint));
+            sb.setSpan(new ForegroundColorSpan(
+                            ContextCompat.getColor(requireContext(), R.color.state_error)),
+                    sb.length() - getString(R.string.current_device_offline_hint).length(),
+                    sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        vDot.setBackgroundResource(d.online ? R.drawable.dot_online : R.drawable.dot_offline);
+        tvCurrentDevice.setText(sb);
     }
 
     /** 当前设备标题由 ConnectionViewModel 驱动。 */
