@@ -105,8 +105,6 @@ public class DeviceRegistry {
 
         DeviceInfo target;
         DeviceInfo added = null;
-//        String key = !uuid.isEmpty() ? uuid : findByDeviceIdLocked(did);
-//        if (key == null || key.isEmpty()) key = findByHostnameLocked(hostname);
         // 定位已有条目优先用 device_id：它是跨重启稳定的唯一标识，而 uuid 每次重启都会变。
         // 若先按 uuid 查找，重新上线的设备（uuid 已变）会漏匹配旧条目，被当成新设备重复加入。
         String key = findByDeviceIdLocked(did);
@@ -115,10 +113,8 @@ public class DeviceRegistry {
         target = key == null || key.isEmpty() ? null : devices.get(key);
 
         if (target == null) {
-            // 列表里没有这台设备：
-            // - online=true  → 新增（报文已补全身份信息）
-            // - online=false → 不处理（broker 残留的 retained 遗嘱不能变成幽灵卡片）
-            if (online && !fresh.key().isEmpty()) {
+            // 首次看到的设备直接入列：在线/离线都保留（离线显示灰点/红点）。
+            if ( !fresh.key().isEmpty()) {
                 devices.put(fresh.key(), fresh);
                 added = fresh;
             }
