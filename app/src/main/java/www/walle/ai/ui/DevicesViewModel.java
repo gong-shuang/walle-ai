@@ -196,13 +196,10 @@ public class DevicesViewModel extends MqttViewModel {
             runOnMain(this::publish);
             return;
         }
-        List<DeviceInfo> visible = new ArrayList<>();
-        for (DeviceInfo d : mgr.getDevices()) {
-            if (d.online) visible.add(d);
-        }
-        // 选中设备下线后从列表消失 → 选中自动落到第一台在线设备；
-        // 一台都不在线时保持原选中（不清空：selectDevice("") 会被注册表自动回填成
-        // 第一台设备，导致「选中→下线→回填」反复通知的死循环）。
+        // 离线设备保留在列表中（灰点 + 「离线」标识），不隐藏
+        List<DeviceInfo> visible = new ArrayList<>(mgr.getDevices());
+        // 选中设备下线后：仍保持选中（列表里可见，状态显示离线），
+        // 只有当前选中不在列表时才自动落到第一台。
         String selected = mgr.getSelectedKey();
         if (!visible.isEmpty() && !containsKey(visible, selected)) {
             mgr.selectDevice(visible.get(0).key());

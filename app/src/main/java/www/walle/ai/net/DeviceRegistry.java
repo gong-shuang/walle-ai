@@ -105,7 +105,12 @@ public class DeviceRegistry {
 
         DeviceInfo target;
         DeviceInfo added = null;
-        String key = !uuid.isEmpty() ? uuid : findByDeviceIdLocked(did);
+//        String key = !uuid.isEmpty() ? uuid : findByDeviceIdLocked(did);
+//        if (key == null || key.isEmpty()) key = findByHostnameLocked(hostname);
+        // 定位已有条目优先用 device_id：它是跨重启稳定的唯一标识，而 uuid 每次重启都会变。
+        // 若先按 uuid 查找，重新上线的设备（uuid 已变）会漏匹配旧条目，被当成新设备重复加入。
+        String key = findByDeviceIdLocked(did);
+        if (key == null || key.isEmpty()) key = !uuid.isEmpty() ? uuid : "";
         if (key == null || key.isEmpty()) key = findByHostnameLocked(hostname);
         target = key == null || key.isEmpty() ? null : devices.get(key);
 
