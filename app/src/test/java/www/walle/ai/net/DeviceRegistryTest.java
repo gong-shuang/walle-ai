@@ -35,10 +35,14 @@ public class DeviceRegistryTest {
     }
 
     @Test
-    public void offlineUnknownDeviceIsIgnored() {
+    public void offlineUnknownDeviceIsKept() {
+        // 离线设备也要显示（灰点/红点），所以首次看到的离线报文同样入列
         DeviceRegistry r = new DeviceRegistry();
-        assertNull(r.applyOnline(json("{\"uuid\":\"u1\",\"online\":false}")));
-        assertEquals(0, r.count());
+        DeviceInfo added = r.applyOnline(json("{\"uuid\":\"u1\",\"online\":false}"));
+        assertNotNull(added);
+        assertEquals(1, r.count());
+        assertEquals(0, r.onlineCount());
+        assertTrue(!added.online);
     }
 
     @Test

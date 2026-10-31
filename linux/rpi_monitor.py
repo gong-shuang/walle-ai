@@ -348,12 +348,18 @@ VIDEO_AUDIO_BITRATE = "128k"             # 音频码率
 VIDEO_AUDIO_FRAGMENT_SIZE = 1024         # pulse 采集分片（字节）：越小采集端延迟越低，
                                          # 过大是混音后播放端延迟明显增大的主要原因
 
-# ---- 反向音频（phone/audio/*：手机麦 → RTMP → 本机扬声器）----
+# ---- 反向音频（phone/audio/*：手机麦 → WebRTC(WHIP→WHEP) → 本机扬声器）----
 PHONE_AUDIO_ENABLE = _env_flag("PHONE_AUDIO_ENABLE", True)  # 不需要时置 False
-PHONE_AUDIO_OUTPUT = os.environ.get("PHONE_AUDIO_OUTPUT", "pulse")   # ffmpeg 输出驱动：pulse / alsa
-PHONE_AUDIO_DEVICE = os.environ.get("PHONE_AUDIO_DEVICE", "default")  # 输出设备名
-PHONE_AUDIO_STARTUP_GRACE = 2.0          # 启动宽限：ffmpeg 活过这段时间即视为开始播放（秒）
+PHONE_AUDIO_WHEP_URL_TEMPLATE = os.environ.get(    # 拉流地址模板，{stream} 会被替换成流名
+    "PHONE_AUDIO_WHEP_URL_TEMPLATE",
+    "https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream={stream}")
+PHONE_AUDIO_DEVICE = os.environ.get("PHONE_AUDIO_DEVICE", "")   # sounddevice 输出设备名，空=系统默认
+PHONE_AUDIO_LATENCY = os.environ.get("PHONE_AUDIO_LATENCY", "low")  # PortAudio 延迟档位：low/high
+PHONE_AUDIO_FIRST_FRAME_TIMEOUT = 8.0     # 首帧超时：超时即判定手机端没在推流
+PHONE_AUDIO_STARTUP_GRACE = 2.0          # 启动宽限：播放进程活过这段时间即视为开始播放（秒）
 PHONE_AUDIO_STREAM_SUFFIX = "_audio"     # 音频流名后缀：与视频房间号错开，避免抢同一路 stream
+PHONE_AUDIO_PLAYER_SCRIPT = os.path.join(  # WHEP 播放器脚本（与被监控脚本同目录）
+    os.path.dirname(os.path.abspath(__file__)), "whep_audio_player.py")
 
 
 # ============================== 工具函数 ==============================
@@ -1914,8 +1920,13 @@ class RpiMonitor:
     # ---------- phone/audio/send|stop 手机麦上行播放 ----------
 
     def _phone_audio_url(self, room_number):
-        """手机推音频的流名 = 视频房间号 + _audio，避免与设备自己的视频流抢同一路 stream。"""
-        return build_rtmp_url(room_number + PHONE_AUDIO_STREAM_SUFFIX)
+        """手机推音频的流名 = 视频房间号 + _audio，避免与设备自己的视频流抢同一路 stream。
+
+        媒体面走 WebRTC：App 用 WHIP 推、本机用 WHEP 拉。相比 RTMP 拉流，RTC 走 UDP、
+        按最新帧转发，端到端延迟约 200ms（RTMP+ffmpeg 实测会被各级缓冲拖到数秒）。
+        """
+        return PHONE_AUDIO_WHEP_URL_TEMPLATE.format(
+            stream=room_number + PHONE_AUDIO_STREAM_SUFFIX)
 
     def _publish_phone_audio_result(self, resource, req, result_code, cause, extra=None):
         """手机音频动作的结果报文（result 语义与 video 一致：0 成功 / -1 无流 / -2 失败）"""
@@ -1936,7 +1947,7 @@ class RpiMonitor:
         self.publish_json(resource, payload)
         logging.info("手机音频结果 -> %s: request_id=%s result=%s cause=%s",
                      v2_topic(resource), payload["request_id"] or "-", result_code, cause)
-        # 失败细节（ffmpeg 退出码/日志路径/stderr 摘要）App 不订阅 result，
+        # 失败细节（播放器退出码/日志路径/stderr 摘要）App 不订阅 result，
         # 本地日志必须打出来，否则设备侧只能看到「失败」看不到原因
         err = payload.get("error")
         if result_code != 0 and err:
@@ -1965,28 +1976,19 @@ class RpiMonitor:
         return True
 
     def _build_phone_audio_cmd(self, room_number):
-        """ffmpeg 从 RTMP 拉音频 → 本机默认扬声器（不落文件、不带视频）。
+        """WHEP 拉 WebRTC 音频 → 本机声卡（独立进程 whep_audio_player.py）。
 
-        低延迟要点（缺了任何一个都会把「手机说话 → 扬声器出声」拖到数秒）：
-          -analyzeduration 100ms / 小 probesize：AAC 参数来自 FLV 序列头，
-              默认 5s 的探测窗口会被缓冲下来从头播，形成永久存在的秒级偏移。
-              但不能压到 0：RTMP 是网络流，0 会让 find_stream_info 在首个
-              FLV tag 到达前就放弃，报 "Output file does not contain any stream"
-              直接退出（文件输入无此问题，实测 RTMP 拉流必现）；
-          -fflags nobuffer：关掉 avformat 的输入攒包，收到就解码；
-          -rtmp_live live：按直播流处理，不尝试回放缓存。
+        为什么不用 ffmpeg 拉 RTMP：RTMP 走 TCP，且服务端/解码器/声卡各级缓冲会把
+        「手机说话 → 扬声器出声」拖到数秒（实测 ~10s）。WebRTC 走 UDP、按最新帧转发，
+        端到端约 200ms，与视频方向（WHEP）同级。
         """
-        return [
-            VIDEO_FFMPEG_BIN, "-nostdin", "-loglevel", "warning",
-            "-fflags", "nobuffer",          # 输入端不攒包
-            "-probesize", "4096",           # 覆盖 FLV 序列头+几帧即可（不能为 0，见上）
-            "-analyzeduration", "100000",   # 100ms 探测窗口（不能为 0，见上）
-            "-rtmp_live", "live",           # 按直播处理
-            "-i", self._phone_audio_url(room_number),
-            "-vn", "-ac", "2", "-ar", "48000",
-            "-af", "aresample=async=1:min_hard_comp=0.100:first_pts=0",
-            "-f", PHONE_AUDIO_OUTPUT, PHONE_AUDIO_DEVICE,
-        ]
+        cmd = [sys.executable, PHONE_AUDIO_PLAYER_SCRIPT,
+               "--url", self._phone_audio_url(room_number),
+               "--latency", PHONE_AUDIO_LATENCY,
+               "--first-frame-timeout", str(PHONE_AUDIO_FIRST_FRAME_TIMEOUT)]
+        if PHONE_AUDIO_DEVICE:
+            cmd += ["--device", PHONE_AUDIO_DEVICE]
+        return cmd
 
     def _phone_audio_watch(self, proc, room_number, sink):
         """播放进程看护：退出后清理状态并记录原因"""
@@ -2026,15 +2028,16 @@ class RpiMonitor:
             )
         except FileNotFoundError:
             sink.close()
-            return None, "未安装 ffmpeg，请执行: sudo apt install -y ffmpeg"
+            return None, (f"未找到播放器脚本 {PHONE_AUDIO_PLAYER_SCRIPT}"
+                          "（请把 linux/whep_audio_player.py 一起部署到同目录）")
         except Exception as e:  # noqa: BLE001
             sink.close()
-            return None, f"启动 ffmpeg 失败: {e}"
+            return None, f"启动 WHEP 播放器失败: {e}"
 
         threading.Thread(target=self._log_pump, args=(proc, sink),
                          daemon=True, name="phone-audio-log").start()
 
-        # 宽限期内就退出：多半是流还不存在（App 推流未就绪）或输出设备不可用
+        # 宽限期内就退出：多半是流还不存在（App 推流未就绪）、缺依赖或声卡不可用
         try:
             code = proc.wait(timeout=PHONE_AUDIO_STARTUP_GRACE)
         except subprocess.TimeoutExpired:
@@ -2042,9 +2045,9 @@ class RpiMonitor:
         if code is not None:
             time.sleep(0.2)
             tail = sink.error_line()
-            msg = f"ffmpeg 退出码 {code}（日志: {sink.path}）"
-            if PHONE_AUDIO_OUTPUT == "pulse":
-                msg += "；若提示 pulse 不可用，可设 PHONE_AUDIO_OUTPUT=alsa"
+            msg = f"播放器退出码 {code}（日志: {sink.path}）"
+            if code == 3:
+                msg += "；缺依赖：pip install aiortc sounddevice + apt install libportaudio2"
             sink.close()
             return None, msg + (f": {tail}" if tail else "")
 
@@ -2055,8 +2058,8 @@ class RpiMonitor:
                 "pid": proc.pid,
                 "started_at": now_str(),
                 "started_ts": time.time(),
-                "rtmp_url": mask_rtmp_url(url),
-                "output": f"{PHONE_AUDIO_OUTPUT}/{PHONE_AUDIO_DEVICE}",
+                "whep_url": self._phone_audio_url(room_number),
+                "output": f"sounddevice/{PHONE_AUDIO_DEVICE or 'default'}",
             }
         threading.Thread(target=self._phone_audio_watch,
                          args=(proc, room_number, sink), daemon=True,
@@ -2103,8 +2106,8 @@ class RpiMonitor:
         self._publish_phone_audio_result(
             RES_PHONE_AUDIO_SEND_RESULT, req, 0, "ok",
             {"action": "started", "room_number": room_number,
-             "rtmp_url": mask_rtmp_url(self._phone_audio_url(room_number)),
-             "pid": proc.pid, "output": f"{PHONE_AUDIO_OUTPUT}/{PHONE_AUDIO_DEVICE}"})
+             "whep_url": self._phone_audio_url(room_number),
+             "pid": proc.pid, "output": f"sounddevice/{PHONE_AUDIO_DEVICE or 'default'}"})
 
     def handle_phone_audio_stop(self, payload):
         ok, data = self.verify_uuid(payload, REQ_PHONE_AUDIO_STOP)

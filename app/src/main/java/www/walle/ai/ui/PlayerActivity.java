@@ -29,7 +29,7 @@ import www.walle.ai.R;
 import www.walle.ai.databinding.ActivityPlayerBinding;
 import www.walle.ai.model.CameraCapability;
 import www.walle.ai.net.MqttManager;
-import www.walle.ai.net.RtmpAudioStreamer;
+import www.walle.ai.net.WhipAudioSession;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -85,12 +85,12 @@ public class PlayerActivity extends AppCompatActivity {
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    // —— 反向音频（手机麦克风 → 设备端）——
+    // —— 反向音频（手机麦克风 → 设备端：WebRTC WHIP 上行）——
     private static final int REQ_RECORD_AUDIO = 2001;
-    private RtmpAudioStreamer audioStreamer;
-    /** 麦克风是否已成功开启（RTMP 已 publish）。 */
+    private WhipAudioSession audioSession;
+    /** 麦克风是否已成功开启（WHIP 已连上媒体面）。 */
     private boolean micOn;
-    /** 已点击开启、正在建立 RTMP 连接（此期间再点一次表示取消）。 */
+    /** 已点击开启、正在建立 WHIP 连接（此期间再点一次表示取消）。 */
     private boolean micStarting;
     /** 发 phone/audio/* 的目标设备（真实 uuid 优先，回退主题键）。 */
     private String micTarget = "";
@@ -149,7 +149,6 @@ public class PlayerActivity extends AppCompatActivity {
         String deviceUuid = orEmpty(getIntent().getStringExtra(EXTRA_UUID));
         micTarget = !deviceUuid.isEmpty() ? deviceUuid : deviceKey;
         mgr = MqttManager.get(getApplicationContext());
-        audioStreamer = new RtmpAudioStreamer();
         binding.micButton.setText(R.string.mic_off);
         binding.micButton.setOnClickListener(v -> toggleMic());
 
@@ -239,11 +238,14 @@ public class PlayerActivity extends AppCompatActivity {
 
     // region 反向音频（手机麦克风 → 设备端）
 
-    /** 麦克风按钮：关 →（开 RTMP + 通知设备）→ 开；再点一次 → 停采集 + 通知设备停止。 */
+    /** 麦克风按钮：关 →（建 WHIP 音频连接 + 通知设备）→ 开；再点一次 → 停采集 + 通知设备停止。 */
     private void toggleMic() {
         if (micStarting) {                       // 正在建立连接时再点 = 取消
             micStarting = false;
-            if (audioStreamer != null) audioStreamer.stop();
+            if (audioSession != null) {
+                audioSession.stop();
+                audioSession = null;
+            }
             updateMicUi();
             viewModel.postStatus("已取消开启麦克风");
             return;
@@ -266,20 +268,29 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
     private void startMic() {
-        if (audioStreamer == null || audioStreamer.isRunning()) return;
+        if (audioSession != null && audioSession.isRunning()) return;
+        // 复用视频会话的 PeerConnectionFactory：一个进程只能有一个音频设备模块（ADM）
+        WhepSession videoSession = session;
+        if (videoSession == null || videoSession.isReleased() || videoSession.getFactory() == null) {
+            viewModel.postStatus("视频会话未就绪，无法开启麦克风");
+            return;
+        }
         // 音频流名固定为 {room}_audio，避免和设备推的视频抢同一个 stream
-        String url = BuildConfig.RTMP_AUDIO_URL_TEMPLATE.replace("{room}", roomNumber);
+        String url = BuildConfig.WHIP_AUDIO_URL_TEMPLATE.replace("{room}", Uri.encode(roomNumber));
         micStarting = true;
         updateMicUi();
         viewModel.postStatus("正在开启麦克风…");
-        audioStreamer.start(url, new RtmpAudioStreamer.Callback() {
+
+        WhipAudioSession audio = new WhipAudioSession(videoSession.getFactory());
+        audioSession = audio;
+        audio.start(url, new WhipAudioSession.Callback() {
             @Override
             public void onConnected() {
                 micStarting = false;
                 if (released) return;
                 micOn = true;
                 updateMicUi();
-                // 推流通道已就绪，再通知设备来拉，避免设备端 ffmpeg 面对不存在的流
+                // 媒体通道已就绪，再通知设备来拉，避免设备端 WHEP 面对不存在的流
                 if (mgr != null && !micTarget.isEmpty()) {
                     mgr.sendPhoneAudio(micTarget, roomNumber);
                 }
@@ -291,6 +302,10 @@ public class PlayerActivity extends AppCompatActivity {
                 micStarting = false;
                 if (released) return;
                 micOn = false;
+                if (audioSession != null) {
+                    audioSession.stop();
+                    audioSession = null;
+                }
                 updateMicUi();
                 viewModel.postStatus(getString(R.string.mic_error, message));
             }
@@ -302,7 +317,10 @@ public class PlayerActivity extends AppCompatActivity {
         boolean wasOn = micOn;
         micOn = false;
         micStarting = false;
-        if (audioStreamer != null) audioStreamer.stop();
+        if (audioSession != null) {
+            audioSession.stop();
+            audioSession = null;
+        }
         updateMicUi();
         if (wasOn && notifyDevice && mgr != null && !micTarget.isEmpty()) {
             mgr.stopPhoneAudio(micTarget, roomNumber);

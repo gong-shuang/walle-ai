@@ -130,6 +130,15 @@ public final class WhepSession {
         return released;
     }
 
+    /**
+     * 共享的 PeerConnectionFactory（release 后为 null）。
+     * <p>同一个进程里只能有一个音频设备模块（ADM），所以反向音频上行（{@link
+     * www.walle.ai.net.WhipAudioSession}）复用这里的 Factory，避免两个 ADM 抢麦克风/扬声器。</p>
+     */
+    public PeerConnectionFactory getFactory() {
+        return released ? null : factory;
+    }
+
     // ---------------------------------------------------------------- 初始化
 
     private void initWebRtc() {

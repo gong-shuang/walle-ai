@@ -396,11 +396,16 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 抖动反复报警。阈值均可用环境变量覆盖（`THRESH_CPU`/`THRESH_MEM`/`THRESH_DISK`/
 `THRESH_TEMP`/`THRESH_NET_MIB`），监控周期 `MONITOR_INTERVAL`（默认 5s）。
 
-### 4.9 手机麦克风上行 phone/audio/send|stop（控制面）＋ RTMP（媒体面）
+### 4.9 手机麦克风上行 phone/audio/send|stop（控制面）＋ WebRTC WHIP/WHEP（媒体面）
 
 **作用**：把手机麦克风的声音实时送到设备扬声器（「反向音频」）。**媒体不走 MQTT**，
-走独立 RTMP：App 推 `rtmp://www.baidong.xyz:1935/live/{room}_audio`，
-设备端 ffmpeg 拉同一路流并播放到本机扬声器。MQTT 只负责「开 / 关」控制。
+走独立 WebRTC：App 用 WHIP 推 `https://www.baidong.xyz:443/rtc/v1/whip/?app=live&stream={room}_audio&secret=…`，
+设备端用 WHEP 拉同一路流（`whep_audio_player.py`，aiortc + PortAudio）并播放到本机扬声器。
+MQTT 只负责「开 / 关」控制。
+
+> 为什么不用 RTMP：RTMP 走 TCP，没有丢帧/追帧机制，服务端起播缓存 + ffmpeg/声卡缓冲会累积成
+> 秒级延迟（实测手机说话到出声约 10s）。WebRTC 走 UDP，晚到的包直接丢弃，实测端到端约 200ms。
+> 另：服务端 WHIP 端点**必须带 `secret`**，不带会直接 502。
 
 - 开启请求：`walle/{t}/{d}/phone/audio/send` → 应答 `.../send/result`
 - 关闭请求：`walle/{t}/{d}/phone/audio/stop` → 应答 `.../stop/result`
@@ -412,21 +417,21 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 
 | 字段 | 说明 |
 |---|---|
-| `result` | **0** 成功（`send` 时含 `already_playing`）/ **-1** 当前没有音频流（仅 stop）/ **-2** 失败（未装 ffmpeg、输出设备不可用、参数非法等） |
+| `result` | **0** 成功（`send` 时含 `already_playing`）/ **-1** 当前没有音频流（仅 stop）/ **-2** 失败（缺依赖、输出设备不可用、参数非法等） |
 | `cause` | 可读原因 |
 | `action` | `send`：`started` / `already_playing` / `failed` |
 | `stopped` | `stop`：是否真的停了一路播放 |
-| `room_number` / `rtmp_url`（已脱敏）/ `pid` / `started_at` / `output` | 成功时的播放进程信息 |
-| `error` | 失败时的具体错误（含 ffmpeg 退出码与日志路径） |
+| `room_number` / `whep_url` / `pid` / `started_at` / `output` | 成功时的播放进程信息 |
+| `error` | 失败时的具体错误（含播放器退出码与日志路径） |
 | `request_id` 及公共字段 | — |
 
 **关键约定**：
 
-- **流名 = `{room}_audio`**（设备端 `build_rtmp_url(room + "_audio")`，可用
+- **流名 = `{room}_audio`**（设备端 `PHONE_AUDIO_WHEP_URL_TEMPLATE` 拼 `{stream}`，可用
   `PHONE_AUDIO_STREAM_SUFFIX` 覆盖）。与设备自己推的视频流 `live/{room}` 错开，
   避免两端抢同一路 stream。
-- **先连上再通知**：App 必须等 RTMP `publish` 握手成功（`onConnected`）才发
-  `phone/audio/send`，否则设备端 ffmpeg 面对不存在的流会在启动宽限期（2s）内退出。
+- **先连上再通知**：App 必须等 WHIP 的 PeerConnection 进入 `CONNECTED`（媒体面已通）才发
+  `phone/audio/send`，否则设备端 WHEP 拉不到流（首帧 8s 超时会失败）。
 - **App 不订阅两个 `/result`**：App 侧是单向动作，按钮状态由本地推流结果驱动
   （`responseSubscriptions()` 不含 `phone/audio/*`）。设备端仍会发布 result，供日志、
   调试与其他客户端使用。
@@ -435,13 +440,18 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 - **旧停新启**：`send` 时若已有别的房间在播，先停旧的再起新的（同一时刻设备只有一路）。
 - **退出即关**：`PlayerActivity.onDestroy()` 与进程退出都会发 `phone/audio/stop`，
   设备端 `run()` 的 finally 也会 `_stop_phone_audio`，避免扬声器残留出声。
-- 设备端开关与输出可配：`PHONE_AUDIO_ENABLE`（默认 True）、`PHONE_AUDIO_OUTPUT`
-  （默认 `pulse`，无 pulse 的板子设 `alsa`）、`PHONE_AUDIO_DEVICE`（默认 `default`）。
+- 设备端开关与输出可配：`PHONE_AUDIO_ENABLE`（默认 True）、`PHONE_AUDIO_DEVICE`
+  （默认空 = 系统默认声卡，可填 `sounddevice` 设备名）、`PHONE_AUDIO_LATENCY`（默认 `low`）、
+  `PHONE_AUDIO_FIRST_FRAME_TIMEOUT`（默认 8s）。
 
-**媒体面参数（App 端）**：`AudioRecord` 44.1kHz / 单声道 / PCM16 → MediaCodec
-`audio/mp4a-latm`（AAC-LC，64kbps）→ 自拼 FLV audio tag（`0xAE` + 序列头/原始帧）
-→ `librtmp`（`io.antmedia:rtmp-client`）`write`。推流 URL 模板在 `build.gradle` 的
-`RTMP_AUDIO_URL_TEMPLATE`，运行时把 `{room}` 替换成当前房间号。
+**媒体面（App 端）**：`io.getstream:stream-webrtc-android` 的 `PeerConnectionFactory`
+（与视频会话共享同一个音频设备模块 ADM）→ `AudioSource/AudioTrack`（Opus 48kHz）→
+PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端点。推流 URL 模板在
+`build.gradle` 的 `WHIP_AUDIO_URL_TEMPLATE`，运行时把 `{room}` 替换成当前房间号。
+
+**媒体面（设备端）**：`whep_audio_player.py` 用 aiortc 发 WHEP Offer，收到 `s16/48kHz`
+帧后写入 `sounddevice.RawOutputStream`（blocksize=20ms，抖动队列最多 6 帧 ≈ 120ms，
+溢出丢最旧帧）。依赖：`pip install aiortc sounddevice` + `apt install libportaudio2`。
 
 ---
 
@@ -480,7 +490,7 @@ bash -n linux/install.sh               # 部署脚本语法检查
 | 命令执行 | `CommandViewModel.java`（消费） | `handle_cmd_exec` / `_publish_cmd_result` |
 | 设备能力 | `DeviceCapability.java`（解析，摄像头部分复用 `CameraCapability`） | `build_capability` / `probe_audio_capture` / `probe_audio_playback` / `handle_capability_query` |
 | 推流控制 | `ControlViewModel` / `PlayerViewModel`（消费） | `handle_video_request` / `handle_video_stop` |
-| 手机音频上行 | `PlayerActivity`（按钮/开关）+ `MqttManager`（发 send/stop）+ `RtmpAudioStreamer`（采集/AAC/FLV/librtmp 推流） | `handle_phone_audio_send` / `handle_phone_audio_stop` / `_start_phone_audio`（ffmpeg 拉流播放） |
+| 手机音频上行 | `PlayerActivity`（按钮/开关）+ `MqttManager`（发 send/stop）+ `WhipAudioSession`（WebRTC 音频 WHIP 推流） | `handle_phone_audio_send` / `handle_phone_audio_stop` / `_start_phone_audio`（WHEP 拉流 + 声卡播放） |
 | 告警 | `AlarmStore.java`（落盘）/ `AlarmViewModel` | `_event` / `check_threshold` / `check_usb` |
 | uuid 校验 | —（App 负责携带） | `verify_uuid` |
 | 配置/常量 | `Topics.java`（QoS=1、KeepAlive=60s） | 模块顶部常量（`MQTT_QOS`、阈值、开关） |

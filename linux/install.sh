@@ -178,13 +178,13 @@ esac
 
 # ------------------------------------------------------------------ 系统依赖
 if [ "$SKIP_DEPS" = 0 ] && [ "$MODE" = "install" ]; then
-  step "安装系统依赖（python3-venv / v4l-utils / ffmpeg）"
+  step "安装系统依赖（python3-venv / v4l-utils / ffmpeg / libportaudio2）"
   if [ "$DRY_RUN" = 1 ]; then
-    echo "    ${DIM}[dry-run] apt-get install -y python3-venv v4l-utils ffmpeg${RESET}"
+    echo "    ${DIM}[dry-run] apt-get install -y python3-venv v4l-utils ffmpeg libportaudio2${RESET}"
   else
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq || warn "apt-get update 失败，继续"
-    if apt-get install -y -qq python3-venv v4l-utils ffmpeg >/dev/null 2>&1; then
+    if apt-get install -y -qq python3-venv v4l-utils ffmpeg libportaudio2 >/dev/null 2>&1; then
       ok "依赖已就绪"
     else
       warn "部分依赖安装失败（摄像头 / 推流功能可能不可用）"
@@ -195,11 +195,11 @@ fi
 # ------------------------------------------------------------------ 拷贝代码
 step "部署代码到 $INSTALL_DIR"
 run mkdir -p "$INSTALL_DIR"
-for f in rpi_monitor.py selftest_topics.py requirements.txt; do
+for f in rpi_monitor.py whep_audio_player.py selftest_topics.py requirements.txt; do
   run cp -f "$SRC_DIR/$f" "$INSTALL_DIR/$f"
   [ "$DRY_RUN" = 1 ] || chown "$TARGET_USER":"$TARGET_USER" "$INSTALL_DIR/$f"
 done
-ok "已拷贝 rpi_monitor.py / selftest_topics.py / requirements.txt"
+ok "已拷贝 rpi_monitor.py / whep_audio_player.py / selftest_topics.py / requirements.txt"
 
 # ------------------------------------------------------------------ 虚拟环境
 step "准备 Python 虚拟环境"
@@ -210,7 +210,7 @@ else
 fi
 run "$INSTALL_DIR/.venv/bin/pip" install -q --upgrade pip
 run "$INSTALL_DIR/.venv/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
-ok "依赖安装完成（paho-mqtt / psutil）"
+ok "依赖安装完成（paho-mqtt / psutil / aiortc / sounddevice）"
 
 # ------------------------------------------------------------------ 配置落盘
 step "写入配置 $ENV_FILE"

@@ -57,7 +57,7 @@ App 据此把结果与请求对上（日志里也会打印 `request_id=...` 方�
 |---|---|
 | 系统 | Raspberry Pi OS（Bookworm 及以上），已联网 |
 | 用户 | 有 sudo 权限的普通用户（脚本会以该用户跑服务） |
-| 依赖 | 脚本自动安装：`python3-venv`、`v4l-utils`（摄像头）、`ffmpeg`（推流） |
+| 依赖 | 脚本自动安装：`python3-venv`、`v4l-utils`（摄像头）、`ffmpeg`（推流）、`libportaudio2`（手机麦上行出声） |
 | Broker | EMQX（5.x / 6.x），已开 8883(TLS) 或 1883，并已建好设备账号 |
 
 ### 3.2 方式 A：一键脚本（推荐）
@@ -103,11 +103,11 @@ MQTT_PASSWORD='设备口令' MQTT_TENANT=home sudo -E ./install.sh
 
 ```bash
 # 1) 依赖
-sudo apt update && sudo apt install -y python3-venv v4l-utils ffmpeg
+sudo apt update && sudo apt install -y python3-venv v4l-utils ffmpeg libportaudio2
 
 # 2) 代码与虚拟环境
 mkdir -p ~/mqtt_demo && cd ~/mqtt_demo
-cp /path/to/linux/{rpi_monitor.py,selftest_topics.py,requirements.txt} .
+cp /path/to/linux/{rpi_monitor.py,whep_audio_player.py,selftest_topics.py,requirements.txt} .
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 
@@ -301,7 +301,8 @@ mosquitto_pub -h www.baidong.xyz -p 8883 -u home -P '<口令>' \
 ```
 linux/
 ├── rpi_monitor.py              # 主程序（单文件）
-├── requirements.txt            # paho-mqtt / psutil
+├── whep_audio_player.py        # 手机麦上行播放端（WHEP 拉流 + PortAudio 出声）
+├── requirements.txt            # paho-mqtt / psutil / aiortc / sounddevice
 ├── selftest_topics.py          # 主题契约自检
 ├── install.sh                  # 一键安装 / 升级
 ├── rpi-monitor.service         # systemd 模板（install.sh 会按实际路径改写）
