@@ -1,7 +1,7 @@
 # 多租户 MQTT 主题（协议 v2）
 
 > 状态：**已完成并上线使用**。v1 的全局主题（`device/online`、`cmd/exec` 等）已从 Android 与设备端全部删除。
-> 相关实现：App `net/TopicNames.java`、`net/MqttManager.java`；设备 `linux/rpi_monitor.py`。
+> 相关实现：App `net/TopicNames.java`、`net/MqttManager.java`；设备 `linux/main.py`。
 
 ---
 

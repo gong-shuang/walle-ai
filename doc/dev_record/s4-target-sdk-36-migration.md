@@ -112,7 +112,7 @@ Android Studio → Settings → Languages & Frameworks → Android SDK → SDK P
 原因：
 
 1. `targetSdk` / `compileSdk` 只影响 **App 与 Android 系统**的交互（权限、窗口、后台限制），与 MQTT 协议无关；
-2. 本次没有改任何 topic、payload 字段、端口、TLS 策略、WHEP 地址 —— 设备端代码（`rpi_monitor.py` 之类）、EMQX 配置、证书都不用动；
+2. 本次没有改任何 topic、payload 字段、端口、TLS 策略、WHEP 地址 —— 设备端代码（`main.py` 之类）、EMQX 配置、证书都不用动；
 3. 设备端连 broker 用的是它自己的 MQTT 客户端，不受 Android targetSdk 影响；
 4. WebRTC 的 16KB page 兼容性此前已验证（arm64 `.so` 的 `p_align=0x4000`），与设备端无关。
 

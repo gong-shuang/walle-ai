@@ -38,17 +38,17 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 依赖：pip install -r requirements.txt  （paho-mqtt>=2.0、psutil）
      摄像头能力探测需 v4l-utils，推流需 ffmpeg。
 
-配置：全部通过环境变量；前台运行时会自动加载 /etc/rpi-monitor.env，
-      查找顺序 --env-file > $RPI_MONITOR_ENV > /etc/rpi-monitor.env > ./rpi-monitor.env，
+配置：全部通过环境变量；前台运行时会自动加载 /etc/walle-ai.env，
+      查找顺序 --env-file > $RPI_MONITOR_ENV > /etc/walle-ai.env > ./walle-ai.env，
       已存在的 shell 变量优先。必填项见 README「首次部署」。
 
 命令行：
-    python3 rpi_monitor.py                  前台运行（自动读 /etc/rpi-monitor.env）
-    python3 rpi_monitor.py --check          只打印解析后的配置与订阅主题，不连 broker
-    python3 rpi_monitor.py --env-file PATH  使用指定配置文件
-    python3 rpi_monitor.py --help           查看本说明
+    python3 main.py                         前台运行（自动读 /etc/walle-ai.env）
+    python3 main.py --check                 只打印解析后的配置与订阅主题，不连 broker
+    python3 main.py --env-file PATH         使用指定配置文件
+    python3 main.py --help                  查看本说明
 
-部署：见 linux/README.md「首次部署」（systemd 单元为 rpi-monitor.service）
+部署：见 linux/README.md「首次部署」（systemd 单元为 walle-ai.service）
 """
 
 import hashlib
@@ -74,13 +74,13 @@ import psutil
 
 
 # ============================== 启动参数 / 环境文件 ==============================
-# 目的：既能被 systemd 用 EnvironmentFile= 拉起，也能直接 `python3 rpi_monitor.py`
-# 前台运行（自动读取 /etc/rpi-monitor.env），两者共用同一份配置。
+# 目的：既能被 systemd 用 EnvironmentFile= 拉起，也能直接 `python3 main.py`
+# 前台运行（自动读取 /etc/walle-ai.env），两者共用同一份配置。
 #
 # 优先级：已存在的环境变量（shell / systemd） > 环境文件里的值。
-# 文件查找顺序：--env-file 指定 > $RPI_MONITOR_ENV > /etc/rpi-monitor.env > ./rpi-monitor.env
+# 文件查找顺序：--env-file 指定 > $RPI_MONITOR_ENV > /etc/walle-ai.env > ./walle-ai.env
 
-ENV_CANDIDATES = ("/etc/rpi-monitor.env", "rpi-monitor.env")
+ENV_CANDIDATES = ("/etc/walle-ai.env", "walle-ai.env")
 ENV_SOURCE = None      # 实际加载到的文件（None 表示没加载）
 
 
@@ -285,7 +285,7 @@ def subscriptions():
         (v2_tenant_topic(REQ_DISCOVERY), MQTT_QOS),
     ]
 
-# ---- 监控阈值（均可用环境变量覆盖，写进 /etc/rpi-monitor.env 即可）----
+# ---- 监控阈值（均可用环境变量覆盖，写进 /etc/walle-ai.env 即可）----
 MONITOR_INTERVAL = int(os.environ.get("MONITOR_INTERVAL", "5"))          # 采样周期（秒）
 THRESH_CPU = float(os.environ.get("THRESH_CPU", "90.0"))                 # CPU 使用率 %
 THRESH_MEM = float(os.environ.get("THRESH_MEM", "90.0"))                 # 内存使用率 %
@@ -327,9 +327,9 @@ VIDEO_RTMP_URL_TEMPLATE = os.environ.get(  # 推流地址模板：{room}=房间�
     "VIDEO_RTMP_URL_TEMPLATE",
     "rtmp://www.baidong.xyz:1935/live/{room}?secret={secret}")
 # Oryx 部署后会生成一个推流 secret（每台服务器都不同，在控制台「推流鉴权」可查看/重置），
-# 重置后所有旧客户端立即失效。禁止写死在源码里：用 ORYX_SECRET 环境变量
-# （/etc/rpi-monitor.env）注入；不配置则视频推流会被服务端拒绝。
-ORYX_SECRET = os.environ.get("ORYX_SECRET", "").strip()
+# 重置后所有旧客户端立即失效。禁止写死在源码里：用 WHIP_SECRET 环境变量
+# （/etc/walle-ai.env）注入；不配置则视频推流会被服务端拒绝。
+WHIP_SECRET = os.environ.get("WHIP_SECRET", "").strip()
 VIDEO_LOG_FILE = "log/ffmpeg_{time}.log"  # ffmpeg 日志文件（相对路径以进程工作目录为基准）
                                          # {time} 会替换成推流时刻，如 20261029_162650，
                                          # 所以每次推流都是一个独立的日志文件；目录不存在会自动创建
@@ -1098,18 +1098,18 @@ def build_ffmpeg_cmd(video_device, room_number, audio=None):
 
     cmd += [
         "-f", "flv",
-        VIDEO_RTMP_URL_TEMPLATE.format(room=room_number, secret=ORYX_SECRET),
+        VIDEO_RTMP_URL_TEMPLATE.format(room=room_number, secret=WHIP_SECRET),
     ]
     return cmd
 
 
 def build_rtmp_url(room_number):
-    return VIDEO_RTMP_URL_TEMPLATE.format(room=room_number, secret=ORYX_SECRET)
+    return VIDEO_RTMP_URL_TEMPLATE.format(room=room_number, secret=WHIP_SECRET)
 
 
 def rtmp_secret_ready():
-    """模板里还留着 {secret} 占位符时，必须配置了 ORYX_SECRET 才能推流。"""
-    return "{secret}" not in VIDEO_RTMP_URL_TEMPLATE or bool(ORYX_SECRET)
+    """模板里还留着 {secret} 占位符时，必须配置了 WHIP_SECRET 才能推流。"""
+    return "{secret}" not in VIDEO_RTMP_URL_TEMPLATE or bool(WHIP_SECRET)
 
 
 def video_log_path():
@@ -1795,12 +1795,12 @@ class RpiMonitor:
                 {"error": "room_number 不合法（只允许 1-64 位字母/数字/下划线/短横线）"})
             return
 
-        # 2.1) Oryx 推流 secret：每台服务器不同，部署时用 ORYX_SECRET 注入。
+        # 2.1) Oryx 推流 secret：每台服务器不同，部署时用 WHIP_SECRET 注入。
         #      没配置时不提前拦下，ffmpeg 会因为鉴权失败一直重连，看起来像“推流成功但黑屏”。
         if not rtmp_secret_ready():
             self._publish_video_result(
                 req, -2, "命令执行失败",
-                {"error": "未配置 Oryx 推流 secret（请在 /etc/rpi-monitor.env 设置 ORYX_SECRET）"})
+                {"error": "未配置 Oryx 推流 secret（请在 /etc/walle-ai.env 设置 WHIP_SECRET）"})
             return
 
         # 3) 已有推流时：video_device 和 room_number 都一样 → 不处理（不重连、不重启）
@@ -2531,7 +2531,7 @@ class RpiMonitor:
         if sanitize_segment(MQTT_TENANT) == sanitize_segment(MQTT_USER):
             logging.warning(
                 "租户当前取自 MQTT 用户名（%s）。如果手机 App 用的是另一个账号登录，"
-                "请在 /etc/rpi-monitor.env 里设置 MQTT_TENANT=<App 的登录用户名>，"
+                "请在 /etc/walle-ai.env 里设置 MQTT_TENANT=<App 的登录用户名>，"
                 "否则 App 订阅 walle/<App用户名>/# 时收不到本设备的报文。",
                 sanitize_segment(MQTT_TENANT))
         # clean_session=True：每次连接都重新订阅，改了请求主题名也不会残留旧订阅
@@ -2598,7 +2598,7 @@ def print_config_check():
     print(f"  Broker   : {MQTT_HOST}:{MQTT_PORT}   TLS={'on' if tls_on else 'off'} (MQTT_TLS={MQTT_TLS})")
     print(f"  用户名   : {MQTT_USER}")
     print(f"  密码     : {'********' if MQTT_PASSWORD else '(空)'}")
-    print(f"  Oryx secret: {'已配置' if ORYX_SECRET else '未配置（视频推流会被服务端拒绝）'}")
+    print(f"  Oryx secret: {'已配置' if WHIP_SECRET else '未配置（视频推流会被服务端拒绝）'}")
     print(f"  租户     : {sanitize_segment(MQTT_TENANT)}")
     print(f"  设备号   : {DEVICE_ID}")
     if DEVICE_ID.startswith("<"):

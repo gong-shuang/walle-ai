@@ -16,7 +16,7 @@
 | 订阅模型 | 固定 **8 个**响应主题（`cleanSession=true`，每次连上都重订） | `TopicNames.subscriptions()` |
 | 请求配对 | 自制 `request_id`（8 位 hex）+ 按 id 严格配对；6 类请求 | `MqttManager` / 设备 `REQUEST_HANDLERS` |
 | 去重 | 2 秒窗口去重（QoS1 至少一次语义下的重复投递） | `MessageRouter` |
-| 设备端 | **paho-mqtt 2.x（Python）**，已用 `CallbackAPIVersion.VERSION2` 回调签名 | `linux/rpi_monitor.py:1927` |
+| 设备端 | **paho-mqtt 2.x（Python）**，已用 `CallbackAPIVersion.VERSION2` 回调签名 | `linux/main.py:1927` |
 | Broker | EMQX **5.x / 6.x**（原生支持 MQTT5，无需升级） | `linux/README.md:61` |
 | ACL | File 规则，已用 `${clientid}` 占位符 | `linux/emqx/acl.conf.example` |
 | 单测 | 50 例，**全部不依赖 Paho**（主题/路由/注册表/告警/快照/摄像头能力） | `app/src/test/` |

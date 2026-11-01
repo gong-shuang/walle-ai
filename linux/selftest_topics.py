@@ -31,7 +31,7 @@ HERE = Path(__file__).resolve().parent
 
 
 def _install_stubs():
-    """用桩模块导入 rpi_monitor，避免依赖 paho/psutil。"""
+    """用桩模块导入 main，避免依赖 paho/psutil。"""
     paho = types.ModuleType("paho")
     paho_mqtt = types.ModuleType("paho.mqtt")
     client_mod = types.ModuleType("paho.mqtt.client")
@@ -61,7 +61,7 @@ def _install_stubs():
 
 def load_module():
     _install_stubs()
-    spec = importlib.util.spec_from_file_location("rpi_monitor", HERE / "rpi_monitor.py")
+    spec = importlib.util.spec_from_file_location("main", HERE / "main.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

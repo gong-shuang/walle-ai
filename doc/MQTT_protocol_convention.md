@@ -1,12 +1,12 @@
 # MQTT 协议约定（协议 v2 · 多租户主题）
 
-> 本文是 App（Android）与设备端（`linux/rpi_monitor.py`）之间 MQTT 报文契约的**唯一权威文档**。
+> 本文是 App（Android）与设备端（`linux/main.py`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
 > - 协议版本：**v2**（多租户主题）。v1 旧主题已彻底删除，无兼容层。
 > - 传输：MQTT 3.1.1，报文一律 **JSON（UTF-8）**，**QoS 1**，Keep Alive 60s。
 > - App 端实现：`app/src/main/java/www/walle/ai/net/`（TopicNames / MessageRouter / MqttManager）
-> - 设备端实现：`linux/rpi_monitor.py`
+> - 设备端实现：`linux/main.py`
 > - 契约交叉验证：`app` 单测（TopicNamesTest / MessageRouterTest / …）+ `linux/selftest_topics.py`
 
 ---
@@ -115,7 +115,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 干扰排查。所以两端都只订**精确的响应/请求主题清单**：
 
 - App 订 8 条：`walle/{t}/+` 下的 `online`、`alarm`、6 条 `…/result`（见 `TopicNames.responseSubscriptions`）
-- 设备端订 8 条：7 条设备级请求（含 `phone/audio/send|stop`）+ 1 条租户级 `discovery/query`（见 `rpi_monitor.subscriptions()`）
+- 设备端订 8 条：7 条设备级请求（含 `phone/audio/send|stop`）+ 1 条租户级 `discovery/query`（见 `main.subscriptions()`）
 
 ---
 
@@ -143,7 +143,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 ### 3.3 主题段清洗（sanitize）
 
-两端**必须完全一致**，否则主题对不上。规则（`TopicNames.sanitize` / `rpi_monitor.sanitize_segment`）：
+两端**必须完全一致**，否则主题对不上。规则（`TopicNames.sanitize` / `main.sanitize_segment`）：
 
 - 只保留 `[A-Za-z0-9_-]`；`.` `:` `@` 空格 → `_`；其余字符（含中文、通配符）**丢弃**；
 - 清洗后为空 → `unknown`；超过 64 字符 → 前 40 位 + 短哈希（保证同输入得同输出）。
@@ -217,7 +217,7 @@ App 侧重复 online 不去重（幂等）。
 | 抖动 | `DISCOVERY_JITTER_SEC = 0.8` | 应答前随机延迟 0~0.8s，N 台设备错开回包 |
 
 > 坑位提醒：这个主题只有 3 段，解析时不能切成 `device="discovery", resource="query"`——
-> 两端（`TopicNames.parse`、`rpi_monitor._handle_request`）都对它做了特判，别改没。
+> 两端（`TopicNames.parse`、`main._handle_request`）都对它做了特判，别改没。
 
 ### 4.3 状态查询 state/query → state/result
 
@@ -407,7 +407,7 @@ MQTT 只负责「开 / 关」控制。
 > 秒级延迟（实测手机说话到出声约 10s）。WebRTC 走 UDP，晚到的包直接丢弃，实测端到端约 200ms。
 > 另：服务端 WHIP 端点**必须带 `secret`**，不带会直接 502。这个 secret 由 Oryx 部署时生成、
 > 每台服务器不同，因此**不写死在代码里**：App 构建期注入（`-PoryxSecret` / `gradle.properties`
-> 的 `oryxSecret` / 环境变量 `ORYX_SECRET`），设备端读 `/etc/rpi-monitor.env` 的 `ORYX_SECRET`。
+> 的 `oryxSecret` / 环境变量 `WHIP_SECRET`），设备端读 `/etc/walle-ai.env` 的 `WHIP_SECRET`。
 
 - 开启请求：`walle/{t}/{d}/phone/audio/send` → 应答 `.../send/result`
 - 关闭请求：`walle/{t}/{d}/phone/audio/stop` → 应答 `.../stop/result`
@@ -449,7 +449,7 @@ MQTT 只负责「开 / 关」控制。
 **媒体面（App 端）**：`io.getstream:stream-webrtc-android` 的 `PeerConnectionFactory`
 （与视频会话共享同一个音频设备模块 ADM）→ `AudioSource/AudioTrack`（Opus 48kHz）→
 PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端点。推流 URL 模板由
-`build.gradle` 根据构建期注入的 `ORYX_SECRET` 拼出 `WHIP_AUDIO_URL_TEMPLATE`，运行时把
+`build.gradle` 根据构建期注入的 `WHIP_SECRET` 拼出 `WHIP_AUDIO_URL_TEMPLATE`，运行时把
 `{room}` 替换成当前房间号；未注入 secret 时麦克风按钮会直接提示配置缺失。
 
 **媒体面（设备端）**：`whep_audio_player.py` 用 aiortc 发 WHEP Offer，收到 `s16/48kHz`
@@ -481,7 +481,7 @@ python3 linux/selftest_topics.py       # 设备端契约自检
 
 ## 6. 两端代码对照表
 
-| 职责 | App（`app/src/main/java/www/walle/ai/net/`） | 设备端（`linux/rpi_monitor.py`） |
+| 职责 | App（`app/src/main/java/www/walle/ai/net/`） | 设备端（`linux/main.py`） |
 |---|---|---|
 | 主题拼装/解析/清洗 | `TopicNames.java` | `sanitize_segment` / `v2_topic` / `_handle_request` |
 | 报文路由 + QoS1 去重 | `MessageRouter.java` | `_handle_request` + `REQUEST_HANDLERS` |
@@ -503,4 +503,4 @@ python3 linux/selftest_topics.py       # 设备端契约自检
 - [设备发现收敛（n7）](dev_record/n7-discovery-scaling.md) — retained 驱动列表的演进
 - [MQTT5 升级评估](dev_record/mqtt5-assessment.md) — 未来升级的工作量与触发条件
 - [架构与技术评审](dev_record/architecture-review.md) — 分层与技术债全景
-- [设备端部署说明](../linux/README.md) — rpi_monitor 安装与配置
+- [设备端部署说明](../linux/README.md) — main.py 安装与配置

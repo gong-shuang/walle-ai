@@ -1,5 +1,5 @@
 > **⚠️ 历史归档**：这是协议 v1 时期的需求文档，其中的主题名（`device/online`、`cmd/exec` 等）
-> 与代码结构**均已过时**。当前实现见 [`../README.md`](../README.md) 与 [`../rpi_monitor.py`](../rpi_monitor.py)。
+> 与代码结构**均已过时**。当前实现见 [`../README.md`](../README.md) 与 [`../main.py`](../main.py)。
 > 不需要的话可以直接删除本目录。
 
 ---
@@ -8,7 +8,7 @@
 树莓派系统监控 Agent —— 功能需求清单与实现说明
 ================================================================================
 项目目录 : /Coze/Drive/RaspberryPi_mqtt_test/
-主程序   : rpi_monitor.py        （单文件，约 1730 行）
+主程序   : main.py        （单文件，约 1730 行）
 文档     : README.md             （报文示例、部署、运维细节）
 测试     : test_video.py / test_capability.py / test_device_id.py
 本文件   : 按需求提出顺序逐条列出「要什么 → 怎么实现 → 报文长什么样 → 怎么验证」
@@ -60,7 +60,7 @@ F01  系统状态异常告警  →  alarm/device
   报文「尽量详细」。
 
 【实现】
-  1) 主循环  RpiMonitor.monitor_loop()          （rpi_monitor.py:1603）
+  1) 主循环  RpiMonitor.monitor_loop()          （main.py:1603）
      每 MONITOR_INTERVAL=5 秒一轮，循环内依次做：
        - 采样：psutil.cpu_percent(percpu=True) / virtual_memory / disk_mounts
                / get_cpu_temp / calc_net_rates
@@ -600,7 +600,7 @@ F16  device_id 硬件指纹
 
 
 ================================================================================
-四、配置项清单（rpi_monitor.py 顶部配置区）
+四、配置项清单（main.py 顶部配置区）
 ================================================================================
 【MQTT】
   MQTT_HOST = "www.baidong.xyz"      MQTT_PORT = 1883
@@ -674,7 +674,7 @@ test_device_id.py       19    device_id 生成规则（长度/十六进制/同�
   # 系统包
   sudo apt install -y ffmpeg v4l-utils
 
-  运行：python rpi_monitor.py
-  开机自启：见 rpi-monitor.service（systemd）
+  运行：python main.py
+  开机自启：见 walle-ai.service（systemd）
 
 ================================================================================

@@ -7,7 +7,7 @@
   - SRS/Oryx 的 RTC 通道按「最新帧」转发，不会把推流起点的音频整段回放；
   - 输出端用 PortAudio 小块写（blocksize = 20ms），并只保留 ~100ms 的抖动缓冲。
 
-用法（由 rpi_monitor.py 以子进程方式拉起）：
+用法（由 main.py 以子进程方式拉起）：
     python3 whep_audio_player.py --url 'https://host/rtc/v1/whep/?app=live&stream=xxx_audio'
 
 退出码：0 正常停止；3 缺依赖；4 首帧超时；5 WHEP 协商失败；6 声卡打开失败。

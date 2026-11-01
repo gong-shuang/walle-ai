@@ -23,7 +23,7 @@
       │ WHEP(HTTPS 443) 拉设备摄像头画面                            │
 ┌─────▼──────┐                                              ┌─────▼──────┐
 │  Oryx/SRS  │ ◄──── RTMP 1935（设备推视频） ────               │  树莓派    │
-│  媒体服务   │ ◄──── WHEP 443（设备拉手机音频）───               │ rpi_monitor│
+│  媒体服务   │ ◄──── WHEP 443（设备拉手机音频）───               │ main.py    │
 └────────────┘      媒体面统一走 UDP 8000（SRTP）              └────────────┘
 ```
 
@@ -247,23 +247,23 @@ Oryx 部署完成后会生成一个 **32 位十六进制的推流 secret**（例
 
 1. Oryx 控制台 → **Streams / 媒体** 列表，点开任意一路流查看推流地址，`secret=` 后面的值即为此；
 2. 或 Oryx 控制台的 **系统设置 → 推流鉴权 / Token / Secret** 页面（不同小版本叫法不同）；
-3. 部署时如果已经用旧版本填过，也可以从旧配置里读取（设备端 `/etc/rpi-monitor.env` 或 App 的构建参数）。
+3. 部署时如果已经用旧版本填过，也可以从旧配置里读取（设备端 `/etc/walle-ai.env` 或 App 的构建参数）。
 
 **怎么配置**：
 
 | 端                | 配置位置                   | 写法                                                                                |
 | ---------------- | ---------------------- | --------------------------------------------------------------------------------- |
-| 树莓派              | `/etc/rpi-monitor.env` | `ORYX_SECRET=<secret>`                                                            |
-| 树莓派（可选，覆盖整条 URL） | `/etc/rpi-monitor.env` | `VIDEO_RTMP_URL_TEMPLATE=rtmp://www.example.com:1935/live/{room}?secret={secret}` |
+| 树莓派              | `/etc/walle-ai.env` | `WHIP_SECRET=<secret>`                                                            |
+| 树莓派（可选，覆盖整条 URL） | `/etc/walle-ai.env` | `VIDEO_RTMP_URL_TEMPLATE=rtmp://www.example.com:1935/live/{room}?secret={secret}` |
 | App              | `gradle.properties`    | `oryxSecret=<secret>`                                                             |
 | App              | 命令行构建                  | `./gradlew :app:assembleDebug -PoryxSecret=<secret>`                              |
-| App              | 环境变量                   | `ORYX_SECRET=<secret> ./gradlew :app:assembleDebug`                               |
+| App              | 环境变量                   | `WHIP_SECRET=<secret> ./gradlew :app:assembleDebug`                               |
 
 **验证**：
 
 ```bash
 # 设备端：--check 会显示 secret 是否已配置（不会打印明文）
-./.venv/bin/python rpi_monitor.py --check | grep 'Oryx secret'
+./.venv/bin/python main.py --check | grep 'Oryx secret'
 # 期望：Oryx secret: 已配置
 
 # App：点麦克风按钮，不应再提示「未配置 Oryx 推流 secret」；
@@ -271,7 +271,7 @@ Oryx 部署完成后会生成一个 **32 位十六进制的推流 secret**（例
 adb logcat -s WhipAudio:V WhepDemo:I
 ```
 
-**安全提示**：secret 泄露（截图、日志、仓库）后，在 Oryx 控制台重置，然后同步更新 App 构建参数与设备端 `ORYX_SECRET` 并重启服务；日志里的推流地址已由 `mask_rtmp_url()` 做 `secret=***` 脱敏。
+**安全提示**：secret 泄露（截图、日志、仓库）后，在 Oryx 控制台重置，然后同步更新 App 构建参数与设备端 `WHIP_SECRET` 并重启服务；日志里的推流地址已由 `mask_rtmp_url()` 做 `secret=***` 脱敏。
 
 ***
 
@@ -317,7 +317,7 @@ Dashboard → **访问控制 → 认证（Authentication）** → 创建认证�
 | `home`    | 手机 App 登录 | **它同时是租户名**；请改成 App 实际登录的用户名   |
 | `RaspPi5` | 树莓派设备账号   | 每台设备一个账号更安全；名字随意，需与 ACL 里的正则一致 |
 
-> `walle/{tenant}/{device}/...` 里，`tenant` = App 的用户名，`device` = 设备的 `device_id`（16 位十六进制，由 `rpi_monitor.py` 生成）。
+> `walle/{tenant}/{device}/...` 里，`tenant` = App 的用户名，`device` = 设备的 `device_id`（16 位十六进制，由 `main.py` 生成）。
 > 两边不一致时 App 收不到设备，这是最常见的“设备在线但列表空”的原因。
 
 验证（先不加密，验证账号可用）：
@@ -368,7 +368,7 @@ mosquitto_pub -h www.example.com -p 8883 --cafile /etc/ssl/certs/ca-certificates
   -u RaspPi5 -P '设备密码' -i '<clientid>' -t 'walle/home/<clientid>/online' -m '{}' -d
 ```
 
-> App 端默认就是 **8883 + 系统 CA**（`app/build.gradle` 的 `MQTT_DEFAULT_PORT=8883`），设备端在 `/etc/rpi-monitor.env` 里设 `MQTT_PORT=8883`（`MQTT_TLS=auto` 会自动开启）。
+> App 端默认就是 **8883 + 系统 CA**（`app/build.gradle` 的 `MQTT_DEFAULT_PORT=8883`），设备端在 `/etc/walle-ai.env` 里设 `MQTT_PORT=8883`（`MQTT_TLS=auto` 会自动开启）。
 > 证书不能是自签或证书域名与填写的主机名不一致，否则两端都会连接失败。
 
 ***
@@ -398,7 +398,7 @@ Dashboard → **访问控制 → 授权（Authorization）** → 添加 **File**
 | `{allow, ...}`               | 第一条命中即生效，后面的规则不再看                           |
 
 > - 把 `home` / `RaspPi5` 换成你的实际账号；App 端用户名即租户名。
-> - 设备连上来时 `clientid` 必须等于 `device_id`（`rpi_monitor.py` 里已用 `device_id` 作为 MQTT client\_id），否则 `${clientid}` 展开后与主题对不上，表现为发布被拒。
+> - 设备连上来时 `clientid` 必须等于 `device_id`（`main.py` 里已用 `device_id` 作为 MQTT client\_id），否则 `${clientid}` 展开后与主题对不上，表现为发布被拒。
 > - 如需收紧为「未命中即拒绝」，在文件末尾追加：`{deny, all}.`
 > - 保留 EMQX 自带的 `$SYS` 规则，不要覆盖删除；改完保存即热加载，无需重启。
 
@@ -444,13 +444,13 @@ mosquitto_sub -h www.example.com -p 8883 --tls-use-os-certs -u RaspPi5 -P '设�
 
 | 配置项                             | 位置                                          | 值                                                                                       |
 | ------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `ORYX_SECRET`（App）              | `gradle.properties` / `-PoryxSecret` / 环境变量 | Oryx 推流 secret（§6.1）                                                                    |
+| `WHIP_SECRET`（App）              | `gradle.properties` / `-PoryxSecret` / 环境变量 | Oryx 推流 secret（§6.1）                                                                    |
 | `WHIP_AUDIO_URL_TEMPLATE`       | `app/build.gradle`（由 ORYX\_SECRET 自动拼装）     | `https://www.example.com:443/rtc/v1/whip/?app=live&stream={room}_audio&secret=<secret>` |
 | `WHEP_URL_TEMPLATE`             | `app/build.gradle`                          | `https://www.example.com:443/rtc/v1/whep/?app=live&stream={room}`                       |
-| `ORYX_SECRET`（设备端）              | `/etc/rpi-monitor.env`                      | 与 App 用同一个 secret（§6.1）                                                                 |
-| `VIDEO_RTMP_URL_TEMPLATE`       | `linux/rpi_monitor.py`（由 ORYX\_SECRET 自动拼装） | `rtmp://www.example.com:1935/live/{room}?secret=<secret>`                               |
-| `PHONE_AUDIO_WHEP_URL_TEMPLATE` | `linux/rpi_monitor.py` / 环境变量               | `https://www.example.com:443/rtc/v1/whep/?app=live&stream={stream}`                     |
-| `MQTT_HOST` / `MQTT_PORT`       | `/etc/rpi-monitor.env`                      | `www.example.com` / `8883`                                                              |
+| `WHIP_SECRET`（设备端）              | `/etc/walle-ai.env`                      | 与 App 用同一个 secret（§6.1）                                                                 |
+| `VIDEO_RTMP_URL_TEMPLATE`       | `linux/main.py`（由 ORYX\_SECRET 自动拼装） | `rtmp://www.example.com:1935/live/{room}?secret=<secret>`                               |
+| `PHONE_AUDIO_WHEP_URL_TEMPLATE` | `linux/main.py` / 环境变量               | `https://www.example.com:443/rtc/v1/whep/?app=live&stream={stream}`                     |
+| `MQTT_HOST` / `MQTT_PORT`       | `/etc/walle-ai.env`                      | `www.example.com` / `8883`                                                              |
 | MQTT 主机 / 端口                    | App 内 MQTT 配置页                              | `www.example.com` / `8883`（TLS 开）                                                       |
 
 ***
@@ -460,10 +460,10 @@ mosquitto_sub -h www.example.com -p 8883 --tls-use-os-certs -u RaspPi5 -P '设�
 | 现象                                     | 原因                                         | 排查                                         |
 | -------------------------------------- | ------------------------------------------ | ------------------------------------------ |
 | 浏览器打不开域名，但 `curl http://SERVER_IP/` 正常 | 域名未备案 / DNS 未生效                            | §3、`dig`                                   |
-| WHEP 拉流或 WHIP 推流实际失败                   | `secret` 缺失/错误、后端异常（注意：用非法 SDP 探测本身也会 502） | 检查 `ORYX_SECRET`、`docker logs oryx`、App 日志 |
+| WHEP 拉流或 WHIP 推流实际失败                   | `secret` 缺失/错误、后端异常（注意：用非法 SDP 探测本身也会 502） | 检查 `WHIP_SECRET`、`docker logs oryx`、App 日志 |
 | WHIP 推流 502、WHEP 正常                    | 构建 App 时没带 `-PoryxSecret`，或值不对             | §6.1                                       |
 | 点麦克风提示「未配置 Oryx 推流 secret」             | App 构建期没注入 secret                          | 用 `-PoryxSecret=...` 重新构建（§6.1）            |
-| 视频推流返回「未配置 Oryx 推流 secret」             | 设备端 `/etc/rpi-monitor.env` 缺 `ORYX_SECRET` | 补上后 `sudo systemctl restart rpi-monitor`   |
+| 视频推流返回「未配置 Oryx 推流 secret」             | 设备端 `/etc/walle-ai.env` 缺 `WHIP_SECRET` | 补上后 `sudo systemctl restart rpi-monitor`   |
 | 有信令、无画面/无声音                            | **UDP 8000 没放行**                           | 安全组 / `ss -lunp`                           |
 | App 报 WHEP 证书校验失败                      | 自签证书或 SAN 不匹配                              | §6 的 openssl 校验                            |
 | App 连不上 MQTT                           | 8883 未配证书 / 端口没开 / 密码错                     | §9、`openssl s_client`                      |
