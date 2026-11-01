@@ -1,4 +1,4 @@
-# 树莓派监控 Agent（MQTT v2）
+# 树莓派监控 Agent（MQTT）
 
 配套 Android App《树莓派控制器》的设备端程序：周期采集树莓派状态、异常告警、远程执行命令、枚举摄像头并推流，全部通过 MQTT 与手机交互。
 
@@ -20,7 +20,7 @@
 
 ---
 
-## 二、协议 v2
+## 二、协议
 
 设备与 App 的全部 MQTT 通信约定（主题命名、请求/应答配对、报文格式、ACL、修改协议的流程）
 唯一定义在 **[doc/MQTT_protocol_convention.md](../doc/MQTT_protocol_convention.md)**，本文不复述，避免两处维护同一套规则产生偏差。
@@ -102,7 +102,7 @@ sudo journalctl -u rpi-monitor -n 30 --no-pager
 
 ```
 设备 device_id: 666feb85d43410b2（MAC=..., CPU核心数=4, ...）
-协议 v2: tenant=home device=666feb85d43410b2 broker=www.baidong.xyz:8883
+协议 : tenant=home device=666feb85d43410b2 broker=www.baidong.xyz:8883
 遗嘱(LWT)主题: walle/home/666feb85d43410b2/online
 已订阅 8 个主题；当前 USB 设备 N 个作为基线，不产生历史告警
 ```
@@ -254,6 +254,5 @@ linux/
 
 ## 八、版本说明
 
-- 本版本为**协议 v2（多租户主题）**，已移除全部 v1 全局主题（`device/online`、`cmd/exec` …）。
-- 必须与支持 v2 的 Android App 配套；老版本 App 无法再与本设备通信。
+- 必须与支持 的 Android App 配套；
 - 16KB page size、TLS 证书等与 App 端改造无关，设备端只需保证 `MQTT_TLS` / `MQTT_CA_FILE` 配置正确。

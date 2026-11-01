@@ -117,8 +117,9 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 
 | 重要文档 | 介绍 |
 |---|---|
-| [doc/quick_start.md](doc/quick_start.md) | 服务器配置、证书与权限，app如何连接服务器，如何使用|
-| [linux/README.md](linux/README.md) | linux设备端部署说明，一键安装脚本、配置项与排障。|
+| [doc/service_deploy.md](doc/service_deploy.md) | 如何部署服务器、配置证书，权限介绍|
+| [doc/quick_start.md](doc/quick_start.md) | 如何编译app，连接服务器，如何使用|
+| [linux/README.md](linux/README.md) | 如何部署linux设备端代码，如何使用和调试设备端代码。|
 
 
 
