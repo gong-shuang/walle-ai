@@ -10,9 +10,8 @@ import java.util.List;
 /**
  * 设备能力（capability/result）的强类型模型：摄像头 + 音频外设（麦克风/音响）。
  *
- * <p>对应设备端 {@code build_capability()}：主题已从 v2 早期的
- * {@code camera/capability/query} 升级为通用的 {@code capability/query}，
- * 报文新增 {@code audio{capture, playback}} 与条件化的 {@code capabilities} 清单。</p>
+ * <p>对应设备端 {@code build_capability()}：通用能力查询 {@code capability/query}，
+ * 报文含 {@code audio{capture, playback}} 与条件化的 {@code capabilities} 清单。</p>
  *
  * <p>解析原则与 {@link StatusSnapshot} 一致：缺分组归空、异常值归一为默认值，
  * 任何字段缺失都不能让页面崩。</p>

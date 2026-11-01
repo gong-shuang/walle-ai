@@ -23,6 +23,8 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     .../capability/query                      .../capability/result                  设备能力（摄像头/麦克风/音响等外设）
     .../video/start/request                     .../video/start/result               开始推流（动作）
     .../video/stop/request                      .../video/stop/result                停止推流（动作）
+    .../phone/audio/send                        .../phone/audio/send/result            手机麦上行·开（App 发起）
+    .../phone/audio/stop                        .../phone/audio/stop/result            手机麦上行·关（App 发起）
 
     命名约定：请求按语义划分 —— 查询 /query、命令 /exec、动作 /request；
     应答一律 /result，且只在收到对应请求后才发布，只有 online 与 alarm 是主动上报。
@@ -46,7 +48,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     python3 rpi_monitor.py --env-file PATH  使用指定配置文件
     python3 rpi_monitor.py --help           查看本说明
 
-部署脚本：./install.sh
+部署：见 linux/README.md「首次部署」（systemd 单元为 rpi-monitor.service）
 """
 
 import hashlib
@@ -321,9 +323,13 @@ CAM_ENABLE = _env_flag("CAM_ENABLE", True)   # 不需要摄像头能力查询时
 # ---- 视频推流（video/start，ffmpeg -> RTMP）----
 VIDEO_ENABLE = _env_flag("VIDEO_ENABLE", True)  # 不需要推流能力时置 False
 VIDEO_FFMPEG_BIN = "ffmpeg"              # ffmpeg 可执行文件（不在 PATH 就写绝对路径）
-VIDEO_RTMP_URL_TEMPLATE = (              # 推流地址模板，{room} 会被替换成房间号
-    "rtmp://www.baidong.xyz:1935/live/{room}?secret=a2616d641f344f8386c349f874ff2e4a"
-)
+VIDEO_RTMP_URL_TEMPLATE = os.environ.get(  # 推流地址模板：{room}=房间号，{secret}=Oryx 推流 secret
+    "VIDEO_RTMP_URL_TEMPLATE",
+    "rtmp://www.baidong.xyz:1935/live/{room}?secret={secret}")
+# Oryx 部署后会生成一个推流 secret（每台服务器都不同，在控制台「推流鉴权」可查看/重置），
+# 重置后所有旧客户端立即失效。禁止写死在源码里：用 ORYX_SECRET 环境变量
+# （/etc/rpi-monitor.env）注入；不配置则视频推流会被服务端拒绝。
+ORYX_SECRET = os.environ.get("ORYX_SECRET", "").strip()
 VIDEO_LOG_FILE = "log/ffmpeg_{time}.log"  # ffmpeg 日志文件（相对路径以进程工作目录为基准）
                                          # {time} 会替换成推流时刻，如 20261029_162650，
                                          # 所以每次推流都是一个独立的日志文件；目录不存在会自动创建
@@ -1092,13 +1098,18 @@ def build_ffmpeg_cmd(video_device, room_number, audio=None):
 
     cmd += [
         "-f", "flv",
-        VIDEO_RTMP_URL_TEMPLATE.format(room=room_number),
+        VIDEO_RTMP_URL_TEMPLATE.format(room=room_number, secret=ORYX_SECRET),
     ]
     return cmd
 
 
 def build_rtmp_url(room_number):
-    return VIDEO_RTMP_URL_TEMPLATE.format(room=room_number)
+    return VIDEO_RTMP_URL_TEMPLATE.format(room=room_number, secret=ORYX_SECRET)
+
+
+def rtmp_secret_ready():
+    """模板里还留着 {secret} 占位符时，必须配置了 ORYX_SECRET 才能推流。"""
+    return "{secret}" not in VIDEO_RTMP_URL_TEMPLATE or bool(ORYX_SECRET)
 
 
 def video_log_path():
@@ -1782,6 +1793,14 @@ class RpiMonitor:
             self._publish_video_result(
                 req, -2, "命令执行失败",
                 {"error": "room_number 不合法（只允许 1-64 位字母/数字/下划线/短横线）"})
+            return
+
+        # 2.1) Oryx 推流 secret：每台服务器不同，部署时用 ORYX_SECRET 注入。
+        #      没配置时不提前拦下，ffmpeg 会因为鉴权失败一直重连，看起来像“推流成功但黑屏”。
+        if not rtmp_secret_ready():
+            self._publish_video_result(
+                req, -2, "命令执行失败",
+                {"error": "未配置 Oryx 推流 secret（请在 /etc/rpi-monitor.env 设置 ORYX_SECRET）"})
             return
 
         # 3) 已有推流时：video_device 和 room_number 都一样 → 不处理（不重连、不重启）
@@ -2579,6 +2598,7 @@ def print_config_check():
     print(f"  Broker   : {MQTT_HOST}:{MQTT_PORT}   TLS={'on' if tls_on else 'off'} (MQTT_TLS={MQTT_TLS})")
     print(f"  用户名   : {MQTT_USER}")
     print(f"  密码     : {'********' if MQTT_PASSWORD else '(空)'}")
+    print(f"  Oryx secret: {'已配置' if ORYX_SECRET else '未配置（视频推流会被服务端拒绝）'}")
     print(f"  租户     : {sanitize_segment(MQTT_TENANT)}")
     print(f"  设备号   : {DEVICE_ID}")
     if DEVICE_ID.startswith("<"):

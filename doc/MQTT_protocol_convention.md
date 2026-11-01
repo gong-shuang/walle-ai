@@ -115,7 +115,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 干扰排查。所以两端都只订**精确的响应/请求主题清单**：
 
 - App 订 8 条：`walle/{t}/+` 下的 `online`、`alarm`、6 条 `…/result`（见 `TopicNames.responseSubscriptions`）
-- 设备端订 6 条：5 条设备级请求 + 1 条租户级 `discovery/query`（见 `rpi_monitor.subscriptions()`）
+- 设备端订 8 条：7 条设备级请求（含 `phone/audio/send|stop`）+ 1 条租户级 `discovery/query`（见 `rpi_monitor.subscriptions()`）
 
 ---
 
@@ -289,7 +289,7 @@ App 侧重复 online 不去重（幂等）。
 ### 4.5 设备能力 capability/query → capability/result
 
 **作用**：枚举设备端外设能力——摄像头（v4l2）、麦克风/音响（PulseAudio）等，供控制页
-展示与选择。历史上只查摄像头（`camera/capability/*`，已删除），任务 4 起升级为通用能力查询。
+展示与选择。v2 早期只查摄像头，任务 4 起升级为通用能力查询（旧主题已彻底删除，无兼容层）。
 
 - 请求：`walle/{t}/{d}/capability/query`，字段 `{uuid, request_id}`
 - 应答：`walle/{t}/{d}/capability/result`
@@ -405,7 +405,9 @@ MQTT 只负责「开 / 关」控制。
 
 > 为什么不用 RTMP：RTMP 走 TCP，没有丢帧/追帧机制，服务端起播缓存 + ffmpeg/声卡缓冲会累积成
 > 秒级延迟（实测手机说话到出声约 10s）。WebRTC 走 UDP，晚到的包直接丢弃，实测端到端约 200ms。
-> 另：服务端 WHIP 端点**必须带 `secret`**，不带会直接 502。
+> 另：服务端 WHIP 端点**必须带 `secret`**，不带会直接 502。这个 secret 由 Oryx 部署时生成、
+> 每台服务器不同，因此**不写死在代码里**：App 构建期注入（`-PoryxSecret` / `gradle.properties`
+> 的 `oryxSecret` / 环境变量 `ORYX_SECRET`），设备端读 `/etc/rpi-monitor.env` 的 `ORYX_SECRET`。
 
 - 开启请求：`walle/{t}/{d}/phone/audio/send` → 应答 `.../send/result`
 - 关闭请求：`walle/{t}/{d}/phone/audio/stop` → 应答 `.../stop/result`
@@ -446,8 +448,9 @@ MQTT 只负责「开 / 关」控制。
 
 **媒体面（App 端）**：`io.getstream:stream-webrtc-android` 的 `PeerConnectionFactory`
 （与视频会话共享同一个音频设备模块 ADM）→ `AudioSource/AudioTrack`（Opus 48kHz）→
-PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端点。推流 URL 模板在
-`build.gradle` 的 `WHIP_AUDIO_URL_TEMPLATE`，运行时把 `{room}` 替换成当前房间号。
+PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端点。推流 URL 模板由
+`build.gradle` 根据构建期注入的 `ORYX_SECRET` 拼出 `WHIP_AUDIO_URL_TEMPLATE`，运行时把
+`{room}` 替换成当前房间号；未注入 secret 时麦克风按钮会直接提示配置缺失。
 
 **媒体面（设备端）**：`whep_audio_player.py` 用 aiortc 发 WHEP Offer，收到 `s16/48kHz`
 帧后写入 `sounddevice.RawOutputStream`（blocksize=20ms，抖动队列最多 6 帧 ≈ 120ms，
@@ -468,7 +471,6 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 ```bash
 ./gradlew :app:testDebugUnitTest        # App 契约测试
 python3 linux/selftest_topics.py       # 设备端契约自检
-bash -n linux/install.sh               # 部署脚本语法检查
 ```
 
 **三条铁律**：

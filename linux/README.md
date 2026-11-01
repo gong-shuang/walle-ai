@@ -22,113 +22,78 @@
 
 ## 二、协议 v2
 
-全部主题都在 `walle/{tenant}/{device}/` 下：
+设备与 App 的全部 MQTT 通信约定（主题命名、请求/应答配对、报文格式、ACL、修改协议的流程）
+唯一定义在 **[doc/MQTT_protocol_convention.md](../doc/MQTT_protocol_convention.md)**，本文不复述，避免两处维护同一套规则产生偏差。
 
-| 用途 | App → 设备（请求） | 设备 → App（应答） | 说明 |
-|---|---|---|---|
-| 设备发现 | `walle/{t}/discovery/query` | `.../discovery/result` | 租户内广播；应答携带型号 / 序列号 / IP / 系统 / 内核 … |
-| 状态 | `.../state/query` | `.../state/result` | 完整状态快照 |
-| 命令 | `.../cmd/exec` | `.../cmd/result` | 请求带 `request_id`、`timeout` |
-| 摄像头 | `.../camera/capability/query` | `.../camera/capability/result` | v4l2 枚举结果 |
-| 推流 | `.../video/start/request` | `.../video/start/result` | 带 `room_number` |
-| 停止推流 | `.../video/stop/request` | `.../video/stop/result` | 带 `room_number` |
-| 上线/下线（主动） | — | `.../online` | retained + LWT，`{"online":true/false,...}` |
-| 告警（主动） | — | `.../alarm` | `level` / `event` / `metric` |
+设备侧只需记住两点：
 
-**命名约定**：请求按语义划分 —— 查询用 `…/query`、命令用 `…/exec`、动作（推流）用 `…/request`；
-应答一律 `…/result`，且**只在收到对应请求后发布**；只有 `online` 与 `alarm` 是设备主动上报。
-
-**配对**：所有请求都带 `request_id`，设备在对应的 `…/result` 里**原样回显**，
-App 据此把结果与请求对上（日志里也会打印 `request_id=...` 方便对照）。
-
-规则：
-
-- 除 `discovery/query` 外，**每个请求都必须带匹配的 `uuid`**（本次运行实例标识），否则设备静默忽略；
-- 设备只订阅自己子树下的**请求类**主题，不订通配子串（避免收到自己发布的上报）；
-- 主题段只允许 `[A-Za-z0-9_-]`，`.` `:` `@` 空格会转成 `_`，其它字符丢弃 —— **App 与设备端使用同一套清洗规则**（`selftest_topics.py` 会校验一致性）。
+- 所有主题都在 `walle/{tenant}/{device}/` 子树下，`tenant` = App 登录用户名，`device` = 本机稳定 `device_id`；
+- 主题段清洗规则与 App 逐字符一致（`[A-Za-z0-9_-]` 保留，`.` `:` `@` 空格转 `_`），由 [`selftest_topics.py`](selftest_topics.py) 校验。
 
 ---
 
-## 三、首次部署到新树莓派
+## 三、部署
 
 ### 3.1 前置条件
 
 | 项 | 要求 |
 |---|---|
 | 系统 | Raspberry Pi OS（Bookworm 及以上），已联网 |
-| 用户 | 有 sudo 权限的普通用户（脚本会以该用户跑服务） |
-| 依赖 | 脚本自动安装：`python3-venv`、`v4l-utils`（摄像头）、`ffmpeg`（推流）、`libportaudio2`（手机麦上行出声） |
-| Broker | EMQX（5.x / 6.x），已开 8883(TLS) 或 1883，并已建好设备账号 |
+| 用户 | 有 sudo 权限的普通用户（服务会以该用户跑） |
+| 依赖 | 手动安装：`python3-venv`、`v4l-utils`（摄像头）、`ffmpeg`（推流）、`libportaudio2`（手机麦上行出声） |
+| 服务器端 | 必须部署了EMQX和Oyxl服务，具体部署请参考[doc/service_deploy.md](../doc/service_deploy.md) |
 
-### 3.2 方式 A：一键脚本（推荐）
+### 3.2 首次配置环境
 
-在 Mac/PC 上把 `linux/` 目录整体拷到树莓派，然后运行：
+在 Mac/PC 上把 `linux/` 目录整体拷到树莓派：
 
 ```bash
-scp -r linux gs@<树莓派IP>:~/
-ssh gs@<树莓派IP>
-cd ~/linux
-sudo ./install.sh
+scp -r linux gs@<树莓派IP>:~/mqtt_demo
+ssh gs@<树莓派IP> && cd ~/mqtt_demo
 ```
 
-脚本会**逐项询问 5 个必填变量**（直接回车使用中括号里的默认值）：
+装系统依赖、建虚拟环境：
+
+```bash
+sudo apt update && sudo apt install -y python3-venv v4l-utils ffmpeg libportaudio2
+python3 -m venv .venv
+./.venv/bin/pip install -r requirements.txt
+```
+
+改配置：直接编辑本目录的 `rpi-monitor.env`（必填 6 项），安装到 `/etc`：
+
+```bash
+sudo nano rpi-monitor.env
+sudo install -m 600 rpi-monitor.env /etc/rpi-monitor.env   # 600，仅 root 可读
+```
+
+`rpi-monitor.env` 中的 6 个必填项：
 
 | 变量 | 含义 | 示例 | 说明 |
 |---|---|---|---|
 | `MQTT_HOST` | Broker 地址 | `www.baidong.xyz` | 域名或 IP |
 | `MQTT_PORT` | 端口 | `8883` | 8883=TLS（推荐），1883=明文 |
 | `MQTT_USERNAME` | **设备自己**的 MQTT 账号 | `RaspPi5` | 不是手机账号 |
-| `MQTT_PASSWORD` | 设备账号口令 | — | 输入时不回显 |
+| `MQTT_PASSWORD` | 设备账号口令 | — | 默认 `123456`，请改掉 |
 | `MQTT_TENANT` | 租户 = **手机 App 的登录用户名** | `home` | 两边不一致 App 就收不到设备 |
+| `ORYX_SECRET` | **Oryx 推流鉴权 secret** | — | 每台服务器不同，重置后旧客户端失效；获取方式见 [doc/service_deploy.md §6.1](../doc/service_deploy.md)。不配置则视频推流会被服务端拒绝 |
 
-随后脚本会自动完成：装依赖 → 建 venv → 安依赖 → 拷贝代码到 `~/mqtt_demo` → 写 `/etc/rpi-monitor.env`（600）→ 安装并启动 systemd → 跑协议自检 → 打印设备主题前缀。
+> App 端也要用同一个 secret：构建时加 `-PoryxSecret=<secret>`（或 `gradle.properties` 的 `oryxSecret` / 环境变量 `ORYX_SECRET`）。
+> 可选覆盖：`VIDEO_RTMP_URL_TEMPLATE` 支持 `{room}` / `{secret}` 两个占位符，用来换推流域名。
 
-常用参数：
+### 3.3 使用 systemctl 运行（长期部署）
 
-```bash
-sudo ./install.sh --dry-run     # 只演示流程，不落盘（可在任何机器上跑）
-sudo ./install.sh --update      # 只更新代码并重启，沿用已有配置
-sudo ./install.sh --skip-deps   # 已装好依赖时跳过 apt
-sudo ./install.sh -h            # 帮助
-```
-
-非交互（批量部署 / 自动化）：
+安装 systemd 服务时按当前用户 / 目录改写模板里的 `User=` 与路径，然后启动：
 
 ```bash
-MQTT_HOST=www.baidong.xyz MQTT_PORT=8883 MQTT_USERNAME=RaspPi5 \
-MQTT_PASSWORD='设备口令' MQTT_TENANT=home sudo -E ./install.sh
-```
-
-### 3.3 方式 B：手动部署
-
-```bash
-# 1) 依赖
-sudo apt update && sudo apt install -y python3-venv v4l-utils ffmpeg libportaudio2
-
-# 2) 代码与虚拟环境
-mkdir -p ~/mqtt_demo && cd ~/mqtt_demo
-cp /path/to/linux/{rpi_monitor.py,whep_audio_player.py,selftest_topics.py,requirements.txt} .
-python3 -m venv .venv
-./.venv/bin/pip install -r requirements.txt
-
-# 3) 配置（600，仅 root 可读）
-sudo install -m 600 /dev/null /etc/rpi-monitor.env
-sudo tee /etc/rpi-monitor.env >/dev/null <<'EOF'
-MQTT_HOST=www.baidong.xyz
-MQTT_PORT=8883
-MQTT_USERNAME=RaspPi5
-MQTT_PASSWORD=设备口令
-MQTT_TENANT=home
-MQTT_TLS=auto
-MQTT_CA_FILE=
-EOF
-
-# 4) 服务
-sudo cp /path/to/linux/rpi-monitor.service /etc/systemd/system/
+sudo cp rpi-monitor.service /etc/systemd/system/
 sudo sed -i "s#/home/gs/mqtt_demo#$HOME/mqtt_demo#g; s/^User=.*/User=$USER/" /etc/systemd/system/rpi-monitor.service
 sudo systemctl daemon-reload && sudo systemctl enable --now rpi-monitor
+```
 
-# 5) 自检 + 看日志
+自检 + 看日志：
+
+```bash
 ./.venv/bin/python selftest_topics.py --tenant home
 sudo journalctl -u rpi-monitor -n 30 --no-pager
 ```
@@ -139,10 +104,12 @@ sudo journalctl -u rpi-monitor -n 30 --no-pager
 设备 device_id: 666feb85d43410b2（MAC=..., CPU核心数=4, ...）
 协议 v2: tenant=home device=666feb85d43410b2 broker=www.baidong.xyz:8883
 遗嘱(LWT)主题: walle/home/666feb85d43410b2/online
-已订阅 6 个主题；当前 USB 设备 N 个作为基线，不产生历史告警
+已订阅 8 个主题；当前 USB 设备 N 个作为基线，不产生历史告警
 ```
 
-### 3.4 不加 systemd，直接在前台运行（调试 / 临时）
+升级代码：把新的 `rpi_monitor.py` 等文件拷到 `~/mqtt_demo` 覆盖，再 `sudo systemctl restart rpi-monitor`（配置保留在 `/etc/rpi-monitor.env`，不受影响）。
+
+### 3.4 调试：直接在终端运行，方便查看日志
 
 程序会自动读取 `/etc/rpi-monitor.env`，所以**不用手动 export**：
 
@@ -195,36 +162,8 @@ MQTT_TENANT=home python3 rpi_monitor.py        # shell 变量优先于文件
 - 前台运行**不要**同时开着 systemd 服务（同 clientId 会互踢，表现为连接反复断开）；
 - 想看告警/命令输出，前台运行比 `journalctl` 更直观；长期跑还是建议回到 systemd。
 
-### 3.5 EMQX 侧（一次性）
 
-1. **客户端认证 → 内置数据库**：确认设备账号存在（如 `RaspPi5`），并给手机端准备账号（如 `home`）。
-2. **客户端授权 → File → 设置**：粘贴 [`emqx/acl.conf.example`](emqx/acl.conf.example) 的内容，把 `home` / `RaspPi5` 换成你的实际值；保存后热加载，无需重启。
 
-```erlang
-{allow, {username, {re, "^home$"}}, all, ["walle/home/#"]}.
-{allow, {username, {re, "^RaspPi5$"}}, publish,   ["walle/home/${clientid}/#"]}.
-{allow, {username, {re, "^RaspPi5$"}}, subscribe, ["walle/home/${clientid}/#",
-                                                   "walle/home/discovery/query"]}.
-```
-
-> 若你的 EMQX 版本不支持 `${clientid}` 占位符，把设备规则里的 `${clientid}` 换成 `+`。
-
-### 3.6 手机 App 侧
-
-App → 设置 → 服务器连接：
-
-| 字段 | 填什么 |
-|---|---|
-| Broker / 端口 | 与设备一致（`www.baidong.xyz` / `8883`） |
-| MQTT 用户名 | **`MQTT_TENANT` 的值**（如 `home`） |
-| MQTT 密码 | 该账号口令 |
-| TLS | 端口 8883 时自动开启 |
-
-App 订阅的是「设备 → App」的 8 个主题（`walle/<用户名>/+/{online,alarm,discovery/result,state/result,cmd/result,camera/capability/result,video/start/result,video/stop/result}`），
-所以**租户与用户名必须是同一个值**。家里多人共用时，所有人填同一个账号即可看到同一台小车。
-
-> App 不订阅 `walle/<用户名>/#`：MQTT 3.1.1 没有 no-local 语义，订通配子树会把自己发出去的
-> `state/query`、`discovery/query` 再收回来一遍（日志里会看到 `← RECV` 自己发的报文）。
 
 ---
 
@@ -262,8 +201,9 @@ sudo journalctl -u rpi-monitor -n 100    # 最近 100 行
 sudo systemctl restart rpi-monitor       # 改完 /etc/rpi-monitor.env 后重启
 sudo nano /etc/rpi-monitor.env           # 改配置
 cd ~/mqtt_demo && ./.venv/bin/python selftest_topics.py --tenant home   # 协议自检
-sudo ./install.sh --update               # 升级代码（保留配置）
 ```
+
+升级代码：拷新文件覆盖 `~/mqtt_demo` 后 `sudo systemctl restart rpi-monitor`（见 3.3）。
 
 自检脚本会校验：租户/设备段清洗规则与 App 一致、主题拼装、订阅清单、请求→处理函数、发布落在命名空间、v1 常量已清除。
 
@@ -304,9 +244,8 @@ linux/
 ├── whep_audio_player.py        # 手机麦上行播放端（WHEP 拉流 + PortAudio 出声）
 ├── requirements.txt            # paho-mqtt / psutil / aiortc / sounddevice
 ├── selftest_topics.py          # 主题契约自检
-├── install.sh                  # 一键安装 / 升级
-├── rpi-monitor.service         # systemd 模板（install.sh 会按实际路径改写）
-├── rpi-monitor.env.example     # 配置样例
+├── rpi-monitor.service         # systemd 模板（部署时按实际用户 / 目录改写，见 3.3）
+├── rpi-monitor.env             # 配置样例（部署时安装到 /etc/rpi-monitor.env）
 ├── emqx/acl.conf.example       # EMQX 授权规则
 └── docs/legacy-v1-spec.md      # v1 时期的需求文档（归档，可删除）
 ```

@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=gs
-# install.sh 会把安装目录 / 用户替换成实际值；手动部署时按需修改
+# 模板：部署时把用户 / 安装目录替换成实际值（命令见 linux/README.md 3.3）
 WorkingDirectory=/home/gs/mqtt_demo
 EnvironmentFile=-/etc/rpi-monitor.env
 ExecStart=/home/gs/mqtt_demo/.venv/bin/python /home/gs/mqtt_demo/rpi_monitor.py

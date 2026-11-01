@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** 摄像头能力（camera/capability/result）的强类型模型。 */
+/** 摄像头能力（capability/result 里的 cameras 分组）的强类型模型。 */
 public final class CameraCapability {
 
     public static final class Camera {
@@ -37,7 +37,7 @@ public final class CameraCapability {
      * 解析「裸数组」形态：[{"node":"/dev/video0","name":"..."}]。
      *
      * <p>控制页把能力列表塞进 Intent 传给播放页时用的就是这个形态，
-     * 与设备端 {@code camera/capability/result} 的 {@code {"cameras":[...]}} 不同。</p>
+     * 与设备端 {@code capability/result} 的 {@code {"cameras":[...]}} 不同。</p>
      */
     public static List<Camera> parseArray(String json) {
         if (json == null || json.isEmpty()) return Collections.emptyList();

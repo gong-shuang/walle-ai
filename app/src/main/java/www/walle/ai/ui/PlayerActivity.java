@@ -63,8 +63,9 @@ public class PlayerActivity extends AppCompatActivity {
     public static final String EXTRA_CAMERAS_JSON = "extra_cameras_json";
 
     // —— 会话 / 播放相关 ——
-    private static final String WHEP_URL = BuildConfig.WHEP_URL;
-    private String whepUrl = WHEP_URL;
+    // 进入本页必定携带房间号（见 ControlFragment.openFullscreen 的空值守卫），
+    // onCreate 会用 BuildConfig.WHEP_URL_TEMPLATE 按房间号填入实际拉流地址
+    private String whepUrl = "";
     private String roomNumber = "";
 
     /** spinner 的数据源（View 层自有：VM 只给不可变快照）。 */

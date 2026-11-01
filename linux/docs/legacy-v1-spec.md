@@ -483,7 +483,7 @@ F13  broker 改域名 + 推流日志落盘
   ① 域名
      MQTT_HOST = "www.baidong.xyz"（MQTT 1883 连接）
      VIDEO_RTMP_URL_TEMPLATE =
-       "rtmp://www.baidong.xyz:1935/live/{room}?secret=a2616d641f344f8386c349f874ff2e4a"
+       "rtmp://www.baidong.xyz:1935/live/{room}?secret=…"
      全项目已无硬编码 IP。
 
   ② ③ 日志文件

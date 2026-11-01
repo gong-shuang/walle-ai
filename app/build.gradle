@@ -2,25 +2,30 @@ plugins {
     id 'com.android.application'
 }
 
-// ---------------- MQTT 默认连接参数 ----------------
-// 明文凭据不再硬编码在 Java 源码里，统一在构建期注入，便于按环境覆盖：
-//   方式一：gradle.properties 里写 mqttHost / mqttPort
-//   方式二：命令行 -PmqttHost=xxx -PmqttPort=8883
-//   方式三：环境变量 MQTT_DEFAULT_HOST / MQTT_DEFAULT_PORT
-// 注意：只注入主机与端口；用户名 / 密码由用户在 App 内输入，经 Keystore 加密保存。
-def mqttProp = { String propKey, String envKey, String fallback ->
-    String v = project.findProperty(propKey)?.toString()
-    if (v == null || v.trim().isEmpty()) v = System.getenv(envKey)
-    if (v == null || v.trim().isEmpty()) v = fallback
+// 读取必需的构建期配置常量：值必须能在 gradle.properties（或命令行 -P<key>=<值>）里取到。
+def getProp = { String propKey ->
+    String v = project.findProperty(propKey)?.toString()?.trim()
+    if (v == null || v.isEmpty()) {
+        throw new GradleException(
+                "缺少必需的构建配置项 '${propKey}'。\n" +
+                "  请在项目根目录的 gradle.properties 补一行：${propKey}=<值>\n")
+    }
     return v
 }
-// 生成 BuildConfig 字符串字面量时的转义，避免引号/反斜杠破坏 Java 代码
-def mqttEscape = { String s -> s.replace('\\', '\\\\').replace('"', '\\"') }
 
-def mqttHost = mqttProp('mqttHost', 'MQTT_DEFAULT_HOST', 'www.baidong.xyz')
-// 默认走 TLS：8883 是 EMQX 的 ssl 监听，配合 MqttConfig.tls 默认值保持一致；
-// 需要明文时显式传 -PmqttPort=1883，此时 TLS 开关会自动关闭。
-def mqttPort = Integer.parseInt(mqttProp('mqttPort', 'MQTT_DEFAULT_PORT', '8883').trim())
+// ---------------- MQTT 默认连接参数 ----------------
+def mqttHost = getProp('mqttHost')
+// 端口建议 8883（EMQX 的 ssl 监听，配合 MqttConfig.tls 默认值）；
+// 需要明文时在 gradle.properties 把 mqttPort 改成 1883，TLS 开关会自动关闭。
+def mqttPort = Integer.parseInt(getProp('mqttPort'))
+
+// ---------------- 播放/拉流地址 ----------------
+def whepUrlTemplate = getProp('whepUrlTemplate')
+def whipSecret = getProp("whipSecret")
+def whipAudioBaseUrl = getProp('whipAudioBaseUrl')
+// 有 secret 才拼进地址；必须先 def 声明再赋值，否则 Groovy 会把它当成给 project 赋属性（报 unknown property）
+def whipAudioUrl = "${whipAudioBaseUrl}&secret=${whipSecret}"
+
 
 android {
     namespace 'www.walle.ai'
@@ -38,18 +43,25 @@ android {
         versionCode 10
         versionName "1.9"
 
-        // WHEP 拉流地址（演示服务器），生产环境替换为正式地址
-        buildConfigField "String", "WHEP_URL", "\"https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream=123456\""
-        // 按房间号拼接的 WHEP 拉流地址模板：{room} 会被替换成 video/start/result 里的 room_number
-        // app 必须与设备端 RTMP 推流路径中的 app 一致（rtmp://124.220.197.223:1935/live/<room> → app=live）
-        buildConfigField "String", "WHEP_URL_TEMPLATE", "\"https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream={room}\""
+        // 把值写成 BuildConfig 常量的小 helper：String 自动补引号并转义其中的 \ 和 "，
+        // int 直接透传；这样每个字段只剩“名字 + 取哪个变量”，一行一个，改起来不容易漏。
+        // 必须定义在 defaultConfig 内部：buildConfigField 只在这个作用域能解析到。
+        def configString = { String name, Object value ->
+            def lit = value.toString().replace('\\', '\\\\').replace('"', '\\"')
+            buildConfigField 'String', name, "\"${lit}\""
+        }
+        def configInt = { String name, Object value ->
+            buildConfigField 'int', name, "${value}"
+        }
 
-        // 反向音频（任务 2）：手机麦克风 → WebRTC（WHIP）→ 设备端 WHEP 拉流播放。
-        // 必须与视频房间号错开，否则会和设备正在推的视频抢同一个 stream，
-        // 因此约定音频流名为 {room}_audio；secret 与设备端 RTMP 推流地址一致
-        // （实测服务端 WHIP 端点不带 secret 会直接 502）。
-        buildConfigField "String", "WHIP_AUDIO_URL_TEMPLATE",
-                "\"https://www.baidong.xyz:443/rtc/v1/whip/?app=live&stream={room}_audio&secret=a2616d641f344f8386c349f874ff2e4a\""
+        // MQTT 默认连接参数（源码里不出现明文凭据；账号密码由用户在 App 内输入）
+        configString 'MQTT_DEFAULT_HOST', mqttHost
+        configInt 'MQTT_DEFAULT_PORT', mqttPort
+
+        // WHEP 拉流地址模板
+        configString 'WHEP_URL_TEMPLATE', whepUrlTemplate
+        // 反向音频：手机麦克风 → WebRTC(WHIP) → 设备端 WHEP 拉流播放。
+        configString 'WHIP_AUDIO_URL_TEMPLATE', whipAudioUrl
 
         // ABI 过滤：WebRTC 的 .so 占 41 MB（4 个 ABI），手机端只需要 arm64-v8a / armeabi-v7a。
         // x86 / x86_64 仅模拟器需要；如果你的模拟器是 x86 镜像，临时把对应 ABI 加回这一行。
@@ -57,9 +69,6 @@ android {
             abiFilters 'arm64-v8a', 'armeabi-v7a'
         }
 
-        // MQTT 默认连接参数（源码里不出现明文凭据；账号密码由用户在 App 内输入）
-        buildConfigField "String", "MQTT_DEFAULT_HOST", "\"${mqttEscape(mqttHost)}\""
-        buildConfigField "int", "MQTT_DEFAULT_PORT", "${mqttPort}"
     }
 
     buildTypes {
@@ -101,7 +110,7 @@ android {
     }
 
     buildFeatures {
-        // 需要生成 BuildConfig（PlayerActivity 从 BuildConfig.WHEP_URL 取拉流地址）
+        // 需要生成 BuildConfig（PlayerActivity 从 BuildConfig.WHEP_URL_TEMPLATE 按房间号取拉流地址）
         buildConfig true
         // activity_player.xml 通过 ViewBinding 访问控件
         viewBinding true

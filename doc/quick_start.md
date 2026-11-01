@@ -22,7 +22,8 @@
 # 按需覆盖默认 Broker 地址（优先级：-P 参数 > 环境变量 > 默认值）
 ./gradlew :app:assembleDebug \
   -PmqttHost=192.168.1.10 \
-  -PmqttPort=8883          # 默认就是 8883（TLS）；改用 1883 明文时 TLS 开关会自动关闭
+  -PmqttPort=8883 \
+  -PoryxSecret=<Oryx推流secret>   # 必填：反向音频 WHIP 与设备推流鉴权，见下文「配置 Oryx 推流 secret」
 
 # release APK（R8 混淆 + 资源压缩）
 ./gradlew :app:assembleRelease
@@ -62,6 +63,22 @@ EMQX 默认端口对应关系：
 | 8883 | `ssl://` | TLS，需开启 TLS 开关 |
 | 8083 | `ws://` | WebSocket，明文 |
 | 8084 | `wss://` | WebSocket + TLS |
+
+## 配置 Oryx 推流 secret
+
+服务器部署 Oryx 后会生成一个**推流鉴权 secret**（32 位十六进制），每台服务器**各自不同**，
+重置后旧客户端立即失效，因此**不能写死在代码里**，构建期注入：
+
+| 方式 | 写法 |
+|---|---|
+| 命令行 | `-PoryxSecret=<secret>` |
+| `gradle.properties` | `oryxSecret=<secret>` |
+| 环境变量 | `ORYX_SECRET=<secret> ./gradlew :app:assembleDebug` |
+
+- 只影响**推流**（手机麦克风 WHIP、设备视频 RTMP）；拉流（WHEP）不需要。
+- 没配置时构建会打印警告，点麦克风按钮会提示「未配置 Oryx 推流 secret」。
+- 获取方式与设备端配置（`/etc/rpi-monitor.env` 的 `ORYX_SECRET`）见
+  [服务器部署文档 §6.1](service_deploy.md)。
 
 ## 证书
 

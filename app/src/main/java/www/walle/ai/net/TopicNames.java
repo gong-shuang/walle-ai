@@ -201,8 +201,9 @@ public final class TopicNames {
     /**
      * 开启手机麦克风上行（App → 设备，单向动作）。
      * <p>{@code phone/audio/*} 描述的是「手机侧发起的动作」，不是设备的推流；
-     * 设备收到后自行从 RTMP 拉 {@code {room}_audio} 播放。载荷含 room_number，
-     * 设备据此拼拉流地址，因此不需要 result 回执也不影响两端状态一致。</p>
+     * 设备收到后自行从 RTMP 拉 {@code {room}_audio} 播放。载荷含 room_number，设备据此拼拉流地址。
+     * 设备端会发布 {@code .../send/result} 回执；但当前 {@link #responseSubscriptions}
+     * 未订阅 phone/audio 应答，UI 收不到该回执（已知待修：应订阅并根据回执更新开关状态）。</p>
      */
     public static String phoneAudioSend(String tenant, String device) {
         return deviceBase(tenant, device) + "/phone/audio/send";
