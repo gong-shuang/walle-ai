@@ -93,7 +93,7 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 
 ## MQTT 主题约定
 
-**协议 v2（多租户主题）**：所有主题都在 `walle/{tenant}/{device}/` 下展开。
+**协议 v1（多租户主题）**：所有主题都在 `walle/{tenant}/{device}/` 下展开。
 
 - `tenant` = App 登录用的 MQTT 用户名（清洗后），Broker 用 `walle/${username}/#` 做 ACL；
 - `device` = 设备端稳定的 `device_id`（MAC + CPU + 内存的 md5 前 16 位，重启不变）；
@@ -170,12 +170,12 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 
 - [快速上手指南](doc/quick_start.md) — 环境要求、构建、Broker 配置、证书与权限
 - [任务清单](doc/task_list_20261030.md) — 待开发任务与验收标准
-- [MQTT 协议约定（协议 v2）](doc/MQTT_protocol_convention.md) — 全部报文字段定义、设计原则与修改流程（改协议前必读）
+- [MQTT 协议约定（协议 v1）](doc/MQTT_protocol_convention.md) — 全部报文字段定义、设计原则与修改流程（改协议前必读）
 - [设备发现收敛（N7）](doc/dev_record/n7-discovery-scaling.md) — 列表改由 retained `online` 驱动，discovery 降级为按需
 - [MQTT5 升级评估](doc/dev_record/mqtt5-assessment.md) — 工作量（6–10 / 13–19 人日）、收益排序、ACL 代价与触发条件
 - [架构与技术评审](doc/dev_record/architecture-review.md) — 分层、安全、性能、可测试性现状与 P0/P1/P2 升级路线
 - [targetSdk 36 升级指南](doc/dev_record/s4-target-sdk-36-migration.md) — 工具链升级、edge-to-edge 适配、视觉回归清单与设备端影响
-- [多租户主题方案（协议 v2）](doc/dev_record/s3-multi-tenant-topics.md) — 主题契约、EMQX ACL 步骤与验收
+- [多租户主题方案](doc/dev_record/s3-multi-tenant-topics.md) — 主题契约、EMQX ACL 步骤与验收
 - [设备端部署说明](linux/README.md) — 树莓派一键安装脚本、配置项与排障
 
 ## 许可

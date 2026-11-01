@@ -9,7 +9,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 2. 响应设备身份查询、状态查询、远程命令、摄像头能力查询、推流/停止推流。
 3. 上线/下线：retained + 遗嘱（LWT），App 重启或重连后能立刻看到设备在线状态。
 
-协议：多租户主题 v2
+协议：多租户主题 v1
     所有主题都在 walle/{tenant}/{device}/ 下展开，租户 = MQTT 用户名（清洗后），
     device 用稳定的 device_id（MAC + CPU 核心数 + 内存容量 的 md5 前 16 位）。
 
@@ -198,7 +198,7 @@ DEVICE_UUID = ""    # 在 RpiMonitor.__init__ 中计算
 #   device = 下面的 DEVICE_ID（跨重启/重装不变）。
 #
 MQTT_TENANT = os.environ.get("MQTT_TENANT", MQTT_USER).strip()
-V2_ROOT = "walle"
+TOPIC_ROOT = "walle"
 
 
 def _is_ascii_alnum(ch):
@@ -228,19 +228,19 @@ def sanitize_segment(raw):
     return seg
 
 
-def v2_device_base(tenant=None, device=None):
+def device_topic_base(tenant=None, device=None):
     """walle/{tenant}/{device}"""
     t = sanitize_segment(MQTT_TENANT if tenant is None else tenant)
     d = sanitize_segment(DEVICE_ID if device is None else device)
-    return f"{V2_ROOT}/{t}/{d}"
+    return f"{TOPIC_ROOT}/{t}/{d}"
 
 
-def v2_topic(resource):
-    return v2_device_base() + "/" + resource
+def device_topic(resource):
+    return device_topic_base() + "/" + resource
 
 
-def v2_tenant_topic(suffix):
-    return f"{V2_ROOT}/{sanitize_segment(MQTT_TENANT)}/{suffix}"
+def tenant_topic(suffix):
+    return f"{TOPIC_ROOT}/{sanitize_segment(MQTT_TENANT)}/{suffix}"
 
 
 # 请求 → 应答 的对应关系（也用于自检，保证命名成对）
@@ -273,7 +273,7 @@ def subscriptions():
     不订 walle/{t}/{d}/#：MQTT 3.1.1 会把客户端自己发布的报文也投递回来，
     订全子树会收到自己发的 state/alarm，白白浪费带宽。
     """
-    base = v2_device_base()
+    base = device_topic_base()
     return [
         (f"{base}/{REQ_STATE}", MQTT_QOS),
         (f"{base}/{REQ_CMD}", MQTT_QOS),
@@ -282,7 +282,7 @@ def subscriptions():
         (f"{base}/{REQ_VIDEO_STOP}", MQTT_QOS),
         (f"{base}/{REQ_PHONE_AUDIO_SEND}", MQTT_QOS),
         (f"{base}/{REQ_PHONE_AUDIO_STOP}", MQTT_QOS),
-        (v2_tenant_topic(REQ_DISCOVERY), MQTT_QOS),
+        (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
     ]
 
 # ---- 监控阈值（均可用环境变量覆盖，写进 /etc/walle-ai.env 即可）----
@@ -1279,7 +1279,7 @@ class RpiMonitor:
 
     def _will_message(self):
         """遗嘱消息：掉线时由 broker 代发 offline 到 walle/{t}/{d}/online。"""
-        return v2_topic(RES_ONLINE), self.build_online_payload(False)
+        return device_topic(RES_ONLINE), self.build_online_payload(False)
 
     # ---------- MQTT 回调 ----------
 
@@ -1308,7 +1308,7 @@ class RpiMonitor:
         except Exception:
             payload = ""
         logging.info("收到消息 %s: %s", msg.topic, payload[:500])
-        if msg.topic.startswith(V2_ROOT + "/"):
+        if msg.topic.startswith(TOPIC_ROOT + "/"):
             self._handle_request(msg.topic, payload)
         else:
             logging.warning("忽略非本协议主题: %s", msg.topic)
@@ -1344,7 +1344,7 @@ class RpiMonitor:
 
         参数 resource 用模块顶部的 RES_* 常量，例如 RES_ALARM / RES_CMD_RESULT。
         """
-        self._publish_one(v2_topic(resource), data, retain)
+        self._publish_one(device_topic(resource), data, retain)
 
     def _publish_one(self, topic, data, retain=False):
         info = self.client.publish(
@@ -1361,7 +1361,7 @@ class RpiMonitor:
         早期实现统一按 4 段切分，导致 discovery 被解析成 device="discovery"、
         resource="query"，匹配不到处理函数而被静默忽略 —— 设备永远不会应答发现。
         """
-        if topic == v2_tenant_topic(REQ_DISCOVERY):
+        if topic == tenant_topic(REQ_DISCOVERY):
             self.pool.submit(self.handle_device_query, payload)
             return
 
@@ -1529,10 +1529,10 @@ class RpiMonitor:
             info["request_id"] = rid
             self.publish_json(RES_DISCOVERY_RESULT, info)
             logging.info("已响应设备身份查询 -> %s（request_id=%s，型号=%s 序列号=%s 主机名=%s）",
-                         v2_topic(RES_DISCOVERY_RESULT), rid or "-", info.get("model"),
+                         device_topic(RES_DISCOVERY_RESULT), rid or "-", info.get("model"),
                          info.get("serial"), info.get("hostname"))
         except Exception:
-            logging.exception("上报 %s 失败", v2_topic(RES_DISCOVERY_RESULT))
+            logging.exception("上报 %s 失败", device_topic(RES_DISCOVERY_RESULT))
 
     # ---------- capability/query 设备能力查询（摄像头/麦克风/音响等外设） ----------
 
@@ -1602,7 +1602,7 @@ class RpiMonitor:
             self.publish_json(RES_CAPABILITY_RESULT, result)
             audio = result["audio"]
             logging.info("已响应能力查询 -> %s（request_id=%s，摄像头 %d 个，麦克风%s，音响%s，耗时 %dms%s）",
-                         v2_topic(RES_CAPABILITY_RESULT), rid or "-", result["camera_count"],
+                         device_topic(RES_CAPABILITY_RESULT), rid or "-", result["camera_count"],
                          "" if audio["capture"]["available"] else "：无",
                          "" if audio["playback"]["available"] else "：无",
                          result["summary"]["probe_cost_ms"],
@@ -1631,7 +1631,7 @@ class RpiMonitor:
             payload.update(extra)
         self.publish_json(RES_VIDEO_START_RESULT, payload)
         logging.info("推流结果 -> %s: request_id=%s result=%s cause=%s%s",
-                     v2_topic(RES_VIDEO_START_RESULT), payload["request_id"] or "-",
+                     device_topic(RES_VIDEO_START_RESULT), payload["request_id"] or "-",
                      result_code, cause,
                      f"（{extra['error']}）" if extra and extra.get("error") else "")
         return payload
@@ -1887,7 +1887,7 @@ class RpiMonitor:
             payload.update(extra)
         self.publish_json(RES_VIDEO_STOP_RESULT, payload)
         logging.info("停止推流结果 -> %s: request_id=%s result=%s cause=%s%s",
-                     v2_topic(RES_VIDEO_STOP_RESULT), payload["request_id"] or "-",
+                     device_topic(RES_VIDEO_STOP_RESULT), payload["request_id"] or "-",
                      result_code, cause,
                      f"（{extra['error']}）" if extra and extra.get("error") else "")
         return payload
@@ -1965,7 +1965,7 @@ class RpiMonitor:
             payload.update(extra)
         self.publish_json(resource, payload)
         logging.info("手机音频结果 -> %s: request_id=%s result=%s cause=%s",
-                     v2_topic(resource), payload["request_id"] or "-", result_code, cause)
+                     device_topic(resource), payload["request_id"] or "-", result_code, cause)
         # 失败细节（播放器退出码/日志路径/stderr 摘要）App 不订阅 result，
         # 本地日志必须打出来，否则设备侧只能看到「失败」看不到原因
         err = payload.get("error")
@@ -2335,9 +2335,9 @@ class RpiMonitor:
             status["request_id"] = rid
             self.publish_json(RES_STATE_RESULT, status)
             logging.info("已响应状态查询 -> %s（request_id=%s）",
-                         v2_topic(RES_STATE_RESULT), rid or "-")
+                         device_topic(RES_STATE_RESULT), rid or "-")
         except Exception:
-            logging.exception("采集/上报 %s 失败", v2_topic(RES_STATE_RESULT))
+            logging.exception("采集/上报 %s 失败", device_topic(RES_STATE_RESULT))
 
     # ---------- cmd 远程命令 ----------
 
@@ -2450,7 +2450,7 @@ class RpiMonitor:
 
         logging.info(
             "已响应命令执行 -> %s（request_id=%s，status=%s，exit=%s，耗时 %dms%s）",
-            v2_topic(RES_CMD_RESULT),
+            device_topic(RES_CMD_RESULT),
             result.get("request_id"),
             result.get("status"),
             result.get("exit_code"),
@@ -2525,7 +2525,7 @@ class RpiMonitor:
 
     def run(self):
         logging.info("设备 %s (%s) 启动监控，采样周期 %ss", DEVICE_ID, self.lan_ip, MONITOR_INTERVAL)
-        logging.info("协议 v2: tenant=%s device=%s broker=%s:%s",
+        logging.info("协议 v1: tenant=%s device=%s broker=%s:%s",
                      sanitize_segment(MQTT_TENANT), sanitize_segment(DEVICE_ID),
                      MQTT_HOST, MQTT_PORT)
         if sanitize_segment(MQTT_TENANT) == sanitize_segment(MQTT_USER):

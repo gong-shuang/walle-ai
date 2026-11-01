@@ -1,9 +1,9 @@
-# MQTT 协议约定（协议 v2 · 多租户主题）
+# MQTT 协议约定（协议 v1 · 多租户主题）
 
 > 本文是 App（Android）与设备端（`linux/main.py`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
-> - 协议版本：**v2**（多租户主题）。v1 旧主题已彻底删除，无兼容层。
+> - 协议版本：**v1**（多租户主题）。旧版全局主题（`device/online`、`cmd/exec` 等）已彻底删除，无兼容层。
 > - 传输：MQTT 3.1.1，报文一律 **JSON（UTF-8）**，**QoS 1**，Keep Alive 60s。
 > - App 端实现：`app/src/main/java/www/walle/ai/net/`（TopicNames / MessageRouter / MqttManager）
 > - 设备端实现：`linux/main.py`
@@ -289,7 +289,7 @@ App 侧重复 online 不去重（幂等）。
 ### 4.5 设备能力 capability/query → capability/result
 
 **作用**：枚举设备端外设能力——摄像头（v4l2）、麦克风/音响（PulseAudio）等，供控制页
-展示与选择。v2 早期只查摄像头，任务 4 起升级为通用能力查询（旧主题已彻底删除，无兼容层）。
+展示与选择。早期只查摄像头，任务 4 起升级为通用能力查询（旧主题已彻底删除，无兼容层）。
 
 - 请求：`walle/{t}/{d}/capability/query`，字段 `{uuid, request_id}`
 - 应答：`walle/{t}/{d}/capability/result`
@@ -483,7 +483,7 @@ python3 linux/selftest_topics.py       # 设备端契约自检
 
 | 职责 | App（`app/src/main/java/www/walle/ai/net/`） | 设备端（`linux/main.py`） |
 |---|---|---|
-| 主题拼装/解析/清洗 | `TopicNames.java` | `sanitize_segment` / `v2_topic` / `_handle_request` |
+| 主题拼装/解析/清洗 | `TopicNames.java` | `sanitize_segment` / `device_topic` / `_handle_request` |
 | 报文路由 + QoS1 去重 | `MessageRouter.java` | `_handle_request` + `REQUEST_HANDLERS` |
 | 请求发送 API | `MqttManager.java` | — |
 | online 发布/遗嘱 | `DeviceRegistry.java`（消费） | `build_online_payload` / `publish_json(..., retain=True)` |

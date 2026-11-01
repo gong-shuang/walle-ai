@@ -107,7 +107,7 @@ Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 配置�
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 设备 device_id: f1873c8b51019dc0（MAC=e0:75:26:6f:32:1f, CPU核心数=8, 内存总容量=8320167936字节）
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 设备 UUID: ac2e9320-0889-5266-8a12-bb2d38025448（MAC=e0:75:26:6f:32:1f, IP=192.168.31.38, 启动时间=2026-11-01 20:10:21）
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 设备 f1873c8b51019dc0 (192.168.31.38) 启动监控，采样周期 5s
-Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 协议 v2: tenant=home device=f1873c8b51019dc0 broker=www.baidong.xyz:8883
+Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 协议 v1: tenant=home device=f1873c8b51019dc0 broker=www.baidong.xyz:8883
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 遗嘱(LWT)主题: walle/home/f1873c8b51019dc0/online
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 启用 TLS 连接 www.baidong.xyz:8883（CA=system）
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] MQTT 连接成功: www.baidong.xyz:8883（tenant=home device=f1873c8b51019dc0）
@@ -153,7 +153,7 @@ sudo python3 main.py
 2026-11-01 20:08:38 [INFO] 设备 device_id: f1873c8b51019dc0（MAC=e0:75:26:6f:32:1f, CPU核心数=8, 内存总容量=8320167936字节）
 2026-11-01 20:08:38 [INFO] 设备 UUID: 930213af-aad0-53ef-9645-2e400f8a4863（MAC=e0:75:26:6f:32:1f, IP=192.168.31.38, 启动时间=2026-11-01 20:08:38）
 2026-11-01 20:08:38 [INFO] 设备 f1873c8b51019dc0 (192.168.31.38) 启动监控，采样周期 5s
-2026-11-01 20:08:38 [INFO] 协议 v2: tenant=home device=f1873c8b51019dc0 broker=www.baidong.xyz:8883
+2026-11-01 20:08:38 [INFO] 协议 v1: tenant=home device=f1873c8b51019dc0 broker=www.baidong.xyz:8883
 2026-11-01 20:08:38 [INFO] 遗嘱(LWT)主题: walle/home/f1873c8b51019dc0/online
 2026-11-01 20:08:38 [INFO] 启用 TLS 连接 www.baidong.xyz:8883（CA=system）
 2026-11-01 20:08:39 [INFO] MQTT 连接成功: www.baidong.xyz:8883（tenant=home device=f1873c8b51019dc0）

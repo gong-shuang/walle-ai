@@ -3,7 +3,7 @@ package www.walle.ai.net;
 import www.walle.ai.BuildConfig;
 
 /**
- * MQTT 连接常量（协议 v2）。
+ * MQTT 连接常量（协议 v1）。
  *
  * <p>主题命名统一由 {@link TopicNames} 生成：{@code walle/{tenant}/{device}/{resource}}。
  * 默认连接参数由 {@code app/build.gradle} 的 buildConfigField 注入，只包含主机与端口；

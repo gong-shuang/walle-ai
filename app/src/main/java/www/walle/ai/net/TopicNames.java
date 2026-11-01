@@ -1,7 +1,7 @@
 package www.walle.ai.net;
 
 /**
- * 多租户 MQTT 主题（协议 v2）的命名规则。
+ * 多租户 MQTT 主题（协议 v1）的命名规则。
  *
  * <p>把租户与设备编码进主题路径，Broker 就能按 {@code walle/${username}/#} 做 ACL：</p>
  * <pre>
@@ -27,7 +27,7 @@ package www.walle.ai.net;
  */
 public final class TopicNames {
 
-    /** 所有 v2 主题的根前缀。 */
+    /** 所有主题的根前缀。 */
     public static final String ROOT = "walle";
 
     private static final int MAX_SEGMENT = 64;
@@ -217,10 +217,10 @@ public final class TopicNames {
     // ---------------------------------------------------------------- 解析
 
     /**
-     * 拆解 v2 主题：{@code walle/{tenant}/{device}/{resource...}}。
+     * 拆解主题：{@code walle/{tenant}/{device}/{resource...}}。
      *
      * @return 解析成功返回 {@code [tenant, device, resource]}（resource 可能含 {@code /}）；
-     *         不是 v2 主题或段数不足时返回 {@code null}
+     *         不是本协议主题或段数不足时返回 {@code null}
      */
     public static String[] parse(String topic) {
         if (!isNamespaced(topic)) return null;
@@ -233,7 +233,7 @@ public final class TopicNames {
     }
 
     /**
-     * 从 v2 主题里取出资源段（不含租户与设备），用于分发：
+     * 从主题里取出资源段（不含租户与设备），用于分发：
      * {@code walle/t/d/state} → {@code state}；{@code walle/t/d/cmd/result} → {@code cmd/result}。
      */
     public static String resourceOf(String topic) {
@@ -241,7 +241,7 @@ public final class TopicNames {
         return p == null ? null : p[2];
     }
 
-    /** 从 v2 主题里取出设备段。 */
+    /** 从主题里取出设备段。 */
     public static String deviceOf(String topic) {
         String[] p = parse(topic);
         return p == null ? null : p[1];

@@ -8,8 +8,8 @@
   2. walle/{tenant}/{device}/{resource} 拼装正确；
   3. 订阅清单只含「请求类」主题，且不含通配子树；
   4. 请求资源 → 处理函数全部存在；
-  5. 发布走 v2 命名空间；
-  6. 旧的 v1 主题常量已彻底删除。
+  5. 发布走 walle 命名空间；
+  6. 旧版全局主题常量已彻底删除。
 
 用法：
     python3 selftest_topics.py
@@ -119,7 +119,7 @@ def main():
         (m.RES_PHONE_AUDIO_STOP_RESULT, "phone/audio/stop/result"),
     ]:
         check(f"{const}", const, resource)
-        check(f"v2_topic({resource})", m.v2_topic(const), f"{base}/{resource}")
+        check(f"device_topic({resource})", m.device_topic(const), f"{base}/{resource}")
 
     print("\n== 3. 订阅清单（只含请求类，不含通配）==")
     subs = [t for t, _ in m.subscriptions()]
@@ -165,7 +165,7 @@ def main():
     for resource, handler in m.REQUEST_HANDLERS.items():
         check(f"{resource} -> {handler}", callable(getattr(m.RpiMonitor, handler, None)), True)
 
-    print("\n== 6. 发布走 v2 命名空间 ==")
+    print("\n== 6. 发布走 walle 命名空间 ==")
 
     class FakeInfo:
         mid = 1
@@ -290,9 +290,8 @@ def main():
     finally:
         m.DISCOVERY_JITTER_SEC, m.DISCOVERY_MIN_INTERVAL_SEC = saved_jitter, saved_interval
 
-    print("\n== 10. v1 常量已删除 ==")
-    for legacy in ("TOPIC_ALARM", "TOPIC_ONLINE", "TOPIC_CMD_EXEC", "TOPIC_SCHEME",
-                   "V1_TO_V2_RESOURCE", "V2_PROTO"):
+    print("\n== 10. 旧版全局主题常量已删除 ==")
+    for legacy in ("TOPIC_ALARM", "TOPIC_ONLINE", "TOPIC_CMD_EXEC", "TOPIC_SCHEME"):
         check(f"无 {legacy}", hasattr(m, legacy), False)
 
     print("\n== 11. 推流状态快照（任务 1：state/result 的 video 分组）==")
@@ -347,7 +346,7 @@ def main():
     if failures:
         print(f"失败 {len(failures)} 项：{failures}")
         return 1
-    print("全部通过：协议 v2 契约与 Android 端一致")
+    print("全部通过：协议 v1 契约与 Android 端一致")
     return 0
 
 
