@@ -13,7 +13,7 @@ import java.util.TreeMap;
 /**
  * 把收到的报文按主题路由成领域事件，并过滤 QoS1 的重复投递。
  *
- * <p>主题形如 {@code walle/{tenant}/{device}/{resource}}，resource 决定事件类型；
+ * <p>主题形如 {@code walle/{tenant}/{device}/v1/{resource}}，resource 决定事件类型；
  * 不认识的资源、非本协议主题都会被忽略（只打日志）。</p>
  *
  * <p>去重：MQTT QoS1 允许 broker 重复投递同一条报文（重连补发、未及时 PUBACK），
@@ -74,7 +74,7 @@ public class MessageRouter {
         }
         String[] parts = TopicNames.parse(topic);
         if (parts == null) {
-            // 租户级发现主题 walle/{tenant}/discovery/query 只有 3 段，不是报文入口
+            // 租户级发现主题 walle/{tenant}/v1/discovery/query 没有 device 段，不是报文入口
             sink.onIgnored(topic, "主题层级不足");
             return;
         }

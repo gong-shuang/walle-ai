@@ -317,7 +317,7 @@ Dashboard → **访问控制 → 认证（Authentication）** → 创建认证�
 | `home`    | 手机 App 登录 | **它同时是租户名**；请改成 App 实际登录的用户名   |
 | `RaspPi5` | 树莓派设备账号   | 每台设备一个账号更安全；名字随意，需与 ACL 里的正则一致 |
 
-> `walle/{tenant}/{device}/...` 里，`tenant` = App 的用户名，`device` = 设备的 `device_id`（16 位十六进制，由 `main.py` 生成）。
+> `walle/{tenant}/{device}/v1/...` 里，`tenant` = App 的用户名，`device` = 设备的 `device_id`（16 位十六进制，由 `main.py` 生成）。
 > 两边不一致时 App 收不到设备，这是最常见的“设备在线但列表空”的原因。
 
 验证（先不加密，验证账号可用）：
@@ -327,7 +327,7 @@ apt install -y mosquitto-clients
 
 # 用设备账号发布到自己的子树（把 <clientid> 换成设备 device_id，必须与 -i 一致）
 mosquitto_pub -h SERVER_IP -p 1883 -u RaspPi5 -P '设备密码' -i '<clientid>' \
-  -t 'walle/home/<clientid>/online' -m '{"online":true}' -d
+  -t 'walle/home/<clientid>/v1/online' -m '{"online":true}' -d
 
 # 用 App 账号订阅租户整棵子树，应能收到上面的消息
 mosquitto_sub -h SERVER_IP -p 1883 -u home -P 'App密码' -t 'walle/home/#' -v -C 1
@@ -358,14 +358,14 @@ openssl s_client -connect www.example.com:8883 -servername www.example.com </dev
 # 2) 用设备账号走 TLS 发布（--tls-use-os-certs 用系统 CA 校验，模拟 App/设备端行为）
 mosquitto_pub -h www.example.com -p 8883 --tls-use-os-certs \
   -u RaspPi5 -P '设备密码' -i '<clientid>' \
-  -t 'walle/home/<clientid>/online' -m '{"online":true}' -d
+  -t 'walle/home/<clientid>/v1/online' -m '{"online":true}' -d
 ```
 
 若 `--tls-use-os-certs` 不被 mosquitto 版本支持，改成：
 
 ```bash
 mosquitto_pub -h www.example.com -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
-  -u RaspPi5 -P '设备密码' -i '<clientid>' -t 'walle/home/<clientid>/online' -m '{}' -d
+  -u RaspPi5 -P '设备密码' -i '<clientid>' -t 'walle/home/<clientid>/v1/online' -m '{}' -d
 ```
 
 > App 端默认就是 **8883 + 系统 CA**（`app/build.gradle` 的 `MQTT_DEFAULT_PORT=8883`），设备端在 `/etc/walle-ai.env` 里设 `MQTT_PORT=8883`（`MQTT_TLS=auto` 会自动开启）。
@@ -384,7 +384,7 @@ Dashboard → **访问控制 → 授权（Authorization）** → 添加 **File**
 %% 设备端：只读写自己的子树，并能收到租户内的发现广播
 {allow, {username, {re, "^RaspPi5$"}}, publish,   ["walle/home/${clientid}/#"]}.
 {allow, {username, {re, "^RaspPi5$"}}, subscribe, ["walle/home/${clientid}/#",
-                                                   "walle/home/discovery/query"]}.
+                                                   "walle/home/v1/discovery/query"]}.
 ```
 
 规则说明：
@@ -411,7 +411,7 @@ mosquitto_sub -h www.example.com -p 8883 --tls-use-os-certs -u home -P 'App密�
 
 # 允许：设备账号发布自己的 online
 mosquitto_pub -h www.example.com -p 8883 --tls-use-os-certs -u RaspPi5 -P '设备密码' \
-  -i '<clientid>' -t 'walle/home/<clientid>/online' -m '{"online":true}' -d
+  -i '<clientid>' -t 'walle/home/<clientid>/v1/online' -m '{"online":true}' -d
 
 # 拒绝：设备账号越权订阅别人的子树（应无 SUBACK / 被断开，或收不到任何消息）
 mosquitto_sub -h www.example.com -p 8883 --tls-use-os-certs -u RaspPi5 -P '设备密码' \

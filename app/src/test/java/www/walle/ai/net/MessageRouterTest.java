@@ -12,7 +12,7 @@ import java.util.List;
 /** 主题路由与 QoS1 去重的单元测试（纯 JVM，不依赖 Android）。 */
 public class MessageRouterTest {
 
-    private static final String BASE = "walle/home/666feb85d43410b2";
+    private static final String BASE = "walle/home/666feb85d43410b2/v1";
 
     /** 记录 Sink 收到的回调。 */
     private static final class RecordingSink implements MessageRouter.Sink {
@@ -108,7 +108,7 @@ public class MessageRouterTest {
         MessageRouter router = new MessageRouter(sink);
 
         router.route(BASE + "/unknown/resource", "{}");        // 未知资源
-        router.route("walle/home/discovery/query", "{}");      // 租户级 3 段主题
+        router.route("walle/home/v1/discovery/query", "{}");    // 租户级发现主题（没有 device 段）
         router.route("device/online", "{}");                   // 旧协议主题
         router.route(BASE + "/state/result", "{not json");     // 非法 JSON
 

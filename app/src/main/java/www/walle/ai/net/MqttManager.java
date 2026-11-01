@@ -27,7 +27,7 @@ import www.walle.ai.data.LocalDb;
  *   <tr><td>{@link TopicNames}</td><td>主题命名与解析</td></tr>
  * </table>
  *
- * <p><b>协议</b>：多租户主题 {@code walle/{tenant}/{device}/{resource}}。
+ * <p><b>协议</b>：多租户主题 {@code walle/{tenant}/{device}/v1/{resource}}。
  * 请求按语义命名（查询 {@code query}、命令 {@code exec}、动作 {@code request}），
  * 应答一律 {@code result} 且只在收到请求后发布；主动上报只有 {@code online} 与 {@code alarm}。
  * 租户 = MQTT 用户名（清洗后）。</p>

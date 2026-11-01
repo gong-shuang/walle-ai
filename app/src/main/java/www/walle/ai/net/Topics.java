@@ -5,7 +5,7 @@ import www.walle.ai.BuildConfig;
 /**
  * MQTT 连接常量（协议 v1）。
  *
- * <p>主题命名统一由 {@link TopicNames} 生成：{@code walle/{tenant}/{device}/{resource}}。
+ * <p>主题命名统一由 {@link TopicNames} 生成：{@code walle/{tenant}/{device}/v1/{resource}}。
  * 默认连接参数由 {@code app/build.gradle} 的 buildConfigField 注入，只包含主机与端口；
  * 用户名 / 密码由用户在 App 内输入，经 Android Keystore 加密后保存在本地。</p>
  */

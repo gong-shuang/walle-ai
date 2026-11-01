@@ -93,7 +93,7 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 
 ## MQTT 主题约定
 
-**协议 v1（多租户主题）**：所有主题都在 `walle/{tenant}/{device}/` 下展开。
+**协议 v1（多租户主题）**：所有主题都在 `walle/{tenant}/{device}/v1/` 下展开。
 
 - `tenant` = App 登录用的 MQTT 用户名（清洗后），Broker 用 `walle/${username}/#` 做 ACL；
 - `device` = 设备端稳定的 `device_id`（MAC + CPU + 内存的 md5 前 16 位，重启不变）；
@@ -146,7 +146,7 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 检查手机与设备是否在同一网络、Broker 是否监听、用户名密码是否正确；同 `clientId` 多端登录会被互相踢下线（App 会自动重连）。设置页里能看到具体失败原因（超时 / 凭据被拒 / 端口协议不匹配等）。
 
 **设备列表为空？**
-设备端需先连接同一 Broker 并保持在线。点击「重新扫描」会在本租户内广播 `walle/{tenant}/discovery/query`，设备在 3 秒内回复即会出现。
+设备端需先连接同一 Broker 并保持在线。点击「重新扫描」会在本租户内广播 `walle/{tenant}/v1/discovery/query`，设备在 3 秒内回复即会出现。
 
 **推流后黑屏？**
 确认设备端已启动推流、WHEP 服务可访问、`room_number` 与 App 拼接的地址一致。切换摄像头会复用原房间号，不会新建会话。

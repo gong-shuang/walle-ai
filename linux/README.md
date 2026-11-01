@@ -2,7 +2,7 @@
 
 配套 Android App《树莓派控制器》的设备端程序：周期采集树莓派状态、异常告警、远程执行命令、枚举摄像头并推流，全部通过 MQTT 与手机交互。
 
-> **协议**：多租户主题 `walle/{tenant}/{device}/{resource}`。
+> **协议**：多租户主题 `walle/{tenant}/{device}/v1/{resource}`。
 > **tenant** = 手机 App 登录用的用户名；**device** = 本机稳定 `device_id`（MAC + CPU 核心数 + 内存容量的 md5 前 16 位，重启/重装都不变）。
 
 ---
@@ -28,7 +28,7 @@
 
 设备侧只需记住两点：
 
-- 所有主题都在 `walle/{tenant}/{device}/` 子树下，`tenant` = App 登录用户名，`device` = 本机稳定 `device_id`；
+- 所有主题都在 `walle/{tenant}/{device}/v1/` 子树下，`tenant` = App 登录用户名，`device` = 本机稳定 `device_id`；
 - 主题段清洗规则与 App 逐字符一致（`[A-Za-z0-9_-]` 保留，`.` `:` `@` 空格转 `_`），由 [`selftest_topics.py`](selftest_topics.py) 校验。
 
 ---
@@ -108,18 +108,18 @@ Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 设备 d
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 设备 UUID: ac2e9320-0889-5266-8a12-bb2d38025448（MAC=e0:75:26:6f:32:1f, IP=192.168.31.38, 启动时间=2026-11-01 20:10:21）
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 设备 f1873c8b51019dc0 (192.168.31.38) 启动监控，采样周期 5s
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 协议 v1: tenant=home device=f1873c8b51019dc0 broker=www.baidong.xyz:8883
-Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 遗嘱(LWT)主题: walle/home/f1873c8b51019dc0/online
+Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 遗嘱(LWT)主题: walle/home/f1873c8b51019dc0/v1/online
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 启用 TLS 连接 www.baidong.xyz:8883（CA=system）
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] MQTT 连接成功: www.baidong.xyz:8883（tenant=home device=f1873c8b51019dc0）
 Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO] 已订阅 8 个主题；当前 USB 设备 11 个作为基线，不产生历史告警
-Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/f1873c8b51019dc0/state/query
-Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/f1873c8b51019dc0/cmd/exec
-Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/f1873c8b51019dc0/capability/query
-Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/f1873c8b51019dc0/video/start/request
-Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/f1873c8b51019dc0/video/stop/request
-Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/f1873c8b51019dc0/phone/audio/send
-Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/f1873c8b51019dc0/phone/audio/stop
-Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/discovery/query
+Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/f1873c8b51019dc0/v1/state/query
+Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/f1873c8b51019dc0/v1/cmd/exec
+Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/f1873c8b51019dc0/v1/capability/query
+Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/f1873c8b51019dc0/v1/video/start/request
+Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/f1873c8b51019dc0/v1/video/stop/request
+Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/f1873c8b51019dc0/v1/phone/audio/send
+Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/f1873c8b51019dc0/v1/phone/audio/stop
+Nov 01 20:10:22 orangepi5plus python[46768]: 2026-11-01 20:10:22 [INFO]   · walle/home/v1/discovery/query
 
 ```
 
@@ -154,7 +154,7 @@ sudo python3 main.py
 2026-11-01 20:08:38 [INFO] 设备 UUID: 930213af-aad0-53ef-9645-2e400f8a4863（MAC=e0:75:26:6f:32:1f, IP=192.168.31.38, 启动时间=2026-11-01 20:08:38）
 2026-11-01 20:08:38 [INFO] 设备 f1873c8b51019dc0 (192.168.31.38) 启动监控，采样周期 5s
 2026-11-01 20:08:38 [INFO] 协议 v1: tenant=home device=f1873c8b51019dc0 broker=www.baidong.xyz:8883
-2026-11-01 20:08:38 [INFO] 遗嘱(LWT)主题: walle/home/f1873c8b51019dc0/online
+2026-11-01 20:08:38 [INFO] 遗嘱(LWT)主题: walle/home/f1873c8b51019dc0/v1/online
 2026-11-01 20:08:38 [INFO] 启用 TLS 连接 www.baidong.xyz:8883（CA=system）
 2026-11-01 20:08:39 [INFO] MQTT 连接成功: www.baidong.xyz:8883（tenant=home device=f1873c8b51019dc0）
 2026-11-01 20:08:39 [INFO] 已订阅 8 个主题；当前 USB 设备 11 个作为基线，不产生历史告警
@@ -248,7 +248,7 @@ mosquitto_sub -h www.baidong.xyz -p 8883 -u home -P '<口令>' -t 'walle/home/#'
 
 # 触发一次状态查询（uuid 换成日志里的 device uuid）
 mosquitto_pub -h www.baidong.xyz -p 8883 -u home -P '<口令>' \
-  -t 'walle/home/666feb85d43410b2/state/query' -m '{"uuid":"<uuid>"}'
+  -t 'walle/home/666feb85d43410b2/v1/state/query' -m '{"uuid":"<uuid>"}'
 ```
 
 ---

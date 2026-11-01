@@ -8,7 +8,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 设备状态快照（{@code walle/{tenant}/{device}/state/result} 的 payload）。
+ * 设备状态快照（{@code walle/{tenant}/{device}/v1/state/result} 的 payload）。
  *
  * <p>协议解析只在这里做一次：UI 层不再直接 {@code optXxx}，字段缺省/类型异常都由 {@link #parse}
  * 归一成「null 或空列表」，界面只负责展示。这样字段改名只会影响这一个文件，也便于写单测。</p>

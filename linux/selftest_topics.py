@@ -5,7 +5,7 @@
 
 校验：
   1. sanitize_segment 与 Android 端 TopicNames.sanitize 行为一致；
-  2. walle/{tenant}/{device}/{resource} 拼装正确；
+  2. walle/{tenant}/{device}/v1/{resource} 拼装正确；
   3. 订阅清单只含「请求类」主题，且不含通配子树；
   4. 请求资源 → 处理函数全部存在；
   5. 发布走 walle 命名空间；
@@ -104,7 +104,7 @@ def main():
     for raw, want in SANITIZE_CASES:
         check(f"sanitize({raw!r})", m.sanitize_segment(raw), want)
 
-    base = f"walle/{args.tenant}/{args.device}"
+    base = f"walle/{args.tenant}/{args.device}/v1"
     print("\n== 2. 主题拼装 ==")
     for const, resource in [
         (m.RES_ONLINE, "online"),
@@ -126,7 +126,7 @@ def main():
     for req in (m.REQ_STATE, m.REQ_CMD, m.REQ_CAPABILITY, m.REQ_VIDEO_START,
                 m.REQ_VIDEO_STOP, m.REQ_PHONE_AUDIO_SEND, m.REQ_PHONE_AUDIO_STOP):
         check(f"订阅 {req}", f"{base}/{req}" in subs, True)
-    check("订阅 discovery/query", f"walle/{args.tenant}/discovery/query" in subs, True)
+    check("订阅 discovery/query", f"walle/{args.tenant}/v1/discovery/query" in subs, True)
     check("不含通配子树", any(s.endswith("/#") for s in subs), False)
     check("订阅数", len(subs), 8)
 
@@ -260,8 +260,8 @@ def main():
     routed_obj.handle_cmd_exec = lambda p: routed.append(("cmd", p))
     routed_obj.handle_video_request = lambda p: routed.append(("video", p))
 
-    # 关键回归：发现广播只有 3 段 walle/{t}/discovery/query，不应被当成 device="discovery"
-    routed_obj._handle_request(f"walle/{args.tenant}/discovery/query", "{}")
+    # 关键回归：发现广播只有 4 段 walle/{t}/v1/discovery/query，不应被当成 device="v1"
+    routed_obj._handle_request(f"walle/{args.tenant}/v1/discovery/query", "{}")
     check("discovery 被路由到 handle_device_query", routed[-1][0], "discovery")
 
     routed_obj._handle_request(f"{base}/state/query", '{"uuid":"x"}')

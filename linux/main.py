@@ -10,7 +10,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 3. 上线/下线：retained + 遗嘱（LWT），App 重启或重连后能立刻看到设备在线状态。
 
 协议：多租户主题 v1
-    所有主题都在 walle/{tenant}/{device}/ 下展开，租户 = MQTT 用户名（清洗后），
+    所有主题都在 walle/{tenant}/{device}/v1/ 下展开，租户 = MQTT 用户名（清洗后），
     device 用稳定的 device_id（MAC + CPU 核心数 + 内存容量 的 md5 前 16 位）。
 
     请求（App -> 设备）                          应答（设备 -> App）                      说明
@@ -149,7 +149,7 @@ MQTT_QOS = 1
 MQTT_TLS = os.environ.get("MQTT_TLS", "auto").strip().lower()  # auto | on | off
 MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE", "").strip()      # 留空则用系统 CA
 
-# ---- 主题命名约定（完整主题 = walle/{tenant}/{device}/{资源}）----
+# ---- 主题命名约定（完整主题 = walle/{tenant}/{device}/v1/{资源}）----
 #   请求按语义命名：查询 .../query、命令 .../exec、动作 .../request；
 #   应答统一 .../result，且**只在收到对应请求后发布**，绝不主动上报；
 #   主动上报只有 online（上线/下线）与 alarm（告警/USB 插拔）两个。
@@ -193,12 +193,15 @@ DEVICE_ID = ""      # 在 RpiMonitor.__init__ 中计算
 DEVICE_UUID = ""    # 在 RpiMonitor.__init__ 中计算
 
 # ---- 多租户主题（命名规则与 Android 端 TopicNames 完全一致）----
-# 主题形如 walle/{tenant}/{device}/{resource}：
+# 主题形如 walle/{tenant}/{device}/v1/{resource}：
 #   tenant = MQTT 用户名（清洗后），Broker 用 walle/${username}/# 做 ACL；
 #   device = 下面的 DEVICE_ID（跨重启/重装不变）。
 #
 MQTT_TENANT = os.environ.get("MQTT_TENANT", MQTT_USER).strip()
 TOPIC_ROOT = "walle"
+# 主题协议版本段：walle/{tenant}/{device}/v1/{resource}
+# 升协议（报文结构变了）时新增 v2 段，旧设备继续用 v1，两套主题可以并存。
+PROTOCOL_VERSION = "v1"
 
 
 def _is_ascii_alnum(ch):
@@ -229,10 +232,10 @@ def sanitize_segment(raw):
 
 
 def device_topic_base(tenant=None, device=None):
-    """walle/{tenant}/{device}"""
+    """walle/{tenant}/{device}/v1"""
     t = sanitize_segment(MQTT_TENANT if tenant is None else tenant)
     d = sanitize_segment(DEVICE_ID if device is None else device)
-    return f"{TOPIC_ROOT}/{t}/{d}"
+    return f"{TOPIC_ROOT}/{t}/{d}/{PROTOCOL_VERSION}"
 
 
 def device_topic(resource):
@@ -240,7 +243,7 @@ def device_topic(resource):
 
 
 def tenant_topic(suffix):
-    return f"{TOPIC_ROOT}/{sanitize_segment(MQTT_TENANT)}/{suffix}"
+    return f"{TOPIC_ROOT}/{sanitize_segment(MQTT_TENANT)}/{PROTOCOL_VERSION}/{suffix}"
 
 
 # 请求 → 应答 的对应关系（也用于自检，保证命名成对）
@@ -270,7 +273,7 @@ REQUEST_HANDLERS = {
 def subscriptions():
     """本设备要订阅的主题（只有请求类 + 租户内发现广播）。
 
-    不订 walle/{t}/{d}/#：MQTT 3.1.1 会把客户端自己发布的报文也投递回来，
+    不订 walle/{t}/{d}/v1/#：MQTT 3.1.1 会把客户端自己发布的报文也投递回来，
     订全子树会收到自己发的 state/alarm，白白浪费带宽。
     """
     base = device_topic_base()
@@ -1278,7 +1281,7 @@ class RpiMonitor:
         self._last_discovery_at = 0.0
 
     def _will_message(self):
-        """遗嘱消息：掉线时由 broker 代发 offline 到 walle/{t}/{d}/online。"""
+        """遗嘱消息：掉线时由 broker 代发 offline 到 walle/{t}/{d}/v1/online。"""
         return device_topic(RES_ONLINE), self.build_online_payload(False)
 
     # ---------- MQTT 回调 ----------
@@ -1340,7 +1343,7 @@ class RpiMonitor:
         }
 
     def publish_json(self, resource, data, retain=False):
-        """按资源名发布到 walle/{tenant}/{device}/{resource}。
+        """按资源名发布到 walle/{tenant}/{device}/v1/{resource}。
 
         参数 resource 用模块顶部的 RES_* 常量，例如 RES_ALARM / RES_CMD_RESULT。
         """
@@ -1356,8 +1359,8 @@ class RpiMonitor:
         """把请求分发到对应处理函数。
 
         注意两种主题层级不同：
-          · 设备级请求：walle/{tenant}/{device}/{resource}   （4 段）
-          · 发现广播  ：walle/{tenant}/discovery/query         （3 段，没有 device 段）
+          · 设备级请求：walle/{tenant}/{device}/v1/{resource}   （5 段）
+          · 发现广播  ：walle/{tenant}/v1/discovery/query         （4 段，没有 device 段）
         早期实现统一按 4 段切分，导致 discovery 被解析成 device="discovery"、
         resource="query"，匹配不到处理函数而被静默忽略 —— 设备永远不会应答发现。
         """
@@ -1365,11 +1368,11 @@ class RpiMonitor:
             self.pool.submit(self.handle_device_query, payload)
             return
 
-        parts = topic.split("/", 3)
-        if len(parts) < 4:
+        parts = topic.split("/", 4)
+        if len(parts) < 5 or parts[3] != PROTOCOL_VERSION:
             logging.warning("忽略无法解析的主题: %s", topic)
             return
-        resource = parts[3]
+        resource = parts[4]
         handler_name = REQUEST_HANDLERS.get(resource)
         if handler_name:
             self.pool.submit(getattr(self, handler_name), payload)
@@ -2538,7 +2541,7 @@ class RpiMonitor:
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
                                   client_id=DEVICE_ID, clean_session=True)
         self.client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
-        # 遗嘱：异常掉线时 broker 代发 offline 到 walle/{tenant}/{device}/online
+        # 遗嘱：异常掉线时 broker 代发 offline 到 walle/{tenant}/{device}/v1/online
         # （遗嘱必须在 connect 前设置，因此里面的静态信息取自启动时刻）
         will_topic, will_payload = self._will_message()
         self.client.will_set(

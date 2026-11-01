@@ -14,7 +14,7 @@
 ## 1. 总览
 
 ```
-┌──────────────┐   walle/{tenant}/{device}/{resource}   ┌──────────────┐
+┌──────────────┐   walle/{tenant}/{device}/v1/{resource}   ┌──────────────┐
 │  Android App │ ◄────────── MQTT Broker ─────────────► │ Linux 设备端  │
 └──────────────┘         （EMQX / Mosquitto）           └──────────────┘
 ```
@@ -22,29 +22,29 @@
 主题结构：
 
 ```
-walle/{tenant}/{device}/{resource}
+walle/{tenant}/{device}/v1/{resource}
 ```
 
 - `tenant`：租户标识 = **App 登录用的 MQTT 用户名**（经清洗）。同一账号 = 同一租户。
 - `device`：**稳定**的设备标识 `device_id`（设备端用 MAC + CPU + 内存算 md5 取前 16 位，重启不变）。
 - `resource`：按语义命名（见 §2.3），可能含 `/`（如 `video/start/result`）。
 
-特例：设备发现是**租户级**广播，只有 3 段、没有 device 段：`walle/{tenant}/discovery/query`。
+特例：设备发现是**租户级**广播，没有 device 段（第 3 段是 `v1` 版本段）：`walle/{tenant}/v1/discovery/query`。
 
 ### 主题总表
 
 | # | 协议 | App → 设备（请求） | 设备 → App（应答/上报） | 类型 |
 |---|---|---|---|---|
-| 1 | 上线/下线 | — | `walle/{t}/{d}/online` | 主动上报（retained + LWT） |
-| 2 | 设备发现 | `walle/{t}/discovery/query` | `walle/{t}/{d}/discovery/result` | 请求-应答（按需、限频） |
-| 3 | 状态查询 | `walle/{t}/{d}/state/query` | `walle/{t}/{d}/state/result` | 请求-应答 |
-| 4 | 远程命令 | `walle/{t}/{d}/cmd/exec` | `walle/{t}/{d}/cmd/result` | 请求-应答 |
-| 5 | 设备能力 | `walle/{t}/{d}/capability/query` | `walle/{t}/{d}/capability/result` | 请求-应答 |
-| 6 | 开始推流 | `walle/{t}/{d}/video/start/request` | `walle/{t}/{d}/video/start/result` | 请求-应答 |
-| 7 | 停止推流 | `walle/{t}/{d}/video/stop/request` | `walle/{t}/{d}/video/stop/result` | 请求-应答 |
-| 8 | 告警 | — | `walle/{t}/{d}/alarm` | 主动上报 |
-| 9 | 手机音频上行·开 | `walle/{t}/{d}/phone/audio/send` | `walle/{t}/{d}/phone/audio/send/result` | 单向动作（App 不订阅应答） |
-| 10 | 手机音频上行·关 | `walle/{t}/{d}/phone/audio/stop` | `walle/{t}/{d}/phone/audio/stop/result` | 单向动作（App 不订阅应答） |
+| 1 | 上线/下线 | — | `walle/{t}/{d}/v1/online` | 主动上报（retained + LWT） |
+| 2 | 设备发现 | `walle/{t}/v1/discovery/query` | `walle/{t}/{d}/v1/discovery/result` | 请求-应答（按需、限频） |
+| 3 | 状态查询 | `walle/{t}/{d}/v1/state/query` | `walle/{t}/{d}/v1/state/result` | 请求-应答 |
+| 4 | 远程命令 | `walle/{t}/{d}/v1/cmd/exec` | `walle/{t}/{d}/v1/cmd/result` | 请求-应答 |
+| 5 | 设备能力 | `walle/{t}/{d}/v1/capability/query` | `walle/{t}/{d}/v1/capability/result` | 请求-应答 |
+| 6 | 开始推流 | `walle/{t}/{d}/v1/video/start/request` | `walle/{t}/{d}/v1/video/start/result` | 请求-应答 |
+| 7 | 停止推流 | `walle/{t}/{d}/v1/video/stop/request` | `walle/{t}/{d}/v1/video/stop/result` | 请求-应答 |
+| 8 | 告警 | — | `walle/{t}/{d}/v1/alarm` | 主动上报 |
+| 9 | 手机音频上行·开 | `walle/{t}/{d}/v1/phone/audio/send` | `walle/{t}/{d}/v1/phone/audio/send/result` | 单向动作（App 不订阅应答） |
+| 10 | 手机音频上行·关 | `walle/{t}/{d}/v1/phone/audio/stop` | `walle/{t}/{d}/v1/phone/audio/stop/result` | 单向动作（App 不订阅应答） |
 
 > `{t}` = tenant，`{d}` = device_id。
 > 9/10 只承载「开/关」控制，音频本身走独立 RTMP（§4.9）。
@@ -114,7 +114,7 @@ QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 
 MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求再收一遍，浪费带宽、
 干扰排查。所以两端都只订**精确的响应/请求主题清单**：
 
-- App 订 8 条：`walle/{t}/+` 下的 `online`、`alarm`、6 条 `…/result`（见 `TopicNames.responseSubscriptions`）
+- App 订 8 条：`walle/{t}/+/v1` 下的 `online`、`alarm`、6 条 `…/result`（见 `TopicNames.responseSubscriptions`）
 - 设备端订 8 条：7 条设备级请求（含 `phone/audio/send|stop`）+ 1 条租户级 `discovery/query`（见 `main.subscriptions()`）
 
 ---
@@ -172,7 +172,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 **作用**：App 设备列表的唯一数据源。上线 retained 报文含完整身份，订阅即回放。
 
-- 主题：`walle/{t}/{d}/online`，**retained**
+- 主题：`walle/{t}/{d}/v1/online`，**retained**
 - 上线：设备连上 broker 后立即发布 `online: true` + 完整身份（同 §4.2 的身份字段全集）
 - 下线：broker 通过 **LWT 遗嘱**发布 `online: false`（设备端注册 will，异常掉线也能通知）
 
@@ -198,8 +198,8 @@ App 侧重复 online 不去重（幂等）。
 **作用**：按需拉取设备身份详情。日常列表不靠它（靠 retained online），仅用于手动
 「重新扫描」和「连上后零回放」的自动兜底。
 
-- 请求：`walle/{t}/discovery/query`（租户级，3 段主题）
-- 应答：`walle/{t}/{d}/discovery/result`
+- 请求：`walle/{t}/v1/discovery/query`（租户级，没有 device 段）
+- 应答：`walle/{t}/{d}/v1/discovery/result`
 
 请求字段：
 
@@ -216,15 +216,16 @@ App 侧重复 online 不去重（幂等）。
 | 限频 | `DISCOVERY_MIN_INTERVAL_SEC = 2.0` | 每台设备 2 秒内只应答一次，重复查询丢弃 |
 | 抖动 | `DISCOVERY_JITTER_SEC = 0.8` | 应答前随机延迟 0~0.8s，N 台设备错开回包 |
 
-> 坑位提醒：这个主题只有 3 段，解析时不能切成 `device="discovery", resource="query"`——
-> 两端（`TopicNames.parse`、`main._handle_request`）都对它做了特判，别改没。
+> 坑位提醒：这个主题没有 device 段（第 3 段是 `v1` 版本段），解析时不能切成
+> `device="v1", resource="discovery/query"`——两端（`TopicNames.parse`、`main._handle_request`）
+> 都对它做了特判，别改没。
 
 ### 4.3 状态查询 state/query → state/result
 
 **作用**：拉取设备实时运行状态（一次约 1 秒的采样），驱动状态页所有卡片。
 
-- 请求：`walle/{t}/{d}/state/query`
-- 应答：`walle/{t}/{d}/state/result`
+- 请求：`walle/{t}/{d}/v1/state/query`
+- 应答：`walle/{t}/{d}/v1/state/result`
 
 请求字段：
 
@@ -259,8 +260,8 @@ App 侧重复 online 不去重（幂等）。
 
 **作用**：在设备上以 shell（`/bin/bash`）执行任意命令并回传结果。
 
-- 请求：`walle/{t}/{d}/cmd/exec`
-- 应答：`walle/{t}/{d}/cmd/result`
+- 请求：`walle/{t}/{d}/v1/cmd/exec`
+- 应答：`walle/{t}/{d}/v1/cmd/result`
 
 请求字段：
 
@@ -291,8 +292,8 @@ App 侧重复 online 不去重（幂等）。
 **作用**：枚举设备端外设能力——摄像头（v4l2）、麦克风/音响（PulseAudio）等，供控制页
 展示与选择。早期只查摄像头，任务 4 起升级为通用能力查询（旧主题已彻底删除，无兼容层）。
 
-- 请求：`walle/{t}/{d}/capability/query`，字段 `{uuid, request_id}`
-- 应答：`walle/{t}/{d}/capability/result`
+- 请求：`walle/{t}/{d}/v1/capability/query`，字段 `{uuid, request_id}`
+- 应答：`walle/{t}/{d}/v1/capability/result`
 
 应答字段：
 
@@ -321,8 +322,8 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 **作用**：让设备端用 ffmpeg 把摄像头画面推到流媒体服务（RTMP），App 拿到
 `room_number` 后拼 WHEP 地址拉流播放（`BuildConfig.WHEP_URL_TEMPLATE`）。
 
-- 请求：`walle/{t}/{d}/video/start/request`
-- 应答：`walle/{t}/{d}/video/start/result`
+- 请求：`walle/{t}/{d}/v1/video/start/request`
+- 应答：`walle/{t}/{d}/v1/video/start/result`
 
 请求字段：
 
@@ -356,8 +357,8 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 
 **作用**：停掉设备当前推流。
 
-- 请求：`walle/{t}/{d}/video/stop/request`
-- 应答：`walle/{t}/{d}/video/stop/result`
+- 请求：`walle/{t}/{d}/v1/video/stop/request`
+- 应答：`walle/{t}/{d}/v1/video/stop/result`
 
 请求字段：`{uuid, request_id}` + 可选 `room_number`。
 
@@ -378,7 +379,7 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 
 **作用**：阈值越限/恢复、USB 插拔的实时通知，驱动 App 告警中心（落 SQLite，200 条滚动淘汰）。
 
-- 主题：`walle/{t}/{d}/alarm`（非 retained，QoS1，App 侧 2 秒签名去重）
+- 主题：`walle/{t}/{d}/v1/alarm`（非 retained，QoS1，App 侧 2 秒签名去重）
 
 字段：
 
@@ -409,8 +410,8 @@ MQTT 只负责「开 / 关」控制。
 > 每台服务器不同，因此**不写死在代码里**：App 构建期注入（`-PoryxSecret` / `gradle.properties`
 > 的 `oryxSecret` / 环境变量 `WHIP_SECRET`），设备端读 `/etc/walle-ai.env` 的 `WHIP_SECRET`。
 
-- 开启请求：`walle/{t}/{d}/phone/audio/send` → 应答 `.../send/result`
-- 关闭请求：`walle/{t}/{d}/phone/audio/stop` → 应答 `.../stop/result`
+- 开启请求：`walle/{t}/{d}/v1/phone/audio/send` → 应答 `.../send/result`
+- 关闭请求：`walle/{t}/{d}/v1/phone/audio/stop` → 应答 `.../stop/result`
 
 请求字段：`{uuid, request_id, room_number}`；`stop` 的 `room_number` 可选
 （退出 App 兜底时不带，表示「停掉当前任何一路手机音频」）。

@@ -17,7 +17,7 @@ public class TopicNamesTest {
 
     private static final String TENANT = "home";
     private static final String DEVICE = "666feb85d43410b2";
-    private static final String BASE = "walle/home/666feb85d43410b2";
+    private static final String BASE = "walle/home/666feb85d43410b2/v1";
 
     @Test
     public void sanitizeKeepsAllowedChars() {
@@ -51,7 +51,7 @@ public class TopicNamesTest {
         assertEquals(BASE + "/cmd/exec", TopicNames.cmdExec(TENANT, DEVICE));
         assertEquals(BASE + "/video/start/request", TopicNames.videoStartRequest(TENANT, DEVICE));
         assertEquals(BASE + "/video/stop/request", TopicNames.videoStopRequest(TENANT, DEVICE));
-        assertEquals("walle/home/discovery/query", TopicNames.discoveryQuery(TENANT));
+        assertEquals("walle/home/v1/discovery/query", TopicNames.discoveryQuery(TENANT));
     }
 
     @Test
@@ -93,7 +93,7 @@ public class TopicNamesTest {
         assertEquals(8, subs.length);
         for (String s : subs) {
             assertTrue("不应订通配子树: " + s, !s.endsWith("/#"));
-            assertTrue("订阅必须以 walle/home/+ 开头: " + s, s.startsWith("walle/home/+"));
+            assertTrue("订阅必须以 walle/home/+/v1 开头: " + s, s.startsWith("walle/home/+/v1"));
         }
         String joined = String.join(",", subs);
         for (String expected : new String[]{
@@ -114,13 +114,13 @@ public class TopicNamesTest {
         assertEquals(DEVICE, p[1]);
         assertEquals("state/result", p[2]);
 
-        // 租户级发现主题只有 3 段，不应被当成设备主题解析
-        assertNull(TopicNames.parse("walle/home/discovery/query"));
+        // 租户级发现主题没有 device 段，不应被当成设备主题解析
+        assertNull(TopicNames.parse("walle/home/v1/discovery/query"));
         assertNull(TopicNames.parse("device/online"));
         assertNull(TopicNames.parse(null));
 
         // 设备名恰好是 discovery 时，带资源的主题仍应正常解析
-        String[] devDiscovery = TopicNames.parse("walle/home/discovery/state/query");
+        String[] devDiscovery = TopicNames.parse("walle/home/discovery/v1/state/query");
         assertEquals("discovery", devDiscovery[1]);
         assertEquals("state/query", devDiscovery[2]);
 
