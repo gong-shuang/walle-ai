@@ -182,6 +182,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 |---|---|
 | `online` | bool，true=上线 / false=下线 |
 | `device_id` / `uuid` / `hostname` | 归并与展示用标识 |
+| `version_code` / `version_name` | 设备端软件版本：版本号（整数，如 `1`）、版本名（如 `0.1.1.1`） |
 | `device_type` / `vendor` / `model` / `serial` | 设备类型、厂商、型号（如 Raspberry Pi 5）、序列号 |
 | `ip` / `mac` | 网络身份 |
 | `os{name,kernel,kernel_build,arch,python}` | 系统与内核版本 |
@@ -207,7 +208,6 @@ App 侧重复 online 不去重（幂等）。
 |---|---|---|
 | `request_id` | 是 | 配对用，应答原样回显 |
 
-应答 = §4.1 的身份字段全集 + `request_id`。**不带 uuid 校验**（免校验主题）。
 
 设备端保护机制（防止广播风暴）：
 
@@ -238,7 +238,7 @@ App 侧重复 online 不去重（幂等）。
 
 | 分组 | 字段 |
 |---|---|
-| 顶层 | `device_id`、`uuid`、`hostname`、`ip`、`timestamp`、`datetime`、`uptime_seconds`、`request_id` |
+| 顶层 | `device_id`、`uuid`、`hostname`、`version_code`、`version_name`、`ip`、`timestamp`、`datetime`、`uptime_seconds`、`request_id` |
 | `system` | `os`、`kernel`、`os_version`、`python`、`machine`、`model` |
 | `cpu` | `percent`（总）、`per_core_percent[]`（各核）、`count_logical/physical`、`load_avg_1m/5m/15m`、`frequency_mhz{current,min,max}`、`temperature_c`、`sample_interval_sec` |
 | `memory` | `percent`、`total/used/available/free_bytes` + `*_human`、`swap{percent,total_bytes,used_bytes,total_human,used_human}`（无 swap 时为 null） |

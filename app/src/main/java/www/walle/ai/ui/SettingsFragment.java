@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
+import www.walle.ai.BuildConfig;
 import www.walle.ai.R;
 import www.walle.ai.net.AlarmStore;
 import www.walle.ai.net.ConnState;
@@ -27,7 +28,7 @@ public class SettingsFragment extends Fragment {
 
     private MqttManager mgr;
     private View dotServer;
-    private TextView tvServerTitle, tvServerSub, tvAlarmBadge;
+    private TextView tvServerTitle, tvServerSub, tvAlarmBadge, tvAppVersion;
 
     @Nullable
     @Override
@@ -43,6 +44,9 @@ public class SettingsFragment extends Fragment {
         tvServerTitle = view.findViewById(R.id.tvServerTitle);
         tvServerSub = view.findViewById(R.id.tvServerSub);
         tvAlarmBadge = view.findViewById(R.id.tvAlarmBadge);
+        tvAppVersion = view.findViewById(R.id.tvAppVersion);
+
+        tvAppVersion.setText("V" + BuildConfig.VERSION_NAME);
 
         view.findViewById(R.id.rowServer).setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), SettingsActivity.class)));

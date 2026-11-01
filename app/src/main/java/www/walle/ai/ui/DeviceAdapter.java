@@ -72,8 +72,7 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.VH> {
         }
         h.tvLine3.setText(sb.toString());
 
-        String serial = d.serial == null || d.serial.isEmpty() ? "" : " · SN " + d.serial;
-        h.tvUuid.setText("uuid " + (d.uuid == null || d.uuid.isEmpty() ? "—" : d.uuid) + serial);
+        h.tvVersion.setText("Version  " + (d.versionName == null || d.versionName.isEmpty() ? "—" : d.versionName));
 
         h.itemView.setOnClickListener(v -> {
             if (onClick != null) onClick.onDeviceClick(d);
@@ -85,7 +84,7 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.VH> {
 
     static class VH extends RecyclerView.ViewHolder {
         final View dot;
-        final TextView tvName, tvType, tvCurrent, tvModel, tvLine1, tvLine2, tvLine3, tvUuid;
+        final TextView tvName, tvType, tvCurrent, tvModel, tvLine1, tvLine2, tvLine3, tvVersion;
         VH(@NonNull View v) {
             super(v);
             dot = v.findViewById(R.id.dotOnline);
@@ -96,7 +95,7 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.VH> {
             tvLine1 = v.findViewById(R.id.tvLine1);
             tvLine2 = v.findViewById(R.id.tvLine2);
             tvLine3 = v.findViewById(R.id.tvLine3);
-            tvUuid = v.findViewById(R.id.tvUuid);
+            tvVersion = v.findViewById(R.id.tvVersion);
         }
     }
 }

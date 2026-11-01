@@ -203,6 +203,10 @@ TOPIC_ROOT = "walle"
 # 升协议（报文结构变了）时新增 v2 段，旧设备继续用 v1，两套主题可以并存。
 PROTOCOL_VERSION = "v1"
 
+# 设备端软件版本（写死；发版时手动改这两行）
+VERSION_CODE = 1
+VERSION_NAME = "0.1.1.1"
+
 
 def _is_ascii_alnum(ch):
     return ("a" <= ch <= "z") or ("A" <= ch <= "Z") or ("0" <= ch <= "9")
@@ -1458,6 +1462,8 @@ class RpiMonitor:
         return {
             "device_id": DEVICE_ID,
             "uuid": DEVICE_UUID,
+            "version_code": VERSION_CODE,
+            "version_name": VERSION_NAME,
             "device_type": ("raspberrypi"
                             if model and "raspberry pi" in model.lower()
                             else "embedded-linux"),
@@ -2195,6 +2201,8 @@ class RpiMonitor:
             "device_id": DEVICE_ID,
             "uuid": DEVICE_UUID,
             "hostname": HOSTNAME,
+            "version_code": VERSION_CODE,
+            "version_name": VERSION_NAME,
             "ip": self.lan_ip,
             "timestamp": now_ts(),
             "datetime": now_str(),

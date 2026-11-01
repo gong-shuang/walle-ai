@@ -164,5 +164,16 @@
                 android:contentDescription="@null"
                 android:src="@drawable/ic_chevron_right" />
         </LinearLayout>
+
+
+        <TextView
+            android:id="@+id/tvAppVersion"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="82dp"
+            android:text="@string/settings_version"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
     </LinearLayout>
 </ScrollView>

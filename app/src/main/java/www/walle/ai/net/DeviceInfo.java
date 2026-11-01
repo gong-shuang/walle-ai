@@ -14,6 +14,8 @@ public class DeviceInfo {
 
     public String uuid = "";
     public String deviceId = "";
+    public String versionCode = "";
+    public String versionName = "";
     public String deviceType = "";
     public String vendor = "";
     public String model = "";
@@ -107,6 +109,8 @@ public class DeviceInfo {
         if (j == null) return d;
         d.uuid = j.optString("uuid", "");
         d.deviceId = j.optString("device_id", "");
+        d.versionCode = j.optString("version_code", "");
+        d.versionName = j.optString("version_name", "");
         d.deviceType = j.optString("device_type", "");
         d.vendor = j.optString("vendor", "");
         d.model = j.optString("model", "");

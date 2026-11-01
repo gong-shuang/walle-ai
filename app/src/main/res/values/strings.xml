@@ -127,4 +127,7 @@
     <string name="mic_no_room">没有推流房间号，无法开启麦克风</string>
     <string name="mic_permission_denied">未授权录音权限，无法开启麦克风</string>
     <string name="mic_error">麦克风开启失败：%1$s</string>
+
+    <!-- 设置fragment-->
+    <string name="settings_version">v0.1.1.1</string>
 </resources>

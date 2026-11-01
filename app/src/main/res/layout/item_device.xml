@@ -99,12 +99,11 @@
         android:text="内存 / 运行时长" />
 
     <TextView
-        android:id="@+id/tvUuid"
+        android:id="@+id/tvVersion"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:fontFamily="monospace"
         android:textColor="@color/text_secondary"
         android:textSize="10sp"
-        android:text="uuid" />
+        android:text="version" />
 </LinearLayout>
