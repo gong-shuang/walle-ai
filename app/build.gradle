@@ -41,7 +41,7 @@ android {
         // 1.8：协议改为 walle/{tenant}/{device}/...（旧版全局主题已删除，不兼容旧设备/旧 App）
         //      同时 targetSdk 36、edge-to-edge、R8、引导页按需解码
         versionCode 1
-        versionName "0.1.1.1"
+        versionName "0.1.1"
 
         // 把值写成 BuildConfig 常量的小 helper：String 自动补引号并转义其中的 \ 和 "，
         // int 直接透传；这样每个字段只剩“名字 + 取哪个变量”，一行一个，改起来不容易漏。

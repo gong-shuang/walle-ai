@@ -205,7 +205,7 @@ PROTOCOL_VERSION = "v1"
 
 # 设备端软件版本（写死；发版时手动改这两行）
 VERSION_CODE = 1
-VERSION_NAME = "0.1.1.1"
+VERSION_NAME = "0.1.1"
 
 
 def _is_ascii_alnum(ch):
