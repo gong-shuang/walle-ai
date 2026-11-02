@@ -1,0 +1,19 @@
+[Unit]
+Description=RaspberryPi System Monitor over MQTT
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gs
+# 模板：部署时把用户 / 安装目录替换成实际值（命令见 linux/README.md 3.3）
+WorkingDirectory=/home/gs/walle_linux
+EnvironmentFile=-/etc/walle-ai.env
+ExecStart=/home/gs/walle_linux/.venv/bin/python /home/gs/walle_linux/main.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

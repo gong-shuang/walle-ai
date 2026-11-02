@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 半透明深色圆角矩形（60% 黑 + 8dp 圆角）。
+     旧版是 oval 圆形，长期被用作 Spinner 触发器/悬浮控件背景，
+     但控件文字一长就变形，统一改成圆角矩形。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#66000000" />
+    <corners android:radius="8dp" />
+</shape>

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  摄像头 Spinner 的下拉条目：node（/dev/video0）+ name（PSI USB CAMERA）双行，
+  选中项在右侧额外加 ✓ 图标，一眼能看出当前选的是哪个。
+
+  用于 fragment_control.xml 的 spinnerCamera（android.R.layout.simple_spinner_dropdown_item
+  是单行，看不出选中态；换成自定义 item 并在 Adapter.getView 里设 ✓）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="12dp"
+    android:paddingVertical="8dp">
+
+    <TextView
+        android:id="@+id/tvCameraNode"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/text_primary"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/tvCameraName"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp" />
+</LinearLayout>

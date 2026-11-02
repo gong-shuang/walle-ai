@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- ============ 深色主题：深空蓝底 + 玻璃卡片 + 青蓝高亮 ============ -->
+    <style name="Theme.RPiMqtt" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/brand_primary</item>
+        <item name="colorPrimaryVariant">@color/brand_primary_dark</item>
+        <item name="colorOnPrimary">@color/on_accent</item>
+        <item name="colorSecondary">@color/brand_accent</item>
+        <item name="colorSecondaryVariant">@color/brand_accent</item>
+        <item name="colorOnSecondary">@color/on_accent</item>
+
+        <!-- 背景 / 表面 -->
+        <item name="android:colorBackground">@color/screen_bg</item>
+        <item name="colorOnBackground">@color/text_primary</item>
+        <item name="colorSurface">@color/card_bg</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
+        <item name="colorOutline">@color/card_stroke</item>
+        <item name="colorError">@color/state_error</item>
+        <item name="colorOnError">@color/white</item>
+
+        <!-- 文本 -->
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:textColorHint">@color/text_hint</item>
+        <item name="android:textColorTertiary">@color/text_secondary</item>
+
+        <!-- 弹窗（设置页的输入框、确认对话框）走深色覆盖层 -->
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.RPiMqtt.Dialog</item>
+        <item name="android:alertDialogTheme">@style/ThemeOverlay.RPiMqtt.Dialog</item>
+
+        <!-- 系统栏：深色底 + 浅色图标 -->
+        <item name="android:windowBackground">@drawable/bg_screen</item>
+        <!--
+            edge-to-edge（targetSdk 35+ 强制）：
+            系统栏设成透明，页面背景（windowBackground）直接铺到状态栏/导航栏下方，
+            由 UiUtil.applyEdgeToEdge 把系统栏高度补成内容 padding。
+            API 35+ 起 statusBarColor / navigationBarColor 已废弃为空操作，这里保留透明值只为低版本一致。
+        -->
+        <item name="android:statusBarColor" tools:targetApi="l">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+        <item name="android:navigationBarColor" tools:targetApi="l">@android:color/transparent</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
+        <!-- 三键导航时系统会给导航栏加半透明遮罩，深色主题下会突兀，显式关掉 -->
+        <item name="android:enforceStatusBarContrast" tools:targetApi="q">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="q">false</item>
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="p">default</item>
+    </style>
+
+    <!-- 深色弹窗覆盖层 -->
+    <style name="ThemeOverlay.RPiMqtt.Dialog" parent="ThemeOverlay.MaterialComponents.Dark">
+        <item name="colorSurface">@color/card_bg</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorPrimary">@color/brand_primary</item>
+        <item name="colorOnPrimary">@color/on_accent</item>
+        <item name="colorOutline">@color/card_stroke</item>
+    </style>
+
+    <!-- 首次启动引导页：深色底 + 全屏图片（内容一直铺到状态栏 / 导航栏下方） -->
+    <style name="Theme.RPiMqtt.Onboarding" parent="Theme.RPiMqtt">
+        <item name="android:windowBackground">@color/onboarding_bg</item>
+        <item name="android:statusBarColor" tools:targetApi="l">@android:color/transparent</item>
+        <item name="android:navigationBarColor" tools:targetApi="l">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="p">shortEdges</item>
+    </style>
+</resources>

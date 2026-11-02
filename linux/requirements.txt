@@ -1,0 +1,7 @@
+# 树莓派监控 Agent 运行依赖
+paho-mqtt>=2.0
+psutil>=5.9
+# 反向音频（手机麦上行）：whep_audio_player.py 用 WHEP 拉 WebRTC 音频，
+# 再用 PortAudio 写本机声卡。系统侧还需要 libportaudio2（见 README「首次配置环境」）。
+aiortc>=1.9
+sounddevice>=0.4.6

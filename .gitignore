@@ -1,0 +1,43 @@
+# ---------- Gradle / 构建产物 ----------
+.gradle/
+build/
+*/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ---------- Android ----------
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+gradle.properties
+
+# ---------- IDE ----------
+.idea/
+*.iml
+*.ipr
+*.iws
+.settings/
+.project
+.classpath
+.vscode/
+
+# ---------- 系统 ----------
+.DS_Store
+Thumbs.db
+
+# ---------- 调试/日志 ----------
+*.hprof
+*.log
+
+# ---------- Python（设备端） ----------
+__pycache__/
+*.py[cod]
+linux/.venv/
+linux/log/
+linux/*.log
+#本地调试，忽略此文件
+linux/walle-ai.env

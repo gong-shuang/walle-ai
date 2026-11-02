@@ -1,0 +1,139 @@
+plugins {
+    id 'com.android.application'
+}
+
+// 读取必需的构建期配置常量：值必须能在 gradle.properties（或命令行 -P<key>=<值>）里取到。
+def getProp = { String propKey ->
+    String v = project.findProperty(propKey)?.toString()?.trim()
+    if (v == null || v.isEmpty()) {
+        throw new GradleException(
+                "缺少必需的构建配置项 '${propKey}'。\n" +
+                "  请在项目根目录的 gradle.properties 补一行：${propKey}=<值>\n")
+    }
+    return v
+}
+
+// ---------------- MQTT 默认连接参数 ----------------
+def mqttHost = getProp('mqttHost')
+// 端口建议 8883（EMQX 的 ssl 监听，配合 MqttConfig.tls 默认值）；
+// 需要明文时在 gradle.properties 把 mqttPort 改成 1883，TLS 开关会自动关闭。
+def mqttPort = Integer.parseInt(getProp('mqttPort'))
+
+// ---------------- 播放/拉流地址 ----------------
+def whepUrlTemplate = getProp('whepUrlTemplate')
+def whipSecret = getProp("whipSecret")
+def whipAudioBaseUrl = getProp('whipAudioBaseUrl')
+// 有 secret 才拼进地址；必须先 def 声明再赋值，否则 Groovy 会把它当成给 project 赋属性（报 unknown property）
+def whipAudioUrl = "${whipAudioBaseUrl}&secret=${whipSecret}"
+
+
+android {
+    namespace 'www.walle.ai'
+    // Play 2026-08 起要求 targetSdk >= 36；compileSdk 同步到 36，build-tools 固定 36.0.0
+    compileSdk 36
+    buildToolsVersion '36.0.0'
+
+    defaultConfig {
+        applicationId "www.walle.ai"
+        minSdk 26
+        targetSdk 36
+        // 1.9：告警与设备状态落本地 SQLite（杀进程后告警不丢、卡片先渲染缓存）
+        // 1.8：协议改为 walle/{tenant}/{device}/...（旧版全局主题已删除，不兼容旧设备/旧 App）
+        //      同时 targetSdk 36、edge-to-edge、R8、引导页按需解码
+        versionCode 1
+        versionName "0.1.1.1"
+
+        // 把值写成 BuildConfig 常量的小 helper：String 自动补引号并转义其中的 \ 和 "，
+        // int 直接透传；这样每个字段只剩“名字 + 取哪个变量”，一行一个，改起来不容易漏。
+        // 必须定义在 defaultConfig 内部：buildConfigField 只在这个作用域能解析到。
+        def configString = { String name, Object value ->
+            def lit = value.toString().replace('\\', '\\\\').replace('"', '\\"')
+            buildConfigField 'String', name, "\"${lit}\""
+        }
+        def configInt = { String name, Object value ->
+            buildConfigField 'int', name, "${value}"
+        }
+
+        // MQTT 默认连接参数（源码里不出现明文凭据；账号密码由用户在 App 内输入）
+        configString 'MQTT_DEFAULT_HOST', mqttHost
+        configInt 'MQTT_DEFAULT_PORT', mqttPort
+
+        // WHEP 拉流地址模板
+        configString 'WHEP_URL_TEMPLATE', whepUrlTemplate
+        // 反向音频：手机麦克风 → WebRTC(WHIP) → 设备端 WHEP 拉流播放。
+        configString 'WHIP_AUDIO_URL_TEMPLATE', whipAudioUrl
+
+        // ABI 过滤：WebRTC 的 .so 占 41 MB（4 个 ABI），手机端只需要 arm64-v8a / armeabi-v7a。
+        // x86 / x86_64 仅模拟器需要；如果你的模拟器是 x86 镜像，临时把对应 ABI 加回这一行。
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
+
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            // R8：代码混淆 + 无用类剔除；shrinkResources 清理未引用的 res 与 so
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        unitTests {
+            // 纯 JVM 单测（TopicNames / DeviceInfo）不碰 Android API；
+            // 打开这个开关后，万一以后测到 android.* 也只是返回默认值而不是抛 "not mocked"。
+            returnDefaultValues = true
+        }
+    }
+
+    bundle {
+        // 上传 Play 时按 ABI / 语言拆包，单台设备只下载自己那套 .so
+        abi {
+            enableSplit true
+        }
+        density {
+            enableSplit true
+        }
+        language {
+            enableSplit true
+        }
+    }
+
+    buildFeatures {
+        // 需要生成 BuildConfig（PlayerActivity 从 BuildConfig.WHEP_URL_TEMPLATE 按房间号取拉流地址）
+        buildConfig true
+        // activity_player.xml 通过 ViewBinding 访问控件
+        viewBinding true
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.viewpager2:viewpager2:1.0.0'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    // ViewModel + LiveData：状态页试点（纯 Java 下用 LiveData 代替 Kotlin StateFlow）
+    implementation 'androidx.lifecycle:lifecycle-viewmodel:2.6.2'
+    implementation 'androidx.lifecycle:lifecycle-livedata:2.6.2'
+    implementation 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5'
+
+    // WebRTC 官方 API 的社区维护分支（包名仍为 org.webrtc）
+    implementation "io.getstream:stream-webrtc-android:1.3.8"
+
+    // 单元测试：./gradlew :app:testDebugUnitTest
+    testImplementation 'junit:junit:4.13.2'
+    // JVM 单测需要真正的 org.json 实现（android.jar 里只是抛 "Stub!" 的桩）
+    testImplementation 'org.json:json:20240303'
+}
