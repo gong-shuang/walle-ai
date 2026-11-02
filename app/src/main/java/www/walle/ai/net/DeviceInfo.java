@@ -84,7 +84,7 @@ public class DeviceInfo {
     }
 
     public String modelLabel() {
-        if (model != null && !model.isEmpty()) return model;
+        if (model != null && !model.isEmpty() && !model.equals("null")) return model;
         if (cpuModel != null && !cpuModel.isEmpty()) return cpuModel;
         return "型号未知";
     }

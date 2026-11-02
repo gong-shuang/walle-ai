@@ -65,7 +65,7 @@ python3 -m venv .venv
 
 ```bash
 sudo nano walle-ai.env
-sudo install -m 604 walle-ai.env /etc/walle-ai.env   # 604，所有用户可读，仅 root 为可读
+sudo install -m 600 walle-ai.env /etc/walle-ai.env   # 仅 root 为可读，数据保密，防止被其他用户读取/修改
 ```
 
 `walle-ai.env` 中的 6 个必填项：
@@ -148,7 +148,7 @@ sudo python3 main.py
 `--check` 输出示例：
 
 ```
-(.venv) orangepi@orangepi5plus:~/walle_linux$ python3 main.py 
+(.venv) orangepi@orangepi5plus:~/walle_linux$ sudo python3 main.py 
 2026-11-01 20:08:38 [INFO] 配置来源: /etc/walle-ai.env
 2026-11-01 20:08:38 [INFO] 设备 device_id: f1873c8b51019dc0（MAC=e0:75:26:6f:32:1f, CPU核心数=8, 内存总容量=8320167936字节）
 2026-11-01 20:08:38 [INFO] 设备 UUID: 930213af-aad0-53ef-9645-2e400f8a4863（MAC=e0:75:26:6f:32:1f, IP=192.168.31.38, 启动时间=2026-11-01 20:08:38）
@@ -262,9 +262,7 @@ linux/
 ├── requirements.txt            # paho-mqtt / psutil / aiortc / sounddevice
 ├── selftest_topics.py          # 主题契约自检
 ├── walle-ai.service            # systemd 模板（部署时按实际用户 / 目录改写，见 3.3）
-├── walle-ai.env                # 配置样例（部署时安装到 /etc/walle-ai.env）
-├── emqx/acl.conf.example       # EMQX 授权规则
-└── docs/legacy-v1-spec.md      # v1 时期的需求文档（归档，可删除）
+└── walle-ai.env                # 配置样例（部署时安装到 /etc/walle-ai.env）
 ```
 
 ---
