@@ -89,13 +89,33 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 
 ---
 
-## 快速开始
+## 快速上手
 
 | 重要文档 | 介绍 |
 |---|---|
 | [doc/service_deploy.md](doc/service_deploy.md) | 如何部署服务器、配置证书，权限介绍|
 | [doc/quick_start.md](doc/quick_start.md) | 如何编译app，连接服务器，如何使用|
 | [linux/README.md](linux/README.md) | 如何部署linux设备端代码，如何使用和调试设备端代码。|
+
+
+## 快速验证demo
+
+下载demo包：[release](https://github.com/baidong/walle-android/releases)
+
+使用adb命令安装
+
+```
+adb install walle-android-0.1.1.apk
+```
+
+测试使用的用户名为home，密码是123456，注意，当前apk未配置whipSecret(在[gradle.properties](gradle.properties)文件中)，因此不能app端发起语音通话，但是能看到视频流。
+
+打开app后，需要先配置用户名和密码，然后点击保存连接，如图所示：
+
+<img src="images/app_6.png" width="320"/>
+
+
+---
 
 
 ---
