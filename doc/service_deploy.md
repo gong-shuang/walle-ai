@@ -10,7 +10,7 @@
 > | ---- | ---------------- | ---------------------------------------- |
 > | Oryx | **v5.14.26**     | 基于 SRS 的一键音视频服务，Docker 镜像 `ossrs/oryx:5` |
 > | EMQX | **v6.3.2**       | MQTT Broker，镜像 `emqx/emqx:6.3.2`         |
-> | 系统   | Ubuntu 22.04（推荐） | 其他发行版也可，但 Oryx 官方推荐 Ubuntu 20/22         |
+> | 系统   | Ubuntu 24.04（推荐） | 其他发行版也可，但 Oryx 官方推荐 Ubuntu 20/22         |
 >
 > 下文用两个占位符，请替换成你的实际值：
 > `SERVER_IP` = 云服务器公网 IP，`www.example.com` = 你的域名。
@@ -68,7 +68,7 @@
 ## 1. 购买云服务器
 
 1. 选 2 核 2G 起步（Oryx 在 1 路 640×480\@30 + 1 路 Opus 下很轻，2C2G 足够；转码/多路再升）。
-2. 系统选 **Ubuntu 22.04**。
+2. 系统选 **Ubuntu 24.04**。
 3. 在云厂商控制台的**安全组**里按 §0 放行：`80/tcp、443/tcp、1935/tcp、8000/udp、8883/tcp`；`18083/tcp` 建议加 IP 白名单。
 
 验证（本机终端）：
@@ -134,7 +134,19 @@ curl -sI http://www.example.com/ | head -1
 > 这一步的证书主要给 **EMQX 8883** 用（§9）；Oryx 的 443 由 §6「一键 HTTPS」自动签发。
 > 两个服务用同一张证书（若 Oryx 版本支持导入）或各自一张同域名证书，效果一样。
 
-### 方式 A：certbot（推荐）
+### 方式 A：腾讯云申请（推荐）
+进入腾讯云控制台，选择「SSL证书」，点击「免费申请证书」如下。
+
+
+|                引导 1                 |               引导 2                 | 
+|:------------------------------------------------:|:------------------------------------------------:|
+| <img src="images/apply_ssl_1.png" width="220"/> | <img src="images/apply_ssl_2.png" width="220"/> |
+
+申请完成后，证书状态为 **已签发**，即然后将证书下载保存到本地电脑，后面配置EMQX的端口时，会用到SSL证书，如图：
+
+<img src="images/apply_ssl_3.png" width="300"/>
+
+### 方式 B：certbot（网上的方法，我自己没试过）
 
 ```bash
 apt install -y certbot
@@ -154,9 +166,6 @@ openssl x509 -in /etc/letsencrypt/live/www.example.com/fullchain.pem -noout -sub
 # subject 里应包含 CN 或 SAN = www.example.com，issuer = Let's Encrypt
 ```
 
-### 方式 B：Oryx 一键 HTTPS（自动申请 + 自动续期）
-
-见 §6：Oryx 自己申请并管理 443 的证书；EMQX 侧仍按方式 A 单独签一张同域名证书即可。
 
 ***
 
@@ -170,7 +179,7 @@ docker run --restart always -d -it --name oryx \
 ```
 
 - `-v $HOME/oryx-data:/data`：配置、证书、录像都落在这里，容器重建不丢。
-- 镜像 `ossrs/oryx:5` 是 v5 大版本的最新补丁；需要固定版本时把 tag 改成具体补丁号（以 Oryx Releases 页面为准）。
+- 镜像 `ossrs/oryx:5` 是 v5 大版本的最新补丁；需要固定版本时把 tag 改成具体补丁号（以 Oryx Releases 页面为准），如果下载速度慢，可以选择国内的镜像（registry.cn-hangzhou.aliyuncs.com/ossrs/oryx:5）。
 - 如果 80/443 已被 Nginx 占用，先停掉，或把宿主端口改成 `-p 2022:2022 -p 2443:2443` 并自行反代（不推荐，一键 HTTPS 会失效）。
 
 验证：
@@ -196,6 +205,8 @@ Oryx 控制台 → **配置 / 系统 → HTTPS**（不同小版本菜单位置�
 1. 填写域名 `www.example.com`（必须与证书/解析一致）。
 2. 点击「一键 HTTPS」。Oryx 会向 **Let's Encrypt** 申请证书并配置到 2443（对外 443），证书到期自动续期。
 3. 成功后控制台地址变为 `https://www.example.com/`，HTTP 会自动 301 跳转。
+
+<img src="images/one_key_https.png" width="300"/>
 
 验证（关键）：
 
@@ -278,9 +289,9 @@ adb logcat -s WhipAudio:V WhepDemo:I
 ## 7. 用 Docker 启动 EMQX
 
 ```bash
-docker run -d --name emqx --restart always \
-  -v $HOME/emqx-data:/opt/emqx/data \
-  -p 1883:1883 -p 8883:8883 -p 8083:8083 -p 8084:8084 -p 18083:18083 \
+docker run -d --name emqx  --restart always \
+  -p 1883:1883  -p 8083:8083  -p 8084:8084  -p 8883:8883  -p 18083:18083 \
+  -v emqx-data:/opt/emqx/data  -v emqx-etc:/opt/emqx/etc \
   emqx/emqx:6.3.2
 ```
 
@@ -320,6 +331,10 @@ Dashboard → **访问控制 → 认证（Authentication）** → 创建认证�
 > `walle/{tenant}/{device}/v1/...` 里，`tenant` = App 的用户名，`device` = 设备的 `device_id`（16 位十六进制，由 `main.py` 生成）。
 > 两边不一致时 App 收不到设备，这是最常见的“设备在线但列表空”的原因。
 
+
+<img src="images/create_user.png" width="300"/>
+
+
 验证（先不加密，验证账号可用）：
 
 ```bash
@@ -346,7 +361,11 @@ Dashboard → **管理 → 监听器（Listeners）** → 找到 **`ssl:default`
 - **CA 证书**：可选（仅当需要校验客户端证书时；公共 CA 场景留空即可）
 - 保存后监听器会自动重载（个别版本需重启容器）
 
-> 直接用 §4 方式 A 的 certbot 证书上传这两个文件即可；Oryx 的 443 证书由它自己管理，不需要在这里复用。
+> 直接用 §4 方式 A 的 腾讯云 SSL 证书上传这两个文件即可；Oryx 的 443 证书由它自己管理，不需要在这里复用。
+
+
+<img src="images/upload_ssl_certificate.png" width="300"/>
+
 
 验证：
 
@@ -386,6 +405,9 @@ Dashboard → **访问控制 → 授权（Authorization）** → 添加 **File**
 {allow, {username, {re, "^RaspPi5$"}}, subscribe, ["walle/home/${clientid}/#",
                                                    "walle/home/v1/discovery/query"]}.
 ```
+
+<img src="images/configure_acl.png" width="300"/>
+
 
 规则说明：
 
