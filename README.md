@@ -162,20 +162,13 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 - 凭据已用 Android Keystore 加密存储；MQTT 与 WHEP 均使用系统 CA 严格校验，服务端证书需要是公共 CA 签发且 SAN 与填写域名一致。
 - **不做云备份/整机迁移**（`allowBackup=false`）：换机后需要重新输入 Broker 账号密码；这是刻意的取舍，避免凭据随备份外流。
 - 仓库不含设备端采集脚本与 Broker 配置，需自行部署。
-- 目前的架构与技术债清单、升级路线见 [`doc/architecture-review.md`](doc/architecture-review.md)。
 
 ---
 
 ## 相关文档
 
 - [快速上手指南](doc/quick_start.md) — 环境要求、构建、Broker 配置、证书与权限
-- [任务清单](doc/task_list_20261030.md) — 待开发任务与验收标准
 - [MQTT 协议约定（协议 v1）](doc/MQTT_protocol_convention.md) — 全部报文字段定义、设计原则与修改流程（改协议前必读）
-- [设备发现收敛（N7）](doc/dev_record/n7-discovery-scaling.md) — 列表改由 retained `online` 驱动，discovery 降级为按需
-- [MQTT5 升级评估](doc/dev_record/mqtt5-assessment.md) — 工作量（6–10 / 13–19 人日）、收益排序、ACL 代价与触发条件
-- [架构与技术评审](doc/dev_record/architecture-review.md) — 分层、安全、性能、可测试性现状与 P0/P1/P2 升级路线
-- [targetSdk 36 升级指南](doc/dev_record/s4-target-sdk-36-migration.md) — 工具链升级、edge-to-edge 适配、视觉回归清单与设备端影响
-- [多租户主题方案](doc/dev_record/s3-multi-tenant-topics.md) — 主题契约、EMQX ACL 步骤与验收
 - [设备端部署说明](linux/README.md) — 树莓派一键安装脚本、配置项与排障
 
 ## 许可

@@ -33,7 +33,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     不订通配子树（避免收到自己发布的上报报文）。
 
 安全：所有请求报文必须带匹配的 uuid（本次运行实例标识），否则静默忽略；
-      设备连接用独立 MQTT 账号，Broker 侧按 walle/${clientid}/# 授权（见 emqx/acl.conf.example）。
+      设备连接用独立 MQTT 账号，Broker 侧按 walle/${clientid}/# 授权。
 
 依赖：pip install -r requirements.txt  （paho-mqtt>=2.0、psutil）
      摄像头能力探测需 v4l-utils，推流需 ffmpeg。

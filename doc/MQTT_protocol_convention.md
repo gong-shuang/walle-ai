@@ -60,7 +60,6 @@ walle/{tenant}/{device}/v1/{resource}
 把租户编码进主题路径，Broker 就能直接用 `walle/${username}/#` 做 ACL：
 用户 A 的 App 和设备只能看到 `walle/A/#`，天然隔离多用户，无需服务端代码。
 **因此主题段里绝不允许出现 `+ # /` 等通配/分隔符**（见 §3.3 清洗规则），否则 ACL 会失效。
-详细方案与 EMQX ACL 配置步骤见 [s3-multi-tenant-topics.md](dev_record/s3-multi-tenant-topics.md)。
 
 ### 2.2 设备段必须稳定，禁止用 uuid
 
@@ -107,7 +106,7 @@ QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 
 设备列表 = 当前在线设备，直接来自 retained `online` 报文：App 一连上就收到回放，
 **不需要广播轮询**。`discovery/query` 降级为按需手段（手动刷新、连上后一台设备都没
 回放出来时自动兜底一次）。设备端对 discovery 应答做了**限频（2 秒/台）+ 随机抖动
-（≤0.8 秒）**，避免多台手机同时扫描时回包风暴。背景见 [n7-discovery-scaling.md](dev_record/n7-discovery-scaling.md)。
+（≤0.8 秒）**，避免多台手机同时扫描时回包风暴。
 
 ### 2.7 不订通配子树
 
@@ -500,8 +499,4 @@ python3 linux/selftest_topics.py       # 设备端契约自检
 
 ## 7. 相关文档
 
-- [多租户主题方案（s3）](dev_record/s3-multi-tenant-topics.md) — ACL 配置与验收
-- [设备发现收敛（n7）](dev_record/n7-discovery-scaling.md) — retained 驱动列表的演进
-- [MQTT5 升级评估](dev_record/mqtt5-assessment.md) — 未来升级的工作量与触发条件
-- [架构与技术评审](dev_record/architecture-review.md) — 分层与技术债全景
 - [设备端部署说明](../linux/README.md) — main.py 安装与配置
