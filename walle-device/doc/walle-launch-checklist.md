@@ -1,0 +1,378 @@
+# Walle 上线前修复清单
+
+> 生成日期：2026-11-08
+> 依据：当前工作区代码静态审查（非渗透测试、非路测结论）
+> 状态图例：🔴 未解决　🟡 进行中　✅ 已解决
+> 更新方式：完成一项把 `- [ ]` 改成 `- [x]`，把 🔴 改成 ✅，并在文末「完成记录」补一行；进行中则把 🔴 改成 🟡、复选框保持未勾选。
+
+## 进度总览
+
+| 优先级 | 任务数 | 已完成 | 剩余 |
+| --- | ---: | ---: | ---: |
+| P0 上线阻断 | 20 | 3 | 17 |
+| P1 上线前应修 | 19 | 0 | 19 |
+| P2 后续优化 | 19 | 0 | 19 |
+| **合计** | **58** | **3** | **55** |
+
+> 每次勾选后请同步更新本表数字。
+
+---
+
+## P0 上线阻断项（必须全部清零）
+
+### P0-1 MQTT 远程命令执行面
+
+> 2026-11-08：`cmd/exec` / `cmd/result` 已从固件、协议文档、测试页整体删除，
+> P0-1.1~P0-1.3 关闭；P0-1.4 / P0-1.5 仍待处理。
+
+- [x] ✅ **P0-1.1 默认关闭远程命令执行**
+  - 处理：已直接删除该能力，不再存在远程命令入口
+  - 验收：设备订阅清单无 `cmd/exec`；向该主题发布消息无任何响应
+
+- [x] ✅ **P0-1.2 命令白名单改为严格匹配，禁止 shell 注入**
+  - 处理：`handle_cmd_exec` / `shell=True` 执行逻辑已整体删除
+  - 验收：源码中已无远程 shell 命令执行路径
+
+- [x] ✅ **P0-1.3 uuid 不再作为鉴权凭证（针对远程命令）**
+  - 处理：命令能力已删除；uuid 仍用于其它请求配对，但无法再触发命令执行
+  - 验收：仅拿到 discovery/online 中的 uuid，无法执行任何命令
+
+- [ ] 🔴 **P0-1.4 MQTT 默认 TLS 8883，缺配置拒绝启动**
+  - 证据：`agent.py` L142-L145 默认端口已为 8883、密码为空，但仍保留公网地址与 `RaspPi5` 用户名；L2528-L2546 TLS 逻辑
+  - 动作：删除默认 broker/用户名；缺少密码、租户、CA 时启动失败并给出明确报错
+  - 验收：无 `/etc/walle-ai.env` 时节点拒绝启动；抓包无明文 MQTT 报文
+
+- [ ] 🔴 **P0-1.5 Broker 按设备 ACL + 请求审计**
+  - 动作：每台设备独立 MQTT 账号，仅允许读写 `walle/{tenant}/{device}/#`；对状态、视频、音频等动作请求记录来源、结果、时间
+  - 验收：设备 A 的账号无法订阅/发布设备 B 的主题；关键动作可追溯
+
+### P0-2 ROS 网络暴露面
+
+- [ ] 🔴 **P0-2.1 rosbridge 收口**
+  - 证据：`walle_ws/src/net/walle_net/launch/net.launch.py` L13-L33，`address=''` 监听 `0.0.0.0:9090`，无认证/无 TLS
+  - 动作：只绑 `127.0.0.1`，外部通过带鉴权的 WSS 反向代理访问；或把遥控改走 MQTT
+  - 验收：局域网其他主机无法直接连接 9090
+
+- [ ] 🔴 **P0-2.2 web_video_server 收口**
+  - 证据：`walle_ws/src/video/walle_video/launch/web_video_server.launch.py` L5-L13，默认 8080 全网卡
+  - 动作：生产环境禁用；或加认证/TLS 并限制来源
+  - 验收：未授权主机无法访问 `/stream` 与 `/image_raw`
+
+- [ ] 🔴 **P0-2.3 whip_secret 不再声明为 ROS 参数**
+  - 证据：`walle_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py` L168-L169
+  - 动作：只从环境变量读取，不通过 `declare_parameter` 暴露
+  - 验收：`ros2 param get /video_webrtc_bridge whip_secret` 查不到明文
+
+- [ ] 🔴 **P0-2.4 防火墙只放行必要端口**
+  - 动作：默认拒绝入站，仅放行 MQTT 出站、必要的鉴权视频/控制端口
+  - 验收：外部端口扫描只看到预期端口
+
+### P0-3 底盘失联保护
+
+- [ ] 🔴 **P0-3.1 cmd_vel 看门狗**
+  - 证据：`walle_ws/src/car_control/controller/controller/mecanum.py` L54-L67，无超时清零
+  - 动作：新增 300–500ms 定时器，超时发布零速度；可复用 `walle_audio/speech.py` L120-L126 的看门狗写法
+  - 验收：发布前进指令后断开 Wi-Fi / 关闭 App，0.5s 内轮子停转
+
+- [ ] 🔴 **P0-3.2 进程退出与串口异常安全停车**
+  - 证据：`ros_robot_controller_node.py` L344-L354 仅处理 `KeyboardInterrupt`；systemd SIGTERM 不会执行
+  - 动作：注册 SIGTERM/SIGINT；串口写失败、控制器断连时主动下发零速度
+  - 验收：`kill -TERM` 控制器进程后电机停转；串口拔插不出现持续转动
+
+- [ ] 🔴 **P0-3.3 MCU 固件通信超时停车（软硬双保险）**
+  - 动作：固件侧增加通信超时自动停车；不要只依赖上位机软件看门狗
+  - 验收：上位机死机/断电时，底盘在设定时间内自动停止
+
+- [ ] 🔴 **P0-3.4 速度与加速度限幅**
+  - 证据：`mecanum.py` L22-L32 只做单轮 ±100 限幅，无加速度限制
+  - 动作：限制线速度/角速度上限与变化率，避免急停急起
+  - 验收：阶跃指令下电机输出平滑，无电流冲击
+
+- [ ] 🔴 **P0-3.5 禁止绕过底盘节点直接控制电机**
+  - 证据：`ros_robot_controller_node.py` L45-L46 订阅 `~/set_motor_speeds` 与 `~/enable_reception`
+  - 动作：不在 rosbridge 暴露这些话题；或加内部命名空间/鉴权
+  - 验收：外部无法通过 rosbridge 直接下发电机占空比或关闭传感器上报
+
+### P0-4 多车同域串控
+
+- [ ] 🔴 **P0-4.1 启用本机 ROS 隔离**
+  - 证据：`env_walle.sh` L49 固定 `ROS_DOMAIN_ID=1`
+  - 动作：所有节点都在本机，设置 `ROS_LOCALHOST_ONLY=1`（Jazzy 可用 `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`）
+  - 验收：同一局域网两台 Walle 互不可见
+
+- [ ] 🔴 **P0-4.2 或按设备分配 ROS_DOMAIN_ID**
+  - 动作：若必须跨机通信，由 device_id 派生 domain（0–101），并写入部署配置
+  - 验收：两台车同时运行时 `/cmd_vel`、`/image_raw` 不串流
+
+### P0-5 密钥与默认凭据
+
+- [ ] 🔴 **P0-5.1 删除代码内兜底凭据**
+  - 证据：`agent.py` L142-L145，默认 broker `www.baidong.xyz`、用户名 `RaspPi5` 仍在；密码已无默认值
+  - 动作：删除默认 broker/用户名；缺少密码、租户、CA 时直接失败
+  - 验收：`agent.py` 中无默认凭据；无 env 文件时节点拒绝启动
+
+- [ ] 🔴 **P0-5.2 env 文件模板化并加入 gitignore**
+  - 证据：`walle_ws/src/scripts/walle-ai.env` L3-L18 被 git 跟踪；`.gitignore` L1-L5 未忽略 env
+  - 动作：仓库只保留 `.env.example`；`*.env` 加入 `.gitignore`
+  - 验收：新增真实 env 文件不会被 `git status` 跟踪
+
+- [ ] 🔴 **P0-5.3 扫描历史并轮换已暴露密钥**
+  - 动作：扫描提交历史中的 `ALIYUN_API_KEY`、MQTT 密码、`WHIP_SECRET`；确认暴露后立即轮换
+  - 验收：历史扫描无有效密钥；旧密钥全部失效
+
+- [ ] 🔴 **P0-5.4 收紧配置文件权限**
+  - 证据：`auto.sh` L8 安装为 `root:gs 640`，依赖固定用户组
+  - 动作：改为 `root:root 600`，由 systemd `EnvironmentFile` 读取；不依赖 `gs` 组
+  - 验收：普通用户无法读取 `/etc/walle-ai.env`
+
+---
+
+## P1 上线前应修
+
+### P1-1 进程守护与启动可靠性
+
+- [ ] 🔴 **P1-1.1 为关键节点增加 respawn**
+  - 证据：`bringup.launch.py` L94-L105、`controller.launch.py` L11-L27；仅 net/video 节点有 respawn
+  - 动作：底盘、usb_cam、声呐、语音、大模型节点加 `respawn=True` + `respawn_delay`
+  - 验收：任意节点被 `kill` 后自动恢复，无需人工重启
+
+- [ ] 🔴 **P1-1.2 增加 systemd 服务单元**
+  - 证据：文档提到 `walle-ai.service`，仓库内不存在
+  - 动作：`Restart=always`、`RestartSec`、`WatchdogSec`、启动依赖网络就绪
+  - 验收：整机重启后全链路自动恢复；进程崩溃自动拉起
+
+- [ ] 🔴 **P1-1.3 明确启动顺序与健康检查**
+  - 动作：udev/设备就绪 → controller → usb_cam → net/video bridge；用 `startup_check` 或 health topic 判定就绪
+  - 验收：冷启动无“服务未就绪”类失败；日志有明确就绪标记
+
+### P1-2 部署可复现
+
+- [ ] 🔴 **P1-2.1 修正部署文档**
+  - 证据：`doc/device_deplay.md` L7-L12 路径与实际仓库不一致，且夸大了 `auto.sh` 的职责
+  - 动作：写清 build、依赖、udev、systemd、env 的完整步骤
+  - 验收：新人按文档可在全新系统完成部署
+
+- [ ] 🔴 **P1-2.2 auto.sh 覆盖完整部署**
+  - 证据：`walle_ws/src/scripts/auto.sh` L1-L9 只安装 env 文件
+  - 动作：安装依赖、colcon build、udev 规则、systemd 单元、权限设置
+  - 验收：一条命令完成部署，可重复执行
+
+- [ ] 🔴 **P1-2.3 增加依赖清单**
+  - 动作：增加 `requirements.txt` 或 rosdep keys；锁定 paho-mqtt 2.x、psutil、smbus2、OpenCV 等版本
+  - 验收：全新环境安装无缺包
+
+- [ ] 🔴 **P1-2.4 去掉 env_walle.sh 的环境硬编码**
+  - 证据：`env_walle.sh` L51-L58 固定 `$HOME/venv` 与 Python 3.12 site-packages
+  - 动作：统一使用系统 Python + rosdep；或 venv 使用 `--system-site-packages` 并校验版本
+  - 验收：更换用户名/路径/Python 小版本后仍可启动
+
+### P1-3 硬件断连恢复
+
+- [ ] 🔴 **P1-3.1 串口断连自动重连**
+  - 证据：`ros_robot_controller_sdk.py` L99-L108 只 open 一次；`recv_task` L489-L490 无异常处理
+  - 动作：打开失败重试；读写异常关闭端口并周期性重连；重连后重新使能接收
+  - 验收：拔插控制器 USB 后自动恢复，无需重启节点
+
+- [ ] 🔴 **P1-3.2 串口 I/O 不阻塞 ROS executor**
+  - 证据：`ros_robot_controller_node.py` 使用单线程 `rclpy.spin`，串口 timeout 10s
+  - 动作：串口写放到独立线程/队列；或使用 MultiThreadedExecutor + 回调组
+  - 验收：串口卡顿时 `/cmd_vel` 与状态查询仍能及时响应
+
+- [ ] 🔴 **P1-3.3 摄像头设备节点固定**
+  - 证据：`video_webrtc_bridge.yaml` L7、`usb_cam_param.yaml` L3 固定 `/dev/video0`；本机存在多个 video 节点
+  - 动作：改用 `/dev/v4l/by-id/...` 或 udev 固定符号链接
+  - 验收：重启/插拔后始终打开正确摄像头
+
+- [ ] 🔴 **P1-3.4 补齐 `/dev/rrc` udev 规则**
+  - 证据：`scripts/99-ttyACM0.rules` 未创建 `/dev/rrc` 符号链接，且 `GROUP="ubuntu"`、`MODE="0777"` 与当前系统不匹配
+  - 动作：按实际串口设备增加 `SYMLINK+="rrc"`，权限改为 `0660` + 正确属组
+  - 验收：全新镜像启动即存在可读写的 `/dev/rrc`
+
+- [ ] 🔴 **P1-3.5 声呐 I2C 异常与超时处理**
+  - 证据：`sonar_controller_node.py` L40-L50 发布线程无 try/except；I2C 异常只打印
+  - 动作：异常捕获、连续失败计数、超时发布无效值或告警；线程不退出
+  - 验收：拔掉声呐模块后节点存活并上报异常，不静默停更
+
+### P1-4 日志与可观测性
+
+- [ ] 🔴 **P1-4.1 ffmpeg 日志保留策略**
+  - 证据：每次推流新建 `~/.ros/log/video_webrtc_bridge/ffmpeg_*.log`，单文件 20MB，无跨文件清理
+  - 动作：按数量/天数/总大小清理；写入 systemd journal 或统一日志目录
+  - 验收：连续推流 7 天后日志占用受控
+
+- [ ] 🔴 **P1-4.2 MQTT 日志降级与脱敏**
+  - 证据：`agent.py` L1413 在 INFO 打印完整 payload
+  - 动作：默认不打印完整报文；密钥、房间号等脱敏；调试级别才输出
+  - 验收：生产日志无敏感字段
+
+- [ ] 🔴 **P1-4.3 远程日志与关键指标**
+  - 动作：接入 journald/远程日志；上报在线率、请求失败率、推流失败率、CPU/温度
+  - 验收：现场故障可远程定位，不依赖 SSH
+
+### P1-5 测试与 CI
+
+- [ ] 🔴 **P1-5.1 远程命令移除回归测试**
+  - 动作：断言 `subscriptions()` 不含 `cmd/exec`、`REQUEST_HANDLERS` 不含 `handle_cmd_exec`、`capabilities[]` 不含 `remote_cmd`
+  - 验收：任何重新引入该主题的改动都会在 CI 失败
+
+- [ ] 🔴 **P1-5.2 运动学与协议单测**
+  - 动作：麦克纳姆轮四轮解算、`Twist` 限幅、`request_id`/`uuid` 校验、视频房间号校验
+  - 验收：关键分支覆盖率有基线并持续提升
+
+- [ ] 🔴 **P1-5.3 故障注入与长稳测试**
+  - 动作：断网、断串口、拔相机、杀节点、MQTT 重连、连续推流 24h
+  - 验收：无人工介入即可恢复；无内存/句柄/磁盘泄漏
+
+- [ ] 🔴 **P1-5.4 CI 流水线**
+  - 动作：build + lint + test；合并前必须通过
+  - 验收：CI 红灯阻断合并
+
+---
+
+## P2 后续优化
+
+### P2-1 性能
+
+- [ ] 🔴 **P2-1.1 state/query 使用缓存快照**
+  - 证据：`agent.py` L2265-L2290 每次查询阻塞 1s 采样
+  - 动作：复用 monitor_loop 的最近一次采样结果
+  - 验收：`state/query` 响应 < 100ms
+
+- [ ] 🔴 **P2-1.2 capability 探测异步/按需**
+  - 证据：`agent.py` L1644-L1652 在请求线程里跑 v4l2/pactl，可能数秒
+  - 动作：后台缓存能力结果，按 TTL 刷新；支持“只读缓存”模式
+  - 验收：capability 查询不阻塞其它请求
+
+- [ ] 🔴 **P2-1.3 视频硬件编码**
+  - 证据：`video_webrtc_bridge/node.py` L602-L633 逐帧写 pipe，软编码 640x480@30
+  - 动作：评估 `v4l2h264enc`/`h264_v4l2m2m`/GStreamer，降低 CPU 与延迟
+  - 验收：同等画质下 CPU 占用明显下降，端到端延迟不升高
+
+- [ ] 🔴 **P2-1.4 MQTT 消息处理与监控解耦**
+  - 动作：命令线程池与采样线程分离；限制并发与队列长度
+  - 验收：大量查询/命令下监控采样不丢点
+
+### P2-2 代码质量
+
+- [ ] 🔴 **P2-2.1 拆分 agent.py**
+  - 证据：`agent.py` 2628 行，混合设备发现、系统监控、推流、音频、协议处理
+  - 动作：按职责拆为 config、identity、monitor、protocol、media 模块
+  - 验收：单文件 < 500 行，模块可独立测试
+
+- [ ] 🔴 **P2-2.2 删除被 node 覆盖的旧视频实现**
+  - 证据：`node.py` L104-L107 覆盖 `handle_video_request` 等方法，`agent.py` 内仍保留整套 ffmpeg 代码
+  - 动作：删除死代码，避免两套逻辑分叉
+  - 验收：全仓库只有一套推流实现
+
+- [ ] 🔴 **P2-2.3 版本号单一来源**
+  - 证据：`agent.py` L213-L214 的 `VERSION_CODE/VERSION_NAME` 与 `env_walle.sh` L37 的 `VERSION`
+  - 动作：统一由构建注入或读取同一个文件
+  - 验收：发版只改一处
+
+- [ ] 🔴 **P2-2.4 修复 enable_reception 属性覆盖**
+  - 证据：`ros_robot_controller_node.py` L46/L116-L119，回调把方法名覆盖为 bool
+  - 动作：改名为 `_reception_enabled`，方法保持独立
+  - 验收：重复调用 `enable_reception` 不抛 `TypeError`
+
+- [ ] 🔴 **P2-2.5 移除节点构造函数内的 rclpy.init()**
+  - 证据：`ros_robot_controller_node.py` L26、`sonar_controller_node.py` L24
+  - 动作：只保留 main 中的 `rclpy.init`，构造函数不初始化上下文
+  - 验收：节点可被测试/组合复用，不出现重复初始化
+
+- [ ] 🔴 **P2-2.6 修复 PWM 舵机状态服务**
+  - 证据：`ros_robot_controller_node.py` L163-L176 返回 list 而非 response，服务签名也不符
+  - 动作：改为 `(request, response)` 并填充 `response`
+  - 验收：`ros2 service call .../pwm_servo/get_state` 正常返回
+
+- [ ] 🔴 **P2-2.7 修正 IMU 数据语义**
+  - 证据：`ros_robot_controller_node.py` L326-L341 orientation 恒 0 但 covariance 非 0
+  - 动作：无姿态解算时把协方差首项设为 -1（REP-145），或融合出真实姿态
+  - 验收：下游不会把零四元数当有效姿态
+
+- [ ] 🔴 **P2-2.8 补 URDF/TF**
+  - 动作：至少提供 `base_link → imu_link → camera_link`，扩展导航时再补 `map→odom→base_link`
+  - 验收：`ros2 run tf2_tools view_frames` 树完整
+
+### P2-3 AI 演示节点
+
+- [ ] 🔴 **P2-3.1 消除 process() 忙等**
+  - 证据：`vllm_obstacle_avoidance.py` L232-L275 无 sleep
+  - 动作：改为事件/条件变量或固定周期 sleep
+  - 验收：空闲时 CPU 占用接近 0
+
+- [ ] 🔴 **P2-3.2 去除阻塞式 time.sleep**
+  - 证据：`vllm_obstacle_avoidance.py` L294-L299
+  - 动作：改为定时器/状态机，不阻塞回调线程
+  - 验收：动作执行期间状态查询与停止指令仍可响应
+
+- [ ] 🔴 **P2-3.3 声呐超时保护**
+  - 证据：`vllm_obstacle_avoidance.py` L116-L117 只保存最后一次距离，断流后可能继续前进
+  - 动作：记录时间戳，超时即停车并上报
+  - 验收：断开声呐后 0.5s 内停车
+
+- [ ] 🔴 **P2-3.4 从生产 launch 移除或加开关**
+  - 动作：`start.launch.py` 不默认启动实验性 AI 节点；或加 `enable_ai` 参数默认 false
+  - 验收：生产启动不包含未验收的自动驾驶逻辑
+
+### P2-4 摄像头与兼容性
+
+- [ ] 🔴 **P2-4.1 usb_cam 控制名适配**
+  - 证据：`usb_cam_param.yaml` L18-L23 注释已说明 kernel 6.8 控制名不匹配
+  - 动作：升级/补丁 usb_cam，或增加 V4L2 控制名映射；无法解决则明确记录为已知告警
+  - 验收：启动日志无控制设置失败错误
+
+- [ ] 🔴 **P2-4.2 多 video 节点环境固定设备**
+  - 证据：本机存在 `/dev/video0`–`/dev/video33`
+  - 动作：按 by-id/udev 固定；启动前校验设备能力（分辨率/格式）
+  - 验收：不会误开 ISP/编解码节点
+
+- [ ] 🔴 **P2-4.3 修复测试页缺失服务**
+  - 证据：`test/car_ctl_by_bridge.html` L323 调用 `/avoidance_node/enter`，当前代码库无此服务
+  - 动作：实现服务或移除按钮
+  - 验收：点击对应按钮不再出现 rosbridge 错误
+
+---
+
+## 回归验收命令（参考）
+
+> 涉及运动的测试必须把车架空，确认轮子悬空后再执行。
+
+```bash
+# 1) 局域网暴露面（在另一台电脑执行）
+nc -vz <车IP> 9090
+nc -vz <车IP> 8080
+
+# 2) 参数泄露检查
+ros2 param get /video_webrtc_bridge whip_secret
+
+# 3) 密钥扫描
+git grep -nE "sk-[A-Za-z0-9]{10,}|MQTT_PASSWORD=|WHIP_SECRET="
+
+# 4) 进程与设备
+ros2 node list
+ros2 topic hz /image_raw
+ls -l /dev/rrc /dev/v4l/by-id/
+
+# 5) 失联停车（车架空）
+# 发布前进指令后断开 Wi-Fi 或 kill rosbridge，观察轮子是否在 0.5s 内停止
+```
+
+---
+
+## 完成记录
+
+| 日期 | 任务编号 | 提交/PR | 验证方式 | 验证人 |
+| --- | --- | --- | --- | --- |
+| 2026-11-08 | P0-1.1~P0-1.3 | 未提交 | 固件/协议/测试页已无 cmd 残留；`net_mqtt_bridge` 重建通过 | 待确认 |
+|  |  |  |  |  |
+|  |  |  |  |  |
+
+---
+
+## 备注
+
+- 本清单中的“证据”行号基于 2026-11-08 的工作区版本，代码变更后请同步核对。
+- 2026-11-08：P0-1.1~P0-1.3 已通过删除 `cmd/exec` / `cmd/result` 完成，详见
+  `doc/MQTT_protocol_convention.md` §8 变更记录。
+- P0 未清零前，不建议把设备接入非受控网络或交付给最终用户。
+- 静态审查无法替代实车路测；P0-3 的验收必须在架空状态下逐项完成。

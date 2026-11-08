@@ -8,6 +8,6 @@
 执行 auto.sh 脚本部署项目
 
 ```bash
-sudo ./src/scripts/auto.sh
+sudo ../walle_ws/src/scripts/auto.sh
 ```
 

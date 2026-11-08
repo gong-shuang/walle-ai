@@ -6,7 +6,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 功能：
 1. 周期巡检，异常实时上报（USB 插拔 / CPU / 内存 / 磁盘 / 带宽 / 温度），带状态机：
    越限才报，恢复后发 recover 事件，不会重复刷屏。
-2. 响应设备身份查询、状态查询、远程命令、摄像头能力查询、推流/停止推流。
+2. 响应设备身份查询、状态查询、摄像头能力查询、推流/停止推流。
 3. 上线/下线：retained + 遗嘱（LWT），App 重启或重连后能立刻看到设备在线状态。
 
 协议：多租户主题 v1
@@ -20,14 +20,13 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     —                                          .../alarm                           主动上报（告警 / USB）
     walle/{t}/discovery/query                   .../discovery/result                 设备发现（租户级广播）
     .../state/query                             .../state/result                     状态快照
-    .../cmd/exec                                .../cmd/result                       远程命令（执行动作）
     .../capability/query                      .../capability/result                  设备能力（摄像头/麦克风/音响等外设）
     .../video/start/request                     .../video/start/result               开始推流（动作）
     .../video/stop/request                      .../video/stop/result                停止推流（动作）
     .../phone/audio/send                        .../phone/audio/send/result            手机麦上行·开（App 发起）
     .../phone/audio/stop                        .../phone/audio/stop/result            手机麦上行·关（App 发起）
 
-    命名约定：请求按语义划分 —— 查询 /query、命令 /exec、动作 /request；
+    命名约定：请求按语义划分 —— 查询 /query、动作 /request；
     应答一律 /result，且只在收到对应请求后才发布，只有 online 与 alarm 是主动上报。
 
     除 discovery 广播外，设备只订阅自己子树下的「请求类」主题，
@@ -141,9 +140,9 @@ ENV_SOURCE = _init_env()
 # ---- MQTT ----
 # 既保留原来的默认值，也支持用环境变量覆盖（systemd 里配 Environment= 即可，避免口令写进代码）
 MQTT_HOST = os.environ.get("MQTT_HOST", "www.baidong.xyz")
-MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "8883"))
 MQTT_USER = os.environ.get("MQTT_USERNAME", "RaspPi5")
-MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "123456")
+MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "")
 MQTT_KEEPALIVE = 60
 MQTT_QOS = 1
 # TLS：8883 走 ssl://，1883 走明文（与 App 的端口/TLS 开关对应）
@@ -157,7 +156,6 @@ MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE", "").strip()      # 留空则用系
 # ---- 应答（设备 -> App）----
 RES_DISCOVERY_RESULT = "discovery/result"           # 收到 discovery/query 后发布（设备身份详情）
 RES_STATE_RESULT = "state/result"                   # 收到 state/query 后发布（状态快照）
-RES_CMD_RESULT = "cmd/result"                       # 收到 cmd/exec 后发布
 RES_CAPABILITY_RESULT = "capability/result"         # 收到 capability/query 后发布
 RES_VIDEO_START_RESULT = "video/start/result"       # 收到 video/start/request 后发布
 RES_VIDEO_STOP_RESULT = "video/stop/result"         # 收到 video/stop/request 后发布
@@ -178,7 +176,6 @@ RES_ALARM = "alarm"                         # 告警 / 恢复 / USB 插拔
 # ---- 订阅的请求（App -> 设备）----
 REQ_DISCOVERY = "discovery/query"
 REQ_STATE = "state/query"
-REQ_CMD = "cmd/exec"
 REQ_CAPABILITY = "capability/query"
 REQ_VIDEO_START = "video/start/request"
 REQ_VIDEO_STOP = "video/stop/request"
@@ -263,7 +260,6 @@ def tenant_topic(suffix):
 REQUEST_TO_RESULT = {
     REQ_DISCOVERY: RES_DISCOVERY_RESULT,
     REQ_STATE: RES_STATE_RESULT,
-    REQ_CMD: RES_CMD_RESULT,
     REQ_CAPABILITY: RES_CAPABILITY_RESULT,
     REQ_VIDEO_START: RES_VIDEO_START_RESULT,
     REQ_VIDEO_STOP: RES_VIDEO_STOP_RESULT,
@@ -274,7 +270,6 @@ REQUEST_TO_RESULT = {
 # 请求资源 → 处理函数名
 REQUEST_HANDLERS = {
     REQ_STATE: "handle_query_status",
-    REQ_CMD: "handle_cmd_exec",
     REQ_CAPABILITY: "handle_capability_query",
     REQ_VIDEO_START: "handle_video_request",
     REQ_VIDEO_STOP: "handle_video_stop",
@@ -292,7 +287,6 @@ def subscriptions():
     base = device_topic_base()
     return [
         (f"{base}/{REQ_STATE}", MQTT_QOS),
-        (f"{base}/{REQ_CMD}", MQTT_QOS),
         (f"{base}/{REQ_CAPABILITY}", MQTT_QOS),
         (f"{base}/{REQ_VIDEO_START}", MQTT_QOS),
         (f"{base}/{REQ_VIDEO_STOP}", MQTT_QOS),
@@ -311,7 +305,7 @@ THRESH_TEMP = float(os.environ.get("THRESH_TEMP", "80.0"))               # CPU �
 THRESH_NET_BPS = float(os.environ.get("THRESH_NET_MIB", "10")) * 1024 * 1024
 RECOVER_RATIO = 0.9                      # 回滞系数：降到阈值的 90% 以下才算恢复，防止边界抖动
 
-# ---- 远程命令（注意安全！）----
+# ---- 布尔环境变量 ----
 def _env_flag(name, default):
     """布尔环境变量：1/true/yes/on 为真，0/false/no/off 为假。"""
     raw = os.environ.get(name)
@@ -319,14 +313,6 @@ def _env_flag(name, default):
         return default
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
-
-ENABLE_CMD_EXEC = _env_flag("ENABLE_CMD_EXEC", True)
-CMD_TIMEOUT_DEFAULT = 30                 # 命令默认超时（秒）
-CMD_TIMEOUT_MAX = 300                    # 命令最大超时（秒）
-CMD_OUTPUT_LIMIT = 64 * 1024             # stdout/stderr 最大回传字节（超出截断）
-# 命令白名单：为空表示允许任意命令；填写后只允许前缀匹配，例如：
-# CMD_ALLOWLIST = ["ls", "uptime", "df -h", "free -m", "vcgencmd measure_temp"]
-CMD_ALLOWLIST = []
 
 # USB 设备扫描路径
 USB_SYSFS = Path("/sys/bus/usb/devices")
@@ -1459,7 +1445,7 @@ class RpiMonitor:
     def publish_json(self, resource, data, retain=False):
         """按资源名发布到 walle/{tenant}/{device}/v1/{resource}。
 
-        参数 resource 用模块顶部的 RES_* 常量，例如 RES_ALARM / RES_CMD_RESULT。
+        参数 resource 用模块顶部的 RES_* 常量，例如 RES_ALARM / RES_STATE_RESULT。
         """
         self._publish_one(device_topic(resource), data, retain)
 
@@ -1669,7 +1655,7 @@ class RpiMonitor:
         total_resolutions = sum(c["resolution_count"] for c in cameras)
 
         # 能力清单如实反映探测结果：App 按它显隐功能入口
-        capabilities = ["system_status", "remote_cmd"]
+        capabilities = ["system_status"]
         if cameras:
             capabilities.append("camera_video_capture")
         if VIDEO_ENABLE:
@@ -2459,133 +2445,6 @@ class RpiMonitor:
                          device_topic(RES_STATE_RESULT), rid or "-")
         except Exception:
             logging.exception("采集/上报 %s 失败", device_topic(RES_STATE_RESULT))
-
-    # ---------- cmd 远程命令 ----------
-
-    def handle_cmd_exec(self, payload):
-        request_id = str(uuid.uuid4())[:8]
-        result = {
-            "device_id": DEVICE_ID,
-            "uuid": DEVICE_UUID,
-            "hostname": HOSTNAME,
-            "request_id": request_id,
-            "cmd": None,
-            "status": "error",
-            "exit_code": None,
-            "stdout": "",
-            "stderr": "",
-            "duration_ms": 0,
-            "timestamp": now_ts(),
-            "datetime": now_str(),
-        }
-        # 校验 uuid：不匹配或格式非法则静默忽略，不执行、不回复
-        ok, data = self.verify_uuid(payload, REQ_CMD)
-        if not ok:
-            return
-
-        if data.get("request_id"):
-            request_id = str(data["request_id"])
-            result["request_id"] = request_id
-
-        if not ENABLE_CMD_EXEC:
-            result["stderr"] = "设备已禁用远程命令执行（ENABLE_CMD_EXEC=False）"
-            result["datetime"] = now_str()
-            self._publish_cmd_result(result)
-            return
-
-        cmd = data.get("cmd") if isinstance(data, dict) else None
-        result["cmd"] = cmd
-        if not cmd or not isinstance(cmd, str) or not cmd.strip():
-            result["stderr"] = "缺少 cmd 字段或 cmd 为空"
-            result["datetime"] = now_str()
-            self._publish_cmd_result(result)
-            return
-
-        # 白名单校验（按命令前缀匹配）
-        if CMD_ALLOWLIST:
-            head = cmd.strip()
-            if not any(head == w or head.startswith(w + " ") for w in CMD_ALLOWLIST):
-                result["status"] = "denied"
-                result["stderr"] = f"命令不在白名单中，允许的前缀: {CMD_ALLOWLIST}"
-                result["datetime"] = now_str()
-                self._publish_cmd_result(result, note="命令被白名单拒绝")
-                logging.warning("拒绝非白名单命令: %s", cmd)
-                return
-
-        try:
-            timeout = int(data.get("timeout", CMD_TIMEOUT_DEFAULT))
-        except (TypeError, ValueError):
-            timeout = CMD_TIMEOUT_DEFAULT
-        timeout = max(1, min(timeout, CMD_TIMEOUT_MAX))
-        result["timeout_sec"] = timeout
-
-        logging.info("执行远程命令: %s (timeout=%ss, request_id=%s)", cmd, timeout, request_id)
-        start = time.time()
-        try:
-            proc = subprocess.run(
-                cmd,
-                shell=True,
-                executable="/bin/bash",
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-            result["exit_code"] = proc.returncode
-            result["status"] = "success" if proc.returncode == 0 else "failed"
-            result["stdout"] = self._truncate(proc.stdout)
-            result["stderr"] = self._truncate(proc.stderr)
-        except subprocess.TimeoutExpired as e:
-            result["status"] = "timeout"
-            result["exit_code"] = None
-            result["stderr"] = f"命令执行超时（>{timeout}s）已被终止"
-            out = e.stdout.decode("utf-8", "replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
-            result["stdout"] = self._truncate(out)
-        except Exception as e:  # noqa: BLE001
-            result["status"] = "error"
-            result["stderr"] = f"执行异常: {e!r}"
-        finally:
-            result["duration_ms"] = int((time.time() - start) * 1000)
-            result["timestamp"] = now_ts()
-            result["datetime"] = now_str()
-            # 发布 + 打印「已响应命令执行 -> .../cmd/result（...）」
-            self._publish_cmd_result(result)
-
-    def _publish_cmd_result(self, result, note=None):
-        """发布 cmd/result 并打印应答日志（格式与「已响应能力查询」保持一致）。
-
-        note 为空时自动从 stdout/stderr 里提炼一句简述：
-          · 成功：补充 stdout 字符数
-          · 失败/超时/拒绝：取 stderr 第一行（过长截断）
-        """
-        self.publish_json(RES_CMD_RESULT, result)
-
-        detail = note
-        if detail is None:
-            stderr = str(result.get("stderr") or "").strip()
-            stdout = str(result.get("stdout") or "")
-            if stderr:
-                first = stderr.splitlines()[0]
-                detail = first if len(first) <= 80 else first[:80] + "…"
-            elif stdout:
-                detail = f"stdout {len(stdout)} 字符"
-
-        logging.info(
-            "已响应命令执行 -> %s（request_id=%s，status=%s，exit=%s，耗时 %dms%s）",
-            device_topic(RES_CMD_RESULT),
-            result.get("request_id"),
-            result.get("status"),
-            result.get("exit_code"),
-            int(result.get("duration_ms") or 0),
-            f"，{detail}" if detail else "",
-        )
-
-    @staticmethod
-    def _truncate(text):
-        if not text:
-            return ""
-        if len(text) <= CMD_OUTPUT_LIMIT:
-            return text
-        return text[:CMD_OUTPUT_LIMIT] + f"\n...[输出过长，已截断，原始长度 {len(text)} 字符]"
 
     # ---------- 周期监控主循环 ----------
 
