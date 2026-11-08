@@ -13,7 +13,7 @@ package www.walle.ai.net;
  *   <li>{@code device}：<b>稳定</b>的设备标识（{@code device_id}，回退 hostname、最后 uuid），
  *       不能用每次重启都会变的 uuid；</li>
  *   <li>{@code 资源}：请求按语义命名 —— 查询用 {@code .../query}、
- *       执行动作用 {@code .../exec}（命令）、{@code .../request}（推流）；
+ *       动作用 {@code .../request}（推流）；
  *       应答一律 {@code .../result}，且只在收到对应请求后发布；
  *       主动上报只有 {@code online} 与 {@code alarm}。</li>
  * </ul>
@@ -53,8 +53,6 @@ public final class TopicNames {
     public static final String KIND_DISCOVERY = "discovery";
     /** 状态查询失败 */
     public static final String KIND_STATE = "state/query";
-    /** 命令下发失败 */
-    public static final String KIND_CMD = "cmd";
     /** 设备能力查询失败 */
     public static final String KIND_CAPABILITY = "capability/query";
     /** 推流启动失败 */
@@ -131,11 +129,6 @@ public final class TopicNames {
         return deviceBase(tenant, device) + "/state/result";
     }
 
-    /** 命令执行结果（收到 cmd/exec 后发布）。 */
-    public static String cmdResult(String tenant, String device) {
-        return deviceBase(tenant, device) + "/cmd/result";
-    }
-
     /** 告警 / 恢复 / USB 插拔（主动上报）。 */
     public static String alarm(String tenant, String device) {
         return deviceBase(tenant, device) + "/alarm";
@@ -160,7 +153,7 @@ public final class TopicNames {
      * App 需要订阅的主题（只订「设备 → App」的响应类，不订请求类）。
      *
      * <p>为什么不直接订 {@code walle/{tenant}/#}：MQTT 3.1.1 没有 no-local 语义，
-     * 客户端会收到自己发布的报文。App 会在租户内发布 state/query、cmd/exec、video/start/request 等请求，
+     * 客户端会收到自己发布的报文。App 会在租户内发布 state/query、video/start/request 等请求，
      * 订通配子树就会把自己的请求再收一遍（日志里表现为 {@code ← RECV walle/home/discovery/query}），
      * 白白浪费带宽并干扰排查。</p>
      */
@@ -171,7 +164,6 @@ public final class TopicNames {
                 base + "/alarm",                   // 主动上报
                 base + "/discovery/result",        // 查询应答
                 base + "/state/result",
-                base + "/cmd/result",
                 base + "/capability/result",
                 base + "/video/start/result",
                 base + "/video/stop/result",
@@ -182,11 +174,6 @@ public final class TopicNames {
     /** 查询状态。 */
     public static String stateQuery(String tenant, String device) {
         return deviceBase(tenant, device) + "/state/query";
-    }
-
-    /** 执行命令（动作类，用 /exec）。 */
-    public static String cmdExec(String tenant, String device) {
-        return deviceBase(tenant, device) + "/cmd/exec";
     }
 
     /** 查询设备能力（摄像头/麦克风/音响等外设）。 */
@@ -243,7 +230,7 @@ public final class TopicNames {
 
     /**
      * 从主题里取出资源段（不含租户与设备），用于分发：
-     * {@code walle/t/d/v1/state} → {@code state}；{@code walle/t/d/v1/cmd/result} → {@code cmd/result}。
+     * {@code walle/t/d/v1/state/result} → {@code state/result}；{@code walle/t/d/v1/capability/result} → {@code capability/result}。
      */
     public static String resourceOf(String topic) {
         String[] p = parse(topic);

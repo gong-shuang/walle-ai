@@ -17,7 +17,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import www.walle.ai.data.LocalDb;
 
 /**
- * MQTT 门面（facade）：对 UI 暴露「设备 / 状态 / 命令 / 视频 / 连接状态」这些业务 API，
+ * MQTT 门面（facade）：对 UI 暴露「设备 / 状态 / 视频 / 连接状态」这些业务 API，
  * 自身只做编排，具体职责拆给四个组件：
  *
  * <table>
@@ -28,7 +28,7 @@ import www.walle.ai.data.LocalDb;
  * </table>
  *
  * <p><b>协议</b>：多租户主题 {@code walle/{tenant}/{device}/v1/{resource}}。
- * 请求按语义命名（查询 {@code query}、命令 {@code exec}、动作 {@code request}），
+ * 请求按语义命名（查询 {@code query}、动作 {@code request}），
  * 应答一律 {@code result} 且只在收到请求后发布；主动上报只有 {@code online} 与 {@code alarm}。
  * 租户 = MQTT 用户名（清洗后）。</p>
  */
@@ -53,8 +53,6 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
 
         default void onAlarm(JSONObject payload) {}
 
-        default void onCmdResult(JSONObject payload) {}
-
         /** capability/result：设备能力（摄像头/麦克风/音响等外设枚举结果） */
         default void onCapability(JSONObject payload) {}
 
@@ -64,7 +62,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         /** video/stop/result：停止推流结果 */
         default void onVideoStopResult(JSONObject payload) {}
 
-        /** 发布失败；kind 取值见 {@link TopicNames#KIND_CMD} 等常量 */
+        /** 发布失败；kind 取值见 {@link TopicNames#KIND_STATE} 等常量 */
         default void onDeliveryError(String kind, String error) {}
     }
 
@@ -400,27 +398,6 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         return rid;
     }
 
-    /** 向选中设备下发远程命令，返回生成的 request_id（用于结果配对）。 */
-    public String execCommand(String cmd, int timeoutSec) {
-        String key = registry.selectedKey();
-        if (key == null || key.isEmpty()) {
-            notifyDeliveryError(TopicNames.KIND_CMD, "请先在设备页选择设备");
-            return "";
-        }
-        String rid = newRequestId();
-        JSONObject body = new JSONObject();
-        try {
-            body.put("uuid", key);
-            body.put("cmd", cmd);
-            body.put("request_id", rid);
-            body.put("timeout", timeoutSec);
-        } catch (JSONException ignore) {
-        }
-        client.publish(TopicNames.KIND_CMD,
-                TopicNames.cmdExec(tenant, deviceSegment(key)), body.toString());
-        return rid;
-    }
-
     /** 主题里的设备段：优先 device_id（稳定），回退 hostname / uuid。 */
     private String deviceSegment(String deviceKey) {
         DeviceInfo d = registry.get(deviceKey);
@@ -496,11 +473,6 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
             AlarmStore.get().add(payload);
             for (Listener l : listeners) l.onAlarm(payload);
         });
-    }
-
-    @Override
-    public void onCmdResult(JSONObject payload) {
-        for (Listener l : listeners) main.post(() -> l.onCmdResult(payload));
     }
 
     @Override

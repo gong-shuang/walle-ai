@@ -10,7 +10,6 @@
     <!-- 设备详情内的子页 -->
     <string name="subtab_status">状态</string>
     <string name="subtab_control">控制</string>
-    <string name="subtab_command">命令</string>
     <string name="video_placeholder">视频流视图，先保留，以后实现</string>
     <string name="video_placeholder_sub">后续接入摄像头推流（RTSP / WebRTC）后在此预览</string>
 
@@ -39,16 +38,6 @@
     <string name="clear_alarms_confirm_title">清空确认</string>
     <string name="clear_alarms_confirm_message">「今日」和「历史」中的所有告警都会被清除，且不可恢复。是否继续？</string>
     <string name="cancel">取消</string>
-
-    <string name="cmd_hint">输入 shell 命令，例如：vcgencmd measure_temp</string>
-    <string name="timeout_hint">超时(秒)</string>
-    <string name="no_cmd_result">暂无执行结果，输入命令后点击“执行”</string>
-    <string name="run">执行</string>
-    <string name="running">执行中…</string>
-    <string name="cmd_safety_tip">⚠ 命令将以 shell 在目标设备上真实执行，请确认命令安全。</string>
-    <string name="quick_cmds">常用命令</string>
-    <string name="history">本次历史</string>
-    <string name="result_title">执行结果</string>
 
     <string name="notif_channel">MQTT 服务</string>
 
