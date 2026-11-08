@@ -10,6 +10,12 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
+def _default_enable_rosbridge():
+    """按 WALLE_RUNTIME_ENV 决定 rosbridge 默认值：debug 开启，prod/未设置关闭。"""
+    runtime_env = os.environ.get('WALLE_RUNTIME_ENV', 'prod').strip().lower()
+    return 'true' if runtime_env == 'debug' else 'false'
+
+
 def launch_setup(context):
     # 获取包的路径
     controller_package_path = get_package_share_directory('controller')
@@ -22,6 +28,10 @@ def launch_setup(context):
     video_webrtc_bridge_package_path = get_package_share_directory('video_webrtc_bridge')
 
     sonar_enabled = LaunchConfiguration('sonar', default='true')
+    # rosbridge 仅用于开发调试（web 测试页 / 快速定位）
+    # 默认值由 env_walle.sh 的 WALLE_RUNTIME_ENV 控制：debug=true，prod=false
+    enable_rosbridge = LaunchConfiguration(
+        'enable_rosbridge', default=_default_enable_rosbridge())
 
     # 启动 controller 的 launch 文件（ros_robot_controller + mecanum_chassis_node）
     controller_launch = IncludeLaunchDescription(
@@ -30,9 +40,11 @@ def launch_setup(context):
     )
 
     # 启动 rosbridge_server / rosapi（walle_net 仅做启动编排）
+    # 仅调试时开启：ros2 launch bringup bringup.launch.py enable_rosbridge:=true
     net_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(walle_net_package_path, 'launch/net.launch.py')),
+        condition=IfCondition(enable_rosbridge),
     )
 
     # 启动 web_video_server 进程
@@ -110,5 +122,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'sonar', default_value='true',
             description='Start sonar controller node'),
+        DeclareLaunchArgument(
+            'enable_rosbridge', default_value=_default_enable_rosbridge(),
+            description='Start rosbridge websocket server (default: WALLE_RUNTIME_ENV=debug)'),
         OpaqueFunction(function=launch_setup)
     ])

@@ -9,10 +9,10 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 20 | 5 | 15 |
+| P0 上线阻断 | 19 | 5 | 14 |
 | P1 上线前应修 | 19 | 0 | 19 |
-| P2 后续优化 | 19 | 0 | 19 |
-| **合计** | **58** | **5** | **53** |
+| P2 后续优化 | 20 | 1 | 19 |
+| **合计** | **58** | **6** | **52** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -47,10 +47,8 @@
 
 ### P0-2 ROS 网络暴露面
 
-- [ ] 🔴 **P0-2.1 rosbridge 收口**
-  - 证据：`walle_ws/src/net/walle_net/launch/net.launch.py` L13-L33，`address=''` 监听 `0.0.0.0:9090`，无认证/无 TLS
-  - 动作：只绑 `127.0.0.1`，外部通过带鉴权的 WSS 反向代理访问；或把遥控改走 MQTT
-  - 验收：局域网其他主机无法直接连接 9090
+> 2026-11-08：P0-2.1（rosbridge 收口）已降级为 P2-5.1——rosbridge 定位为开发调试工具，
+> `bringup` 默认 `enable_rosbridge=false`，生产启动不再监听 9090。
 
 - [ ] 🔴 **P0-2.2 web_video_server 收口**
   - 证据：`walle_ws/src/video/walle_video/launch/web_video_server.launch.py` L5-L13，默认 8080 全网卡
@@ -329,6 +327,12 @@
   - 动作：实现服务或移除按钮
   - 验收：点击对应按钮不再出现 rosbridge 错误
 
+### P2-5 调试工具
+
+- [x] ✅ **P2-5.1 rosbridge 默认关闭（仅调试开启）**
+  - 处理：`env_walle.sh` 新增 `WALLE_RUNTIME_ENV`（`prod`/`debug`，默认 `prod`）；`bringup.launch.py` 的 `enable_rosbridge` 默认值随之为 `debug=true`、`prod=false`，也可显式 `enable_rosbridge:=true` 覆盖
+  - 验收：`WALLE_RUNTIME_ENV=prod` 启动后 9090 无监听；`WALLE_RUNTIME_ENV=debug` 启动才监听 9090，局域网其他主机仅在调试模式可连接
+
 ---
 
 ## 回归验收命令（参考）
@@ -337,6 +341,7 @@
 
 ```bash
 # 1) 局域网暴露面（在另一台电脑执行）
+#    生产期望：9090 拒绝连接（rosbridge 默认关闭）；8080 按 P0-2.2 收口
 nc -vz <车IP> 9090
 nc -vz <车IP> 8080
 
@@ -364,6 +369,7 @@ ls -l /dev/rrc /dev/v4l/by-id/
 | 2026-11-08 | P0-1.1~P0-1.3 | 未提交 | 固件/协议/测试页已无 cmd 残留；`net_mqtt_bridge` 重建通过 | 待确认 |
 | 2026-11-08 | P0-1.4 | 未提交 | 无 env 时节点构造报错退出；`--check` 输出缺失项；TLS 强制开启 | 待确认 |
 | 2026-11-08 | P0-5.1 | 未提交 | `agent.py` 已无默认 broker/用户名；缺项时拒绝启动 | 待确认 |
+| 2026-11-08 | P2-5.1 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 9090 无监听；`debug` 或显式传参才启动 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -377,5 +383,8 @@ ls -l /dev/rrc /dev/v4l/by-id/
 - 2026-11-08：P0-1.4 已删除默认 broker/用户名，新增 `validate_mqtt_config()`；
   无配置、缺租户或明文配置时节点拒绝启动，TLS 默认 8883 且强制开启。
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
+- 2026-11-08：rosbridge 定位为开发调试工具，`env_walle.sh` 新增 `WALLE_RUNTIME_ENV`
+  （prod/debug），`bringup` 的 `enable_rosbridge` 默认值随之为 false/true；
+  P0-2.1 降级为 P2-5.1，生产启动不再监听 9090。
 - P0 未清零前，不建议把设备接入非受控网络或交付给最终用户。
 - 静态审查无法替代实车路测；P0-3 的验收必须在架空状态下逐项完成。

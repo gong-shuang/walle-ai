@@ -36,11 +36,19 @@ export WALLE_ENV_LOADED=1
 
 export VERSION="|V0.0.1|2026-11-7|"
 
+# 注释下面，就是生产环境
+export WALLE_RUNTIME_ENV=debug
+
 # 机器类型：Walle
 export MACHINE_TYPE=Walle
 
 # 语言设置，主要涉及语音部分：Chinese/English
 export ASR_LANGUAGE=Chinese
+
+# 运行环境：prod（生产，默认）/ debug（调试）
+# debug 会自动开启 rosbridge(9090) 等调试能力；线上保持 prod
+# 临时切换：WALLE_RUNTIME_ENV=debug source env_walle.sh
+export WALLE_RUNTIME_ENV="${WALLE_RUNTIME_ENV:-prod}"
 
 # 走 install 目录（package share），不再依赖源码目录硬编码路径
 export need_compile=True
@@ -74,6 +82,7 @@ echo -e "\033[32m----------------------------------------------
 当前环境是ROS2|The current environment is ROS2 (Walle)
 ----------------------------------------------\033[0m"
 echo -e "MACHINE: \033[32m$MACHINE_TYPE\033[0m"
+echo -e "RUNTIME: \033[32m$WALLE_RUNTIME_ENV\033[0m"
 echo -e "OS:      \033[32m${os_pretty:-Unknown}\033[0m"
 echo -e "ROS2:    \033[32m${ros_distro^}\033[0m"
 echo -e "ROS_DOMAIN_ID: \033[32m$ROS_DOMAIN_ID\033[0m"
