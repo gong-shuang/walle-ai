@@ -69,9 +69,11 @@
   - 处理：`main()` 注册 SIGTERM/SIGINT，退出前统一调用 `stop_motors()`；电机写入失败、串口读取异常、遥测连续 1s 无数据（以约 10Hz 的电池报文为主心跳，兼容无 IMU 底盘）时均尝试下发零速度
   - 验收：`kill -TERM` 控制器进程后电机停转；串口拔插 / 控制器断连后不出现持续转动（固件通信超时为最终兜底，见 P0-3.3）
 
-- [ ] 🔴 **P0-3.3 MCU 固件通信超时停车（软硬双保险）**
-  - 动作：固件侧增加通信超时自动停车；不要只依赖上位机软件看门狗
-  - 验收：上位机死机/断电时，底盘在设定时间内自动停止
+- [ ] 🟡 **P0-3.3 MCU 固件通信超时停车（软硬双保险）**
+  - 状态：阻塞——`ros_robot_controller` 为 STM32 固件，源码不在本仓库，需固件方实现并烧录
+  - 需求：见 `doc/mcu-comm-timeout-requirement.md`（合法电机帧计时、默认 500ms 超时四轮置 0、仅电机帧刷新、超时后新指令可恢复）
+  - 验证：架空车轮后运行 `tools/test_mcu_timeout.py`，并补 `kill -9` 与整机断电测试
+  - 验收：上位机死机/断电时，底盘在 0.5s 内自动停止
 
 - [ ] 🔴 **P0-3.4 速度与加速度限幅**
   - 证据：`walle_ws/src/car_control/controller/controller/mecanum.py` L22-L32 只做单轮 ±100 限幅，无加速度限制
@@ -392,6 +394,9 @@ ls -l /dev/rrc /dev/v4l/by-id/
 - 2026-11-08：P0-3.2 已接管 SIGTERM/SIGINT，并在电机写失败、串口异常、
   遥测超时时尝试下发零速度；本车无 IMU，实测电池报文约 9Hz，已以其为主心跳，
   需架空实车验证。
+- 2026-11-09：P0-3.3 阻塞于 MCU 固件源码缺失；需求见
+  `doc/mcu-comm-timeout-requirement.md`，验证脚本 `tools/test_mcu_timeout.py`
+  （需架空车轮）。
 - 2026-11-08：rosbridge / web_video_server 定位为开发调试工具，`env_walle.sh` 新增
   `WALLE_RUNTIME_ENV`（prod/debug），`bringup` 的 `enable_rosbridge` /
   `enable_web_video_server` 默认值随之为 false/true；
