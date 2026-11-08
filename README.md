@@ -108,7 +108,7 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 adb install walle-android-0.1.1.apk
 ```
 
-测试使用的用户名为home，密码是123456，注意，当前apk未配置whipSecret(在[gradle.properties](gradle.properties)文件中)，因此不能app端发起语音通话，但是能看到视频流。
+测试使用的用户名为home，密码是123456，注意，当前apk未配置whipSecret(在[walle-android/gradle.properties](walle-android/gradle.properties)文件中)，因此不能app端发起语音通话，但是能看到视频流。
 
 打开app后，需要先配置用户名和密码，然后点击保存连接，如图所示：
 

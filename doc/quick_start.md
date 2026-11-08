@@ -11,14 +11,16 @@
 | Android Studio | 2026.2 及以上（支持 AGP 9.x） |
 | JDK | 17（Studio 自带 JBR 21 亦可） |
 | Android SDK | Platform 36、Build-Tools 36.0.0 |
-| AGP / Gradle | 9.4.1 / 9.6.0（见 [build.gradle](../build.gradle) 与 [gradle-wrapper.properties](../gradle/wrapper/gradle-wrapper.properties)） |
+| AGP / Gradle | 9.4.1 / 9.6.0（见 [build.gradle](../walle-android/build.gradle) 与 [gradle-wrapper.properties](../walle-android/gradle/wrapper/gradle-wrapper.properties)） |
 | 运行设备 | Android 8.0（API 26）及以上（targetSdk 36，已按 edge-to-edge 适配） |
 
 ## 构建
 
-用 Android Studio 打开项目根目录，等待 Gradle Sync 后直接 Run；或命令行：
+用 Android Studio 打开工程目录 `walle-android/`，等待 Gradle Sync 后直接 Run；或命令行：
 
 ```bash
+cd walle-android
+
 # 按需覆盖默认 Broker 地址（优先级：-P 参数 > 环境变量 > 默认值）
 ./gradlew :app:assembleDebug \
   -PmqttHost=192.168.1.10 \
@@ -33,7 +35,7 @@
 ```
 
 > 已配置 ABI 过滤：只打 `arm64-v8a` + `armeabi-v7a`（WebRTC `.so` 从 41 MB 降到 17.3 MB）。
-> 如果你的模拟器是 **x86_64** 镜像，需要在 [app/build.gradle](../app/build.gradle) 的
+> 如果你的模拟器是 **x86_64** 镜像，需要在 [app/build.gradle](../walle-android/app/build.gradle) 的
 > `ndk { abiFilters ... }` 里临时加回 `'x86_64'`；arm64 镜像（Apple Silicon 上的模拟器）则无需改动。
 
 > 已提交 `gradlew` / `gradlew.bat` 与 wrapper jar，首次构建会自动下载 Gradle 9.6.0。
@@ -86,8 +88,8 @@ App **不内置任何证书**，全部依赖 Android 系统信任库：
 
 - **MQTT（8883）** 与 **WHEP（443）** 都要求服务端使用公共 CA 签发的证书
   （例如 TrustAsia / Let's Encrypt），且证书 SAN 必须包含你在 App 里填写的域名。
-- 私有 CA / 自签证书：把 CA 证书放进 `app/src/main/res/raw/`，在
-  [network_security_config.xml](../app/src/main/res/xml/network_security_config.xml)
+- 私有 CA / 自签证书：把 CA 证书放进 `walle-android/app/src/main/res/raw/`，在
+  [network_security_config.xml](../walle-android/app/src/main/res/xml/network_security_config.xml)
   加 `domain-config` + `trust-anchors`（**只信任该域名**），不要用「信任所有证书」的写法。
 - Debug 构建额外信任「用户安装的 CA」（见 `network_security_config.xml` 的 `debug-overrides`），
   方便自签证书联调；Release 只信系统 CA。
@@ -114,7 +116,7 @@ echo | openssl s_client -connect www.baidong.xyz:443 -servername www.baidong.xyz
 
 ```bash
 # 安装到已连接的设备/模拟器
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r walle-android/app/build/outputs/apk/debug/app-debug.apk
 
 # 启动主界面
 adb shell am start -n www.walle.ai/.ui.MainActivity
@@ -127,6 +129,6 @@ adb shell am start -n www.walle.ai/.ui.MainActivity
 3. 跑一遍契约测试确认环境无误：
 
 ```bash
-./gradlew :app:testDebugUnitTest     # App 端单测
-python3 linux/selftest_topics.py    # 设备端主题契约自检（不需要树莓派）
+(cd walle-android && ./gradlew :app:testDebugUnitTest)   # App 端单测
+python3 linux/selftest_topics.py                         # 设备端主题契约自检（不需要树莓派）
 ```
