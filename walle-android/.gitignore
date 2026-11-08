@@ -1,0 +1,40 @@
+# ---------- Gradle / 构建产物 ----------
+.gradle/
+build/
+*/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ---------- Android 构建 ----------
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+**/app/release/
+
+# gradle.properties 必须入库（构建期常量），不要忽略
+# 本地临时改动可用，执行后git看不见它的改动，只在本地生效
+# git update-index --skip-worktree gradle.properties
+# 取消 git 看不见
+# git update-index --no-skip-worktree gradle.properties
+
+# ---------- IDE ----------
+.idea/
+*.iml
+*.ipr
+*.iws
+.settings/
+.project
+.classpath
+.vscode/
+
+# ---------- 系统 ----------
+.DS_Store
+Thumbs.db
+
+# ---------- 调试 / 日志 ----------
+*.hprof
+*.log
