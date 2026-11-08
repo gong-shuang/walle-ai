@@ -2,15 +2,6 @@
 
 ## 项目介绍
 
-## 部署说明
-
-修改文件 walle-ai.env 中的 ALIYUN_API_KEY 为你的新key
-执行 auto.sh 脚本部署项目
-
-```bash
-sudo ./src/scripts/auto.sh
-```
-
 
 ## 需要注意
 ```

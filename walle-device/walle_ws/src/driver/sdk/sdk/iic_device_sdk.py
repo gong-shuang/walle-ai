@@ -127,22 +127,35 @@ class SpeechModule:
       3 左转 / left
       4 右转 / right
       9 停止 / stop
-      10 开始语音识别 / begin speech recognition
-      12 结束语音识别 / end speech recognition
+      15 开始语音识别 / begin speech recognition
+      16 结束语音识别 / end speech recognition
     """
 
+    #类型
+    CMD_COMMAND = 0x00     # 命令词条播报语
+    CMD_ANNOUNCER = 0xFF   # 普通播报语
+
+    #语音识别结果寄存器地址，通过不断读取此地址的值判断是否识别到语音，不同的值对应不同的语音
+    RESULT_REG = 0x64
+    #播报设置寄存器地址
+    SPEAK_REG = 0x6E
+
+    # 命令 CMD_COMMAND
     RESULT_GO = 1
     RESULT_BACK = 2
     RESULT_LEFT = 3
     RESULT_RIGHT = 4
     RESULT_STOP = 9
-    RESULT_ASR_START = 10
-    RESULT_ASR_STOP = 12
+    RESULT_ASR_START = 15
+    RESULT_ASR_STOP = 16
 
-    RESULT_REG = 0x64
-    SPEAK_REG = 0x6E
-    CMD_COMMAND = 0x00     # 命令词条播报语
-    CMD_ANNOUNCER = 0xFF   # 普通播报语
+    #播报语 CMD_ANNOUNCER
+    #前方有障碍物
+    VOICE_OBSTACLE = 0x05
+    #完成泊车
+    VOICE_PARKING = 0x06
+    
+    
 
     def __init__(self, address=0x34, bus=1):
         self.address = address
@@ -172,6 +185,14 @@ class SpeechModule:
             self._i2c.close()
         except Exception:
             pass
+
+    def speak_obstacle(self):
+        """播报前方是否有障碍物"""
+        return self.speak(self.CMD_ANNOUNCER, self.VOICE_OBSTACLE)
+
+    def speak_parking(self):
+        """播报完成泊车"""
+        return self.speak(self.CMD_ANNOUNCER, self.VOICE_PARKING)
 
 
 if __name__ == '__main__':
