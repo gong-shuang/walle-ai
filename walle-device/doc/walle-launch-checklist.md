@@ -4,15 +4,16 @@
 > 依据：当前工作区代码静态审查（非渗透测试、非路测结论）
 > 状态图例：🔴 未解决　🟡 进行中　✅ 已解决
 > 更新方式：完成一项把 `- [ ]` 改成 `- [x]`，把 🔴 改成 ✅，并在文末「完成记录」补一行；进行中则把 🔴 改成 🟡、复选框保持未勾选。
+> 路径约定：除特别标注外，文中路径均相对于 `walle-device/` 目录；`web/` 等位于仓库根目录的路径会单独标注。
 
 ## 进度总览
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 18 | 5 | 13 |
+| P0 上线阻断 | 18 | 6 | 12 |
 | P1 上线前应修 | 19 | 0 | 19 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **7** | **51** |
+| **合计** | **58** | **8** | **50** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -50,10 +51,9 @@
 > 2026-11-08：P0-2.1（rosbridge 收口）已降级为 P2-5.1，P0-2.2（web_video_server 收口）
 > 已降级为 P2-5.2——两者均定位为开发调试工具，`bringup` 默认不启动（9090/8080 不监听）。
 
-- [ ] 🔴 **P0-2.3 whip_secret 不再声明为 ROS 参数**
-  - 证据：`walle_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py` L168-L169
-  - 动作：只从环境变量读取，不通过 `declare_parameter` 暴露
-  - 验收：`ros2 param get /video_webrtc_bridge whip_secret` 查不到明文
+- [x] ✅ **P0-2.3 whip_secret 不再声明为 ROS 参数**
+  - 处理：`video_webrtc_bridge` 不再 `declare_parameter("whip_secret")`，只从 `/etc/walle-ai.env` 的 `WHIP_SECRET` 读取
+  - 验收：`ros2 param get /video_webrtc_bridge whip_secret` 返回参数不存在；`ros2 param dump` 无明文
 
 - [ ] 🔴 **P0-2.4 防火墙只放行必要端口**
   - 动作：默认拒绝入站，仅放行 MQTT 出站、必要的鉴权视频/控制端口
@@ -63,11 +63,11 @@
 
 - [ ] 🔴 **P0-3.1 cmd_vel 看门狗**
   - 证据：`walle_ws/src/car_control/controller/controller/mecanum.py` L54-L67，无超时清零
-  - 动作：新增 300–500ms 定时器，超时发布零速度；可复用 `walle_audio/speech.py` L120-L126 的看门狗写法
+  - 动作：新增 300–500ms 定时器，超时发布零速度；可复用 `walle_ws/src/audio/walle_audio/walle_audio/speech.py` L120-L126 的看门狗写法
   - 验收：发布前进指令后断开 Wi-Fi / 关闭 App，0.5s 内轮子停转
 
 - [ ] 🔴 **P0-3.2 进程退出与串口异常安全停车**
-  - 证据：`ros_robot_controller_node.py` L344-L354 仅处理 `KeyboardInterrupt`；systemd SIGTERM 不会执行
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L344-L354 仅处理 `KeyboardInterrupt`；systemd SIGTERM 不会执行
   - 动作：注册 SIGTERM/SIGINT；串口写失败、控制器断连时主动下发零速度
   - 验收：`kill -TERM` 控制器进程后电机停转；串口拔插不出现持续转动
 
@@ -76,12 +76,12 @@
   - 验收：上位机死机/断电时，底盘在设定时间内自动停止
 
 - [ ] 🔴 **P0-3.4 速度与加速度限幅**
-  - 证据：`mecanum.py` L22-L32 只做单轮 ±100 限幅，无加速度限制
+  - 证据：`walle_ws/src/car_control/controller/controller/mecanum.py` L22-L32 只做单轮 ±100 限幅，无加速度限制
   - 动作：限制线速度/角速度上限与变化率，避免急停急起
   - 验收：阶跃指令下电机输出平滑，无电流冲击
 
 - [ ] 🔴 **P0-3.5 禁止绕过底盘节点直接控制电机**
-  - 证据：`ros_robot_controller_node.py` L45-L46 订阅 `~/set_motor_speeds` 与 `~/enable_reception`
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L45-L46 订阅 `~/set_motor_speeds` 与 `~/enable_reception`
   - 动作：不在 rosbridge 暴露这些话题；或加内部命名空间/鉴权
   - 验收：外部无法通过 rosbridge 直接下发电机占空比或关闭传感器上报
 
@@ -103,7 +103,7 @@
   - 验收：`agent.py` 中无默认 MQTT 凭据；无 env 文件时节点拒绝启动
 
 - [ ] 🔴 **P0-5.2 env 文件模板化并加入 gitignore**
-  - 证据：`walle_ws/src/scripts/walle-ai.env` L3-L18 被 git 跟踪；`.gitignore` L1-L5 未忽略 env
+  - 证据：`walle_ws/src/scripts/walle-ai.env` L3-L18 被 git 跟踪；`.gitignore` L1-L9 未忽略 env
   - 动作：仓库只保留 `.env.example`；`*.env` 加入 `.gitignore`
   - 验收：新增真实 env 文件不会被 `git status` 跟踪
 
@@ -112,7 +112,7 @@
   - 验收：历史扫描无有效密钥；旧密钥全部失效
 
 - [ ] 🔴 **P0-5.4 收紧配置文件权限**
-  - 证据：`auto.sh` L8 安装为 `root:gs 640`，依赖固定用户组
+  - 证据：`walle_ws/src/scripts/auto.sh` L8 安装为 `root:gs 640`，依赖固定用户组
   - 动作：改为 `root:root 600`，由 systemd `EnvironmentFile` 读取；不依赖 `gs` 组
   - 验收：普通用户无法读取 `/etc/walle-ai.env`
 
@@ -123,7 +123,7 @@
 ### P1-1 进程守护与启动可靠性
 
 - [ ] 🔴 **P1-1.1 为关键节点增加 respawn**
-  - 证据：`bringup.launch.py` L94-L105、`controller.launch.py` L11-L27；仅 net/video 节点有 respawn
+  - 证据：`walle_ws/src/bringup/launch/bringup.launch.py`、`walle_ws/src/car_control/controller/launch/controller.launch.py`；仅 net/video 节点有 respawn
   - 动作：底盘、usb_cam、声呐、语音、大模型节点加 `respawn=True` + `respawn_delay`
   - 验收：任意节点被 `kill` 后自动恢复，无需人工重启
 
@@ -153,34 +153,34 @@
   - 验收：全新环境安装无缺包
 
 - [ ] 🔴 **P1-2.4 去掉 env_walle.sh 的环境硬编码**
-  - 证据：`env_walle.sh` L51-L58 固定 `$HOME/venv` 与 Python 3.12 site-packages
+  - 证据：`env_walle.sh` L59-L66 固定 `$HOME/venv` 与 Python 3.12 site-packages
   - 动作：统一使用系统 Python + rosdep；或 venv 使用 `--system-site-packages` 并校验版本
   - 验收：更换用户名/路径/Python 小版本后仍可启动
 
 ### P1-3 硬件断连恢复
 
 - [ ] 🔴 **P1-3.1 串口断连自动重连**
-  - 证据：`ros_robot_controller_sdk.py` L99-L108 只 open 一次；`recv_task` L489-L490 无异常处理
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_sdk.py` L99-L108 只 open 一次；`recv_task` L489-L490 无异常处理
   - 动作：打开失败重试；读写异常关闭端口并周期性重连；重连后重新使能接收
   - 验收：拔插控制器 USB 后自动恢复，无需重启节点
 
 - [ ] 🔴 **P1-3.2 串口 I/O 不阻塞 ROS executor**
-  - 证据：`ros_robot_controller_node.py` 使用单线程 `rclpy.spin`，串口 timeout 10s
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` 使用单线程 `rclpy.spin`，串口 timeout 10s
   - 动作：串口写放到独立线程/队列；或使用 MultiThreadedExecutor + 回调组
   - 验收：串口卡顿时 `/cmd_vel` 与状态查询仍能及时响应
 
 - [ ] 🔴 **P1-3.3 摄像头设备节点固定**
-  - 证据：`video_webrtc_bridge.yaml` L7、`usb_cam_param.yaml` L3 固定 `/dev/video0`；本机存在多个 video 节点
+  - 证据：`walle_ws/src/video/video_webrtc_bridge/config/video_webrtc_bridge.yaml` L7、`walle_ws/src/video/walle_video/config/usb_cam_param.yaml` L3 固定 `/dev/video0`；本机存在多个 video 节点
   - 动作：改用 `/dev/v4l/by-id/...` 或 udev 固定符号链接
   - 验收：重启/插拔后始终打开正确摄像头
 
 - [ ] 🔴 **P1-3.4 补齐 `/dev/rrc` udev 规则**
-  - 证据：`scripts/99-ttyACM0.rules` 未创建 `/dev/rrc` 符号链接，且 `GROUP="ubuntu"`、`MODE="0777"` 与当前系统不匹配
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/scripts/99-ttyACM0.rules` 未创建 `/dev/rrc` 符号链接，且 `GROUP="ubuntu"`、`MODE="0777"` 与当前系统不匹配
   - 动作：按实际串口设备增加 `SYMLINK+="rrc"`，权限改为 `0660` + 正确属组
   - 验收：全新镜像启动即存在可读写的 `/dev/rrc`
 
 - [ ] 🔴 **P1-3.5 声呐 I2C 异常与超时处理**
-  - 证据：`sonar_controller_node.py` L40-L50 发布线程无 try/except；I2C 异常只打印
+  - 证据：`walle_ws/src/car_control/sonar_controller/sonar_controller/sonar_controller_node.py` L40-L50 发布线程无 try/except；I2C 异常只打印
   - 动作：异常捕获、连续失败计数、超时发布无效值或告警；线程不退出
   - 验收：拔掉声呐模块后节点存活并上报异常，不静默停更
 
@@ -192,7 +192,7 @@
   - 验收：连续推流 7 天后日志占用受控
 
 - [ ] 🔴 **P1-4.2 MQTT 日志降级与脱敏**
-  - 证据：`agent.py` L1413 在 INFO 打印完整 payload
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py` L1462 在 INFO 打印 payload（截断 500 字符）
   - 动作：默认不打印完整报文；密钥、房间号等脱敏；调试级别才输出
   - 验收：生产日志无敏感字段
 
@@ -225,17 +225,17 @@
 ### P2-1 性能
 
 - [ ] 🔴 **P2-1.1 state/query 使用缓存快照**
-  - 证据：`agent.py` L2265-L2290 每次查询阻塞 1s 采样
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py` 的 `handle_query_status()`（L2484）每次查询阻塞 1s 采样
   - 动作：复用 monitor_loop 的最近一次采样结果
   - 验收：`state/query` 响应 < 100ms
 
 - [ ] 🔴 **P2-1.2 capability 探测异步/按需**
-  - 证据：`agent.py` L1644-L1652 在请求线程里跑 v4l2/pactl，可能数秒
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py` 的 `handle_capability_query()`（L1747）在请求线程里跑 v4l2/pactl，可能数秒
   - 动作：后台缓存能力结果，按 TTL 刷新；支持“只读缓存”模式
   - 验收：capability 查询不阻塞其它请求
 
 - [ ] 🔴 **P2-1.3 视频硬件编码**
-  - 证据：`video_webrtc_bridge/node.py` L602-L633 逐帧写 pipe，软编码 640x480@30
+  - 证据：`walle_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py` L602-L633 逐帧写 pipe，软编码 640x480@30
   - 动作：评估 `v4l2h264enc`/`h264_v4l2m2m`/GStreamer，降低 CPU 与延迟
   - 验收：同等画质下 CPU 占用明显下降，端到端延迟不升高
 
@@ -246,37 +246,37 @@
 ### P2-2 代码质量
 
 - [ ] 🔴 **P2-2.1 拆分 agent.py**
-  - 证据：`agent.py` 2628 行，混合设备发现、系统监控、推流、音频、协议处理
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py` 2687 行，混合设备发现、系统监控、推流、音频、协议处理
   - 动作：按职责拆为 config、identity、monitor、protocol、media 模块
   - 验收：单文件 < 500 行，模块可独立测试
 
 - [ ] 🔴 **P2-2.2 删除被 node 覆盖的旧视频实现**
-  - 证据：`node.py` L104-L107 覆盖 `handle_video_request` 等方法，`agent.py` 内仍保留整套 ffmpeg 代码
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/node.py` L113-L116 覆盖 `handle_video_request` 等方法，`agent.py` 内仍保留整套 ffmpeg 代码
   - 动作：删除死代码，避免两套逻辑分叉
   - 验收：全仓库只有一套推流实现
 
 - [ ] 🔴 **P2-2.3 版本号单一来源**
-  - 证据：`agent.py` L213-L214 的 `VERSION_CODE/VERSION_NAME` 与 `env_walle.sh` L37 的 `VERSION`
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py` L221-L222 的 `VERSION_CODE/VERSION_NAME` 与 `env_walle.sh` L37 的 `VERSION`
   - 动作：统一由构建注入或读取同一个文件
   - 验收：发版只改一处
 
 - [ ] 🔴 **P2-2.4 修复 enable_reception 属性覆盖**
-  - 证据：`ros_robot_controller_node.py` L46/L116-L119，回调把方法名覆盖为 bool
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L46/L116-L119，回调把方法名覆盖为 bool
   - 动作：改名为 `_reception_enabled`，方法保持独立
   - 验收：重复调用 `enable_reception` 不抛 `TypeError`
 
 - [ ] 🔴 **P2-2.5 移除节点构造函数内的 rclpy.init()**
-  - 证据：`ros_robot_controller_node.py` L26、`sonar_controller_node.py` L24
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L26、`walle_ws/src/car_control/sonar_controller/sonar_controller/sonar_controller_node.py` L24
   - 动作：只保留 main 中的 `rclpy.init`，构造函数不初始化上下文
   - 验收：节点可被测试/组合复用，不出现重复初始化
 
 - [ ] 🔴 **P2-2.6 修复 PWM 舵机状态服务**
-  - 证据：`ros_robot_controller_node.py` L163-L176 返回 list 而非 response，服务签名也不符
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L163-L176 返回 list 而非 response，服务签名也不符
   - 动作：改为 `(request, response)` 并填充 `response`
   - 验收：`ros2 service call .../pwm_servo/get_state` 正常返回
 
 - [ ] 🔴 **P2-2.7 修正 IMU 数据语义**
-  - 证据：`ros_robot_controller_node.py` L326-L341 orientation 恒 0 但 covariance 非 0
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L326-L341 orientation 恒 0 但 covariance 非 0
   - 动作：无姿态解算时把协方差首项设为 -1（REP-145），或融合出真实姿态
   - 验收：下游不会把零四元数当有效姿态
 
@@ -287,28 +287,28 @@
 ### P2-3 AI 演示节点
 
 - [ ] 🔴 **P2-3.1 消除 process() 忙等**
-  - 证据：`vllm_obstacle_avoidance.py` L232-L275 无 sleep
+  - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py` L232-L275 无 sleep
   - 动作：改为事件/条件变量或固定周期 sleep
   - 验收：空闲时 CPU 占用接近 0
 
 - [ ] 🔴 **P2-3.2 去除阻塞式 time.sleep**
-  - 证据：`vllm_obstacle_avoidance.py` L294-L299
+  - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py` L294-L299
   - 动作：改为定时器/状态机，不阻塞回调线程
   - 验收：动作执行期间状态查询与停止指令仍可响应
 
 - [ ] 🔴 **P2-3.3 声呐超时保护**
-  - 证据：`vllm_obstacle_avoidance.py` L116-L117 只保存最后一次距离，断流后可能继续前进
+  - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py` L116-L117 只保存最后一次距离，断流后可能继续前进
   - 动作：记录时间戳，超时即停车并上报
   - 验收：断开声呐后 0.5s 内停车
 
 - [ ] 🔴 **P2-3.4 从生产 launch 移除或加开关**
-  - 动作：`start.launch.py` 不默认启动实验性 AI 节点；或加 `enable_ai` 参数默认 false
+  - 动作：`walle_ws/src/ai/large_models/launch/start.launch.py` 不默认启动实验性 AI 节点；或加 `enable_ai` 参数默认 false
   - 验收：生产启动不包含未验收的自动驾驶逻辑
 
 ### P2-4 摄像头与兼容性
 
 - [ ] 🔴 **P2-4.1 usb_cam 控制名适配**
-  - 证据：`usb_cam_param.yaml` L18-L23 注释已说明 kernel 6.8 控制名不匹配
+  - 证据：`walle_ws/src/video/walle_video/config/usb_cam_param.yaml` L18-L23 注释已说明 kernel 6.8 控制名不匹配
   - 动作：升级/补丁 usb_cam，或增加 V4L2 控制名映射；无法解决则明确记录为已知告警
   - 验收：启动日志无控制设置失败错误
 
@@ -318,7 +318,7 @@
   - 验收：不会误开 ISP/编解码节点
 
 - [ ] 🔴 **P2-4.3 修复测试页缺失服务**
-  - 证据：`test/car_ctl_by_bridge.html` L323 调用 `/avoidance_node/enter`，当前代码库无此服务
+  - 证据：`web/car_ctl_by_bridge.html`（仓库根目录）L323 调用 `/avoidance_node/enter`，当前代码库无此服务
   - 动作：实现服务或移除按钮
   - 验收：点击对应按钮不再出现 rosbridge 错误
 
@@ -368,6 +368,7 @@ ls -l /dev/rrc /dev/v4l/by-id/
 | 2026-11-08 | P0-1.1~P0-1.3 | 未提交 | 固件/协议/测试页已无 cmd 残留；`net_mqtt_bridge` 重建通过 | 待确认 |
 | 2026-11-08 | P0-1.4 | 未提交 | 无 env 时节点构造报错退出；`--check` 输出缺失项；TLS 强制开启 | 待确认 |
 | 2026-11-08 | P0-5.1 | 未提交 | `agent.py` 已无默认 broker/用户名；缺项时拒绝启动 | 待确认 |
+| 2026-11-08 | P0-2.3 | 未提交 | `whip_secret` 不再是 ROS 参数；`ros2 param get` 应返回参数不存在 | 待确认 |
 | 2026-11-08 | P2-5.1 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 9090 无监听；`debug` 或显式传参才启动 | 待确认 |
 | 2026-11-08 | P2-5.2 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 8080 无监听；`debug` 或显式传参才启动 | 待确认 |
 |  |  |  |  |  |
@@ -383,6 +384,8 @@ ls -l /dev/rrc /dev/v4l/by-id/
 - 2026-11-08：P0-1.4 已删除默认 broker/用户名，新增 `validate_mqtt_config()`；
   无配置、缺租户或明文配置时节点拒绝启动，TLS 默认 8883 且强制开启。
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
+- 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.env`
+  的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
 - 2026-11-08：rosbridge / web_video_server 定位为开发调试工具，`env_walle.sh` 新增
   `WALLE_RUNTIME_ENV`（prod/debug），`bringup` 的 `enable_rosbridge` /
   `enable_web_video_server` 默认值随之为 false/true；

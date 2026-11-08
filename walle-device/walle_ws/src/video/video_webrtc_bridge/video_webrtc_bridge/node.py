@@ -165,8 +165,9 @@ class VideoWebrtcBridge(Node):
             "rtmp://www.baidong.xyz:1935/live/{room}?secret={secret}")
         self.rtmp_url_template = self.declare_parameter(
             "rtmp_url_template", default_rtmp).value
-        self.whip_secret = self.declare_parameter(
-            "whip_secret", os.environ.get("WHIP_SECRET", "").strip()).value
+        # 安全：whip_secret 只从环境文件/环境变量读取，不声明为 ROS 参数，
+        # 避免 `ros2 param get/dump` 泄露明文（P0-2.3）
+        self.whip_secret = os.environ.get("WHIP_SECRET", "").strip()
         self.video_bitrate = self.declare_parameter("video_bitrate", "1000k").value
         self.video_gop = int(self.declare_parameter("video_gop", 60).value)
         self.video_preset = self.declare_parameter("video_preset", "ultrafast").value
