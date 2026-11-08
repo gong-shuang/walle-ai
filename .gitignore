@@ -13,12 +13,14 @@ captures/
 *.aab
 *.ap_
 *.dex
-app/release/
+**/app/release/
 #不能忽略此文件
 #gradle.properties
 
 # 本地改完，`git status` git看不到它的修改，只在本地生效
-#git update-index --skip-worktree gradle.properties
+# git update-index --skip-worktree gradle.properties
+# 取消 git 看不见
+# git update-index --no-skip-worktree gradle.properties
 
 
 # ---------- IDE ----------

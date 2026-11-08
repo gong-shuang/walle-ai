@@ -5,7 +5,7 @@
 >
 > - 协议版本：**v1**（多租户主题）。旧版全局主题（`device/online`、`cmd/exec` 等）已彻底删除，无兼容层。
 > - 传输：MQTT 3.1.1，报文一律 **JSON（UTF-8）**，**QoS 1**，Keep Alive 60s。
-> - App 端实现：`app/src/main/java/www/walle/ai/net/`（TopicNames / MessageRouter / MqttManager）
+> - App 端实现：`walle-android/app/src/main/java/www/walle/ai/net/`（TopicNames / MessageRouter / MqttManager）
 > - 设备端实现：`linux/main.py`
 > - 契约交叉验证：`app` 单测（TopicNamesTest / MessageRouterTest / …）+ `linux/selftest_topics.py`
 
@@ -494,8 +494,8 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 4. 本地验证通过后提交（CI 工作流已移除，提交前务必本地跑通以下检查）：
 
 ```bash
-./gradlew :app:testDebugUnitTest        # App 契约测试
-python3 linux/selftest_topics.py       # 设备端契约自检
+(cd walle-android && ./gradlew :app:testDebugUnitTest)   # App 契约测试
+python3 linux/selftest_topics.py                       # 设备端契约自检
 ```
 
 **三条铁律**：
@@ -506,7 +506,7 @@ python3 linux/selftest_topics.py       # 设备端契约自检
 
 ## 6. 两端代码对照表
 
-| 职责 | App（`app/src/main/java/www/walle/ai/net/`） | 设备端（`linux/main.py`） |
+| 职责 | App（`walle-android/app/src/main/java/www/walle/ai/net/`） | 设备端（`linux/main.py`） |
 |---|---|---|
 | 主题拼装/解析/清洗 | `TopicNames.java` | `sanitize_segment` / `device_topic` / `_handle_request` |
 | 报文路由 + QoS1 去重 | `MessageRouter.java` | `_handle_request` + `REQUEST_HANDLERS` |

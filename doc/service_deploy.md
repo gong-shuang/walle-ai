@@ -267,8 +267,8 @@ Oryx 部署完成后会生成一个 **32 位十六进制的推流 secret**（例
 | 树莓派              | `/etc/walle-ai.env` | `WHIP_SECRET=<secret>`                                                            |
 | 树莓派（可选，覆盖整条 URL） | `/etc/walle-ai.env` | `VIDEO_RTMP_URL_TEMPLATE=rtmp://www.example.com:1935/live/{room}?secret={secret}` |
 | App              | `gradle.properties`    | `oryxSecret=<secret>`                                                             |
-| App              | 命令行构建                  | `./gradlew :app:assembleDebug -PoryxSecret=<secret>`                              |
-| App              | 环境变量                   | `WHIP_SECRET=<secret> ./gradlew :app:assembleDebug`                               |
+| App              | 命令行构建                  | `(cd walle-android && ./gradlew :app:assembleDebug -PoryxSecret=<secret>)`        |
+| App              | 环境变量                   | `(cd walle-android && WHIP_SECRET=<secret> ./gradlew :app:assembleDebug)`         |
 
 **验证**：
 
@@ -387,7 +387,7 @@ mosquitto_pub -h www.example.com -p 8883 --cafile /etc/ssl/certs/ca-certificates
   -u RaspPi5 -P '设备密码' -i '<clientid>' -t 'walle/home/<clientid>/v1/online' -m '{}' -d
 ```
 
-> App 端默认就是 **8883 + 系统 CA**（`app/build.gradle` 的 `MQTT_DEFAULT_PORT=8883`），设备端在 `/etc/walle-ai.env` 里设 `MQTT_PORT=8883`（`MQTT_TLS=auto` 会自动开启）。
+> App 端默认就是 **8883 + 系统 CA**（`walle-android/app/build.gradle` 的 `MQTT_DEFAULT_PORT=8883`），设备端在 `/etc/walle-ai.env` 里设 `MQTT_PORT=8883`（`MQTT_TLS=auto` 会自动开启）。
 > 证书不能是自签或证书域名与填写的主机名不一致，否则两端都会连接失败。
 
 ***
@@ -467,8 +467,8 @@ mosquitto_sub -h www.example.com -p 8883 --tls-use-os-certs -u RaspPi5 -P '设�
 | 配置项                             | 位置                                          | 值                                                                                       |
 | ------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------- |
 | `WHIP_SECRET`（App）              | `gradle.properties` / `-PoryxSecret` / 环境变量 | Oryx 推流 secret（§6.1）                                                                    |
-| `WHIP_AUDIO_URL_TEMPLATE`       | `app/build.gradle`（由 ORYX\_SECRET 自动拼装）     | `https://www.example.com:443/rtc/v1/whip/?app=live&stream={room}_audio&secret=<secret>` |
-| `WHEP_URL_TEMPLATE`             | `app/build.gradle`                          | `https://www.example.com:443/rtc/v1/whep/?app=live&stream={room}`                       |
+| `WHIP_AUDIO_URL_TEMPLATE`       | `walle-android/app/build.gradle`（由 ORYX\_SECRET 自动拼装）     | `https://www.example.com:443/rtc/v1/whip/?app=live&stream={room}_audio&secret=<secret>` |
+| `WHEP_URL_TEMPLATE`             | `walle-android/app/build.gradle`                          | `https://www.example.com:443/rtc/v1/whep/?app=live&stream={room}`                       |
 | `WHIP_SECRET`（设备端）              | `/etc/walle-ai.env`                      | 与 App 用同一个 secret（§6.1）                                                                 |
 | `VIDEO_RTMP_URL_TEMPLATE`       | `linux/main.py`（由 ORYX\_SECRET 自动拼装） | `rtmp://www.example.com:1935/live/{room}?secret=<secret>`                               |
 | `PHONE_AUDIO_WHEP_URL_TEMPLATE` | `linux/main.py` / 环境变量               | `https://www.example.com:443/rtc/v1/whep/?app=live&stream={stream}`                     |
