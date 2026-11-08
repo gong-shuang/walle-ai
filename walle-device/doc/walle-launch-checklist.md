@@ -9,10 +9,10 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 19 | 5 | 14 |
+| P0 上线阻断 | 18 | 5 | 13 |
 | P1 上线前应修 | 19 | 0 | 19 |
-| P2 后续优化 | 20 | 1 | 19 |
-| **合计** | **58** | **6** | **52** |
+| P2 后续优化 | 21 | 2 | 19 |
+| **合计** | **58** | **7** | **51** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -47,13 +47,8 @@
 
 ### P0-2 ROS 网络暴露面
 
-> 2026-11-08：P0-2.1（rosbridge 收口）已降级为 P2-5.1——rosbridge 定位为开发调试工具，
-> `bringup` 默认 `enable_rosbridge=false`，生产启动不再监听 9090。
-
-- [ ] 🔴 **P0-2.2 web_video_server 收口**
-  - 证据：`walle_ws/src/video/walle_video/launch/web_video_server.launch.py` L5-L13，默认 8080 全网卡
-  - 动作：生产环境禁用；或加认证/TLS 并限制来源
-  - 验收：未授权主机无法访问 `/stream` 与 `/image_raw`
+> 2026-11-08：P0-2.1（rosbridge 收口）已降级为 P2-5.1，P0-2.2（web_video_server 收口）
+> 已降级为 P2-5.2——两者均定位为开发调试工具，`bringup` 默认不启动（9090/8080 不监听）。
 
 - [ ] 🔴 **P0-2.3 whip_secret 不再声明为 ROS 参数**
   - 证据：`walle_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py` L168-L169
@@ -333,6 +328,10 @@
   - 处理：`env_walle.sh` 新增 `WALLE_RUNTIME_ENV`（`prod`/`debug`，默认 `prod`）；`bringup.launch.py` 的 `enable_rosbridge` 默认值随之为 `debug=true`、`prod=false`，也可显式 `enable_rosbridge:=true` 覆盖
   - 验收：`WALLE_RUNTIME_ENV=prod` 启动后 9090 无监听；`WALLE_RUNTIME_ENV=debug` 启动才监听 9090，局域网其他主机仅在调试模式可连接
 
+- [x] ✅ **P2-5.2 web_video_server 默认关闭（仅调试开启）**
+  - 处理：`bringup.launch.py` 新增 `enable_web_video_server`，默认值同样由 `WALLE_RUNTIME_ENV` 控制（debug=true / prod=false），也可显式 `enable_web_video_server:=true` 覆盖
+  - 验收：`WALLE_RUNTIME_ENV=prod` 启动后 8080 无监听，`/stream`、`/image_raw` 不可访问；仅调试模式开放
+
 ---
 
 ## 回归验收命令（参考）
@@ -341,7 +340,7 @@
 
 ```bash
 # 1) 局域网暴露面（在另一台电脑执行）
-#    生产期望：9090 拒绝连接（rosbridge 默认关闭）；8080 按 P0-2.2 收口
+#    生产期望：9090 / 8080 均拒绝连接（rosbridge / web_video_server 默认关闭，仅 debug 开启）
 nc -vz <车IP> 9090
 nc -vz <车IP> 8080
 
@@ -370,6 +369,7 @@ ls -l /dev/rrc /dev/v4l/by-id/
 | 2026-11-08 | P0-1.4 | 未提交 | 无 env 时节点构造报错退出；`--check` 输出缺失项；TLS 强制开启 | 待确认 |
 | 2026-11-08 | P0-5.1 | 未提交 | `agent.py` 已无默认 broker/用户名；缺项时拒绝启动 | 待确认 |
 | 2026-11-08 | P2-5.1 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 9090 无监听；`debug` 或显式传参才启动 | 待确认 |
+| 2026-11-08 | P2-5.2 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 8080 无监听；`debug` 或显式传参才启动 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -383,8 +383,9 @@ ls -l /dev/rrc /dev/v4l/by-id/
 - 2026-11-08：P0-1.4 已删除默认 broker/用户名，新增 `validate_mqtt_config()`；
   无配置、缺租户或明文配置时节点拒绝启动，TLS 默认 8883 且强制开启。
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
-- 2026-11-08：rosbridge 定位为开发调试工具，`env_walle.sh` 新增 `WALLE_RUNTIME_ENV`
-  （prod/debug），`bringup` 的 `enable_rosbridge` 默认值随之为 false/true；
-  P0-2.1 降级为 P2-5.1，生产启动不再监听 9090。
+- 2026-11-08：rosbridge / web_video_server 定位为开发调试工具，`env_walle.sh` 新增
+  `WALLE_RUNTIME_ENV`（prod/debug），`bringup` 的 `enable_rosbridge` /
+  `enable_web_video_server` 默认值随之为 false/true；
+  P0-2.1 / P0-2.2 降级为 P2-5.1 / P2-5.2，生产启动不再监听 9090 / 8080。
 - P0 未清零前，不建议把设备接入非受控网络或交付给最终用户。
 - 静态审查无法替代实车路测；P0-3 的验收必须在架空状态下逐项完成。

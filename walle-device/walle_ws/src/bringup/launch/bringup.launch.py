@@ -10,8 +10,8 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
-def _default_enable_rosbridge():
-    """按 WALLE_RUNTIME_ENV 决定 rosbridge 默认值：debug 开启，prod/未设置关闭。"""
+def _debug_default():
+    """调试类节点的默认开关：WALLE_RUNTIME_ENV=debug 为 true，prod/未设置为 false。"""
     runtime_env = os.environ.get('WALLE_RUNTIME_ENV', 'prod').strip().lower()
     return 'true' if runtime_env == 'debug' else 'false'
 
@@ -28,10 +28,12 @@ def launch_setup(context):
     video_webrtc_bridge_package_path = get_package_share_directory('video_webrtc_bridge')
 
     sonar_enabled = LaunchConfiguration('sonar', default='true')
-    # rosbridge 仅用于开发调试（web 测试页 / 快速定位）
+    # rosbridge / web_video_server 仅用于开发调试（web 测试页 / 快速定位 / 8080 预览）
     # 默认值由 env_walle.sh 的 WALLE_RUNTIME_ENV 控制：debug=true，prod=false
     enable_rosbridge = LaunchConfiguration(
-        'enable_rosbridge', default=_default_enable_rosbridge())
+        'enable_rosbridge', default=_debug_default())
+    enable_web_video_server = LaunchConfiguration(
+        'enable_web_video_server', default=_debug_default())
 
     # 启动 controller 的 launch 文件（ros_robot_controller + mecanum_chassis_node）
     controller_launch = IncludeLaunchDescription(
@@ -47,10 +49,11 @@ def launch_setup(context):
         condition=IfCondition(enable_rosbridge),
     )
 
-    # 启动 web_video_server 进程
+    # 启动 web_video_server 进程（仅调试：浏览器查看 /stream、/image_raw）
     web_video_server_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(walle_video_package_path, 'launch/web_video_server.launch.py')),
+        condition=IfCondition(enable_web_video_server),
     )
 
     # 启动 MQTT -> ROS2 桥（唯一 MQTT 客户端）
@@ -123,7 +126,10 @@ def generate_launch_description():
             'sonar', default_value='true',
             description='Start sonar controller node'),
         DeclareLaunchArgument(
-            'enable_rosbridge', default_value=_default_enable_rosbridge(),
+            'enable_rosbridge', default_value=_debug_default(),
             description='Start rosbridge websocket server (default: WALLE_RUNTIME_ENV=debug)'),
+        DeclareLaunchArgument(
+            'enable_web_video_server', default_value=_debug_default(),
+            description='Start web_video_server on 8080 (default: WALLE_RUNTIME_ENV=debug)'),
         OpaqueFunction(function=launch_setup)
     ])
