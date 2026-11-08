@@ -10,6 +10,7 @@ import signal
 import threading
 import yaml 
 import os
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 from sensor_msgs.msg import Imu, Joy
@@ -28,6 +29,10 @@ class RosRobotController(Node):
         self.board = Board()
         self.board.enable_reception()
         self.running = True
+        # 安全停车相关：串口写/读失败、控制器断连时尽最大努力下发零速度
+        self._stop_lock = threading.Lock()
+        self._controller_timeout = 1.0
+        self._controller_ok = True
 
         self.declare_parameter('imu_frame', 'imu_link')
         self.declare_parameter('init_finish', False)
@@ -101,17 +106,39 @@ class RosRobotController(Node):
         return response
 
     def pub_callback(self):
+        last_rx = time.monotonic()
+        rx_seen = False
         while self.running:
-            if self.enable_reception:
+            if not self.enable_reception:
+                time.sleep(0.02)
+                continue
+            try:
+                now = time.monotonic()
+                # 电池遥测约 10Hz，作为主心跳；有 IMU 的底盘也计入
+                got = self.pub_battery_data(self.battery_pub)
+                got = self.pub_imu_data(self.imu_pub) or got
                 self.pub_button_data(self.button_pub)
                 self.pub_joy_data(self.joy_pub)
-                self.pub_imu_data(self.imu_pub)
                 self.pub_sbus_data(self.sbus_pub)
-                self.pub_battery_data(self.battery_pub)
-                time.sleep(0.02)
-            else:
-                time.sleep(0.02)
-        rclpy.shutdown()
+
+                if got:
+                    last_rx = now
+                    rx_seen = True
+                    if not self._controller_ok:
+                        self._controller_ok = True
+                        self.get_logger().info('控制器数据恢复')
+                elif rx_seen and self._controller_ok and \
+                        now - last_rx > self._controller_timeout:
+                    # 已建立过通信，但遥测连续超时，视为控制器断连，先尝试停车
+                    self._controller_ok = False
+                    self.stop_motors('控制器数据中断')
+            except Exception as e:  # noqa: BLE001
+                self._controller_ok = False
+                self.get_logger().error(f'控制器串口读取异常: {e}')
+                self.stop_motors('控制器串口异常')
+            time.sleep(0.02)
+        if rclpy.ok():
+            rclpy.shutdown()
 
     def enable_reception(self, msg):
         self.get_logger().info('\033[1;32m%s\033[0m' % ('enable_reception ' + str(msg.data)))
@@ -146,8 +173,29 @@ class RosRobotController(Node):
             # 将电机的标识符和速度存储到 data 列表中
             data.append([motor_id, speed])
 
-        # 调用 Board 对象的方法来设置电机的速度
-        self.board.set_motor_duty(data)
+        # 调用 Board 对象的方法来设置电机的速度；写失败时尝试安全停车
+        try:
+            self.board.set_motor_duty(data)
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(f'串口写失败: {e}')
+            self.stop_motors('串口写失败')
+
+    def stop_motors(self, reason=''):
+        """尽最大努力让底盘停转；串口不可用时只记录，不抛异常。"""
+        with self._stop_lock:
+            try:
+                self.board.set_motor_speed([[1, 0], [2, 0], [3, 0], [4, 0]])
+                msg = f'{reason}，已下发零速度停车' if reason else '已下发零速度停车'
+                try:
+                    self.get_logger().warn(msg)
+                except Exception:  # rclpy 已关闭时退回 stdout
+                    print(msg)
+            except Exception as e:  # noqa: BLE001
+                msg = f'安全停车失败（{reason}）: {e}'
+                try:
+                    self.get_logger().error(msg)
+                except Exception:  # rclpy 已关闭时退回 stdout
+                    print(msg)
 
     def set_pwm_servo_state(self, msg):
         data = []
@@ -268,10 +316,12 @@ class RosRobotController(Node):
 
     def pub_battery_data(self, pub):
         data = self.board.get_battery()
-        if data is not None:
-            msg = UInt16()
-            msg.data = data
-            pub.publish(msg)
+        if data is None:
+            return False
+        msg = UInt16()
+        msg.data = data
+        pub.publish(msg)
+        return True
 
     def pub_button_data(self, pub):
         data = self.board.get_button()
@@ -317,40 +367,59 @@ class RosRobotController(Node):
 
     def pub_imu_data(self, pub):
         data = self.board.get_imu()
-        if data is not None:
-            ax, ay, az, gx, gy, gz = data
-            msg = Imu()
-            msg.header.frame_id = self.IMU_FRAME
-            msg.header.stamp = self.clock.now().to_msg()
+        if data is None:
+            return False
+        ax, ay, az, gx, gy, gz = data
+        msg = Imu()
+        msg.header.frame_id = self.IMU_FRAME
+        msg.header.stamp = self.clock.now().to_msg()
 
-            msg.orientation.w = 0.0
-            msg.orientation.x = 0.0
-            msg.orientation.y = 0.0
-            msg.orientation.z = 0.0
+        msg.orientation.w = 0.0
+        msg.orientation.x = 0.0
+        msg.orientation.y = 0.0
+        msg.orientation.z = 0.0
 
-            msg.linear_acceleration.x = ax * self.gravity
-            msg.linear_acceleration.y = ay * self.gravity
-            msg.linear_acceleration.z = az * self.gravity
+        msg.linear_acceleration.x = ax * self.gravity
+        msg.linear_acceleration.y = ay * self.gravity
+        msg.linear_acceleration.z = az * self.gravity
 
-            msg.angular_velocity.x = math.radians(gx)
-            msg.angular_velocity.y = math.radians(gy)
-            msg.angular_velocity.z = math.radians(gz)
+        msg.angular_velocity.x = math.radians(gx)
+        msg.angular_velocity.y = math.radians(gy)
+        msg.angular_velocity.z = math.radians(gz)
 
-            msg.orientation_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]
-            msg.angular_velocity_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]
-            msg.linear_acceleration_covariance = [0.0004, 0.0, 0.0, 0.0, 0.0004, 0.0, 0.0, 0.0, 0.004]
-            pub.publish(msg)
+        msg.orientation_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]
+        msg.angular_velocity_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]
+        msg.linear_acceleration_covariance = [0.0004, 0.0, 0.0, 0.0, 0.0004, 0.0, 0.0, 0.0, 0.004]
+        pub.publish(msg)
+        return True
 
 def main():
     node = RosRobotController('ros_robot_controller')
+
+    def handle_signal(signum, _frame):
+        node.get_logger().warn(f'收到信号 {signum}，准备安全停车')
+        node.running = False
+        try:
+            rclpy.shutdown()
+        except Exception:  # 已关闭时忽略
+            pass
+
+    # systemd 默认发 SIGTERM；必须显式接管，否则不会执行停车逻辑
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
-        node.board.set_motor_speed([[1, 0], [2, 0], [3, 0], [4, 0]])
-        node.destroy_node()
-        rclpy.shutdown()
-        print('shutdown')
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
     finally:
+        node.running = False
+        node.stop_motors('进程退出')
+        node.destroy_node()
+        try:
+            rclpy.shutdown()
+        except Exception:  # 已关闭时忽略
+            pass
         print('shutdown finish')
 
 if __name__ == '__main__':

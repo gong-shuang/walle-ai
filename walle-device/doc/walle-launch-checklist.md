@@ -10,10 +10,10 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 18 | 7 | 11 |
+| P0 上线阻断 | 18 | 8 | 10 |
 | P1 上线前应修 | 19 | 0 | 19 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **9** | **49** |
+| **合计** | **58** | **10** | **48** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -65,10 +65,9 @@
   - 处理：`mecanum.py` 新增 100ms 定时器与 `cmd_vel_timeout` 参数（默认 1.5s），运动状态下超时未收到新 `Twist` 即发布零速度并告警；同时 `speech` / `llm_control_move` / `vllm_obstacle_avoidance` 改为运动期间 10Hz 重发 `cmd_vel`，避免看门狗误停
   - 验收：发布前进指令后断开 Wi-Fi / 关闭 App，1.5s 内轮子停转；语音/LLM 动作执行期间不误停
 
-- [ ] 🔴 **P0-3.2 进程退出与串口异常安全停车**
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L344-L354 仅处理 `KeyboardInterrupt`；systemd SIGTERM 不会执行
-  - 动作：注册 SIGTERM/SIGINT；串口写失败、控制器断连时主动下发零速度
-  - 验收：`kill -TERM` 控制器进程后电机停转；串口拔插不出现持续转动
+- [x] ✅ **P0-3.2 进程退出与串口异常安全停车**
+  - 处理：`main()` 注册 SIGTERM/SIGINT，退出前统一调用 `stop_motors()`；电机写入失败、串口读取异常、遥测连续 1s 无数据（以约 10Hz 的电池报文为主心跳，兼容无 IMU 底盘）时均尝试下发零速度
+  - 验收：`kill -TERM` 控制器进程后电机停转；串口拔插 / 控制器断连后不出现持续转动（固件通信超时为最终兜底，见 P0-3.3）
 
 - [ ] 🔴 **P0-3.3 MCU 固件通信超时停车（软硬双保险）**
   - 动作：固件侧增加通信超时自动停车；不要只依赖上位机软件看门狗
@@ -369,6 +368,7 @@ ls -l /dev/rrc /dev/v4l/by-id/
 | 2026-11-08 | P0-5.1 | 未提交 | `agent.py` 已无默认 broker/用户名；缺项时拒绝启动 | 待确认 |
 | 2026-11-08 | P0-2.3 | 未提交 | `whip_secret` 不再是 ROS 参数；`ros2 param get` 应返回参数不存在 | 待确认 |
 | 2026-11-08 | P0-3.1 | 未提交 | 前进中断开 cmd_vel 后 0.5s 内自动发零速度（需架空验证） | 待确认 |
+| 2026-11-08 | P0-3.2 | 未提交 | `kill -TERM` 与串口断连后均尝试下发零速度（需架空验证） | 待确认 |
 | 2026-11-08 | P2-5.1 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 9090 无监听；`debug` 或显式传参才启动 | 待确认 |
 | 2026-11-08 | P2-5.2 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 8080 无监听；`debug` 或显式传参才启动 | 待确认 |
 |  |  |  |  |  |
@@ -388,6 +388,9 @@ ls -l /dev/rrc /dev/v4l/by-id/
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
 - 2026-11-08：P0-3.1 已在 `mecanum.py` 增加 cmd_vel 看门狗（100ms 检查，
   默认 0.5s 超时发零速度）；语音、LLM 控制节点同步改为 10Hz 重发 cmd_vel，
+  需架空实车验证。
+- 2026-11-08：P0-3.2 已接管 SIGTERM/SIGINT，并在电机写失败、串口异常、
+  遥测超时时尝试下发零速度；本车无 IMU，实测电池报文约 9Hz，已以其为主心跳，
   需架空实车验证。
 - 2026-11-08：rosbridge / web_video_server 定位为开发调试工具，`env_walle.sh` 新增
   `WALLE_RUNTIME_ENV`（prod/debug），`bringup` 的 `enable_rosbridge` /
