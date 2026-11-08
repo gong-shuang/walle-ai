@@ -3,11 +3,14 @@
 > 本文是 App（Android）与设备端（`linux/main.py`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
-> - 协议版本：**v1**（多租户主题）。旧版全局主题（`device/online`、`cmd/exec` 等）已彻底删除，无兼容层。
+> - 协议版本：**v1**（多租户主题）。旧版全局主题（如 `device/online`）已彻底删除，无兼容层。
 > - 传输：MQTT 3.1.1，报文一律 **JSON（UTF-8）**，**QoS 1**，Keep Alive 60s。
-> - App 端实现：`walle-android/app/src/main/java/www/walle/ai/net/`（TopicNames / MessageRouter / MqttManager）
+> - App 端实现：`app/src/main/java/www/walle/ai/net/`（TopicNames / MessageRouter / MqttManager）
 > - 设备端实现：`linux/main.py`
 > - 契约交叉验证：`app` 单测（TopicNamesTest / MessageRouterTest / …）+ `linux/selftest_topics.py`
+
+> **2026-11-08 安全变更**：`walle/{t}/{d}/v1/cmd/exec` 与 `walle/{t}/{d}/v1/cmd/result`
+> 已从协议中移除，原因、影响与验证方式见文末「§8 变更记录」。旧版 App 调用将不会收到应答。
 
 ---
 
@@ -40,16 +43,15 @@ walle/{tenant}/{device}/v1/{resource}
 | 1 | 上线/下线 | — | `walle/{t}/{d}/v1/online` | 主动上报（retained + LWT） |
 | 2 | 设备发现 | `walle/{t}/v1/discovery/query` | `walle/{t}/{d}/v1/discovery/result` | 请求-应答（按需、限频） |
 | 3 | 状态查询 | `walle/{t}/{d}/v1/state/query` | `walle/{t}/{d}/v1/state/result` | 请求-应答 |
-| 4 | 远程命令 | `walle/{t}/{d}/v1/cmd/exec` | `walle/{t}/{d}/v1/cmd/result` | 请求-应答 |
-| 5 | 设备能力 | `walle/{t}/{d}/v1/capability/query` | `walle/{t}/{d}/v1/capability/result` | 请求-应答 |
-| 6 | 开始推流 | `walle/{t}/{d}/v1/video/start/request` | `walle/{t}/{d}/v1/video/start/result` | 请求-应答 |
-| 7 | 停止推流 | `walle/{t}/{d}/v1/video/stop/request` | `walle/{t}/{d}/v1/video/stop/result` | 请求-应答 |
-| 8 | 告警 | — | `walle/{t}/{d}/v1/alarm` | 主动上报 |
-| 9 | 手机音频上行·开 | `walle/{t}/{d}/v1/phone/audio/send` | `walle/{t}/{d}/v1/phone/audio/send/result` | 单向动作（App 不订阅应答） |
-| 10 | 手机音频上行·关 | `walle/{t}/{d}/v1/phone/audio/stop` | `walle/{t}/{d}/v1/phone/audio/stop/result` | 单向动作（App 不订阅应答） |
+| 4 | 设备能力 | `walle/{t}/{d}/v1/capability/query` | `walle/{t}/{d}/v1/capability/result` | 请求-应答 |
+| 5 | 开始推流 | `walle/{t}/{d}/v1/video/start/request` | `walle/{t}/{d}/v1/video/start/result` | 请求-应答 |
+| 6 | 停止推流 | `walle/{t}/{d}/v1/video/stop/request` | `walle/{t}/{d}/v1/video/stop/result` | 请求-应答 |
+| 7 | 告警 | — | `walle/{t}/{d}/v1/alarm` | 主动上报 |
+| 8 | 手机音频上行·开 | `walle/{t}/{d}/v1/phone/audio/send` | `walle/{t}/{d}/v1/phone/audio/send/result` | 单向动作（App 不订阅应答） |
+| 9 | 手机音频上行·关 | `walle/{t}/{d}/v1/phone/audio/stop` | `walle/{t}/{d}/v1/phone/audio/stop/result` | 单向动作（App 不订阅应答） |
 
 > `{t}` = tenant，`{d}` = device_id。
-> 9/10 只承载「开/关」控制，音频本身走独立 RTMP（§4.9）。
+> 8/9 只承载「开/关」控制，音频本身走独立 RTMP（§4.8）。
 
 ---
 
@@ -92,7 +94,6 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 | 后缀 | 语义 | 例子 |
 |---|---|---|
 | `…/query` | 查询（读，无副作用） | `state/query` |
-| `…/exec` | 命令执行（写，有副作用） | `cmd/exec` |
 | `…/request` | 动作请求（生命周期管理） | `video/start/request` |
 | `…/result` | 应答，**只在收到对应请求后发布**，绝不主动上报 | `state/result` |
 | `…/send` | 手机侧发起「开始上行」的新后缀（App 是动作发起方，不是设备推流） | `phone/audio/send` |
@@ -116,7 +117,7 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 
 QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 `MessageRouter` 用
 「键排序后的 JSON 签名 + 2 秒窗口」去重，但只针对**一次性事件**：
-`alarm`、`cmd/result`、`capability/result`、`video/start/result`、`video/stop/result`
+`alarm`、`capability/result`、`video/start/result`、`video/stop/result`
 （重复处理会出事，例如推流结果重复 → 播放器初始化两次）。
 `online` 与 `state/result` 是幂等的（同一份状态重复应用无害），**不去重**。
 
@@ -132,8 +133,8 @@ QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 
 MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求再收一遍，浪费带宽、
 干扰排查。所以两端都只订**精确的响应/请求主题清单**：
 
-- App 订 8 条：`walle/{t}/+/v1` 下的 `online`、`alarm`、6 条 `…/result`（见 `TopicNames.responseSubscriptions`）
-- 设备端订 8 条：7 条设备级请求（含 `phone/audio/send|stop`）+ 1 条租户级 `discovery/query`（见 `main.subscriptions()`）
+- App 订 7 条：`walle/{t}/+/v1` 下的 `online`、`alarm`、5 条 `…/result`（见 `TopicNames.responseSubscriptions`）
+- 设备端订 7 条：6 条设备级请求（含 `phone/audio/send|stop`）+ 1 条租户级 `discovery/query`（见 `main.subscriptions()`）
 
 ---
 
@@ -280,38 +281,7 @@ App 侧重复 online 不去重（幂等）。
 （缺分组归空、异常数值归一为 null、网卡按名称排序等）。**状态是实时查询数据，不落盘**
 （N11 曾落盘又 revert，决策见 git 历史）。
 
-### 4.4 远程命令 cmd/exec → cmd/result
-
-**作用**：在设备上以 shell（`/bin/bash`）执行任意命令并回传结果。
-
-- 请求：`walle/{t}/{d}/v1/cmd/exec`
-- 应答：`walle/{t}/{d}/v1/cmd/result`
-
-请求字段：
-
-| 字段 | 必填 | 说明 |
-|---|---|---|
-| `uuid` | 是 | 不匹配静默忽略（不执行、不回复） |
-| `cmd` | 是 | 要执行的 shell 命令字符串 |
-| `request_id` | 建议 | 缺省时设备端自生成（App 将无法配对，只用于展示） |
-| `timeout` | 否 | 秒，1–300，默认 30，越界自动钳制 |
-
-应答字段：
-
-| 字段 | 说明 |
-|---|---|
-| `request_id` | 原样回显 |
-| `cmd` | 回显命令原文 |
-| `status` | `success`（exit 0）/ `failed`（exit 非 0）/ `timeout`（超时被杀）/ `denied`（白名单拒绝）/ `error`（执行异常或参数非法） |
-| `exit_code` | 进程退出码（timeout 时为 null） |
-| `stdout` / `stderr` | 输出，超过 64KB 截断（尾部带截断提示） |
-| `duration_ms` / `timeout_sec` | 实际耗时 / 生效超时 |
-| `device_id`、`uuid`、`hostname`、`timestamp`、`datetime` | 公共字段 |
-
-安全开关（设备端环境变量 / 常量）：`ENABLE_CMD_EXEC`（总开关）、`CMD_ALLOWLIST`
-（前缀白名单，为空=允许任意命令）。**这是高危能力**，Broker ACL 必须保证租户隔离。
-
-### 4.5 设备能力 capability/query → capability/result
+### 4.4 设备能力 capability/query → capability/result
 
 **作用**：枚举设备端外设能力——摄像头（v4l2）、麦克风/音响（PulseAudio）等，供控制页
 展示与选择。早期只查摄像头，任务 4 起升级为通用能力查询（旧主题已彻底删除，无兼容层）。
@@ -324,7 +294,7 @@ App 侧重复 online 不去重（幂等）。
 | 字段 | 说明 |
 |---|---|
 | `capability` | 固定 `"device"` |
-| `capabilities[]` | 能力标签，按探测结果条件出现：`system_status`、`remote_cmd` 恒有；有摄像头加 `camera_video_capture`；`VIDEO_ENABLE` 开启加 `rtmp_push`；音频可用分别加 `audio_capture` / `audio_playback` |
+| `capabilities[]` | 能力标签，按探测结果条件出现：`system_status` 恒有；有摄像头加 `camera_video_capture`；`VIDEO_ENABLE` 开启加 `rtmp_push`；音频可用分别加 `audio_capture` / `audio_playback` |
 | `camera_count` / `cameras[]` | 摄像头列表，每项含 `node`（如 `/dev/video0`）、格式/分辨率/帧率明细、`format_count`、`resolution_count`；无 `node` 的条目 App 侧会过滤 |
 | `audio.capture` | 麦克风：`{available, device, sources[], reason}`；`device` 为默认录音源（通常 `default`），不可用时 `reason` 给出原因 |
 | `audio.playback` | 音响：`{available, device, sinks[], volume_percent, muted, reason}`；`volume_percent` 未知为 null（App 归一为 -1） |
@@ -341,7 +311,7 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 缺 `audio` 分组（旧设备端）归一为 unavailable，绝不崩。契约测试：`DeviceCapabilityTest`、
 `CameraCapabilityTest`。
 
-### 4.6 开始推流 video/start/request → video/start/result
+### 4.5 开始推流 video/start/request → video/start/result
 
 **作用**：让设备端用 ffmpeg 把摄像头画面推到流媒体服务（RTMP），App 拿到
 `room_number` 后拼 WHEP 地址拉流播放（`BuildConfig.WHEP_URL_TEMPLATE`）。
@@ -377,7 +347,7 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 - 任一参数不同 → 先停旧流再用新参数推（同一时刻设备只有一路流）；
 - 因此 App 切换摄像头时**复用同一 room_number**，避免 WHEP 侧重新协商导致黑屏。
 
-### 4.7 停止推流 video/stop/request → video/stop/result
+### 4.6 停止推流 video/stop/request → video/stop/result
 
 **作用**：停掉设备当前推流。
 
@@ -399,7 +369,7 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 **一致性校验**：请求带了 `room_number` 且与当前推流不一致 → `result=-1` 并在 `error`
 里说明当前房间号，**不会误停别人的流**。
 
-### 4.8 alarm —— 告警（主动上报）
+### 4.7 alarm —— 告警（主动上报）
 
 **作用**：阈值越限/恢复、USB 插拔的实时通知，驱动 App 告警中心（落 SQLite，200 条滚动淘汰）。
 
@@ -421,7 +391,7 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 抖动反复报警。阈值均可用环境变量覆盖（`THRESH_CPU`/`THRESH_MEM`/`THRESH_DISK`/
 `THRESH_TEMP`/`THRESH_NET_MIB`），监控周期 `MONITOR_INTERVAL`（默认 5s）。
 
-### 4.9 手机麦克风上行 phone/audio/send|stop（控制面）＋ WebRTC WHIP/WHEP（媒体面）
+### 4.8 手机麦克风上行 phone/audio/send|stop（控制面）＋ WebRTC WHIP/WHEP（媒体面）
 
 **作用**：把手机麦克风的声音实时送到设备扬声器（「反向音频」）。**媒体不走 MQTT**，
 走独立 WebRTC：App 用 WHIP 推 `https://www.baidong.xyz:443/rtc/v1/whip/?app=live&stream={room}_audio&secret=…`，
@@ -494,8 +464,8 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 4. 本地验证通过后提交（CI 工作流已移除，提交前务必本地跑通以下检查）：
 
 ```bash
-(cd walle-android && ./gradlew :app:testDebugUnitTest)   # App 契约测试
-python3 linux/selftest_topics.py                       # 设备端契约自检
+./gradlew :app:testDebugUnitTest        # App 契约测试
+python3 linux/selftest_topics.py       # 设备端契约自检
 ```
 
 **三条铁律**：
@@ -506,7 +476,7 @@ python3 linux/selftest_topics.py                       # 设备端契约自检
 
 ## 6. 两端代码对照表
 
-| 职责 | App（`walle-android/app/src/main/java/www/walle/ai/net/`） | 设备端（`linux/main.py`） |
+| 职责 | App（`app/src/main/java/www/walle/ai/net/`） | 设备端（`linux/main.py`） |
 |---|---|---|
 | 主题拼装/解析/清洗 | `TopicNames.java` | `sanitize_segment` / `device_topic` / `_handle_request` |
 | 报文路由 + QoS1 去重 | `MessageRouter.java` | `_handle_request` + `REQUEST_HANDLERS` |
@@ -514,7 +484,6 @@ python3 linux/selftest_topics.py                       # 设备端契约自检
 | online 发布/遗嘱 | `DeviceRegistry.java`（消费） | `build_online_payload` / `publish_json(..., retain=True)` |
 | 发现应答 | `DevicesViewModel.java`（消费） | `handle_device_query`（限频+抖动） |
 | 状态采集 | `StatusSnapshot.java`（解析） | `build_status` / `handle_query_status` |
-| 命令执行 | `CommandViewModel.java`（消费） | `handle_cmd_exec` / `_publish_cmd_result` |
 | 设备能力 | `DeviceCapability.java`（解析，摄像头部分复用 `CameraCapability`） | `build_capability` / `probe_audio_capture` / `probe_audio_playback` / `handle_capability_query` |
 | 推流控制 | `ControlViewModel` / `PlayerViewModel`（消费） | `handle_video_request` / `handle_video_stop` |
 | 手机音频上行 | `PlayerActivity`（按钮/开关）+ `MqttManager`（发 send/stop）+ `WhipAudioSession`（WebRTC 音频 WHIP 推流） | `handle_phone_audio_send` / `handle_phone_audio_stop` / `_start_phone_audio`（WHEP 拉流 + 声卡播放） |
@@ -525,3 +494,43 @@ python3 linux/selftest_topics.py                       # 设备端契约自检
 ## 7. 相关文档
 
 - [设备端部署说明](../linux/README.md) — main.py 安装与配置
+
+---
+
+## 8. 变更记录
+
+### 2026-11-08 20:00（Asia/Shanghai, CST）：移除远程命令 cmd/exec → cmd/result
+
+**变更类型**：破坏性删除（协议 v1 内直接移除，不保留兼容层）。
+
+**原因**
+
+- 该能力允许在设备上通过 `/bin/bash` 执行任意命令，属于最高危的远程命令执行面。
+- 设备 `uuid` 会通过 `discovery/result` 与 retained `online` 报文下发，不能作为鉴权凭证；
+  只要拿到租户 MQTT 凭据，就能完成「发现设备 → 取 uuid → 执行任意命令」的攻击链。
+- 原实现使用前缀白名单 + `shell=True`，无法阻止 `;`、`&&`、`$()` 等注入；
+  且 `ENABLE_CMD_EXEC` 默认为开启，不符合上线安全要求。
+
+**变更内容**
+
+- 删除请求主题 `walle/{t}/{d}/v1/cmd/exec` 与应答主题 `walle/{t}/{d}/v1/cmd/result`。
+- 设备端不再订阅 `cmd/exec`、不再处理远程命令、不再发布 `cmd/result`；
+  `capability/result` 的 `capabilities[]` 不再包含 `remote_cmd`。
+- 测试页 `test/car_ctl_by_mqtt.html` 删除「远程指令」卡片及相关 MQTT 订阅/发送逻辑。
+- 协议命名约定中的 `…/exec` 后缀语义一并删除。
+
+**影响与兼容性**
+
+- App 端必须同步移除远程命令入口；旧版 App 发送 `cmd/exec` 后不会收到任何应答
+  （设备端未订阅该主题，也不会再发布 `cmd/result`）。
+- 如确有设备运维需求，改用受控 SSH / 串口 / 带外通道，并为该通道增加独立认证与审计；
+  不要恢复任意 shell 执行能力。
+- 协议版本仍为 v1；本次属于破坏性变更，发布说明中必须标注 App 与固件需同步升级。
+
+**验证方式**
+
+- 在固件与测试页中执行 `grep -R "cmd/exec\|cmd/result\|remote_cmd"`，应无残留；
+  协议文档仅在本文「§8 变更记录」中保留历史说明，不再作为有效契约。
+- 设备启动日志中的 MQTT 订阅清单不再包含 `cmd/exec`。
+- 使用 MQTT 客户端向 `walle/{t}/{d}/v1/cmd/exec` 发布消息，设备应无任何响应。
+- 打开 `test/car_ctl_by_mqtt.html`，页面不再出现「远程指令」卡片。
