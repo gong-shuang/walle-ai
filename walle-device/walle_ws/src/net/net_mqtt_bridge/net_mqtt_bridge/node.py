@@ -56,6 +56,15 @@ class NetMqttBridge(Node):
         # 导入 agent 时它会加载 env_file，DEVICE_ID_FILE 可能来自环境文件。
         # 参数优先级最高；都没有时再回退到旧安装目录 / 用户配置目录。
         import net_mqtt_bridge.agent as agent
+
+        # P0-1.4：MQTT 必填项缺失 / 明文配置时直接拒绝启动，避免带病上线
+        problems = agent.validate_mqtt_config()
+        if problems:
+            for problem in problems:
+                self.get_logger().fatal('MQTT 配置错误: %s' % problem)
+            raise RuntimeError(
+                'MQTT 配置不完整，拒绝启动（请检查 /etc/walle-ai.env）')
+
         if device_id_param:
             device_id_file = device_id_param
         elif agent.DEVICE_ID_FILE:

@@ -10,7 +10,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 3. 上线/下线：retained + 遗嘱（LWT），App 重启或重连后能立刻看到设备在线状态。
 
 协议：多租户主题 v1
-    所有主题都在 walle/{tenant}/{device}/v1/ 下展开，租户 = MQTT 用户名（清洗后），
+    所有主题都在 walle/{tenant}/{device}/v1/ 下展开，租户 = MQTT_TENANT（与手机 App 登录用户名一致），
     device 用稳定的 device_id：首次启动按「MAC + CPU 核心数 + 内存 GiB」算 md5 前 16 位，
     之后落盘复用（resolve_device_id），不会因为 MemTotal 的 KiB 级浮动而漂移。
 
@@ -40,7 +40,8 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 
 配置：全部通过环境变量；前台运行时会自动加载 /etc/walle-ai.env，
       查找顺序 --env-file > $RPI_MONITOR_ENV > /etc/walle-ai.env > ./walle-ai.env，
-      已存在的 shell 变量优先。必填项见 README「首次部署」。
+      已存在的 shell 变量优先。必填 MQTT_HOST / MQTT_USERNAME / MQTT_PASSWORD / MQTT_TENANT，
+      TLS 强制开启（默认 8883）；缺项或明文配置时拒绝启动。
 
 命令行：
     python3 main.py                         前台运行（自动读 /etc/walle-ai.env）
@@ -138,16 +139,22 @@ ENV_SOURCE = _init_env()
 # ============================== 配置区 ==============================
 
 # ---- MQTT ----
-# 既保留原来的默认值，也支持用环境变量覆盖（systemd 里配 Environment= 即可，避免口令写进代码）
-MQTT_HOST = os.environ.get("MQTT_HOST", "www.baidong.xyz")
-MQTT_PORT = int(os.environ.get("MQTT_PORT", "8883"))
-MQTT_USER = os.environ.get("MQTT_USERNAME", "RaspPi5")
+# 不提供默认 broker / 用户名：必须由 /etc/walle-ai.env（或 systemd Environment=）注入。
+# 缺失时节点拒绝启动（validate_mqtt_config），避免设备误连演示服务器或使用默认凭据。
+MQTT_HOST = os.environ.get("MQTT_HOST", "").strip()
+_MQTT_PORT_RAW = os.environ.get("MQTT_PORT", "8883").strip()
+try:
+    MQTT_PORT = int(_MQTT_PORT_RAW)
+except ValueError:
+    MQTT_PORT = 0
+MQTT_USER = os.environ.get("MQTT_USERNAME", "").strip()
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "")
 MQTT_KEEPALIVE = 60
 MQTT_QOS = 1
-# TLS：8883 走 ssl://，1883 走明文（与 App 的端口/TLS 开关对应）
-MQTT_TLS = os.environ.get("MQTT_TLS", "auto").strip().lower()  # auto | on | off
+# TLS：默认强制开启，不再支持明文回退；auto 仅在 8883/8084 端口下自动启用
+MQTT_TLS = os.environ.get("MQTT_TLS", "on").strip().lower()  # on | auto（off 会被拒绝）
 MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE", "").strip()      # 留空则用系统 CA
+TLS_PORTS = (8883, 8084)
 
 # ---- 主题命名约定（完整主题 = walle/{tenant}/{device}/v1/{资源}）----
 #   请求按语义命名：查询 .../query、命令 .../exec、动作 .../request；
@@ -200,10 +207,11 @@ DEVICE_ID_FILE = os.environ.get("DEVICE_ID_FILE", "").strip()
 
 # ---- 多租户主题（命名规则与 Android 端 TopicNames 完全一致）----
 # 主题形如 walle/{tenant}/{device}/v1/{resource}：
-#   tenant = MQTT 用户名（清洗后），Broker 用 walle/${username}/# 做 ACL；
+#   tenant = MQTT_TENANT（App 登录用户名，清洗后），Broker 用 walle/${tenant}/# 做 ACL；
 #   device = 下面的 DEVICE_ID（跨重启/重装不变）。
 #
-MQTT_TENANT = os.environ.get("MQTT_TENANT", MQTT_USER).strip()
+# 租户必须显式配置（= 手机 App 登录用户名），不再回退到 MQTT 用户名
+MQTT_TENANT = os.environ.get("MQTT_TENANT", "").strip()
 TOPIC_ROOT = "walle"
 # 主题协议版本段：walle/{tenant}/{device}/v1/{resource}
 # 升协议（报文结构变了）时新增 v2 段，旧设备继续用 v1，两套主题可以并存。
@@ -239,6 +247,47 @@ def sanitize_segment(raw):
     if len(raw) > 64:
         return seg[:40] + "-" + hashlib.md5(raw.encode("utf-8")).hexdigest()[:8]
     return seg
+
+
+def tls_enabled():
+    """是否启用 TLS。已禁止明文，返回 False 时节点拒绝启动。"""
+    if MQTT_TLS == "on":
+        return True
+    if MQTT_TLS == "auto":
+        return MQTT_PORT in TLS_PORTS
+    return False
+
+
+def validate_mqtt_config():
+    """校验 MQTT 必填配置，返回问题列表；非空表示必须拒绝启动。"""
+    problems = []
+    if not MQTT_HOST:
+        problems.append("MQTT_HOST 未配置：请填写 Broker 地址")
+    if not MQTT_USER:
+        problems.append("MQTT_USERNAME 未配置：请填写设备自己的 MQTT 账号")
+    if not MQTT_PASSWORD:
+        problems.append("MQTT_PASSWORD 未配置：请填写设备 MQTT 密码")
+    if not MQTT_TENANT:
+        problems.append("MQTT_TENANT 未配置：请填写手机 App 登录用户名（两者必须一致）")
+    if not 1 <= MQTT_PORT <= 65535:
+        problems.append(f"MQTT_PORT 无效（{_MQTT_PORT_RAW!r}）：应为 1-65535，TLS 默认 8883")
+    if MQTT_TLS not in ("on", "auto"):
+        problems.append(f"MQTT_TLS={MQTT_TLS!r} 不安全：已禁止明文 MQTT，请设置 MQTT_TLS=on")
+    elif MQTT_TLS == "auto" and MQTT_PORT not in TLS_PORTS:
+        problems.append(
+            f"MQTT_TLS=auto 但端口 {MQTT_PORT} 不是 8883/8084，无法确认 TLS；"
+            "请设置 MQTT_TLS=on 或改用 8883")
+    if MQTT_CA_FILE:
+        if not os.path.isfile(MQTT_CA_FILE):
+            problems.append(f"MQTT_CA_FILE 不存在或不可读：{MQTT_CA_FILE}")
+    else:
+        # 留空表示使用系统 CA，这里确认系统信任库可用
+        try:
+            import ssl
+            ssl.create_default_context()
+        except Exception as exc:  # noqa: BLE001
+            problems.append(f"系统 CA 不可用（{exc}）：请通过 MQTT_CA_FILE 指定 CA 文件")
+    return problems
 
 
 def device_topic_base(tenant=None, device=None):
@@ -2504,6 +2553,14 @@ class RpiMonitor:
     # ---------- 启动 ----------
 
     def run(self):
+        problems = validate_mqtt_config()
+        if problems:
+            raise RuntimeError(
+                "MQTT 配置不完整，拒绝启动：\n"
+                + "\n".join(f"  - {p}" for p in problems)
+                + "\n请编辑 /etc/walle-ai.env（参考 walle_ws/src/scripts/walle-ai.env），"
+                  "至少配置 MQTT_HOST / MQTT_USERNAME / MQTT_PASSWORD / MQTT_TENANT，"
+                  "并保持 TLS（MQTT_PORT=8883、MQTT_TLS=on）。")
         logging.info("设备 %s (%s) 启动监控，采样周期 %ss", DEVICE_ID, self.lan_ip, MONITOR_INTERVAL)
         logging.info("协议 v1: tenant=%s device=%s broker=%s:%s",
                      sanitize_segment(MQTT_TENANT), sanitize_segment(DEVICE_ID),
@@ -2531,19 +2588,16 @@ class RpiMonitor:
         self.client.on_disconnect = self.on_disconnect
         self.client.on_message = self.on_message
         self.client.reconnect_delay_set(min_delay=3, max_delay=30)
-        # TLS：MQTT_TLS=auto 时，8883/8084 视为 TLS 端口
-        tls_on = MQTT_TLS == "on" or (MQTT_TLS == "auto" and MQTT_PORT in (8883, 8084))
-        if tls_on:
-            import ssl
-            if MQTT_CA_FILE:
-                ctx = ssl.create_default_context(cafile=MQTT_CA_FILE)
-            else:
-                ctx = ssl.create_default_context()
-            self.client.tls_set_context(ctx)
-            logging.info("启用 TLS 连接 %s:%s（CA=%s）",
-                         MQTT_HOST, MQTT_PORT, MQTT_CA_FILE or "system")
-        else:
-            logging.warning("使用明文连接 %s:%s（建议改用 8883 + TLS）", MQTT_HOST, MQTT_PORT)
+        # TLS 已在 validate_mqtt_config 中强制校验，不再允许明文回退
+        import ssl
+        try:
+            ctx = ssl.create_default_context(cafile=MQTT_CA_FILE or None)
+        except (OSError, ssl.SSLError) as exc:
+            raise RuntimeError(
+                f"加载 CA 失败（MQTT_CA_FILE={MQTT_CA_FILE or 'system'}）：{exc}") from exc
+        self.client.tls_set_context(ctx)
+        logging.info("启用 TLS 连接 %s:%s（CA=%s）",
+                     MQTT_HOST, MQTT_PORT, MQTT_CA_FILE or "system")
         self.client.connect(MQTT_HOST, MQTT_PORT, MQTT_KEEPALIVE)
         self.client.loop_start()
 
@@ -2575,10 +2629,15 @@ def print_config_check():
     except Exception as exc:                      # 取不到网卡/内存信息时不影响看配置
         DEVICE_ID = f"<无法计算: {exc}>"
         DEVICE_ID_SOURCE = "计算失败"
-    tls_on = MQTT_TLS == "on" or (MQTT_TLS == "auto" and MQTT_PORT in (8883, 8084))
+    problems = validate_mqtt_config()
+    tls_on = tls_enabled()
     print("== 生效配置 ==")
-    print(f"  环境文件 : {ENV_SOURCE or '未加载（使用环境变量/默认值）'}")
-    print(f"  Broker   : {MQTT_HOST}:{MQTT_PORT}   TLS={'on' if tls_on else 'off'} (MQTT_TLS={MQTT_TLS})")
+    print(f"  环境文件 : {ENV_SOURCE or '未加载（使用环境变量）'}")
+    print(f"  配置校验 : {'✅ 通过' if not problems else '❌ 未通过'}")
+    for problem in problems:
+        print(f"    - {problem}")
+    print(f"  Broker   : {MQTT_HOST or '(未配置)'}:{MQTT_PORT}   "
+          f"TLS={'on' if tls_on else 'off'} (MQTT_TLS={MQTT_TLS})")
     print(f"  用户名   : {MQTT_USER}")
     print(f"  密码     : {'********' if MQTT_PASSWORD else '(空)'}")
     print(f"  Oryx secret: {'已配置' if WHIP_SECRET else '未配置（视频推流会被服务端拒绝）'}")
@@ -2611,7 +2670,7 @@ def main():
         print_config_check()
         return 0
 
-    logging.info("配置来源: %s", ENV_SOURCE or "环境变量/默认值")
+    logging.info("配置来源: %s", ENV_SOURCE or "环境变量")
     monitor = RpiMonitor()
 
     def _shutdown(signum, frame):
