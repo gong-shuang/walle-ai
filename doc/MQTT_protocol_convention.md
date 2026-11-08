@@ -26,7 +26,9 @@ walle/{tenant}/{device}/v1/{resource}
 ```
 
 - `tenant`：租户标识 = **App 登录用的 MQTT 用户名**（经清洗）。同一账号 = 同一租户。
-- `device`：**稳定**的设备标识 `device_id`（设备端用 MAC + CPU + 内存算 md5 取前 16 位，重启不变）。
+- `device`：**稳定**的设备标识 `device_id`。首次启动由设备端按 `md5(MAC | CPU 物理核数 | 内存 GiB)` 取前 16 位，
+  随后**落盘复用**（`main.resolve_device_id`），因此重启、重装、换 IP 都不会变。
+  注意内存必须按 GiB 取整：`MemTotal` 在两次启动之间会浮动几 KiB，直接进哈希会让同一台硬件换 identity。
 - `resource`：按语义命名（见 §2.3），可能含 `/`（如 `video/start/result`）。
 
 特例：设备发现是**租户级**广播，没有 device 段（第 3 段是 `v1` 版本段）：`walle/{tenant}/v1/discovery/query`。
@@ -65,8 +67,25 @@ walle/{tenant}/{device}/v1/{resource}
 
 `uuid` 由设备端按 `uuid5(MAC|IP|启动时间)` 生成，**每次重启都会变**。
 如果主题用 uuid，设备重启后 App 订阅的旧主题全部失效，还会产生「幽灵设备卡片」。
-所以主题里的设备段只用 `device_id`（硬件指纹，重启不变）；`uuid` 降级为**报文字段**，
+所以主题里的设备段只用 `device_id`（稳定标识）；`uuid` 降级为**报文字段**，
 用于请求校验（§3.4）和设备归并。App 侧归并逻辑见 `DeviceRegistry`。
+
+**`device_id` 必须落盘，不能每次启动重算**（历史 bug）：它原来的算法是
+`md5(MAC | CPU 核数 | 内存字节数)` 取 16 位，但 `MemTotal` 在两次启动之间会浮动几 KiB
+（内核保留页、启动参数、内存训练），于是同一台机器算出了两个 `device_id` —— 表现为
+App 里同一台设备出现两张卡片、旧主题上的 retained `online:false` 一直残留。
+现在的规则：
+
+- 首次启动按 `md5(MAC | CPU 物理核数 | 内存 **GiB**)` 生成，写入 `<安装目录>/.device-id`
+  （可用 `DEVICE_ID_FILE` 覆盖）；
+- 之后**只读文件复用**，硬件指纹再怎么漂移都不影响；
+- 只有「文件里的 MAC 集合不包含当前 MAC」时才重新生成（换网卡 / 克隆镜像到新机器），
+  旧值记入 `previous` 便于排查；
+- App 侧还有一层兜底：`device_id` 变了但 MAC 相同时按同一台设备归并，并用报文
+  `timestamp` 丢弃更旧的 retained `online:false`（见 `DeviceRegistry.applyOnline`）。
+
+> 代价：`device_id` 一旦变化（换网卡），旧主题上的 retained `online` 无法由设备自己清理
+> ——Broker ACL 只允许它写 `walle/{tenant}/${clientid}/#`。这类残留由 App 侧按 MAC 归并消化。
 
 ### 2.3 资源按语义命名，应答一律 `/result`
 
@@ -126,11 +145,11 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `device_id` | string | 稳定设备标识（md5 前 16 位）。设备端可省略，App 用主题里的设备段兜底注入，区别不同设备，重启不变。 |
+| `device_id` | string | 稳定设备标识（见 §2.2，落盘复用）。设备端可省略，App 用主题里的设备段兜底注入，区别不同设备，重启不变。 |
 | `uuid` | string | 本次启动的 uuid（重启会变），device_id相同但uuid不同说明设备重启了。 |
 | `hostname` | string | 主机名 |
 | `ip` | string | 局域网 IP |
-| `timestamp` | number | Unix 秒 |
+| `timestamp` | number | Unix 秒。**在线报文用它判定新旧**：device_id 漂移后旧主题遗留的 retained `online` 若比已知信息更旧，App 直接丢弃（§4.1） |
 | `datetime` | string | `YYYY-MM-DD HH:MM:SS` 本地时间 |
 | `request_id` | string | **仅应答报文**：原样回显请求的 request_id，标识请求-应答对，每次请求都不同。 |
 
@@ -192,6 +211,12 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 **注意**：`online: false` 的遗嘱只由 broker 代发；设备端正常关机也应主动发一次。
 App 侧重复 online 不去重（幂等）。
+
+**归并顺序（`DeviceRegistry.applyOnline`）**：`device_id` → `uuid` → **MAC** → `hostname`。
+最后这层 MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id 的
+`online:false` + 新 id 的 `online:true`）会合成一张卡片；若旧报文按 MAC 命中已有设备、
+却是下线且 `timestamp` 更旧，则整条丢弃，避免把在线设备刷成离线。
+真实的同一启动周期遗嘱（`device_id` 相同、时间戳相同）不受影响。
 
 ### 4.2 设备发现 discovery/query → discovery/result
 

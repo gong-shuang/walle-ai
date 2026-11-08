@@ -41,6 +41,13 @@ public class DeviceInfo {
 
     public String datetime = "";
 
+    /**
+     * 报文时间（报文里的 {@code timestamp}，Unix 秒）；缺失为 0。
+     * <p>用于识别「更旧」的报文：device_id 漂移后，旧主题上遗留的 retained online 会被
+     * 反复回放，必须按时间丢弃，否则会把在线设备刷成离线（见 DeviceRegistry.applyOnline）。</p>
+     */
+    public long timestamp = 0L;
+
     /** 是否在线（online 报文维护） */
     public boolean online = false;
     /** 是否已收到过 identity 详情 */
@@ -119,6 +126,7 @@ public class DeviceInfo {
         d.ip = j.optString("ip", "");
         d.mac = j.optString("mac", "");
         d.datetime = j.optString("datetime", "");
+        d.timestamp = j.optLong("timestamp", 0L);
 
         JSONObject os = j.optJSONObject("os");
         if (os != null) {

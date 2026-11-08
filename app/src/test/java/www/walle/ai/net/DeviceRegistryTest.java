@@ -96,6 +96,78 @@ public class DeviceRegistryTest {
     }
 
     @Test
+    public void driftedDeviceIdMergesByMacInsteadOfCreatingGhostCard() {
+        // 真实 bug：同一台机器两次启动算出两个 device_id（MemTotal 浮动几 KiB 进了哈希），
+        // 旧主题上的 retained online:false 会和新主题的 online:true 一起回放。
+        // 两条报文必须归并成一张卡片，且不能被更旧的 offline 刷成离线。
+        DeviceRegistry r = new DeviceRegistry();
+        r.applyOnline(json("{\"uuid\":\"new-uuid\",\"device_id\":\"d-new\",\"mac\":\"90:DE:80:18:7E:31\","
+                + "\"hostname\":\"aigo\",\"online\":true,\"timestamp\":200}"));
+        r.applyOnline(json("{\"uuid\":\"old-uuid\",\"device_id\":\"d-old\",\"mac\":\"90:de:80:18:7e:31\","
+                + "\"hostname\":\"aigo\",\"online\":false,\"timestamp\":100}"));
+
+        assertEquals(1, r.count());
+        DeviceInfo d = r.selected();
+        assertNotNull(d);
+        assertTrue(d.online);                       // 旧 offline 被丢弃，仍是在线
+        assertEquals("d-new", d.deviceId);          // 卡片跟着新的稳定标识走
+        assertEquals("new-uuid", d.key());
+    }
+
+    @Test
+    public void staleOfflineArrivingFirstIsMergedAwayByLiveOnline() {
+        // 回放顺序反过来（旧 offline 先到）：先建卡片，随后被在线报文归并，不能多出一台
+        DeviceRegistry r = new DeviceRegistry();
+        r.applyOnline(json("{\"uuid\":\"old-uuid\",\"device_id\":\"d-old\",\"mac\":\"AA:BB:CC:DD:EE:FF\","
+                + "\"hostname\":\"aigo\",\"online\":false,\"timestamp\":100}"));
+        assertEquals(1, r.count());
+        assertEquals(0, r.onlineCount());
+
+        r.applyOnline(json("{\"uuid\":\"new-uuid\",\"device_id\":\"d-new\",\"mac\":\"aa:bb:cc:dd:ee:ff\","
+                + "\"hostname\":\"aigo\",\"online\":true,\"timestamp\":200}"));
+
+        assertEquals(1, r.count());
+        assertEquals(1, r.onlineCount());
+        assertEquals("new-uuid", r.selectedKey());  // 列表键已迁移到新 uuid
+        assertEquals("d-new", r.selected().deviceId);
+    }
+
+    @Test
+    public void offlineOfSameDeviceIdStillApplies() {
+        // 同一次开机的遗嘱（LWT）用的就是当前 device_id，时间戳与 online 相同，必须生效
+        DeviceRegistry r = new DeviceRegistry();
+        r.applyOnline(json("{\"uuid\":\"u1\",\"device_id\":\"d1\",\"mac\":\"AA:BB:CC:DD:EE:FF\","
+                + "\"online\":true,\"timestamp\":200}"));
+        r.applyOnline(json("{\"uuid\":\"u1\",\"device_id\":\"d1\",\"mac\":\"AA:BB:CC:DD:EE:FF\","
+                + "\"online\":false,\"timestamp\":200}"));
+
+        assertEquals(1, r.count());
+        assertTrue(!r.selected().online);
+    }
+
+    @Test
+    public void devicesWithDifferentMacsStaySeparate() {
+        DeviceRegistry r = new DeviceRegistry();
+        r.applyOnline(json("{\"uuid\":\"u1\",\"device_id\":\"d1\",\"mac\":\"AA:AA:AA:AA:AA:AA\",\"online\":true}"));
+        r.applyOnline(json("{\"uuid\":\"u2\",\"device_id\":\"d2\",\"mac\":\"BB:BB:BB:BB:BB:BB\",\"online\":true}"));
+        assertEquals(2, r.count());
+        assertEquals(2, r.onlineCount());
+    }
+
+    @Test
+    public void discoveryResultReplacesStaleEntryOfSameMacWhenDeviceIdDrifted() {
+        DeviceRegistry r = new DeviceRegistry();
+        r.applyOnline(json("{\"uuid\":\"old\",\"device_id\":\"d-old\",\"mac\":\"AA:BB:CC:DD:EE:FF\",\"online\":false}"));
+        DeviceInfo d = r.applyInfo(json("{\"uuid\":\"new\",\"device_id\":\"d-new\","
+                + "\"mac\":\"aa:bb:cc:dd:ee:ff\",\"hostname\":\"aigo\"}"));
+
+        assertNotNull(d);
+        assertEquals(1, r.count());
+        assertNull(r.get("old"));
+        assertNotNull(r.get("new"));
+    }
+
+    @Test
     public void statusIsCachedPerDevice() {
         DeviceRegistry r = new DeviceRegistry();
         JSONObject s1 = json("{\"uuid\":\"u1\",\"cpu\":{}}");
@@ -113,8 +185,8 @@ public class DeviceRegistryTest {
     @Test
     public void devicesAreSortedOnlineFirstThenByName() {
         DeviceRegistry r = new DeviceRegistry();
-        // 未知设备的 offline 报文会被忽略（避免 retained 遗嘱变成幽灵卡片），
-        // 所以先让 zeta 上线、再令其离线。
+        // 未知设备的离线报文同样会入列（见 offlineUnknownDeviceIsKept），
+        // 这里先让 zeta 上线再离线，验证「在线优先、其次按名称」的排序
         r.applyOnline(json("{\"uuid\":\"u1\",\"hostname\":\"zeta\",\"online\":true}"));
         r.applyOnline(json("{\"uuid\":\"u1\",\"online\":false}"));
         r.applyOnline(json("{\"uuid\":\"u2\",\"hostname\":\"beta\",\"online\":true}"));

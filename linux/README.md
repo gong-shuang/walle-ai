@@ -3,7 +3,7 @@
 配套 Android App《树莓派控制器》的设备端程序：周期采集树莓派状态、异常告警、远程执行命令、枚举摄像头并推流，全部通过 MQTT 与手机交互。
 
 > **协议**：多租户主题 `walle/{tenant}/{device}/v1/{resource}`。
-> **tenant** = 手机 App 登录用的用户名；**device** = 本机稳定 `device_id`（MAC + CPU 核心数 + 内存容量的 md5 前 16 位，重启/重装都不变）。
+> **tenant** = 手机 App 登录用的用户名；**device** = 本机稳定 `device_id`（首次启动按 `MAC + CPU 核数 + 内存 GiB` 算 md5 前 16 位，随后落盘复用，重启/重装/换 IP 都不变）。
 
 ---
 
@@ -104,7 +104,7 @@ sudo journalctl -u walle-ai -n 30 --no-pager
 ```
 Nov 01 20:10:21 orangepi5plus systemd[1]: Started RaspberryPi System Monitor over MQTT.
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 配置来源: /etc/walle-ai.env
-Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 设备 device_id: f1873c8b51019dc0（MAC=e0:75:26:6f:32:1f, CPU核心数=8, 内存总容量=8320167936字节）
+Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 设备 device_id: f1873c8b51019dc0（来源：新生成并写入 /home/gs/walle_linux/.device-id；MAC=e0:75:26:6f:32:1f, CPU核心数=8, 内存总容量=8320167936字节）
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 设备 UUID: ac2e9320-0889-5266-8a12-bb2d38025448（MAC=e0:75:26:6f:32:1f, IP=192.168.31.38, 启动时间=2026-11-01 20:10:21）
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 设备 f1873c8b51019dc0 (192.168.31.38) 启动监控，采样周期 5s
 Nov 01 20:10:21 orangepi5plus python[46768]: 2026-11-01 20:10:21 [INFO] 协议 v1: tenant=home device=f1873c8b51019dc0 broker=www.baidong.xyz:8883
@@ -150,7 +150,7 @@ sudo python3 main.py
 ```
 (.venv) orangepi@orangepi5plus:~/walle_linux$ sudo python3 main.py 
 2026-11-01 20:08:38 [INFO] 配置来源: /etc/walle-ai.env
-2026-11-01 20:08:38 [INFO] 设备 device_id: f1873c8b51019dc0（MAC=e0:75:26:6f:32:1f, CPU核心数=8, 内存总容量=8320167936字节）
+2026-11-01 20:08:38 [INFO] 设备 device_id: f1873c8b51019dc0（来源：复用 /home/gs/walle_linux/.device-id；MAC=e0:75:26:6f:32:1f, CPU核心数=8, 内存总容量=8320167936字节）
 2026-11-01 20:08:38 [INFO] 设备 UUID: 930213af-aad0-53ef-9645-2e400f8a4863（MAC=e0:75:26:6f:32:1f, IP=192.168.31.38, 启动时间=2026-11-01 20:08:38）
 2026-11-01 20:08:38 [INFO] 设备 f1873c8b51019dc0 (192.168.31.38) 启动监控，采样周期 5s
 2026-11-01 20:08:38 [INFO] 协议 v1: tenant=home device=f1873c8b51019dc0 broker=www.baidong.xyz:8883
@@ -195,6 +195,7 @@ MQTT_TENANT=home python3 main.py        # shell 变量优先于文件
 | `MQTT_PASSWORD` | `` | ✅ | 设备口令（请改掉） |
 | `MQTT_TENANT` | `home` | ✅ | 租户 = App 用户名 |
 | `WHIP_SECRET` | `xxxxxx` | ✅ | WHIP 密钥 |
+| `DEVICE_ID_FILE` | `<安装目录>/.device-id` | — | `device_id` 落盘位置。**别删**：删了会重新生成，等于换了一台设备（App 里会多一张卡片） |
 | `MQTT_TLS` | `auto` | — | `auto`：8883/8084 自动 TLS；`on` / `off` 强制 |
 | `MQTT_CA_FILE` | 空 | — | 自签 CA 路径，空则用系统 CA |
 | `MONITOR_INTERVAL` | `5` | — | 巡检周期（秒） |
@@ -238,6 +239,7 @@ cd ~/walle_linux && ./.venv/bin/python selftest_topics.py --tenant home   # 协�
 | 推流黑屏 | ffmpeg 起不来 / RTMP secret 错 / 房间号不一致 | `journalctl -u walle-ai | grep ffmpeg`；看 `log/ffmpeg_*.log` |
 | 设备掉线后一直显示在线 | 遗嘱只在进程异常退出时由 broker 代发；`kill -9` 与 broker 断连场景依赖 keepalive | 60s keepalive 内应自动转 offline；长期不转检查网络与 broker |
 | 命令被忽略 | 报文里的 `uuid` 不匹配 | App 会带当前 `uuid`；手动测试时用 `mosquitto_pub` 记得带上 |
+| App 里同一台设备出现**两张卡片**（MAC 相同、`device_id` 不同） | 旧版的 `device_id` 由「内存字节数」参与哈希，`MemTotal` 每次启动浮动几 KiB 就会漂移；旧主题上的 retained `online:false` 也会一起回放 | 升级到本版（`device_id` 落盘复用）：`python3 main.py --check` 的「标识来源」应显示 `复用 …/.device-id`；App 会自动按 MAC 把两张卡合并成一台 |
 | 命令执行了但 App 没结果 | 看设备日志有没有 `已响应命令执行 -> walle/.../cmd/result（...）`；有则说明已发出，查 ACL 是否允许 publish 到该主题；没有则该请求未被处理（主题名或 `uuid` 不匹配） | `journalctl -u walle-ai -n 50 \| grep "命令"` |
 
 手动验证（不依赖 App）：
@@ -249,6 +251,11 @@ mosquitto_sub -h www.baidong.xyz -p 8883 -u home -P '<口令>' -t 'walle/home/#'
 # 触发一次状态查询（uuid 换成日志里的 device uuid）
 mosquitto_pub -h www.baidong.xyz -p 8883 -u home -P '<口令>' \
   -t 'walle/home/666feb85d43410b2/v1/state/query' -m '{"uuid":"<uuid>"}'
+
+# 清掉旧 device_id 遗留的 retained offline（-n = 空载荷，retain 消息随之删除）
+# 只有 App 账号有 walle/home/# 权限，设备账号只能写自己的 ${clientid} 子树
+mosquitto_pub -h www.baidong.xyz -p 8883 -u home -P '<口令>' -r -n \
+  -t 'walle/home/<旧 device_id>/v1/online'
 ```
 
 ---
@@ -262,7 +269,8 @@ linux/
 ├── requirements.txt            # paho-mqtt / psutil / aiortc / sounddevice
 ├── selftest_topics.py          # 主题契约自检
 ├── walle-ai.service            # systemd 模板（部署时按实际用户 / 目录改写，见 3.3）
-└── walle-ai.env                # 配置样例（部署时安装到 /etc/walle-ai.env）
+├── walle-ai.env                # 配置样例（部署时安装到 /etc/walle-ai.env）
+└── .device-id                  # 运行后生成：落盘的 device_id（别删，见「四、配置项」）
 ```
 
 ---

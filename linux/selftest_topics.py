@@ -9,7 +9,8 @@
   3. 订阅清单只含「请求类」主题，且不含通配子树；
   4. 请求资源 → 处理函数全部存在；
   5. 发布走 walle 命名空间；
-  6. 旧版全局主题常量已彻底删除。
+  6. 旧版全局主题常量已彻底删除；
+  7. device_id 跨重启稳定（落盘复用，不受 MemTotal 浮动影响）。
 
 用法：
     python3 selftest_topics.py
@@ -341,6 +342,48 @@ def main():
     vs.video_proc = DeadProc()
     dead = vs._video_status()
     check("进程已退出 streaming", dead.get("streaming"), False)
+
+    print("\n== 12. device_id 必须跨重启稳定 ==")
+    # 回归：旧算法把「内存字节数」直接塞进 md5，MemTotal 在两次启动间浮动 8192 字节
+    # 就会算出两个 device_id —— App 里同一台设备出两张卡片、旧主题的 retained online 变幽灵。
+    import logging
+    import os
+    import tempfile
+
+    mem_a, mem_b = 33564422144, 33564413952     # 实测同一台机器的两次 MemTotal（差 8192 字节）
+    check("MemTotal 浮动几 KiB 不影响 device_id",
+          m.generate_device_id("90:de:80:18:7e:31", 8, mem_a),
+          m.generate_device_id("90:de:80:18:7e:31", 8, mem_b))
+    check("换网卡得到不同 device_id",
+          m.generate_device_id("90:de:80:18:7e:31", 8, mem_a)
+          != m.generate_device_id("aa:bb:cc:dd:ee:ff", 8, mem_a), True)
+    check("核数变化得到不同 device_id",
+          m.generate_device_id("90:de:80:18:7e:31", 8, mem_a)
+          != m.generate_device_id("90:de:80:18:7e:31", 4, mem_a), True)
+
+    tmpdir = tempfile.mkdtemp(prefix="walle-devid-")
+    saved_file, saved_level = m.DEVICE_ID_FILE, logging.root.manager.disable
+    m.DEVICE_ID_FILE = os.path.join(tmpdir, "device-id")
+    logging.disable(logging.WARNING)            # 换 MAC 的告警是预期行为，别刷屏
+    try:
+        first, _ = m.resolve_device_id("90:de:80:18:7e:31", 8, mem_a)
+        again, src = m.resolve_device_id("90:de:80:18:7e:31", 8, mem_b)
+        check("再次启动复用落盘标识", again, first)
+        check("来源标注为复用", src.startswith("复用"), True)
+
+        moved, _ = m.resolve_device_id("aa:bb:cc:dd:ee:ff", 8, mem_a)
+        check("MAC 变化时重新生成", moved != first, True)
+        state = json.loads(Path(m.DEVICE_ID_FILE).read_text(encoding="utf-8"))
+        check("旧标识记入 previous", first in (state.get("previous") or []), True)
+
+        # --check 只读：给一个全新路径，persist=False 不允许创建文件
+        check_path = os.path.join(tmpdir, "check-only")
+        m.DEVICE_ID_FILE = check_path
+        m.resolve_device_id("90:de:80:18:7e:31", 8, mem_a, persist=False)
+        check("--check（persist=False）不写文件", os.path.exists(check_path), False)
+    finally:
+        m.DEVICE_ID_FILE = saved_file
+        logging.disable(saved_level)
 
     print()
     if failures:

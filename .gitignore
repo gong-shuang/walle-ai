@@ -40,5 +40,8 @@ __pycache__/
 linux/.venv/
 linux/log/
 linux/*.log
+# 设备端落盘的 device_id（运行时生成、跟具体机器绑定，不能进版本库）
+linux/.device-id
+linux/.device-id.tmp
 #本地调试，忽略此文件
 linux/walle-ai.env

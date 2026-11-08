@@ -41,6 +41,18 @@ public class DeviceInfoTest {
     }
 
     @Test
+    public void parsesTimestampForStalenessChecks() {
+        // 陈旧 retained 报文的判定依赖报文里的 timestamp，缺省必须是 0（表示未知）
+        try {
+            assertEquals(1794099244L,
+                    DeviceInfo.from(new org.json.JSONObject("{\"timestamp\":1794099244}")).timestamp);
+            assertEquals(0L, DeviceInfo.from(new org.json.JSONObject("{}")).timestamp);
+        } catch (org.json.JSONException e) {
+            throw new IllegalArgumentException(e);
+        }
+    }
+
+    @Test
     public void keyAndDisplayName() {
         DeviceInfo d = new DeviceInfo();
         d.uuid = "uuid-1";

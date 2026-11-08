@@ -11,7 +11,8 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 
 协议：多租户主题 v1
     所有主题都在 walle/{tenant}/{device}/v1/ 下展开，租户 = MQTT 用户名（清洗后），
-    device 用稳定的 device_id（MAC + CPU 核心数 + 内存容量 的 md5 前 16 位）。
+    device 用稳定的 device_id：首次启动按「MAC + CPU 核心数 + 内存 GiB」算 md5 前 16 位，
+    之后落盘复用（resolve_device_id），不会因为 MemTotal 的 KiB 级浮动而漂移。
 
     请求（App -> 设备）                          应答（设备 -> App）                      说明
     ------------------------------------------------------------------------------------------------
@@ -186,11 +187,19 @@ REQ_PHONE_AUDIO_STOP = "phone/audio/stop"     # 手机麦上行：App 停止推�
 
 # ---- 设备标识 ----
 HOSTNAME = socket.gethostname()
-# device_id：设备唯一标识，由「MAC + CPU 核心数 + 内存总容量」md5 取 16 位生成，
-#             只要不换网卡/CPU/内存就永远不变（重装系统、换 IP、重启都不影响），见 generate_device_id()
+# device_id：设备唯一标识。首次启动按「MAC + CPU 核心数 + 内存 GiB」md5 取 16 位生成，
+#             随后落盘复用（resolve_device_id），因此重启 / 重装 / 换 IP 都不会变。
+#             **不能每次启动重算**：MemTotal 在两次启动间会浮动几 KiB（内核保留页、启动参数），
+#             直接进哈希会让同一台设备换一个 identity —— 新主题、旧主题上的 retained
+#             online 变成幽灵卡片（实测同一台机器两次启动 device_id 不同）。
 # uuid：程序实例标识，由「MAC + IP + 启动时间」生成，本次运行期间不变，下次运行会变
-DEVICE_ID = ""      # 在 RpiMonitor.__init__ 中计算
+DEVICE_ID = ""      # 在 RpiMonitor.__init__ 中解析（落盘优先）
 DEVICE_UUID = ""    # 在 RpiMonitor.__init__ 中计算
+DEVICE_ID_SOURCE = ""   # device_id 的来源说明（日志 / --check 用）
+
+# 标识落盘位置：默认与 main.py 同级的 .device-id（升级只覆盖 main.py，不会丢），
+# 可用环境变量 DEVICE_ID_FILE 覆盖；写不进去时回退 ~/.config/walle-ai/device-id。
+DEVICE_ID_FILE = os.environ.get("DEVICE_ID_FILE", "").strip()
 
 # ---- 多租户主题（命名规则与 Android 端 TopicNames 完全一致）----
 # 主题形如 walle/{tenant}/{device}/v1/{resource}：
@@ -567,14 +576,114 @@ def get_cpu_core_count():
         return 0
 
 
+def _norm_mac(mac):
+    """MAC 归一化（小写、去空格），用于比对"还是不是同一块网卡"。"""
+    return (mac or "").strip().lower()
+
+
+def _default_device_id_file():
+    """标识文件路径：DEVICE_ID_FILE > 安装目录/.device-id > ~/.config/walle-ai/device-id。"""
+    if DEVICE_ID_FILE:
+        return DEVICE_ID_FILE
+    beside_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".device-id")
+    # 安装目录可写就用它（最直观）；否则退到用户配置目录
+    parent = os.path.dirname(beside_script)
+    if os.access(parent, os.W_OK):
+        return beside_script
+    return os.path.join(os.path.expanduser("~"), ".config", "walle-ai", "device-id")
+
+
+def _read_device_state(path):
+    """读取标识文件；不存在/损坏都返回 {}（损坏时打警告，随后会被重建）。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            state = json.load(f)
+        return state if isinstance(state, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        logging.warning("设备标识文件不可用（%s）：%s；将重新生成", path, exc)
+        return {}
+
+
+def _write_device_state(path, state):
+    """原子写入标识文件；失败只打警告，不影响本次运行。"""
+    try:
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        os.replace(tmp, path)
+        return True
+    except OSError as exc:
+        logging.warning("设备标识写入失败（%s）：%s；本次仅在内存中生效，重启后可能变化", path, exc)
+        return False
+
+
 def generate_device_id(mac, cpu_cores, mem_total_bytes):
     """
-    生成设备唯一标识 device_id：MAC + CPU 核心数 + 内存总容量 → md5 → 取前 16 位十六进制。
-    这三个量都是硬件属性，所以只要不更换网卡/CPU/内存，device_id 永远不变；
-    换 IP、改主机名、重装系统、重启进程都不会改变它。
+    按硬件指纹生成设备唯一标识：MAC + CPU 核心数 + 内存 GiB → md5 → 前 16 位十六进制。
+
+    注意内存**必须按 GiB 取整**：MemTotal 在两次启动之间会浮动几 KiB（内核保留页、
+    启动参数、内存训练），直接进哈希会让同一台硬件算出不同的 device_id。
     """
-    raw = f"{mac}|{cpu_cores}|{mem_total_bytes}"
+    mem_gib = int(round(mem_total_bytes / (1024 ** 3))) if mem_total_bytes else 0
+    raw = f"{mac}|{cpu_cores}|{mem_gib}"
     return hashlib.md5(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def resolve_device_id(mac, cpu_cores, mem_total, persist=True):
+    """得到本机 device_id：**落盘优先**，没有（或换了机器）才按硬件指纹生成。
+
+    为什么要落盘：device_id 同时是 MQTT client_id、主题段和 ACL 的 ${clientid}，
+    一旦变化就是"换了个新设备"——新主题无人订阅、旧主题上的 retained online 变成
+    幽灵卡片。而硬件指纹本身并不完全稳定，所以只把它当作**首次生成**的种子。
+
+    复用条件：文件里有 device_id，且当前 MAC 在文件记录的 MAC 集合里（支持多网卡
+    切换顺序）。MAC 从没见过 → 认为换了硬件（或克隆镜像到新机器）→ 重新生成。
+
+    @param persist False 时只读不写（--check 用，避免带副作用）
+    @return (device_id, 来源说明)
+    """
+    path = _default_device_id_file()
+    state = _read_device_state(path)
+    stored = str(state.get("device_id") or "").strip()
+    macs = {_norm_mac(m) for m in (state.get("macs") or []) if str(m).strip()}
+    cur = _norm_mac(mac)
+
+    if stored and (not cur or cur in macs):
+        source = f"复用 {path}"
+        if cur and cur not in macs:            # 同一台机器新增了网卡
+            macs.add(cur)
+            if persist:
+                _write_device_state(path, {**state, "macs": sorted(macs)})
+        return stored, source
+
+    if stored:
+        logging.warning("MAC 与已保存的标识不匹配（当前 %s，历史 %s），按新设备重新生成",
+                        cur or "-", ", ".join(sorted(macs)) or "-")
+
+    new_id = generate_device_id(mac, cpu_cores, mem_total)
+    if not persist:
+        return new_id, "按硬件指纹计算（--check 不写入文件）"
+
+    history = [str(x) for x in (state.get("previous") or []) if str(x).strip()]
+    if stored and stored != new_id:
+        history = (history + [stored])[-10:]
+        logging.warning("device_id 由 %s 变为 %s：旧主题上的 retained online 需要清理"
+                        "（App 侧会按 MAC 归并成同一台设备）", stored, new_id)
+    ok = _write_device_state(path, {
+        "device_id": new_id,
+        "macs": sorted(macs | ({cur} if cur else set())),
+        "previous": history,
+        "fingerprint": {"mac": mac, "cpu_cores": cpu_cores, "mem_bytes": mem_total,
+                        "mem_gib": int(round((mem_total or 0) / (1024 ** 3)))},
+        "created_at": now_str(),
+    })
+    return new_id, (f"新生成并写入 {path}" if ok else "新生成（未能落盘）")
 
 
 def generate_device_uuid(mac, ip, ts=None):
@@ -1262,13 +1371,14 @@ class RpiMonitor:
         self.usb_state = scan_usb_devices()
         self.lan_ip = get_lan_ip()
         self.mac = pick_primary_mac(self.lan_ip)
-        # device_id：设备唯一标识（MAC + CPU 核心数 + 内存容量），跨重启/跨系统不变
+        # device_id：落盘优先，首次才按硬件指纹（MAC + CPU 核数 + 内存 GiB）生成。
+        # 每次重算会因为 MemTotal 浮动而漂移，导致同一台设备换主题、App 出两张卡片。
         self.cpu_cores = get_cpu_core_count()
         self.mem_total = psutil.virtual_memory().total
-        global DEVICE_ID, DEVICE_UUID
-        DEVICE_ID = generate_device_id(self.mac, self.cpu_cores, self.mem_total)
-        logging.info("设备 device_id: %s（MAC=%s, CPU核心数=%s, 内存总容量=%s字节）",
-                     DEVICE_ID, self.mac, self.cpu_cores, self.mem_total)
+        global DEVICE_ID, DEVICE_UUID, DEVICE_ID_SOURCE
+        DEVICE_ID, DEVICE_ID_SOURCE = resolve_device_id(self.mac, self.cpu_cores, self.mem_total)
+        logging.info("设备 device_id: %s（来源：%s；MAC=%s, CPU核心数=%s, 内存总容量=%s字节）",
+                     DEVICE_ID, DEVICE_ID_SOURCE, self.mac, self.cpu_cores, self.mem_total)
         # uuid：程序实例标识（MAC + IP + 启动时间），本次运行不变、下次运行变化
         DEVICE_UUID = generate_device_uuid(self.mac, self.lan_ip)
         logging.info("设备 UUID: %s（MAC=%s, IP=%s, 启动时间=%s）",
@@ -2597,12 +2707,15 @@ class RpiMonitor:
 
 def print_config_check():
     """--check：打印解析后的配置与主题，不连 broker、不做采集。"""
-    global DEVICE_ID
+    global DEVICE_ID, DEVICE_ID_SOURCE
     try:
         mac = pick_primary_mac(get_lan_ip())
-        DEVICE_ID = generate_device_id(mac, get_cpu_core_count(), psutil.virtual_memory().total)
+        # persist=False：只看会用什么标识，不创建/修改文件
+        DEVICE_ID, DEVICE_ID_SOURCE = resolve_device_id(
+            mac, get_cpu_core_count(), psutil.virtual_memory().total, persist=False)
     except Exception as exc:                      # 取不到网卡/内存信息时不影响看配置
         DEVICE_ID = f"<无法计算: {exc}>"
+        DEVICE_ID_SOURCE = "计算失败"
     tls_on = MQTT_TLS == "on" or (MQTT_TLS == "auto" and MQTT_PORT in (8883, 8084))
     print("== 生效配置 ==")
     print(f"  环境文件 : {ENV_SOURCE or '未加载（使用环境变量/默认值）'}")
@@ -2612,6 +2725,8 @@ def print_config_check():
     print(f"  Oryx secret: {'已配置' if WHIP_SECRET else '未配置（视频推流会被服务端拒绝）'}")
     print(f"  租户     : {sanitize_segment(MQTT_TENANT)}")
     print(f"  设备号   : {DEVICE_ID}")
+    if DEVICE_ID_SOURCE:
+        print(f"  标识来源 : {DEVICE_ID_SOURCE}")
     if DEVICE_ID.startswith("<"):
         print("  订阅主题 : （设备号计算失败，跳过拼接；在树莓派上运行可正常计算）")
     else:

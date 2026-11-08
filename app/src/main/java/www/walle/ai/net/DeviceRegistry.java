@@ -98,27 +98,37 @@ public class DeviceRegistry {
         String uuid = j.optString("uuid", "");
         String did = j.optString("device_id", "");
         String hostname = j.optString("hostname", "");
+        String mac = j.optString("mac", "");
 
         // online 报文自带完整身份信息（字段同 discovery/result），直接整体解析
         DeviceInfo fresh = DeviceInfo.from(j);
         fresh.online = online;
 
-        DeviceInfo target;
-        DeviceInfo added = null;
-        // 定位已有条目优先用 device_id：它是跨重启稳定的唯一标识，而 uuid 每次重启都会变。
-        // 若先按 uuid 查找，重新上线的设备（uuid 已变）会漏匹配旧条目，被当成新设备重复加入。
+        // 定位已有条目，顺序：device_id → uuid → MAC → hostname。
+        // device_id 跨重启稳定，所以先按它找；只看 uuid 会漏掉「重启后换了 uuid」的同一台设备。
+        // 但 device_id 本身也可能漂移（内存总量浮动几 KiB、换网卡都会改变 md5），
+        // 这时同一台机器会再冒出一张卡片、旧主题的 retained 报文变成幽灵——用 MAC 兜住。
         String key = findByDeviceIdLocked(did);
-        if (key == null || key.isEmpty()) key = !uuid.isEmpty() ? uuid : "";
-        if (key == null || key.isEmpty()) key = findByHostnameLocked(hostname);
-        target = key == null || key.isEmpty() ? null : devices.get(key);
+        if (key.isEmpty()) key = findByUuidLocked(uuid);
+        boolean matchedByMac = false;
+        if (key.isEmpty()) {
+            key = findByMacLocked(mac);
+            matchedByMac = !key.isEmpty();
+        }
+        if (key.isEmpty()) key = findByHostnameLocked(hostname);
 
+        DeviceInfo target = key.isEmpty() ? null : devices.get(key);
+        DeviceInfo added = null;
         if (target == null) {
             // 首次看到的设备直接入列：在线/离线都保留（离线显示灰点/红点）。
-            if ( !fresh.key().isEmpty()) {
-                devices.put(fresh.key(), fresh);
-                added = fresh;
-            }
+            if (fresh.key().isEmpty()) return null;
+            devices.put(fresh.key(), fresh);
+            added = fresh;
         } else {
+            // 陈旧报文：旧 device_id 留在 broker 上的 retained online:false 比已知信息还旧。
+            // 整条丢弃，否则会把正在在线的设备刷成离线，并把身份字段回退到上一次开机。
+            if (matchedByMac && !online && isStaleOffline(fresh, target)) return null;
+
             mergeDeviceInfo(target, fresh);
             target.online = online;
             String newKey = fresh.key();
@@ -146,21 +156,20 @@ public class DeviceRegistry {
         String key = d.key();
         if (key.isEmpty()) return null;
 
-        if (!d.deviceId.isEmpty()) {
-            List<String> stale = new ArrayList<>();
-            for (Map.Entry<String, DeviceInfo> e : devices.entrySet()) {
-                DeviceInfo old = e.getValue();
-                if (!e.getKey().equals(key)
-                        && !old.deviceId.isEmpty()
-                        && old.deviceId.equals(d.deviceId)) {
-                    stale.add(e.getKey());
-                }
-            }
-            for (String s : stale) {
-                devices.remove(s);
-                statusByKey.remove(s);
-                if (s.equals(selectedKey)) selectedKey = "";
-            }
+        // 同一台设备的旧条目：device_id 相同（正常的重启换 uuid），或 MAC 相同
+        // （device_id 漂移——内存总量浮动/换网卡——时旧的卡片靠这里清掉，不留幽灵）
+        List<String> stale = new ArrayList<>();
+        for (Map.Entry<String, DeviceInfo> e : devices.entrySet()) {
+            if (e.getKey().equals(key)) continue;
+            DeviceInfo old = e.getValue();
+            boolean sameDeviceId = !d.deviceId.isEmpty() && d.deviceId.equals(old.deviceId);
+            boolean sameMac = !d.mac.isEmpty() && d.mac.equalsIgnoreCase(old.mac);
+            if (sameDeviceId || sameMac) stale.add(e.getKey());
+        }
+        for (String s : stale) {
+            devices.remove(s);
+            statusByKey.remove(s);
+            if (s.equals(selectedKey)) selectedKey = "";
         }
         d.online = true;
         d.lastSeenMs = System.currentTimeMillis();
@@ -205,6 +214,7 @@ public class DeviceRegistry {
         if (!src.uptimeHuman.isEmpty()) dst.uptimeHuman = src.uptimeHuman;
         if (!src.bootTime.isEmpty()) dst.bootTime = src.bootTime;
         if (!src.datetime.isEmpty()) dst.datetime = src.datetime;
+        if (src.timestamp > 0) dst.timestamp = src.timestamp;
         dst.detailLoaded |= src.detailLoaded;
         dst.lastSeenMs = src.lastSeenMs;
     }
@@ -215,6 +225,37 @@ public class DeviceRegistry {
             if (deviceId.equals(e.getValue().deviceId)) return e.getKey();
         }
         return "";
+    }
+
+    /** 按列表键（通常是 uuid）精确查找。 */
+    private String findByUuidLocked(String uuid) {
+        if (uuid == null || uuid.isEmpty() || !devices.containsKey(uuid)) return "";
+        return uuid;
+    }
+
+    /**
+     * 按 MAC 查同一台设备的已有条目。
+     * <p>这是 device_id 漂移时的最后一道归并：同一块网卡 = 同一台机器。
+     * MAC 是 device_id 的输入之一，所以两者一致时这条规则不会改变既有行为。</p>
+     */
+    private String findByMacLocked(String mac) {
+        if (mac == null || mac.isEmpty()) return "";
+        for (Map.Entry<String, DeviceInfo> e : devices.entrySet()) {
+            String m = e.getValue().mac;
+            if (m != null && !m.isEmpty() && mac.equalsIgnoreCase(m)) return e.getKey();
+        }
+        return "";
+    }
+
+    /**
+     * 这条报文是否是「同一台设备上一轮开机」留下的陈旧 offline。
+     * <p>只有按 MAC 归并（说明 device_id 已经变了）、报文是下线、且时间戳比已知信息更旧时才成立；
+     * 同一 device_id 的 offline（本次开机的遗嘱）永远是有效的。</p>
+     */
+    private static boolean isStaleOffline(DeviceInfo fresh, DeviceInfo known) {
+        if (known == null || fresh == null) return false;
+        if (fresh.deviceId.equals(known.deviceId)) return false;
+        return fresh.timestamp > 0 && known.timestamp > 0 && fresh.timestamp < known.timestamp;
     }
 
     /** 按主机名兜底匹配已有设备（仅用于 online 无 uuid/device_id 可用时的归并）。 */
