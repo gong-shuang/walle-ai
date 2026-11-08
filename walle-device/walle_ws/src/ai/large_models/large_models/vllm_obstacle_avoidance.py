@@ -124,6 +124,9 @@ class VLLMTrack(Node):
         self.current_action = None
         self.action_start_time = None  # 记录动作开始时间
         self.is_moving_forward = False # 用于标记是否正在前进
+        self._forward_twist = Twist()
+        self._forward_twist.linear.x = 0.4
+        self._last_cmd_pub = 0.0  # 上次重发 cmd_vel 的时间（看门狗保活）
         self.all_actions_completed = False  # 标记所有动作是否完成
         self.initial_forward_executed = False # 初始前进是否执行过
         self.tts_speaking = False # Flag to indicate if TTS is currently speaking
@@ -231,6 +234,7 @@ class VLLMTrack(Node):
 
     def process(self):
         while self.running:
+            self.keepalive_cmd_vel()
             # 只有有action指令时才会执行
             if self.vllm_result and self.actions:
                 current_distance = self.distances[self.action_index] if self.action_index < len(self.distances) else None
@@ -292,19 +296,31 @@ class VLLMTrack(Node):
             self.send_request(self.awake_client, msg)
 
     def execute_action_for_one_second(self, action_str):
-        """执行指定动作 2 秒钟."""
-        self.execute_action(action_str)
-        self.get_logger().info(f"开始执行动作 {action_str} 2 秒钟.")
-        time.sleep(0.6)
+        """执行指定动作约 0.6 秒（10Hz 重发，避免底盘看门狗误触发）."""
+        twist = self.execute_action(action_str)
+        self.get_logger().info(f"开始执行动作 {action_str} 0.6 秒钟.")
+        end = time.monotonic() + 0.6
+        while time.monotonic() < end:
+            if twist is not None:
+                self.mecanum_pub.publish(twist)
+            time.sleep(0.1)
         self.stop_motion()
 
 
 
+    def keepalive_cmd_vel(self):
+        """前进期间以 10Hz 重发速度，配合底盘 cmd_vel 看门狗。"""
+        if not self.is_moving_forward:
+            return
+        now = time.monotonic()
+        if now - self._last_cmd_pub >= 0.1:
+            self.mecanum_pub.publish(self._forward_twist)
+            self._last_cmd_pub = now
+
     def start_moving_forward(self):
         """开始前进."""
-        twist = Twist()
-        twist.linear.x = 0.4  # 设置前进速度
-        self.mecanum_pub.publish(twist)
+        self.mecanum_pub.publish(self._forward_twist)
+        self._last_cmd_pub = time.monotonic()
         self.is_moving_forward = True
         self.get_logger().info("开始前进")
 
@@ -349,11 +365,12 @@ class VLLMTrack(Node):
             self.get_logger().info('蜂鸣')
         else:
             self.get_logger().warn(f"未知动作: {action_str}")
-            return
+            return None
 
         self.mecanum_pub.publish(twist)
         self.get_logger().info(f"正在执行动作: {action_str}")
         self.current_action = action_str
+        return twist
 
 
     def distance_callback(self, msg):

@@ -59,6 +59,8 @@ class SpeechControlNode(Node):
 
         self.create_timer(poll_period, self.poll_callback)
         self.create_timer(1.0, self.watchdog_callback)
+        # 运动期间以 10Hz 重发当前指令，配合底盘 cmd_vel 看门狗（P0-3.1）
+        self.create_timer(0.1, self.stream_cmd_vel)
         self.publish_twist()  # 启动时先发一次停止，保证底盘处于安全状态
 
         self.get_logger().info('speech recognition node started, voice module address 0x%02X' % speech_address)
@@ -116,6 +118,11 @@ class SpeechControlNode(Node):
         elif self.command == 'right':
             twist.angular.z = -self.angular_speed
         self.cmd_pub.publish(twist)
+
+    def stream_cmd_vel(self):
+        """运动期间以 10Hz 重发当前指令，避免底盘看门狗误触发。"""
+        if self.command != 'stop':
+            self.publish_twist()
 
     def watchdog_callback(self):
         if self.command != 'stop' and self.command_timeout > 0 and \

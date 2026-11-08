@@ -1,4 +1,6 @@
 import math
+import time
+
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
@@ -18,6 +20,13 @@ class MecanumChassis(Node):
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
 
         self.publisher = self.create_publisher(MotorsSpeedControl, '/ros_robot_controller/set_motor_speeds', 10)
+
+        # cmd_vel 看门狗：超过该时长未收到新指令就主动停车（默认 1.5s，可通过参数覆盖）
+        self.declare_parameter('cmd_vel_timeout', 1.5)
+        self.cmd_vel_timeout = max(0.1, float(self.get_parameter('cmd_vel_timeout').value))
+        self._last_cmd_time = None
+        self._moving = False
+        self.create_timer(0.1, self.watchdog_callback)
 
     def speed_convert(self, speed, max_speed):
         """
@@ -60,11 +69,25 @@ class MecanumChassis(Node):
         linear_y = msg.linear.y  # 线性速度（左右）
         angular_z = msg.angular.z  # 角速度（绕z轴）
 
+        self._last_cmd_time = time.monotonic()
+        self._moving = any(abs(v) > 1e-6 for v in (linear_x, linear_y, angular_z))
+
         # 计算四个电机的速度
         motor_msg = self.set_velocity(linear_x, linear_y, angular_z)
 
         # 发布电机速度
         self.publisher.publish(motor_msg)
+
+    def watchdog_callback(self):
+        """cmd_vel 看门狗：链路中断后主动发布零速度，避免底盘持续运动。"""
+        if not self._moving or self._last_cmd_time is None:
+            return
+        if time.monotonic() - self._last_cmd_time <= self.cmd_vel_timeout:
+            return
+        self._moving = False
+        self.get_logger().warn(
+            'cmd_vel 已 %.1fs 未更新，触发看门狗停车' % self.cmd_vel_timeout)
+        self.publisher.publish(self.set_velocity(0.0, 0.0, 0.0))
 
     def set_velocity(self, linear_x, linear_y, angular_z):
         """

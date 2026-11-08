@@ -203,34 +203,24 @@ class LLMControlMove(Node):
                     if a == "forward":
                         twist = Twist()
                         twist.linear.x = 0.3
-                        self.mecanum_pub.publish(twist)
-                        time.sleep(1)  
-                        self.mecanum_pub.publish(Twist())                      
+                        self.drive_for(twist, 1.0)
                     elif a == "back":
                         twist = Twist()
                         twist.linear.x = -0.5
-                        self.mecanum_pub.publish(twist)
-                        time.sleep(1)  
-                        self.mecanum_pub.publish(Twist()) 
+                        self.drive_for(twist, 1.0)
                     elif a == "turn_left":
                         twist = Twist()
                         twist.angular.z = 3.0
-                        self.mecanum_pub.publish(twist)
-                        time.sleep(3.15)  
-                        self.mecanum_pub.publish(Twist()) 
+                        self.drive_for(twist, 3.15)
                     elif a == "turn_right":
                         twist = Twist()
                         twist.angular.z = -3.0
-                        self.mecanum_pub.publish(twist)
-                        time.sleep(3.15)  
-                        self.mecanum_pub.publish(Twist()) 
+                        self.drive_for(twist, 3.15)
                     elif a == "drift":
                         twist = Twist()
                         twist.linear.x = 0.4
                         twist.angular.z = 5.0
-                        self.mecanum_pub.publish(twist)
-                        time.sleep(3)  
-                        self.mecanum_pub.publish(Twist()) 
+                        self.drive_for(twist, 3.0)
                     elif a == "nod":
                         self.pwm_controller([1, 1800])
                         time.sleep(0.3)
@@ -268,6 +258,14 @@ class LLMControlMove(Node):
                 self.play_audio_finish = False
                 self.action_finish = False
         rclpy.shutdown()
+
+    def drive_for(self, twist, duration):
+        """以 10Hz 持续发布速度指令，避免底盘 cmd_vel 看门狗误触发。"""
+        end = time.monotonic() + duration
+        while time.monotonic() < end and not self.interrupt:
+            self.mecanum_pub.publish(twist)
+            time.sleep(0.1)
+        self.mecanum_pub.publish(Twist())
 
     def pwm_controller(self, *position_data):
         pwm_list = []
