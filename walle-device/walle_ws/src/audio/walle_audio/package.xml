@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>walle_audio</name>
+  <version>0.0.0</version>
+  <description>IIC voice module control node for Walle.</description>
+  <maintainer email="gs@example.com">gs</maintainer>
+  <license>Proprietary</license>
+
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>large_models_msgs</depend>
+  <depend>sdk</depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
