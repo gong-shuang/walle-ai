@@ -1,6 +1,6 @@
 */build/
 */log/
 */install/
-__pycache__/
+*/__pycache__/
 *.pyc
 .venv/

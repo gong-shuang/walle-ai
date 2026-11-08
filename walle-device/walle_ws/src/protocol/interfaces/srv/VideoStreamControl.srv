@@ -1,0 +1,26 @@
+# 推流控制请求（net_mqtt_bridge -> video_webrtc_bridge）
+bool start                 # true=开始/切换推流，false=停止推流
+string video_device        # 请求的摄像头节点，如 /dev/video0
+string room_number         # 推流房间号（start 必填；stop 可空）
+
+---
+# 应答
+int32 result               # 0 成功 / -1 没有此摄像头设备或当前无流 / -2 命令执行失败
+string cause               # ok / 没有此摄像头设备 / 当前没有设备在推流 / 命令执行失败
+string action              # started / restarted / already_streaming / failed / stopped
+bool stopped               # stop：是否真的停了一路流
+string video_device
+string room_number
+int32 pid
+string rtmp_url            # 已脱敏，可直接回给 App
+string command             # 已脱敏的 ffmpeg 命令行
+string started_at
+float64 started_ts
+string error
+string previous_room_number
+string previous_video_device
+bool audio_available
+string audio_device
+string audio_codec
+string audio_bitrate
+string audio_reason

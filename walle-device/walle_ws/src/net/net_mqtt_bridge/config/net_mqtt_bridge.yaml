@@ -1,0 +1,15 @@
+net_mqtt_bridge:
+  ros__parameters:
+    # 沿用 linux的walle-ai.env 的全部 MQTT/监控/推流配置（不覆盖已有环境变量）
+    env_file: /etc/walle-ai.env
+
+    # device_id 落盘位置。迁移旧设备时请指向原来的 .device-id，
+    # 否则会生成新 device_id，App 里会多出一台设备。
+    # 留空 = ~/.config/walle-ai/device-id
+    device_id_file: ""
+
+    video_service: /video_webrtc_bridge/stream_control
+    video_status_topic: /video_webrtc_bridge/status
+    # 启动流程包含首帧等待 + 启动宽限 + 音频探测，留足余量
+    video_call_timeout: 15.0
+    video_startup_grace: 3.0

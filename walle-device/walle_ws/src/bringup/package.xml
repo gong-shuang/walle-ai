@@ -8,6 +8,8 @@
   <license>TODO: License declaration</license>
 
   <depend>rclpy</depend>
+  <exec_depend>net_mqtt_bridge</exec_depend>
+  <exec_depend>video_webrtc_bridge</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

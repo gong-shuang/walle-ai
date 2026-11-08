@@ -32,6 +32,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
     "msg/Points.msg"
     "msg/Pose2D.msg"
     "msg/ROI.msg"
+    "msg/VideoStreamStatus.msg"
     "srv/GetPose.srv"
     "srv/SetCircleROI.srv"
     "srv/SetColorDetectParam.srv"
@@ -45,6 +46,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
     "srv/SetPose.srv"
     "srv/SetStringList.srv"
     "srv/SetString.srv"
+    "srv/VideoStreamControl.srv"
     DEPENDENCIES std_msgs std_srvs geometry_msgs builtin_interfaces
  )
 

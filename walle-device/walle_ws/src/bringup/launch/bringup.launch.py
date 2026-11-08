@@ -18,6 +18,8 @@ def launch_setup(context):
     walle_audio_package_path = get_package_share_directory('walle_audio')
     walle_net_package_path = get_package_share_directory('walle_net')
     walle_video_package_path = get_package_share_directory('walle_video')
+    net_mqtt_bridge_package_path = get_package_share_directory('net_mqtt_bridge')
+    video_webrtc_bridge_package_path = get_package_share_directory('video_webrtc_bridge')
 
     sonar_enabled = LaunchConfiguration('sonar', default='true')
 
@@ -39,10 +41,24 @@ def launch_setup(context):
             os.path.join(walle_video_package_path, 'launch/web_video_server.launch.py')),
     )
 
+    # 启动 MQTT -> ROS2 桥（唯一 MQTT 客户端）
+    net_mqtt_bridge_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(net_mqtt_bridge_package_path,
+                         'launch/net_mqtt_bridge.launch.py')),
+    )
+
     # 启动摄像头相关节点
     usb_cam_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(walle_video_package_path, 'launch/usb_cam.launch.py')),
+    )
+
+    # 启动 /image_raw -> RTMP/WebRTC 推流桥
+    video_webrtc_bridge_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(video_webrtc_bridge_package_path,
+                         'launch/video_webrtc_bridge.launch.py')),
     )
 
     # 启动声呐节点（默认启用，可通过 sonar:=false 关闭）
@@ -79,7 +95,9 @@ def launch_setup(context):
         net_launch,
         web_video_server_launch,
         controller_launch,
+        net_mqtt_bridge_launch,
         usb_cam_launch,
+        video_webrtc_bridge_launch,
         sonar_controller_launch,
         large_models_launch,
         speech_recognition_launch,

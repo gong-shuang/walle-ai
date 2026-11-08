@@ -3,8 +3,8 @@
 import os
 import dashscope
 
-# 真实密钥统一放在 /etc/walle/walle-ai.env，格式：KEY=value
-ENV_FILE = '/etc/walle/walle-ai.env'
+# 真实密钥统一放在 /etc/walle-ai.env，格式：KEY=value
+ENV_FILE = '/etc/walle-ai.env'
 
 
 def _load_env_file(path):
@@ -59,7 +59,7 @@ if os.environ["ASR_LANGUAGE"] == 'Chinese':
     api_key = aliyun_api_key
     if not api_key:
         raise RuntimeError(
-            '未配置 ALIYUN_API_KEY，请在 /etc/walle/walle-ai.env 中写入 ALIYUN_API_KEY=...')
+            '未配置 ALIYUN_API_KEY，请在 /etc/walle-ai.env 中写入 ALIYUN_API_KEY=...')
     dashscope.api_key = aliyun_api_key
     base_url = aliyun_base_url
     asr_model = aliyun_asr_model
