@@ -10,7 +10,8 @@ import signal
 import threading
 import yaml 
 import os
-from rclpy.executors import ExternalShutdownException
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 from sensor_msgs.msg import Imu, Joy
@@ -33,6 +34,8 @@ class RosRobotController(Node):
         self._stop_lock = threading.Lock()
         self._controller_timeout = 1.0
         self._controller_ok = True
+        # 串口写操作放在可重入回调组：串口卡顿时不阻塞状态查询等回调
+        self._io_group = ReentrantCallbackGroup()
 
         self.declare_parameter('imu_frame', 'imu_link')
         self.declare_parameter('init_finish', False)
@@ -44,19 +47,19 @@ class RosRobotController(Node):
         self.sbus_pub = self.create_publisher(Sbus, '~/sbus', 1)
         self.button_pub = self.create_publisher(ButtonState, '~/button', 1)
         self.battery_pub = self.create_publisher(UInt16, '~/battery', 1)
-        self.create_subscription(LedState, '~/set_led', self.set_led_state, 5)
-        self.create_subscription(BuzzerState, '~/set_buzzer', self.set_buzzer_state, 5)
-        self.create_subscription(OLEDState, '~/set_oled', self.set_oled_state, 5)
+        self.create_subscription(LedState, '~/set_led', self.set_led_state, 5, callback_group=self._io_group)
+        self.create_subscription(BuzzerState, '~/set_buzzer', self.set_buzzer_state, 5, callback_group=self._io_group)
+        self.create_subscription(OLEDState, '~/set_oled', self.set_oled_state, 5, callback_group=self._io_group)
         # 低层直控接口：仅供本机 mecanum 节点内部使用，不对外/rosbridge 暴露
         # （rosbridge 白名单见 walle_net/launch/net.launch.py 的 ROSBridge_ALLOWED_TOPICS）
-        self.create_subscription(MotorsSpeedControl, '~/internal/set_motor_speeds', self.set_motor_speeds_callback, 10)
-        self.create_subscription(Bool, '~/internal/enable_reception', self.enable_reception, 1)
-        self.create_subscription(SetBusServoState, '~/bus_servo/set_state', self.set_bus_servo_state, 10)
-        self.create_subscription(ServosPosition, '~/bus_servo/set_position', self.set_bus_servo_position, 10)
-        self.create_subscription(SetPWMServoState, '~/pwm_servo/set_state', self.set_pwm_servo_state, 10)
+        self.create_subscription(MotorsSpeedControl, '~/internal/set_motor_speeds', self.set_motor_speeds_callback, 10, callback_group=self._io_group)
+        self.create_subscription(Bool, '~/internal/enable_reception', self.enable_reception, 1, callback_group=self._io_group)
+        self.create_subscription(SetBusServoState, '~/bus_servo/set_state', self.set_bus_servo_state, 10, callback_group=self._io_group)
+        self.create_subscription(ServosPosition, '~/bus_servo/set_position', self.set_bus_servo_position, 10, callback_group=self._io_group)
+        self.create_subscription(SetPWMServoState, '~/pwm_servo/set_state', self.set_pwm_servo_state, 10, callback_group=self._io_group)
         self.create_service(GetBusServoState, '~/bus_servo/get_state', self.get_bus_servo_state)
         self.create_service(GetPWMServoState, '~/pwm_servo/get_state', self.get_pwm_servo_state)
-        self.create_subscription(RGBStates, '~/set_rgb', self.set_rgb_states, 10)
+        self.create_subscription(RGBStates, '~/set_rgb', self.set_rgb_states, 10, callback_group=self._io_group)
 
         # 加载并设置舵机偏移量从 YAML 文件
         self.load_servo_offsets()
@@ -411,7 +414,9 @@ def main():
     signal.signal(signal.SIGTERM, handle_signal)
 
     try:
-        rclpy.spin(node)
+        executor = MultiThreadedExecutor()
+        executor.add_node(node)
+        executor.spin()
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:

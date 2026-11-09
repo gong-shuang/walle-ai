@@ -11,9 +11,9 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
-| P1 上线前应修 | 19 | 7 | 12 |
+| P1 上线前应修 | 19 | 9 | 10 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **24** | **34** |
+| **合计** | **58** | **26** | **32** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -153,15 +153,13 @@
 
 ### P1-3 硬件断连恢复
 
-- [ ] 🔴 **P1-3.1 串口断连自动重连**
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_sdk.py` L99-L108 只 open 一次；`recv_task` L489-L490 无异常处理
-  - 动作：打开失败重试；读写异常关闭端口并周期性重连；重连后重新使能接收
-  - 验收：拔插控制器 USB 后自动恢复，无需重启节点
+- [x] ✅ **P1-3.1 串口断连自动重连**
+  - 处理：`Board` 增加 `_connect` / `_disconnect` 与 1s 周期重连；串口打开失败不再阻塞节点启动；读/写异常会关闭端口并自动重连；重连后清空解析状态、重新使能接收；写入失败返回 False 不抛异常
+  - 验收：拔插控制器 USB 后自动恢复，无需重启节点（需实车验证）
 
-- [ ] 🔴 **P1-3.2 串口 I/O 不阻塞 ROS executor**
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` 使用单线程 `rclpy.spin`，串口 timeout 10s
-  - 动作：串口写放到独立线程/队列；或使用 MultiThreadedExecutor + 回调组
-  - 验收：串口卡顿时 `/cmd_vel` 与状态查询仍能及时响应
+- [x] ✅ **P1-3.2 串口 I/O 不阻塞 ROS executor**
+  - 处理：串口读 `timeout=1s`、写 `write_timeout=0.5s`；舵机读取队列 `timeout=2s` 超时返回 None；节点改用 `MultiThreadedExecutor`，底盘/执行器写回调放入 `ReentrantCallbackGroup`，与状态查询回调互不阻塞
+  - 验收：串口卡顿时 `/cmd_vel` 与状态查询仍能及时响应（需实车验证）
 
 - [ ] 🔴 **P1-3.3 摄像头设备节点固定**
   - 证据：`walle_ws/src/video/video_webrtc_bridge/config/video_webrtc_bridge.yaml` L7、`walle_ws/src/video/walle_video/config/usb_cam_param.yaml` L3 固定 `/dev/video0`；本机存在多个 video 节点
@@ -413,6 +411,8 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P1-2.3 | 未提交 | 新增 `doc/requirements.txt`，直接依赖锁定版本；apt 依赖在 README 说明 | 待确认 |
 | 2026-11-09 | P1-2.2 | 未提交 | 职责拆分：deploy.sh 只做系统级安装；README 覆盖环境/依赖/build/udev；待按文档在全新系统复测 | 待确认 |
 | 2026-11-09 | P1-2.4 | 未提交 | `WALLE_VENV` 可覆盖 venv 路径，site-packages 按实际 Python 版本取；默认路径与不存在路径均已验证 | 待确认 |
+| 2026-11-09 | P1-3.1 | 未提交 | SDK 增加串口自动重连；编译通过；需实车拔插 USB 验证 | 待确认 |
+| 2026-11-09 | P1-3.2 | 未提交 | 串口读写超时收紧 + MultiThreadedExecutor/回调组；编译通过；需实车验证卡顿不阻塞 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -428,6 +428,9 @@ cd walle-device/scripts && ./start.sh
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
 - 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.conf`
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
+- 2026-11-09：P1-3.1/P1-3.2 `Board` 增加串口自动重连（1s 周期），读写异常关闭
+  端口并重连；串口读 1s/写 0.5s/舵机读取 2s 超时；节点改用 MultiThreadedExecutor
+  与 ReentrantCallbackGroup，避免串口卡顿阻塞 `/cmd_vel` 与状态查询（需实车验证）。
 - 2026-11-09：P1-2.4 `env_walle.sh` 新增 `WALLE_VENV`（默认 `$HOME/venv`），
   venv 路径与 site-packages 均动态获取；缺 venv 时明确报错。
 - 2026-11-09：P1-2.2 按职责拆分：`deploy.sh` 只做系统级安装（配置 + service），
