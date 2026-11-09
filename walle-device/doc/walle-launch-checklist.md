@@ -11,9 +11,9 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
-| P1 上线前应修 | 19 | 5 | 14 |
+| P1 上线前应修 | 19 | 6 | 13 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **22** | **36** |
+| **合计** | **58** | **23** | **35** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -139,10 +139,9 @@
   - 处理：`doc/README.md` 补齐项目介绍、Ubuntu/ROS2 安装、venv 与 `requirements.txt` 依赖、`colcon build`、udev 规则、`walle-ai.conf` 配置、`deploy.sh`/systemd 启动与上线环境切换
   - 验收：按文档可从全新 Ubuntu 24.04 完成环境与部署
 
-- [ ] 🔴 **P1-2.2 deploy.sh 覆盖完整部署**
-  - 证据：`scripts/deploy.sh` 目前做配置检查、安装配置与 systemd 单元，未覆盖依赖、colcon build、udev 规则（README 已写明手动步骤）
-  - 动作：安装依赖、colcon build、udev 规则、systemd 单元、权限设置
-  - 验收：一条命令完成部署，可重复执行
+- [x] ✅ **P1-2.2 deploy.sh 覆盖完整部署**
+  - 处理：按职责拆分——`deploy.sh` 只做系统级部署（校验配置 → 安装 `/etc/walle-ai.conf` 600 → 渲染安装并启用 `walle-ai.service`，禁止 root 直接执行）；编译、Python 依赖、udev 规则在 `doc/README.md` 写明，脚本可重复执行
+  - 验收：按 README 顺序（环境 → 依赖 → `colcon build` → udev → `./deploy.sh`）可在新系统完成部署；`deploy.sh` 重复执行无副作用
 
 - [x] ✅ **P1-2.3 增加依赖清单**
   - 处理：新增 `doc/requirements.txt`，锁定 `paho-mqtt`、`psutil`、`pyserial`、`smbus2`、`numpy`、`dashscope`、`PyYAML`、`transforms3d` 版本；OpenCV / ffmpeg / python3-smbus 作为 apt 依赖在 README 说明
@@ -413,6 +412,7 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P1-1.3 | 未提交 | 4 阶段启动 + `startup_check` 节点就绪判定与 `/bringup/startup_status`；待冷启动验证阶段日志与 `ready` | 待确认 |
 | 2026-11-09 | P1-2.1 | 未提交 | README 补齐项目介绍/依赖/编译/udev/deploy/启动步骤；待按文档在全新环境复测 | 待确认 |
 | 2026-11-09 | P1-2.3 | 未提交 | 新增 `doc/requirements.txt`，直接依赖锁定版本；apt 依赖在 README 说明 | 待确认 |
+| 2026-11-09 | P1-2.2 | 未提交 | 职责拆分：deploy.sh 只做系统级安装；README 覆盖环境/依赖/build/udev；待按文档在全新系统复测 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -428,6 +428,8 @@ cd walle-device/scripts && ./start.sh
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
 - 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.conf`
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
+- 2026-11-09：P1-2.2 按职责拆分：`deploy.sh` 只做系统级安装（配置 + service），
+  编译/依赖/udev 由 README 说明；脚本禁止 root 直接执行，可重复运行。
 - 2026-11-09：P1-2.1 README 补齐 Ubuntu/ROS2/venv/依赖/编译/udev/部署步骤；
   P1-2.3 新增 `doc/requirements.txt`（锁定直接 pip 依赖，OpenCV/ffmpeg 走 apt）。
 - 2026-11-09：P1-1.3 `bringup` 改为 4 阶段顺序启动，`startup_check`

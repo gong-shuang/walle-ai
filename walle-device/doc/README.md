@@ -177,7 +177,9 @@ cp walle-ai.conf.example walle-ai.conf
 vi walle-ai.conf  # 打开配置文件，并修改相关参数
 ```
 
-#### 执行一键部署脚本
+#### 执行部署脚本
+
+编译（`colcon build`）、Python 依赖与 udev 规则请先按上文完成；`deploy.sh` 只负责系统级安装，可重复执行：
 
 ```bash
 ./deploy.sh

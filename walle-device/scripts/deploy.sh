@@ -1,12 +1,18 @@
 #!/bin/bash
 # Walle 生产部署：检查配置 -> 安装 /etc/walle-ai.conf -> 安装并启用 systemd 服务
-# 用法：./deploy.sh
+# 仅做系统级安装；编译（colcon build）、Python 依赖与 udev 规则见 doc/README.md
+# 用法：./deploy.sh（用部署用户执行，脚本内部会调用 sudo）
 set -e
 
 cd "$(dirname "$0")"
 script_dir="$(pwd)"
 # walle-device 根目录（scripts 的上一级）
 walle_home="$(cd "$script_dir/.." && pwd)"
+
+if [[ "$(id -u)" -eq 0 ]]; then
+    echo "请用部署用户执行（脚本内部会调用 sudo）：./deploy.sh" >&2
+    exit 1
+fi
 
 conf_file="$script_dir/walle-ai.conf"
 
