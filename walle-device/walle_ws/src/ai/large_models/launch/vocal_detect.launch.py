@@ -32,7 +32,9 @@ def launch_setup(context, *args, **kwargs):
                      "enable_wakeup": enable_wakeup,
                      "mode": mode,
                      "mic_device": int(mic_device.perform(context)),
-                     "asr_channel": int(asr_channel.perform(context))}]
+                     "asr_channel": int(asr_channel.perform(context))}],
+        respawn=True,
+        respawn_delay=5.0,
     )
 
     return [

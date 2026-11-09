@@ -7,6 +7,8 @@ def generate_launch_description():
         package='walle_audio',
         executable='speech',
         output='screen',
+        respawn=True,
+        respawn_delay=5.0,
     )
 
     return LaunchDescription([

@@ -15,6 +15,8 @@ def generate_launch_description():
         name='usb_cam',
         parameters=[os.path.join(video_package_path, 'config', 'usb_cam_param.yaml')],
         remappings=[],
+        respawn=True,
+        respawn_delay=5.0,
     )
 
     return LaunchDescription([camera_node])

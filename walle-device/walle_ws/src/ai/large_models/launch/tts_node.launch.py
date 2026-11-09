@@ -7,6 +7,8 @@ def launch_setup(context):
         package='large_models',
         executable='tts_node',
         output='screen',
+        respawn=True,
+        respawn_delay=5.0,
     )
 
     return [

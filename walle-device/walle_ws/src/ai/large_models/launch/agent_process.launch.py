@@ -12,6 +12,8 @@ def launch_setup(context):
         executable='agent_process',
         output='screen',
         parameters=[{"camera_topic": camera_topic}],
+        respawn=True,
+        respawn_delay=5.0,
     )
 
     return [

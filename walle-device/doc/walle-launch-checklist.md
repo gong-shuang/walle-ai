@@ -11,9 +11,9 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
-| P1 上线前应修 | 19 | 0 | 19 |
+| P1 上线前应修 | 19 | 2 | 17 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **17** | **41** |
+| **合计** | **58** | **19** | **39** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -120,15 +120,14 @@
 
 ### P1-1 进程守护与启动可靠性
 
-- [ ] 🔴 **P1-1.1 为关键节点增加 respawn**
-  - 证据：`walle_ws/src/bringup/launch/bringup.launch.py`、`walle_ws/src/car_control/controller/launch/controller.launch.py`；仅 net/video 节点有 respawn
-  - 动作：底盘、usb_cam、声呐、语音、大模型节点加 `respawn=True` + `respawn_delay`
-  - 验收：任意节点被 `kill` 后自动恢复，无需人工重启
+- [x] ✅ **P1-1.1 为关键节点增加 respawn**
+  - 处理：`controller.launch.py`（ros_robot_controller 2s、mecanum 5s）、`usb_cam`、声呐、语音、`vocal_detect` / `agent_process` / `tts_node` 均加 `respawn=True` + `respawn_delay=5.0`；net/video 原本已有
+  - 验收：`kill` 任意节点后约 5s 内自动恢复，无需人工重启
 
-- [ ] 🔴 **P1-1.2 增加 systemd 服务单元**
-  - 证据：文档提到 `walle-ai.service`，仓库内不存在
-  - 动作：`Restart=always`、`RestartSec`、`WatchdogSec`、启动依赖网络就绪
-  - 验收：整机重启后全链路自动恢复；进程崩溃自动拉起
+- [x] ✅ **P1-1.2 增加 systemd 服务单元**
+  - 处理：新增 `scripts/walle-ai.service.in`，由 `deploy.sh` 渲染安装并 enable；`EnvironmentFile=/etc/walle-ai.conf`、`Restart=always`、`RestartSec=5`、`After/Wants=network-online.target`、`User=<部署用户>`；`WatchdogSec` 未启用（节点未实现 sd_notify），进程崩溃由 `Restart` 兜底
+  - 证据：`scripts/walle-ai.service.in`、`scripts/deploy.sh`
+  - 验收：整机重启后服务自启；`kill` 主进程后 5s 内被拉起
 
 - [ ] 🔴 **P1-1.3 明确启动顺序与健康检查**
   - 动作：udev/设备就绪 → controller → usb_cam → net/video bridge；用 `startup_check` 或 health topic 判定就绪
@@ -410,6 +409,8 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P0-5.2 | 未提交 | 模板统一为 `*.example`；`git ls-files '*.env' 'walle-ai.conf'` 为空，真实配置命中忽略 | 待确认 |
 | 2026-11-09 | P0-5.3 | 未提交 | 88 个提交全历史扫描，仅占位符，无真实密钥 | 待确认 |
 | 2026-11-09 | P0-5.4 | 未提交 | deploy.sh 完成配置检查 + 600 安装 + systemd 单元，`systemd-analyze verify` 通过；开发 `./start.sh` 读取 `walle-ai.conf`；真机待 `./deploy.sh` 复测 | 待确认 |
+| 2026-11-09 | P1-1.1 | 未提交 | 关键节点已加 respawn；需实车逐个 `kill` 验证 5s 内恢复 | 待确认 |
+| 2026-11-09 | P1-1.2 | 未提交 | `walle-ai.service` 已由 deploy.sh 安装并 enable，Restart/network-online 已配置；待整机重启与 kill 验证 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -425,11 +426,14 @@ cd walle-device/scripts && ./start.sh
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
 - 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.conf`
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
+- 2026-11-09：P1-1.1 已给底盘、usb_cam、声呐、语音、大模型节点加
+  `respawn=True`；P1-1.2 的 `walle-ai.service` 由 `deploy.sh` 安装并 enable，
+  已有 `Restart=always`/网络就绪，`WatchdogSec` 暂未启用（节点无 sd_notify）。
 - 2026-11-09：P0-5.4 新增 `walle-ai.service.in` 与 `deploy.sh`：`deploy.sh`
   校验 `scripts/walle-ai.conf` 的 MQTT 必填项与 `WHIP_SECRET` 后，安装为
   `/etc/walle-ai.conf`（固定 `root:root 600`），systemd 通过 `EnvironmentFile`
   注入并直接 `source env_walle.sh` 启动；`start.sh` 仅用于开发环境。
-  P1-1.2 的 `WatchdogSec` 与健康检查仍未做。
+  `WatchdogSec` 暂未启用（节点未实现 sd_notify，见 P1-1.2）。
 - 2026-11-09：P0-5.2 已把 env 模板统一为 `*.example`
   （`scripts/walle-ai.conf.example`、`linux/walle-ai.conf.example`），仓库根与
   `walle-device/.gitignore` 忽略 `*.env`、`walle-ai.conf`；开发时先

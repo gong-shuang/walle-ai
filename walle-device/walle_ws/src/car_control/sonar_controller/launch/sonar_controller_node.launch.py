@@ -7,6 +7,8 @@ def generate_launch_description():
         package='sonar_controller',
         executable='sonar_controller',
         output='screen',
+        respawn=True,
+        respawn_delay=5.0,
     )
 
     return LaunchDescription([

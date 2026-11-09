@@ -13,7 +13,9 @@ def generate_launch_description():
         executable='ros_robot_controller',
         output='screen',
         # parameters=[{'imu_frame': imu_frame}]
-        parameters=[]
+        parameters=[],
+        respawn=True,
+        respawn_delay=2.0,
     )
 
     # mecanum_chassis node
@@ -23,7 +25,9 @@ def generate_launch_description():
         name='mecanum_chassis_node',
         output='screen',
         parameters=[],
-        remappings=[]
+        remappings=[],
+        respawn=True,
+        respawn_delay=5.0,
     )
 
     return LaunchDescription([
