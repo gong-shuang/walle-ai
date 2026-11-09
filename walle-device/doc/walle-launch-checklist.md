@@ -10,10 +10,10 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 18 | 8 | 10 |
+| P0 上线阻断 | 18 | 9 | 9 |
 | P1 上线前应修 | 19 | 0 | 19 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **10** | **48** |
+| **合计** | **58** | **11** | **47** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -75,10 +75,9 @@
   - 验证：架空车轮后运行 `tools/test_mcu_timeout.py`，并补 `kill -9` 与整机断电测试
   - 验收：上位机死机/断电时，底盘在 0.5s 内自动停止
 
-- [ ] 🔴 **P0-3.4 速度与加速度限幅**
-  - 证据：`walle_ws/src/car_control/controller/controller/mecanum.py` L22-L32 只做单轮 ±100 限幅，无加速度限制
-  - 动作：限制线速度/角速度上限与变化率，避免急停急起
-  - 验收：阶跃指令下电机输出平滑，无电流冲击
+- [x] ✅ **P0-3.4 速度与加速度限幅**
+  - 处理：`mecanum.py` 新增 `max_linear_speed` / `max_angular_speed` / `max_linear_accel` / `max_angular_accel` 参数（默认 1.0 m/s、3.0 rad/s、1.0 m/s²、3.0 rad/s²）；输入先限幅，再按实际 dt 做加速度斜坡；看门狗急停绕过斜坡立即停车
+  - 验收：阶跃指令下电机输出平滑，无电流冲击；参数可通过 ROS 参数在线调整
 
 - [ ] 🔴 **P0-3.5 禁止绕过底盘节点直接控制电机**
   - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L45-L46 订阅 `~/set_motor_speeds` 与 `~/enable_reception`
@@ -371,6 +370,7 @@ ls -l /dev/rrc /dev/v4l/by-id/
 | 2026-11-08 | P0-2.3 | 未提交 | `whip_secret` 不再是 ROS 参数；`ros2 param get` 应返回参数不存在 | 待确认 |
 | 2026-11-08 | P0-3.1 | 未提交 | 前进中断开 cmd_vel 后 0.5s 内自动发零速度（需架空验证） | 待确认 |
 | 2026-11-08 | P0-3.2 | 未提交 | `kill -TERM` 与串口断连后均尝试下发零速度（需架空验证） | 待确认 |
+| 2026-11-09 | P0-3.4 | 未提交 | 阶跃指令按 10Hz 采样输出平滑递增，无单周期跳变（需架空验证） | 待确认 |
 | 2026-11-08 | P2-5.1 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 9090 无监听；`debug` 或显式传参才启动 | 待确认 |
 | 2026-11-08 | P2-5.2 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 8080 无监听；`debug` 或显式传参才启动 | 待确认 |
 |  |  |  |  |  |
@@ -394,6 +394,8 @@ ls -l /dev/rrc /dev/v4l/by-id/
 - 2026-11-08：P0-3.2 已接管 SIGTERM/SIGINT，并在电机写失败、串口异常、
   遥测超时时尝试下发零速度；本车无 IMU，实测电池报文约 9Hz，已以其为主心跳，
   需架空实车验证。
+- 2026-11-09：P0-3.4 已在 `mecanum.py` 增加速度限幅与加速度斜坡（默认
+  1.0 m/s、3.0 rad/s、1.0 m/s²、3.0 rad/s²），看门狗急停不经斜坡；需架空验证。
 - 2026-11-09：P0-3.3 阻塞于 MCU 固件源码缺失；需求见
   `doc/mcu-comm-timeout-requirement.md`，验证脚本 `tools/test_mcu_timeout.py`
   （需架空车轮）。

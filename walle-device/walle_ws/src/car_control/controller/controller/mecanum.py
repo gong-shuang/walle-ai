@@ -7,15 +7,27 @@ from geometry_msgs.msg import Twist
 from ros_robot_controller_msgs.msg import MotorSpeedControl, MotorsSpeedControl  
 
 class MecanumChassis(Node):
-    def __init__(self, wheelbase=0.1368, track_width=0.1410, wheel_diameter=0.065, max_linear_speed=1.0, max_angular_speed=1.0):
+    def __init__(self, wheelbase=0.1368, track_width=0.1410, wheel_diameter=0.065, max_linear_speed=1.0, max_angular_speed=3.0):
         super().__init__('mecanum_chassis')
 
         # 麦克纳姆轮的物理参数
         self.wheelbase = wheelbase
         self.track_width = track_width
         self.wheel_diameter = wheel_diameter
-        self.max_linear_speed = max_linear_speed  # 最大线性速度 (m/s)
-        self.max_angular_speed = max_angular_speed  # 最大角速度 (rad/s)
+
+        # 速度与加速度限幅（全部可通过 ROS 参数覆盖）
+        self.max_linear_speed = max(0.01, float(self.declare_parameter(
+            'max_linear_speed', max_linear_speed).value))     # 最大线速度 (m/s)
+        self.max_angular_speed = max(0.01, float(self.declare_parameter(
+            'max_angular_speed', max_angular_speed).value))   # 最大角速度 (rad/s)
+        self.max_linear_accel = max(0.01, float(self.declare_parameter(
+            'max_linear_accel', 1.0).value))                  # 线加速度上限 (m/s²)
+        self.max_angular_accel = max(0.01, float(self.declare_parameter(
+            'max_angular_accel', 3.0).value))                 # 角加速度上限 (rad/s²)
+        self._slew_linear_x = 0.0
+        self._slew_linear_y = 0.0
+        self._slew_angular_z = 0.0
+        self._last_slew_time = None
 
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
 
@@ -60,22 +72,48 @@ class MecanumChassis(Node):
     #     return motor_speed
 
 
+    @staticmethod
+    def _clamp(value, limit):
+        """把速度限制在 ±limit 内。"""
+        return max(-limit, min(limit, value))
+
+    @staticmethod
+    def _approach(current, target, max_delta):
+        """按最大步长逼近目标值，用于加速度限幅。"""
+        if target > current:
+            return min(target, current + max_delta)
+        return max(target, current - max_delta)
+
     def cmd_vel_callback(self, msg: Twist):
         """
-        订阅/cmd_vel话题，获取线性速度和角速度，计算并发布四个电机的速度。
+        订阅/cmd_vel话题，先限幅与加速度平滑，再计算四个电机速度。
         :param msg: 订阅的Twist消息
         """
-        linear_x = msg.linear.x  # 线性速度（前后）
-        linear_y = msg.linear.y  # 线性速度（左右）
-        angular_z = msg.angular.z  # 角速度（绕z轴）
+        now = time.monotonic()
+        dt = 0.0 if self._last_slew_time is None else min(
+            0.5, max(0.0, now - self._last_slew_time))
+        self._last_slew_time = now
 
-        self._last_cmd_time = time.monotonic()
-        self._moving = any(abs(v) > 1e-6 for v in (linear_x, linear_y, angular_z))
+        # 1) 速度限幅
+        target_x = self._clamp(msg.linear.x, self.max_linear_speed)
+        target_y = self._clamp(msg.linear.y, self.max_linear_speed)
+        target_z = self._clamp(msg.angular.z, self.max_angular_speed)
 
-        # 计算四个电机的速度
-        motor_msg = self.set_velocity(linear_x, linear_y, angular_z)
+        # 2) 加速度限幅（按实际 dt 平滑，避免阶跃/急停急起）
+        self._slew_linear_x = self._approach(
+            self._slew_linear_x, target_x, self.max_linear_accel * dt)
+        self._slew_linear_y = self._approach(
+            self._slew_linear_y, target_y, self.max_linear_accel * dt)
+        self._slew_angular_z = self._approach(
+            self._slew_angular_z, target_z, self.max_angular_accel * dt)
 
-        # 发布电机速度
+        self._last_cmd_time = now
+        self._moving = any(abs(v) > 1e-6 for v in (
+            self._slew_linear_x, self._slew_linear_y, self._slew_angular_z))
+
+        # 3) 计算并发布电机速度
+        motor_msg = self.set_velocity(
+            self._slew_linear_x, self._slew_linear_y, self._slew_angular_z)
         self.publisher.publish(motor_msg)
 
     def watchdog_callback(self):
@@ -84,7 +122,12 @@ class MecanumChassis(Node):
             return
         if time.monotonic() - self._last_cmd_time <= self.cmd_vel_timeout:
             return
+        # 安全停车不经过加速度斜坡，立即下发零速度
         self._moving = False
+        self._slew_linear_x = 0.0
+        self._slew_linear_y = 0.0
+        self._slew_angular_z = 0.0
+        self._last_slew_time = None
         self.get_logger().warn(
             'cmd_vel 已 %.1fs 未更新，触发看门狗停车' % self.cmd_vel_timeout)
         self.publisher.publish(self.set_velocity(0.0, 0.0, 0.0))
