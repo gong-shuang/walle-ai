@@ -13,7 +13,7 @@ public class DeviceCapabilityTest {
     @Test
     public void parsesFullPayload() throws Exception {
         JSONObject p = new JSONObject("{"
-                + "\"capabilities\":[\"system_status\",\"remote_cmd\",\"camera_video_capture\","
+                + "\"capabilities\":[\"system_status\",\"camera_video_capture\","
                 + "\"rtmp_push\",\"audio_capture\",\"audio_playback\"],"
                 + "\"cameras\":[{\"node\":\"/dev/video0\",\"name\":\"USB Camera\",\"max_resolution\":\"640x480\"}],"
                 + "\"audio\":{"

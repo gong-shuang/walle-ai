@@ -258,14 +258,14 @@ Oryx 部署完成后会生成一个 **32 位十六进制的推流 secret**（例
 
 1. Oryx 控制台 → **Streams / 媒体** 列表，点开任意一路流查看推流地址，`secret=` 后面的值即为此；
 2. 或 Oryx 控制台的 **系统设置 → 推流鉴权 / Token / Secret** 页面（不同小版本叫法不同）；
-3. 部署时如果已经用旧版本填过，也可以从旧配置里读取（设备端 `/etc/walle-ai.env` 或 App 的构建参数）。
+3. 部署时如果已经用旧版本填过，也可以从旧配置里读取（设备端 `/etc/walle-ai.conf` 或 App 的构建参数）。
 
 **怎么配置**：
 
 | 端                | 配置位置                   | 写法                                                                                |
 | ---------------- | ---------------------- | --------------------------------------------------------------------------------- |
-| 树莓派              | `/etc/walle-ai.env` | `WHIP_SECRET=<secret>`                                                            |
-| 树莓派（可选，覆盖整条 URL） | `/etc/walle-ai.env` | `VIDEO_RTMP_URL_TEMPLATE=rtmp://www.example.com:1935/live/{room}?secret={secret}` |
+| 树莓派              | `/etc/walle-ai.conf` | `WHIP_SECRET=<secret>`                                                            |
+| 树莓派（可选，覆盖整条 URL） | `/etc/walle-ai.conf` | `VIDEO_RTMP_URL_TEMPLATE=rtmp://www.example.com:1935/live/{room}?secret={secret}` |
 | App              | `gradle.properties`    | `oryxSecret=<secret>`                                                             |
 | App              | 命令行构建                  | `(cd walle-android && ./gradlew :app:assembleDebug -PoryxSecret=<secret>)`        |
 | App              | 环境变量                   | `(cd walle-android && WHIP_SECRET=<secret> ./gradlew :app:assembleDebug)`         |
@@ -387,7 +387,7 @@ mosquitto_pub -h www.example.com -p 8883 --cafile /etc/ssl/certs/ca-certificates
   -u RaspPi5 -P '设备密码' -i '<clientid>' -t 'walle/home/<clientid>/v1/online' -m '{}' -d
 ```
 
-> App 端默认就是 **8883 + 系统 CA**（`walle-android/app/build.gradle` 的 `MQTT_DEFAULT_PORT=8883`），设备端在 `/etc/walle-ai.env` 里设 `MQTT_PORT=8883`（`MQTT_TLS=auto` 会自动开启）。
+> App 端默认就是 **8883 + 系统 CA**（`walle-android/app/build.gradle` 的 `MQTT_DEFAULT_PORT=8883`），设备端在 `/etc/walle-ai.conf` 里设 `MQTT_PORT=8883`（`MQTT_TLS=auto` 会自动开启）。
 > 证书不能是自签或证书域名与填写的主机名不一致，否则两端都会连接失败。
 
 ***
@@ -469,10 +469,10 @@ mosquitto_sub -h www.example.com -p 8883 --tls-use-os-certs -u RaspPi5 -P '设�
 | `WHIP_SECRET`（App）              | `gradle.properties` / `-PoryxSecret` / 环境变量 | Oryx 推流 secret（§6.1）                                                                    |
 | `WHIP_AUDIO_URL_TEMPLATE`       | `walle-android/app/build.gradle`（由 ORYX\_SECRET 自动拼装）     | `https://www.example.com:443/rtc/v1/whip/?app=live&stream={room}_audio&secret=<secret>` |
 | `WHEP_URL_TEMPLATE`             | `walle-android/app/build.gradle`                          | `https://www.example.com:443/rtc/v1/whep/?app=live&stream={room}`                       |
-| `WHIP_SECRET`（设备端）              | `/etc/walle-ai.env`                      | 与 App 用同一个 secret（§6.1）                                                                 |
+| `WHIP_SECRET`（设备端）              | `/etc/walle-ai.conf`                      | 与 App 用同一个 secret（§6.1）                                                                 |
 | `VIDEO_RTMP_URL_TEMPLATE`       | `linux/main.py`（由 ORYX\_SECRET 自动拼装） | `rtmp://www.example.com:1935/live/{room}?secret=<secret>`                               |
 | `PHONE_AUDIO_WHEP_URL_TEMPLATE` | `linux/main.py` / 环境变量               | `https://www.example.com:443/rtc/v1/whep/?app=live&stream={stream}`                     |
-| `MQTT_HOST` / `MQTT_PORT`       | `/etc/walle-ai.env`                      | `www.example.com` / `8883`                                                              |
+| `MQTT_HOST` / `MQTT_PORT`       | `/etc/walle-ai.conf`                      | `www.example.com` / `8883`                                                              |
 | MQTT 主机 / 端口                    | App 内 MQTT 配置页                              | `www.example.com` / `8883`（TLS 开）                                                       |
 
 ***
@@ -485,7 +485,7 @@ mosquitto_sub -h www.example.com -p 8883 --tls-use-os-certs -u RaspPi5 -P '设�
 | WHEP 拉流或 WHIP 推流实际失败                   | `secret` 缺失/错误、后端异常（注意：用非法 SDP 探测本身也会 502） | 检查 `WHIP_SECRET`、`docker logs oryx`、App 日志 |
 | WHIP 推流 502、WHEP 正常                    | 构建 App 时没带 `-PoryxSecret`，或值不对             | §6.1                                       |
 | 点麦克风提示「未配置 Oryx 推流 secret」             | App 构建期没注入 secret                          | 用 `-PoryxSecret=...` 重新构建（§6.1）            |
-| 视频推流返回「未配置 Oryx 推流 secret」             | 设备端 `/etc/walle-ai.env` 缺 `WHIP_SECRET` | 补上后 `sudo systemctl restart rpi-monitor`   |
+| 视频推流返回「未配置 Oryx 推流 secret」             | 设备端 `/etc/walle-ai.conf` 缺 `WHIP_SECRET` | 补上后 `sudo systemctl restart rpi-monitor`   |
 | 有信令、无画面/无声音                            | **UDP 8000 没放行**                           | 安全组 / `ss -lunp`                           |
 | App 报 WHEP 证书校验失败                      | 自签证书或 SAN 不匹配                              | §6 的 openssl 校验                            |
 | App 连不上 MQTT                           | 8883 未配证书 / 端口没开 / 密码错                     | §9、`openssl s_client`                      |

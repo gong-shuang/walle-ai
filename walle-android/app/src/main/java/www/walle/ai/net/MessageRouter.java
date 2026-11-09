@@ -17,7 +17,7 @@ import java.util.TreeMap;
  * 不认识的资源、非本协议主题都会被忽略（只打日志）。</p>
  *
  * <p>去重：MQTT QoS1 允许 broker 重复投递同一条报文（重连补发、未及时 PUBACK），
- * 而「命令结果 / 视频结果 / 告警 / 能力查询」都是一次性事件，重复处理会直接出问题
+ * 而「视频结果 / 告警 / 能力查询」都是一次性事件，重复处理会直接出问题
  * （例如推流结果重复 → 播放器被初始化两次）。这里用「键排序后的 JSON 签名 + 2 秒窗口」去重。
  * 状态快照与在线报文是幂等的，不去重。</p>
  */
@@ -34,8 +34,6 @@ public class MessageRouter {
         void onDiscoveryResult(JSONObject payload);
 
         void onStateResult(JSONObject payload);
-
-        void onCmdResult(JSONObject payload);
 
         void onAlarm(JSONObject payload);
 
@@ -111,9 +109,6 @@ public class MessageRouter {
                 break;
             case "state/result":
                 sink.onStateResult(json);
-                break;
-            case "cmd/result":
-                if (!isDuplicate("cmd", json)) sink.onCmdResult(json);
                 break;
             case "capability/result":
                 if (!isDuplicate("capability", json)) sink.onCapabilityResult(json);

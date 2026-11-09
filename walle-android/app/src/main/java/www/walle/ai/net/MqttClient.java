@@ -52,7 +52,7 @@ public class MqttClient {
         /** 收到报文（payload 已按 UTF-8 解码）。 */
         void onMessage(String topic, String payload);
 
-        /** 发布失败；kind 见 {@link TopicNames#KIND_CMD} 等常量。 */
+        /** 发布失败；kind 见 {@link TopicNames#KIND_STATE} 等常量。 */
         void onDeliveryError(String kind, String error);
     }
 

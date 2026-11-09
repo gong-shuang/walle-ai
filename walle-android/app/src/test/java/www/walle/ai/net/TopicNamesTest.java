@@ -48,7 +48,6 @@ public class TopicNamesTest {
     public void requestTopics() {
         assertEquals(BASE + "/state/query", TopicNames.stateQuery(TENANT, DEVICE));
         assertEquals(BASE + "/capability/query", TopicNames.capabilityQuery(TENANT, DEVICE));
-        assertEquals(BASE + "/cmd/exec", TopicNames.cmdExec(TENANT, DEVICE));
         assertEquals(BASE + "/video/start/request", TopicNames.videoStartRequest(TENANT, DEVICE));
         assertEquals(BASE + "/video/stop/request", TopicNames.videoStopRequest(TENANT, DEVICE));
         assertEquals("walle/home/v1/discovery/query", TopicNames.discoveryQuery(TENANT));
@@ -60,7 +59,6 @@ public class TopicNamesTest {
         assertEquals(BASE + "/alarm", TopicNames.alarm(TENANT, DEVICE));
         assertEquals(BASE + "/discovery/result", TopicNames.discoveryResult(TENANT, DEVICE));
         assertEquals(BASE + "/state/result", TopicNames.stateResult(TENANT, DEVICE));
-        assertEquals(BASE + "/cmd/result", TopicNames.cmdResult(TENANT, DEVICE));
         assertEquals(BASE + "/capability/result",
                 TopicNames.capabilityResult(TENANT, DEVICE));
         assertEquals(BASE + "/video/start/result", TopicNames.videoStartResult(TENANT, DEVICE));
@@ -69,17 +67,15 @@ public class TopicNamesTest {
 
     @Test
     public void namingConventionIsEnforced() {
-        // 请求：查询 /query、命令 /exec、动作 /request
+        // 请求：查询 /query、动作 /request
         assertTrue(TopicNames.stateQuery(TENANT, DEVICE).endsWith("/query"));
         assertTrue(TopicNames.capabilityQuery(TENANT, DEVICE).endsWith("/query"));
         assertTrue(TopicNames.discoveryQuery(TENANT).endsWith("/query"));
-        assertTrue(TopicNames.cmdExec(TENANT, DEVICE).endsWith("/exec"));
         assertTrue(TopicNames.videoStartRequest(TENANT, DEVICE).endsWith("/request"));
         assertTrue(TopicNames.videoStopRequest(TENANT, DEVICE).endsWith("/request"));
 
         // 应答：一律 /result
         assertTrue(TopicNames.stateResult(TENANT, DEVICE).endsWith("/result"));
-        assertTrue(TopicNames.cmdResult(TENANT, DEVICE).endsWith("/result"));
         assertTrue(TopicNames.capabilityResult(TENANT, DEVICE).endsWith("/result"));
 
         // 主动上报：不以 /result 结尾
@@ -90,7 +86,7 @@ public class TopicNamesTest {
     @Test
     public void subscriptionsCoverAllResponsesAndAvoidWildcards() {
         String[] subs = TopicNames.responseSubscriptions(TENANT);
-        assertEquals(8, subs.length);
+        assertEquals(7, subs.length);
         for (String s : subs) {
             assertTrue("不应订通配子树: " + s, !s.endsWith("/#"));
             assertTrue("订阅必须以 walle/home/+/v1 开头: " + s, s.startsWith("walle/home/+/v1"));
@@ -98,13 +94,12 @@ public class TopicNamesTest {
         String joined = String.join(",", subs);
         for (String expected : new String[]{
                 "/online", "/alarm", "/discovery/result", "/state/result",
-                "/cmd/result", "/capability/result",
-                "/video/start/result", "/video/stop/result"}) {
+                "/capability/result", "/video/start/result", "/video/stop/result"}) {
             assertTrue("缺少订阅: " + expected, joined.contains(expected));
         }
         // 请求类主题不能被订阅，否则会收到自己发出的报文
         assertFalse(joined.contains("/query"));
-        assertFalse(joined.contains("/cmd/exec"));
+        assertFalse(joined.contains("/request"));
     }
 
     @Test

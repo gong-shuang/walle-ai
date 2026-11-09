@@ -1,0 +1,24 @@
+/**:
+    ros__parameters:
+      video_device: "/dev/video0"
+      framerate: 30.0
+      io_method: "mmap"
+      frame_id: "camera"
+      pixel_format: "mjpeg2rgb"  # see usb_cam/supported_formats for list of supported formats
+      av_device_format: "YUV422P"
+      image_width: 640
+      image_height: 480
+      camera_name: "usb_cam"
+      camera_info_url: "package://walle_video/config/camera_info.yaml"
+      brightness: -1
+      contrast: -1
+      saturation: -1
+      sharpness: -1
+      gain: -1
+      # 该 UVC 相机在 kernel 6.8 下的控制名为 white_balance_automatic /
+      # auto_exposure / exposure_time_absolute / focus_automatic_continuous，
+      # usb_cam 0.8.1 仍使用旧名称，手动值设置必然失败，这里统一走自动模式。
+      auto_white_balance: true
+      autoexposure: true
+      autofocus: true
+

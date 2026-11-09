@@ -24,14 +24,13 @@ import com.google.android.material.tabs.TabLayout;
 
 
 /**
- * 设备详情容器页：顶部「当前设备」信息条 + 状态 / 控制 / 命令 三个子页。
+ * 设备详情容器页：顶部「当前设备」信息条 + 状态 / 控制 两个子页。
  * 底部导航第二项对应本页。
  */
 public class DeviceDetailFragment extends Fragment {
 
     private static final String T_STATUS = "detail_status";
     private static final String T_CONTROL = "detail_control";
-    private static final String T_COMMAND = "detail_command";
 
     private MqttManager mgr;
     private View vDot;
@@ -40,7 +39,6 @@ public class DeviceDetailFragment extends Fragment {
 
     private StatusFragment statusFragment;
     private ControlFragment controlFragment;
-    private CommandFragment commandFragment;
 
     @Nullable
     @Override
@@ -59,7 +57,6 @@ public class DeviceDetailFragment extends Fragment {
         FragmentManager fm = getChildFragmentManager();
         statusFragment = (StatusFragment) fm.findFragmentByTag(T_STATUS);
         controlFragment = (ControlFragment) fm.findFragmentByTag(T_CONTROL);
-        commandFragment = (CommandFragment) fm.findFragmentByTag(T_COMMAND);
 
         FragmentTransaction ft = fm.beginTransaction();
         if (statusFragment == null) {
@@ -71,14 +68,9 @@ public class DeviceDetailFragment extends Fragment {
             ft.add(R.id.detailContainer, controlFragment, T_CONTROL);
             ft.hide(controlFragment);
         }
-        if (commandFragment == null) {
-            commandFragment = new CommandFragment();
-            ft.add(R.id.detailContainer, commandFragment, T_COMMAND);
-            ft.hide(commandFragment);
-        }
         ft.commit();
 
-        // 支持 intent 指定子页（0 状态 / 1 控制 / 2 命令），便于自动化验证
+        // 支持 intent 指定子页（0 状态 / 1 控制），便于自动化验证
         int startSub = requireActivity().getIntent().getIntExtra("sub", -1);
         android.util.Log.i("DeviceDetail", "onViewCreated startSub=" + startSub
                 + " tabs=" + tabs.getTabCount());
@@ -102,11 +94,10 @@ public class DeviceDetailFragment extends Fragment {
     private void showTab(int position) {
         Fragment target;
         if (position == 1) target = controlFragment;
-        else if (position == 2) target = commandFragment;
         else target = statusFragment;
         if (target == null || !isAdded()) return;
         FragmentTransaction ft = getChildFragmentManager().beginTransaction();
-        for (Fragment f : new Fragment[]{statusFragment, controlFragment, commandFragment}) {
+        for (Fragment f : new Fragment[]{statusFragment, controlFragment}) {
             if (f != null && f != target && !f.isHidden()) ft.hide(f);
         }
         ft.show(target);

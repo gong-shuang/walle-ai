@@ -147,28 +147,6 @@ public final class UiUtil {
         }
     }
 
-    public static String statusLabel(String status) {
-        if (status == null) return "未知";
-        switch (status) {
-            case "success": return "成功";
-            case "failed":  return "失败(退出码非0)";
-            case "timeout": return "执行超时";
-            case "denied":  return "被白名单拒绝";
-            case "error":   return "错误";
-            default: return status;
-        }
-    }
-
-    public static int statusColor(String status) {
-        if (status == null) return Color.GRAY;
-        switch (status) {
-            case "success": return Color.parseColor("#34D399");
-            case "denied":  return Color.parseColor("#C084FC");
-            default:        return Color.parseColor("#F87171");
-        }
-    }
-
-
     /** 从 JSONObject 安全取 double，键不存在或 null 返回 null。 */
     public static Double optDouble(JSONObject o, String key) {
         if (o == null || !o.has(key) || o.isNull(key)) return null;

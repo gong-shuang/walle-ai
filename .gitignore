@@ -1,27 +1,12 @@
-# ---------- Gradle / 构建产物 ----------
-.gradle/
-build/
-*/build/
-!gradle/wrapper/gradle-wrapper.jar
+# ==========================================================================
+# 仓库级通用忽略规则
+#   Android 工程：见 walle-android/.gitignore
+#   ROS2 设备工作区：见 walle-device/.gitignore
+# ==========================================================================
 
-# ---------- Android ----------
-local.properties
-captures/
-.externalNativeBuild/
-.cxx/
-*.apk
-*.aab
-*.ap_
-*.dex
-**/app/release/
-#不能忽略此文件
-#gradle.properties
-
-# 本地改完，`git status` git看不到它的修改，只在本地生效
-# git update-index --skip-worktree gradle.properties
-# 取消 git 看不见
-# git update-index --no-skip-worktree gradle.properties
-
+# ---------- 系统 ----------
+.DS_Store
+Thumbs.db
 
 # ---------- IDE ----------
 .idea/
@@ -33,22 +18,12 @@ captures/
 .classpath
 .vscode/
 
-# ---------- 系统 ----------
-.DS_Store
-Thumbs.db
-
-# ---------- 调试/日志 ----------
+# ---------- 调试 / 日志 ----------
 *.hprof
 *.log
 
-# ---------- Python（设备端） ----------
+# ---------- Python ----------
 __pycache__/
 *.py[cod]
-linux/.venv/
-linux/log/
-linux/*.log
-# 设备端落盘的 device_id（运行时生成、跟具体机器绑定，不能进版本库）
-linux/.device-id
-linux/.device-id.tmp
-#不能忽略此文件
-#linux/walle-ai.env
+.venv/
+

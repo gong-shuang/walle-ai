@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TurboPi 小车控制台</title>
+<style>
+  :root{
+    --bg:#0b1020; --card:#151b2e; --card2:#1c2440; --line:#293252;
+    --txt:#e6edf7; --muted:#8b98b8; --accent:#38bdf8; --accent2:#22c55e;
+    --danger:#ef4444; --warn:#f59e0b;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:radial-gradient(1200px 600px at 20% -10%,#16224a 0%,var(--bg) 60%);
+    color:var(--txt);font-family:-apple-system,"Segoe UI",Roboto,"Noto Sans SC","PingFang SC",sans-serif;
+    display:flex;flex-direction:column;min-height:100vh;
+  }
+  button{font-family:inherit}
+  /* ---------- 顶栏 ---------- */
+  .topbar{
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:10px 16px;background:rgba(13,18,34,.9);border-bottom:1px solid var(--line);
+    position:sticky;top:0;z-index:20;backdrop-filter:blur(8px);
+  }
+  .brand{font-weight:700;font-size:17px;letter-spacing:.5px;white-space:nowrap}
+  .brand span{color:var(--accent)}
+  .conn{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .conn input{
+    width:150px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);
+    background:#0d1424;color:var(--txt);outline:none;font-size:13px;
+  }
+  .conn input:focus{border-color:var(--accent)}
+  .dot{width:9px;height:9px;border-radius:50%;background:#555;display:inline-block}
+  .dot.on{background:var(--accent2);box-shadow:0 0 8px var(--accent2)}
+  .dot.ing{background:var(--warn);animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.3}}
+  .statusText{font-size:12px;color:var(--muted);white-space:nowrap}
+  .chips{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+  .chip{
+    font-size:12px;color:var(--muted);background:var(--card);border:1px solid var(--line);
+    padding:5px 10px;border-radius:999px;white-space:nowrap;
+  }
+  .chip b{color:var(--txt);font-weight:600}
+  .btn{
+    cursor:pointer;border:1px solid var(--line);background:var(--card2);color:var(--txt);
+    padding:9px 14px;border-radius:9px;font-size:13px;transition:.15s;
+  }
+  .btn:hover:not(:disabled){border-color:var(--accent);transform:translateY(-1px)}
+  .btn:active:not(:disabled){transform:none}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.primary{background:linear-gradient(180deg,#1d4ed8,#1e40af);border-color:#2563eb}
+  .btn.ghost{background:transparent}
+  .btn.danger{background:linear-gradient(180deg,#b91c1c,#991b1b);border-color:#ef4444}
+  .btn.small{padding:6px 10px;font-size:12px}
+  #btnEstop{
+    background:linear-gradient(180deg,#ef4444,#b91c1c);border:1px solid #f87171;color:#fff;
+    font-weight:700;padding:10px 18px;border-radius:10px;letter-spacing:1px;cursor:pointer;
+    box-shadow:0 0 0 0 rgba(239,68,68,.5);animation:glow 2.2s infinite;
+  }
+  @keyframes glow{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.45)}50%{box-shadow:0 0 16px 2px rgba(239,68,68,.35)}}
+  /* ---------- 标签导航 ---------- */
+  .tabs{
+    display:flex;gap:8px;padding:12px 16px 0;flex-wrap:wrap;
+  }
+  .tab{
+    cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--muted);
+    padding:10px 16px;border-radius:10px 10px 0 0;font-size:14px;border-bottom:none;transition:.15s;
+  }
+  .tab:hover{color:var(--txt);border-color:#3b4a75}
+  .tab.active{
+    color:var(--txt);background:linear-gradient(180deg,#22305c,#1a2340);
+    border-color:var(--accent);box-shadow:inset 0 2px 0 var(--accent);
+  }
+  /* ---------- 主体 ---------- */
+  main{
+    flex:1;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);
+    gap:16px;padding:16px;
+  }
+  @media (max-width:1000px){ main{grid-template-columns:1fr} }
+  .videocard,.controls{
+    background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;
+    display:flex;flex-direction:column;min-height:0;
+  }
+  .videohead{
+    display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);
+    background:rgba(255,255,255,.02);
+  }
+  .videohead .topic{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pickhint{
+    font-size:12px;color:#0b1020;background:var(--accent);padding:3px 8px;border-radius:999px;font-weight:600;
+  }
+  .videobox{
+    position:relative;flex:1;min-height:220px;background:#05070e;
+    display:flex;align-items:center;justify-content:center;
+  }
+  #video{max-width:100%;max-height:100%;width:auto;height:auto;display:block;cursor:crosshair}
+  .vempty{position:absolute;color:var(--muted);font-size:13px;text-align:center;line-height:1.8;pointer-events:none}
+  /* ---------- 控制面板 ---------- */
+  .controls{padding:14px;gap:12px;overflow:auto}
+  .panel{display:none;flex-direction:column;gap:12px}
+  .panel.active{display:flex}
+  .card{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .card .title{font-size:13px;color:var(--accent);margin-bottom:10px;font-weight:600}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .muted{color:var(--muted);font-size:12px;line-height:1.7}
+  .hintline{color:var(--muted);font-size:12px;line-height:1.7}
+  label.field{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)}
+  label.field input[type=number],label.field input[type=text]{
+    background:#0d1424;border:1px solid var(--line);border-radius:8px;color:var(--txt);
+    padding:7px 9px;font-size:13px;width:110px;outline:none;
+  }
+  label.field input:focus{border-color:var(--accent)}
+  input[type=range]{accent-color:var(--accent);width:180px}
+  input[type=color]{width:46px;height:32px;background:transparent;border:1px solid var(--line);border-radius:8px;padding:2px}
+  /* D-pad */
+  .drive-wrap{display:flex;gap:18px;flex-wrap:wrap}
+  .dpad{display:grid;grid-template-columns:repeat(3,84px);grid-auto-rows:70px;gap:8px}
+  .pad{
+    cursor:pointer;border:1px solid var(--line);background:linear-gradient(180deg,#243158,#1b2340);
+    color:var(--txt);border-radius:12px;font-size:14px;user-select:none;touch-action:none;transition:.12s;
+  }
+  .pad:hover{border-color:var(--accent)}
+  .pad.active{background:linear-gradient(180deg,#1d4ed8,#1e3a8a);border-color:#60a5fa;transform:scale(.97)}
+  .pad.center{background:var(--card);color:var(--warn);border-color:#7c5a12}
+  .side{display:flex;flex-direction:column;gap:10px;min-width:220px;flex:1}
+  /* 状态块 */
+  .stat{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .stat .item{background:#0d1424;border:1px solid var(--line);border-radius:10px;padding:10px}
+  .stat .item .k{font-size:11px;color:var(--muted)}
+  .stat .item .v{font-size:18px;font-weight:700;margin-top:2px}
+  /* 手势说明 */
+  table.g{width:100%;border-collapse:collapse;font-size:12px}
+  table.g th,table.g td{border-bottom:1px solid var(--line);padding:7px 6px;text-align:left}
+  table.g th{color:var(--muted);font-weight:500}
+  /* 日志 */
+  .logbar{border-top:1px solid var(--line);background:#070b16;height:150px;display:flex;flex-direction:column}
+  .loghead{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line)}
+  #log{flex:1;overflow:auto;margin:0;padding:8px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.6}
+  .logline{white-space:pre-wrap;word-break:break-all}
+  .logline.ok{color:#86efac}
+  .logline.err{color:#fca5a5}
+  .logline.info{color:#93c5fd}
+  .logline.warn{color:#fcd34d}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">TurboPi <span>控制台</span></div>
+  <div class="conn">
+    <input id="ip" value="192.168.31.234" placeholder="小车 IP">
+    <button id="btnConnect" class="btn primary">连接</button>
+    <span id="dot" class="dot"></span>
+    <span id="statusText" class="statusText">未连接</span>
+  </div>
+  <div class="chips">
+    <span class="chip">电池 <b id="battery">--</b></span>
+    <span class="chip">声呐 <b id="sonar">--</b> cm</span>
+  </div>
+  <button id="btnEstop">急停 / 退出全部</button>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="manual">手动驾驶</button>
+  <button class="tab" data-tab="gesture">手势控制</button>
+  <button class="tab" data-tab="tracking">目标追踪</button>
+  <button class="tab" data-tab="line">巡线</button>
+  <button class="tab" data-tab="avoid">避障</button>
+  <button class="tab" data-tab="qr">二维码</button>
+  <button class="tab" data-tab="hw">硬件设置</button>
+</nav>
+
+<main>
+  <section class="videocard">
+    <div class="videohead">
+      <span id="videoTopic" class="topic">/image_raw</span>
+      <span id="pickHint" class="pickhint" style="display:none">点击画面取色</span>
+      <button id="btnVideo" class="btn small" style="margin-left:auto">视频：开</button>
+    </div>
+    <div class="videobox">
+      <img id="video" alt="视频流">
+      <div id="vempty" class="vempty">等待视频流…<br>请先点击右上角“连接”</div>
+    </div>
+  </section>
+
+  <section class="controls">
+
+    <!-- ================= 手动驾驶 ================= -->
+    <div class="panel active" id="panel-manual">
+      <div class="hintline">按住方向键持续移动，松开自动停车；也可用键盘 W/A/S/D 或方向键。速度越大越危险，首次请用 0.3 以下。</div>
+      <div class="drive-wrap">
+        <div class="dpad">
+          <button class="pad" data-drive="ccw">左转</button>
+          <button class="pad" data-drive="forward">前进</button>
+          <button class="pad" data-drive="cw">右转</button>
+          <button class="pad" data-drive="left">左移</button>
+          <button class="pad center" data-drive="stop">停止</button>
+          <button class="pad" data-drive="right">右移</button>
+          <span></span>
+          <button class="pad" data-drive="backward">后退</button>
+          <span></span>
+        </div>
+        <div class="side">
+          <label class="field">速度 <b id="speedVal" style="color:var(--txt)">0.40</b> m/s
+            <input id="speed" type="range" min="0.1" max="1" step="0.05" value="0.4">
+          </label>
+          <div class="stat">
+            <div class="item"><div class="k">电池</div><div class="v" id="statBattery">--</div></div>
+            <div class="item"><div class="k">超声波距离</div><div class="v" id="statSonar">--</div></div>
+          </div>
+          <div class="muted">急停会同时发送零速度并退出追踪/巡线/避障/二维码玩法，是最可靠的停车方式。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= 手势控制 ================= -->
+    <div class="panel" id="panel-gesture">
+      <div class="card">
+        <div class="title">手势玩法</div>
+        <div class="row">
+          <button class="btn primary" data-act="gestureOn">开启手势控制</button>
+          <button class="btn ghost" data-act="gestureOff">关闭手势控制</button>
+        </div>
+        <div class="muted" style="margin-top:8px">
+          开启后摄像头画面会叠加手部骨架，识别到手势才会动作，动作执行完自动停车。
+          视频话题是 /image_gesture_recognition，只有开启玩法后才有画面。
+        </div>
+      </div>
+      <div class="card">
+        <div class="title">手势动作说明</div>
+        <table class="g">
+          <tr><th>手势</th><th>动作</th></tr>
+          <tr><td>1 根手指</td><td>前进 0.5 m/s，0.5 秒后停</td></tr>
+          <tr><td>2 根手指</td><td>后退 0.5 m/s</td></tr>
+          <tr><td>3 根手指</td><td>向左平移</td></tr>
+          <tr><td>4 根手指</td><td>向右平移</td></tr>
+          <tr><td>5 根手指</td><td>原地左转</td></tr>
+          <tr><td>6（拇指小指伸出）</td><td>原地右转 3 秒</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= 目标追踪 ================= -->
+    <div class="panel" id="panel-tracking">
+      <div class="row">
+        <button class="btn primary" data-svc="/object_tracking/enter" data-args="{}">进入追踪</button>
+        <button class="btn ghost" data-svc="/object_tracking/exit" data-args="{}">退出追踪</button>
+      </div>
+      <div class="card">
+        <div class="title">步骤 1 · 选择目标颜色</div>
+        <div class="row">
+          <button class="btn" id="btnPickTrack">在画面上点击取色</button>
+          <span class="muted">或直接选颜色：</span>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn small" data-color-name="red" data-target="track">红</button>
+          <button class="btn small" data-color-name="green" data-target="track">绿</button>
+          <button class="btn small" data-color-name="blue" data-target="track">蓝</button>
+          <button class="btn small" data-color-name="black" data-target="track">黑</button>
+          <button class="btn small" data-color-name="white" data-target="track">白</button>
+        </div>
+        <div class="muted" style="margin-top:8px">按颜色名会同时启用车体追踪（5 秒丢失目标自动退出）。</div>
+      </div>
+      <div class="card">
+        <div class="title">步骤 2 · 选择执行机构</div>
+        <div class="row">
+          <button class="btn" data-svc="/object_tracking/set_pan_tilt" data-args='{"data":true}'>云台追踪 开</button>
+          <button class="btn ghost" data-svc="/object_tracking/set_pan_tilt" data-args='{"data":false}'>云台追踪 关</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" data-svc="/object_tracking/set_chassis_following" data-args='{"data":true}'>车体追踪 开</button>
+          <button class="btn ghost" data-svc="/object_tracking/set_chassis_following" data-args='{"data":false}'>车体追踪 关</button>
+        </div>
+        <label class="field" style="margin-top:12px">颜色阈值 <b id="thrTrackVal" style="color:var(--txt)">0.10</b>
+          <input id="thrTrack" type="range" min="0.02" max="0.5" step="0.01" value="0.1">
+        </label>
+n        <div class="muted" style="margin-top:8px">
+          注意：用颜色名选色会启用“5 秒未检测到目标自动退出”。开启云台/车体后若画面里看不到目标，
+          节点约 5 秒后自动退出，视频会停在最后一帧，需重新点“进入追踪”并重新选色。
+        </div>
+      </div>
+      <div class="hintline">顺序：进入追踪 → 取色/选色 → 开云台或车体。只取色不开执行机构时只会画框，不会动。</div>
+    </div>
+
+    <!-- ================= 巡线 ================= -->
+    <div class="panel" id="panel-line">
+      <div class="row">
+        <button class="btn primary" data-svc="/line_following/enter" data-args="{}">进入巡线</button>
+        <button class="btn ghost" data-svc="/line_following/exit" data-args="{}">退出巡线</button>
+      </div>
+      <div class="card">
+        <div class="title">步骤 1 · 选择线颜色</div>
+        <div class="row">
+          <button class="btn" id="btnPickLine">在画面上点击取色</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn small" data-color-name="red" data-target="line">红</button>
+          <button class="btn small" data-color-name="green" data-target="line">绿</button>
+          <button class="btn small" data-color-name="blue" data-target="line">蓝</button>
+          <button class="btn small" data-color-name="black" data-target="line">黑</button>
+          <button class="btn small" data-color-name="white" data-target="line">白</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="title">步骤 2 · 运行控制</div>
+        <div class="row">
+          <button class="btn primary" data-svc="/line_following/set_running" data-args='{"data":true}'>开始巡线</button>
+          <button class="btn ghost" data-svc="/line_following/set_running" data-args='{"data":false}'>停止</button>
+        </div>
+        <label class="field" style="margin-top:12px">颜色阈值 <b id="thrLineVal" style="color:var(--txt)">0.50</b>
+          <input id="thrLine" type="range" min="0.1" max="1" step="0.05" value="0.5">
+        </label>
+        <div class="muted" style="margin-top:8px">超声波距离小于 20 cm 时自动停车；进入巡线会把 1 号舵机抬到 1850。</div>
+      </div>
+      <div class="hintline">顺序：进入巡线 → 取色/选色 → 开始巡线。5 秒丢失线会自动退出。</div>
+    </div>
+
+    <!-- ================= 避障 ================= -->
+    <div class="panel" id="panel-avoid">
+      <div class="row">
+        <button class="btn primary" data-svc="/avoidance_node/enter" data-args="{}">进入避障</button>
+        <button class="btn ghost" data-svc="/avoidance_node/exit" data-args="{}">退出避障</button>
+      </div>
+      <div class="card">
+        <div class="title">参数与运行</div>
+        <div class="row">
+          <label class="field">避障距离阈值 (cm)<input id="avoidThr" type="number" value="30" min="10" max="50" step="1"></label>
+          <label class="field">行驶速度 (m/s)<input id="avoidSpeed" type="number" value="0.4" min="0.1" max="1" step="0.1"></label>
+          <button class="btn" id="btnAvoidApply">应用参数</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn primary" data-svc="/avoidance_node/set_running" data-args='{"data":true}'>开始避障行驶</button>
+          <button class="btn ghost" data-svc="/avoidance_node/set_running" data-args='{"data":false}'>停止</button>
+        </div>
+        <div class="stat" style="margin-top:12px">
+          <div class="item"><div class="k">实时距离</div><div class="v"><span id="avoidDist">--</span> cm</div></div>
+          <div class="item"><div class="k">当前速度</div><div class="v"><span id="avoidSpeedShow">--</span> m/s</div></div>
+        </div>
+      </div>
+      <div class="hintline">避障逻辑：距离小于阈值时左转（angular.z=11），否则直行；参数阈值只接受 10~50 cm。</div>
+    </div>
+
+    <!-- ================= 二维码 ================= -->
+    <div class="panel" id="panel-qr">
+      <div class="row">
+        <button class="btn primary" data-svc="/qrcode/enter" data-args="{}">进入二维码</button>
+        <button class="btn ghost" data-svc="/qrcode/exit" data-args="{}">退出二维码</button>
+      </div>
+      <div class="card">
+        <div class="title">识别开关</div>
+        <div class="row">
+          <button class="btn" data-svc="/qrcode/start_recognition" data-args='{"data":true}'>开始识别</button>
+          <button class="btn ghost" data-svc="/qrcode/start_recognition" data-args='{"data":false}'>停止识别</button>
+        </div>
+        <div class="muted" style="margin-top:8px">进入后 1 号舵机抬到 1200，识别到内容会直接执行动作。</div>
+      </div>
+      <div class="card">
+        <div class="title">二维码内容对应动作</div>
+        <table class="g">
+          <tr><th>内容</th><th>动作</th></tr>
+          <tr><td>1</td><td>前进 2 秒（0.6 m/s）</td></tr>
+          <tr><td>2</td><td>后退 2 秒</td></tr>
+          <tr><td>3</td><td>右移 2 秒</td></tr>
+          <tr><td>4</td><td>左移 2 秒</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= 硬件设置 ================= -->
+    <div class="panel" id="panel-hw">
+      <div class="card">
+        <div class="title">蜂鸣器 / LED</div>
+        <div class="row">
+          <label class="field">频率<input id="bzFreq" type="number" value="1900" step="100"></label>
+          <label class="field">响(s)<input id="bzOn" type="number" value="0.2" step="0.05"></label>
+          <label class="field">间隔(s)<input id="bzOff" type="number" value="0.01" step="0.01"></label>
+          <button class="btn" id="btnBuzzer">响一声</button>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <label class="field">LED 编号<input id="ledId" type="number" value="1" min="1" max="4"></label>
+          <label class="field">亮(s)<input id="ledOn" type="number" value="0.3" step="0.1"></label>
+          <label class="field">灭(s)<input id="ledOff" type="number" value="0.3" step="0.1"></label>
+          <label class="field">次数<input id="ledRepeat" type="number" value="3" min="1"></label>
+          <button class="btn" id="btnLed">闪烁</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="title">RGB 灯</div>
+        <div class="row">
+          <span class="muted">板载灯</span>
+          <input id="rgbBoard" type="color" value="#00aaff">
+          <button class="btn small" id="btnRgbBoard">应用</button>
+          <span class="muted" style="margin-left:12px">声呐灯</span>
+          <input id="rgbSonar" type="color" value="#ff0000">
+          <button class="btn small" id="btnRgbSonar">应用</button>
+          <button class="btn small ghost" id="btnRgbOff">全部熄灭</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="title">OLED 显示</div>
+        <div class="row">
+          <label class="field">行号<input id="oledIndex" type="number" value="1" min="1" max="4"></label>
+          <label class="field">文本<input id="oledText" type="text" value="TurboPi" style="width:180px"></label>
+          <button class="btn" id="btnOled">发送</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="title">云台舵机</div>
+        <label class="field">1 号舵机 (800-2200) <b id="servo1Val" style="color:var(--txt)">1500</b>
+          <input id="servo1" type="range" min="800" max="2200" step="10" value="1500">
+        </label>
+        <label class="field" style="margin-top:8px">2 号舵机 (800-2200) <b id="servo2Val" style="color:var(--txt)">1500</b>
+          <input id="servo2" type="range" min="800" max="2200" step="10" value="1500">
+        </label>
+        <div class="row" style="margin-top:10px">
+          <button class="btn" id="btnServo">应用位置</button>
+          <button class="btn ghost" id="btnServoHome">归中 (1500/1500)</button>
+        </div>
+        <div class="muted" style="margin-top:8px">提示：追踪/巡线/二维码进入时会自动设置舵机，手动调整后可能被玩法覆盖。</div>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<footer class="logbar">
+  <div class="loghead">
+    <span>日志</span>
+    <button id="btnClearLog" class="btn small ghost">清空</button>
+  </div>
+  <pre id="log"></pre>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (s) { return document.querySelector(s); };
+  var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
+
+  var S = {
+    ip: localStorage.getItem('turbo_ip') || '192.168.31.234',
+    ws: null,
+    connected: false,
+    seq: 0,
+    pending: new Map(),
+    driveTimer: null,
+    videoOn: true,
+    topic: null,
+    pickTarget: null,
+    tab: 'manual'
+  };
+
+  // ---------------- 日志 ----------------
+  function ts() {
+    var d = new Date();
+    return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) + ':' + ('0' + d.getSeconds()).slice(-2);
+  }
+  function log(msg, cls) {
+    var box = $('#log');
+    var line = document.createElement('div');
+    line.className = 'logline ' + (cls || '');
+    line.textContent = '[' + ts() + '] ' + msg;
+    box.appendChild(line);
+    while (box.children.length > 300) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  // ---------------- 连接 ----------------
+  function setStatus(state, text) {
+    var dot = $('#dot');
+    dot.className = 'dot' + (state === 'on' ? ' on' : state === 'ing' ? ' ing' : '');
+    $('#statusText').textContent = text;
+    $('#btnConnect').textContent = S.connected ? '断开' : '连接';
+  }
+
+  function connect() {
+    if (S.connected) { disconnect(); return; }
+    var ip = $('#ip').value.trim();
+    if (!ip) { log('请填写小车 IP', 'err'); return; }
+    S.ip = ip;
+    localStorage.setItem('turbo_ip', ip);
+
+    closeWs();
+    setStatus('ing', '连接中…');
+    log('正在连接 ws://' + ip + ':9090');
+
+    var ws;
+    try { ws = new WebSocket('ws://' + ip + ':9090'); }
+    catch (e) { log('WebSocket 创建失败: ' + e.message, 'err'); setStatus('off', '未连接'); return; }
+    S.ws = ws;
+
+    ws.onopen = function () {
+      S.connected = true;
+      setStatus('on', '已连接 ' + ip);
+      log('已连接 rosbridge: ws://' + ip + ':9090', 'ok');
+      subscribe('/ros_robot_controller/battery', 'std_msgs/UInt16');
+      subscribe('/sonar_controller/get_distance', 'std_msgs/Int32');
+      if (S.videoOn) loadVideo(S.topic, true);
+    };
+    ws.onclose = function () {
+      S.connected = false;
+      setStatus('off', '未连接');
+      stopDrive();
+      log('连接已断开', 'warn');
+    };
+    ws.onerror = function () {
+      log('WebSocket 错误（检查 IP、rosbridge 是否在运行）', 'err');
+    };
+    ws.onmessage = function (ev) { onMessage(ev); };
+  }
+
+  function closeWs() {
+    if (S.ws) {
+      try { S.ws.onopen = S.ws.onclose = S.ws.onmessage = S.ws.onerror = null; S.ws.close(); } catch (e) {}
+      S.ws = null;
+    }
+    S.connected = false;
+    S.pending.forEach(function (p) { clearTimeout(p.timer); p.reject(new Error('连接已断开')); });
+    S.pending.clear();
+  }
+
+  function disconnect() {
+    closeWs();
+    stopDrive();
+    setStatus('off', '未连接');
+    log('主动断开连接', 'warn');
+  }
+
+  function send(obj) {
+    if (!S.connected || !S.ws) return false;
+    try { S.ws.send(JSON.stringify(obj)); return true; }
+    catch (e) { log('发送失败: ' + e.message, 'err'); return false; }
+  }
+
+  function subscribe(topic, type) {
+    send({ op: 'subscribe', id: 'sub:' + topic, topic: topic, type: type });
+  }
+
+  function publish(topic, msg) {
+    send({ op: 'publish', topic: topic, msg: msg });
+  }
+
+  function service(name, args) {
+    return new Promise(function (resolve, reject) {
+      if (!S.connected) { reject(new Error('未连接，请先点顶部“连接”')); return; }
+      var id = 'svc_' + (++S.seq);
+      var timer = setTimeout(function () {
+        S.pending.delete(id);
+        reject(new Error('服务超时: ' + name));
+      }, 4000);
+      S.pending.set(id, { resolve: resolve, reject: reject, timer: timer, name: name });
+      if (!send({ op: 'call_service', id: id, service: name, args: args || {} })) {
+        clearTimeout(timer);
+        S.pending.delete(id);
+        reject(new Error('未连接，请先点顶部“连接”'));
+      }
+    });
+  }
+
+  function onMessage(ev) {
+    var m;
+    try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.op === 'service_response') {
+      var p = S.pending.get(m.id);
+      if (!p) return;
+      clearTimeout(p.timer);
+      S.pending.delete(m.id);
+      if (m.result === false) {
+        // rosbridge 失败时 values 是字符串（例如 Service xxx does not exist），成功时才是对象
+        var msg;
+        if (typeof m.values === 'string') msg = m.values;
+        else if (m.values && m.values.message) msg = m.values.message;
+        else msg = '调用失败';
+        p.reject(new Error(p.name + ' → ' + msg));
+      } else {
+        p.resolve(m.values || {});
+      }
+      return;
+    }
+    if (m.op === 'publish') {
+      onTopic(m.topic, m.msg || {});
+      return;
+    }
+    if (m.op === 'status') {
+      log('rosbridge: ' + (m.msg || m.level), m.level === 'error' ? 'err' : 'warn');
+    }
+  }
+
+  function onTopic(topic, msg) {
+    if (topic === '/ros_robot_controller/battery') {
+      var v = msg.data;
+      $('#battery').textContent = v;
+      $('#statBattery').textContent = v;
+    } else if (topic === '/sonar_controller/get_distance') {
+      var cm = (Number(msg.data) / 10).toFixed(1);
+      $('#sonar').textContent = cm;
+      $('#avoidDist').textContent = cm;
+      $('#statSonar').textContent = cm + ' cm';
+    }
+  }
+
+  // ---------------- 服务/发布封装 ----------------
+  async function runSvc(name, args, button) {
+    if (button) button.disabled = true;
+    try {
+      var r = await service(name, args);
+      var extra = r && r.message ? ' · ' + r.message : '';
+      log('服务 ' + name + ' 成功' + extra, 'ok');
+      return r;
+    } catch (e) {
+      log(e.message, 'err');
+      return null;
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  function twist(x, y, z) {
+    return {
+      linear: { x: Number(x) || 0, y: Number(y) || 0, z: 0 },
+      angular: { x: 0, y: 0, z: Number(z) || 0 }
+    };
+  }
+
+  function publishTwist(x, y, z) {
+    publish('/cmd_vel', twist(x, y, z));
+  }
+
+  // ---------------- 手动驾驶 ----------------
+  var DRIVE = {
+    forward:  [1, 0, 0],
+    backward: [-1, 0, 0],
+    left:     [0, 1, 0],
+    right:    [0, -1, 0],
+    ccw:      [0, 0, 2.5],
+    cw:       [0, 0, -2.5],
+    stop:     [0, 0, 0]
+  };
+  var activePad = null;
+
+  function speedVal() {
+    return parseFloat($('#speed').value) || 0.4;
+  }
+
+  function driveStart(action) {
+    stopDrive();
+    if (action === 'stop') { publishTwist(0, 0, 0); return; }
+    var v = speedVal();
+    var d = DRIVE[action];
+    if (!d) return;
+    // 平移速度随滑杆缩放；原地转向固定为 ±2.5 rad/s，不受速度滑杆影响
+    var tick = function () { publishTwist(d[0] * v, d[1] * v, d[2]); };
+    tick();
+    S.driveTimer = setInterval(tick, 100);
+    activePad = action;
+    $$('.pad').forEach(function (b) { b.classList.toggle('active', b.dataset.drive === action); });
+  }
+
+  function stopDrive() {
+    if (S.driveTimer) { clearInterval(S.driveTimer); S.driveTimer = null; }
+    if (S.connected) publishTwist(0, 0, 0);
+    activePad = null;
+    $$('.pad').forEach(function (b) { b.classList.remove('active'); });
+  }
+
+  $$('.pad').forEach(function (btn) {
+    var action = btn.dataset.drive;
+    btn.addEventListener('pointerdown', function (e) { e.preventDefault(); driveStart(action); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (evName) {
+      btn.addEventListener(evName, function () { if (activePad === action) stopDrive(); });
+    });
+  });
+
+  $('#speed').addEventListener('input', function () {
+    $('#speedVal').textContent = (parseFloat(this.value) || 0).toFixed(2);
+  });
+
+  var KEYMAP = {
+    w: 'forward', ArrowUp: 'forward',
+    s: 'backward', ArrowDown: 'backward',
+    a: 'left', ArrowLeft: 'left',
+    d: 'right', ArrowRight: 'right',
+    q: 'ccw', e: 'cw'
+  };
+  var keyHeld = null;
+
+  document.addEventListener('keydown', function (e) {
+    if (S.tab !== 'manual') return;
+    if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+    var action = KEYMAP[e.key];
+    if (!action) return;
+    e.preventDefault();
+    if (keyHeld === action) return;
+    keyHeld = action;
+    driveStart(action);
+  });
+  document.addEventListener('keyup', function (e) {
+    var action = KEYMAP[e.key];
+    if (!action) return;
+    if (keyHeld === action) { keyHeld = null; stopDrive(); }
+  });
+
+  // ---------------- 标签切换 ----------------
+  var TAB_VIDEO = {
+    manual:   ['/image_raw', '原始画面'],
+    gesture:  ['/image_gesture_recognition', '手势识别画面（需开启手势玩法）'],
+    tracking: ['/object_tracking/image_result', '追踪画面（需先进入追踪）'],
+    line:     ['/line_following/image_result', '巡线画面（需先进入巡线）'],
+    avoid:    ['/avoidance_node/image_result', '避障画面（需先进入避障）'],
+    qr:       ['/qrcode/image_result', '二维码画面（需先进入二维码）'],
+    hw:       ['/image_raw', '原始画面']
+  };
+
+  $$('.tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      var name = tab.dataset.tab;
+      S.tab = name;
+      $$('.tab').forEach(function (t) { t.classList.toggle('active', t === tab); });
+      $$('.panel').forEach(function (p) { p.classList.toggle('active', p.id === 'panel-' + name); });
+      pickOff();
+      stopDrive();
+      var v = TAB_VIDEO[name];
+      loadVideo(v[0], true);
+      log('切换到：' + tab.textContent + ' · 视频 ' + v[0], 'info');
+    });
+  });
+
+  // ---------------- 视频 ----------------
+  function videoUrl(topic) {
+    // 注意：topic 中的 "/" 不能编码成 %2F，web_video_server 不解码，会返回空流（画面全黑）
+    return 'http://' + S.ip + ':8080/stream?topic=' + topic + '&quality=65&_=' + Date.now();
+  }
+
+  var videoWatch = null;
+
+  // 每个功能的“怎么才有画面”提示
+  var VIDEO_TIP = {
+    gesture:  '先点“开启手势控制”',
+    tracking: '先点“进入追踪”',
+    line:     '先点“进入巡线”',
+    avoid:    '先点“进入避障”',
+    qr:       '先点“进入二维码”',
+    manual:   '检查摄像头 usb_cam 是否运行',
+    hw:       '检查摄像头 usb_cam 是否运行'
+  };
+
+  function stopVideoWatch() {
+    if (videoWatch) { clearInterval(videoWatch); videoWatch = null; }
+  }
+
+  function loadVideo(topic, force) {
+    S.topic = topic;
+    $('#videoTopic').textContent = topic;
+    var img = $('#video');
+    $('#vempty').style.display = 'flex';
+    $('#vempty').innerHTML = '等待视频流…<br><span style="font-size:12px">' + (TAB_VIDEO[S.tab] ? TAB_VIDEO[S.tab][1] : '') + '</span>';
+    stopVideoWatch();
+    if (!S.videoOn) { img.removeAttribute('src'); return; }
+    if (!force && img.dataset.topic === topic) return;
+    img.dataset.topic = topic;
+    img.src = videoUrl(topic);
+
+    // MJPEG 流无发布者时返回空流、不触发 error，load 事件也不一定触发，
+    // 所以每 600ms 检查 naturalWidth：出帧就自动收起提示，长时间无帧才提示一次
+    var started = Date.now();
+    var warned = false;
+    videoWatch = setInterval(function () {
+      if (!S.videoOn) { stopVideoWatch(); return; }
+      if (img.naturalWidth > 0) {
+        $('#vempty').style.display = 'none';
+        if (warned) log('视频已恢复：' + topic, 'ok');
+        stopVideoWatch();
+        return;
+      }
+      if (!warned && Date.now() - started > 2500) {
+        warned = true;
+        $('#vempty').style.display = 'flex';
+        $('#vempty').innerHTML = '暂无画面<br><span style="font-size:12px">' + (VIDEO_TIP[S.tab] || '请先启动对应玩法') +
+          '，或对应节点未运行；<br>可点右上“视频：关/开”重连</span>';
+        log('视频话题 ' + topic + ' 暂无画面：' + (VIDEO_TIP[S.tab] || '请先启动对应玩法'), 'warn');
+      }
+    }, 600);
+  }
+
+  $('#video').addEventListener('load', function () {
+    $('#vempty').style.display = 'none';
+  });
+  $('#video').addEventListener('error', function () {
+    stopVideoWatch();
+    $('#vempty').style.display = 'flex';
+    $('#vempty').innerHTML = '视频流不可用<br><span style="font-size:12px">检查 web_video_server(8080) 与 IP</span>';
+  });
+
+  $('#btnVideo').addEventListener('click', function () {
+    S.videoOn = !S.videoOn;
+    this.textContent = '视频：' + (S.videoOn ? '开' : '关');
+    if (!S.videoOn) {
+      $('#video').removeAttribute('src');
+      $('#vempty').style.display = 'flex';
+      $('#vempty').innerHTML = '视频已关闭';
+    } else {
+      loadVideo(S.topic, true);
+    }
+  });
+
+  $('#ip').addEventListener('input', function () {
+    S.ip = this.value.trim() || S.ip;
+    if (S.videoOn && S.topic) loadVideo(S.topic, true);
+  });
+
+  // ---------------- 画面取色 ----------------
+  function pickOn(target) {
+    S.pickTarget = target;
+    $('#pickHint').style.display = 'inline-block';
+    $('#pickHint').textContent = '点击画面取色（' + (target === 'track' ? '追踪' : '巡线') + '）';
+    log('取色模式已开启，请点击视频画面中的目标', 'info');
+  }
+  function pickOff() {
+    S.pickTarget = null;
+    $('#pickHint').style.display = 'none';
+  }
+
+  $('#btnPickTrack').addEventListener('click', function () { pickOn('track'); });
+  $('#btnPickLine').addEventListener('click', function () { pickOn('line'); });
+
+  $('#video').addEventListener('click', async function (e) {
+    if (!S.pickTarget) return;
+    var rect = this.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    var x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    var y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+    var target = S.pickTarget;
+    pickOff();
+    var svc = target === 'track'
+      ? '/object_tracking/set_target_color'
+      : '/line_following/set_target_color';
+    log('取色坐标 x=' + x.toFixed(3) + ' y=' + y.toFixed(3), 'info');
+    await runSvc(svc, { data: { x: x, y: y } });
+  });
+
+  // ---------------- 通用 data-svc 按钮 ----------------
+  $$('[data-svc]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var args = {};
+      if (btn.dataset.args) {
+        try { args = JSON.parse(btn.dataset.args); } catch (e) { args = {}; }
+      }
+      var r = await runSvc(btn.dataset.svc, args, btn);
+      // “进入”类服务成功后，立刻重连当前视频流，避免旧连接一直是空流
+      if (r && btn.dataset.svc.indexOf('/enter') >= 0) {
+        loadVideo(TAB_VIDEO[S.tab][0], true);
+      }
+    });
+  });
+
+  // ---------------- 颜色名按钮 ----------------
+  $$('[data-color-name]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var color = btn.dataset.colorName;
+      var target = btn.dataset.target;
+      btn.disabled = true;
+      try {
+        var svc = target === 'track'
+          ? '/object_tracking/set_large_model_target_color'
+          : '/line_following/set_large_model_target_color';
+        var r = await service(svc, { data: color });
+        log('目标颜色设为 ' + color + (r && r.message ? ' · ' + r.message : ''), 'ok');
+        if (target === 'line') log('已选色，请点击“开始巡线”', 'info');
+      } catch (e) {
+        log(e.message, 'err');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // ---------------- 阈值滑块 ----------------
+  $('#thrTrack').addEventListener('change', function () {
+    runSvc('/object_tracking/set_threshold', { data: parseFloat(this.value) });
+  });
+  $('#thrLine').addEventListener('change', function () {
+    runSvc('/line_following/set_threshold', { data: parseFloat(this.value) });
+  });
+  $('#thrTrack').addEventListener('input', function () { $('#thrTrackVal').textContent = this.value; });
+  $('#thrLine').addEventListener('input', function () { $('#thrLineVal').textContent = this.value; });
+
+  // ---------------- 避障参数 ----------------
+  $('#btnAvoidApply').addEventListener('click', async function () {
+    var thr = parseFloat($('#avoidThr').value);
+    var spd = parseFloat($('#avoidSpeed').value);
+    if (!(thr >= 10 && thr <= 50)) { log('阈值必须在 10~50 cm', 'err'); return; }
+    if (!(spd > 0)) { log('速度必须大于 0', 'err'); return; }
+    await runSvc('/avoidance_node/set_param', { data: [thr, spd * 80] }, this);
+    $('#avoidSpeedShow').textContent = spd.toFixed(1);
+  });
+
+  // ---------------- 手势 ----------------
+  $$('[data-act]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var act = btn.dataset.act;
+      btn.disabled = true;
+      try {
+        if (act === 'gestureOn') {
+          await service('/gesture_control_enable', { data: true });
+          log('手势识别已使能', 'ok');
+          await service('/gesture_game_control', { data: true });
+          log('手势玩法已开启，视频为 /image_gesture_recognition', 'ok');
+          loadVideo('/image_gesture_recognition', true);
+        } else if (act === 'gestureOff') {
+          await service('/gesture_game_control', { data: false });
+          log('手势玩法已关闭', 'ok');
+        }
+      } catch (e) { log(e.message, 'err'); }
+      finally { btn.disabled = false; }
+    });
+  });
+
+  // ---------------- 硬件 ----------------
+  function hexToRgb(hex) {
+    var m = /^#?([0-9a-f]{6})$/i.exec(hex);
+    if (!m) return { r: 0, g: 0, b: 0 };
+    var n = parseInt(m[1], 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+
+  $('#btnBuzzer').addEventListener('click', function () {
+    publish('/ros_robot_controller/set_buzzer', {
+      freq: parseInt($('#bzFreq').value, 10) || 1900,
+      on_time: parseFloat($('#bzOn').value) || 0.2,
+      off_time: parseFloat($('#bzOff').value) || 0.01,
+      repeat: 1
+    });
+    log('蜂鸣器指令已发送', 'ok');
+  });
+
+  $('#btnLed').addEventListener('click', function () {
+    publish('/ros_robot_controller/set_led', {
+      id: parseInt($('#ledId').value, 10) || 1,
+      on_time: parseFloat($('#ledOn').value) || 0.3,
+      off_time: parseFloat($('#ledOff').value) || 0.3,
+      repeat: parseInt($('#ledRepeat').value, 10) || 1
+    });
+    log('LED 指令已发送', 'ok');
+  });
+
+  $('#btnRgbBoard').addEventListener('click', function () {
+    var c = hexToRgb($('#rgbBoard').value);
+    publish('/ros_robot_controller/set_rgb', {
+      states: [
+        { index: 1, red: c.r, green: c.g, blue: c.b },
+        { index: 2, red: c.r, green: c.g, blue: c.b }
+      ]
+    });
+    log('板载 RGB 指令已发送', 'ok');
+  });
+
+  $('#btnRgbSonar').addEventListener('click', function () {
+    var c = hexToRgb($('#rgbSonar').value);
+    publish('/sonar_controller/set_rgb', {
+      states: [
+        { index: 0, red: c.r, green: c.g, blue: c.b },
+        { index: 1, red: c.r, green: c.g, blue: c.b }
+      ]
+    });
+    log('声呐 RGB 指令已发送', 'ok');
+  });
+
+  $('#btnRgbOff').addEventListener('click', function () {
+    var off = { states: [{ index: 1, red: 0, green: 0, blue: 0 }, { index: 2, red: 0, green: 0, blue: 0 }] };
+    publish('/ros_robot_controller/set_rgb', off);
+    publish('/sonar_controller/set_rgb', { states: [{ index: 0, red: 0, green: 0, blue: 0 }, { index: 1, red: 0, green: 0, blue: 0 }] });
+    log('已发送熄灭指令', 'ok');
+  });
+
+  $('#btnOled').addEventListener('click', function () {
+    var text = $('#oledText').value;
+    if (!text) { log('请输入 OLED 文本', 'err'); return; }
+    publish('/ros_robot_controller/set_oled', {
+      index: parseInt($('#oledIndex').value, 10) || 1,
+      text: text
+    });
+    log('OLED 指令已发送', 'ok');
+  });
+
+  function sendServo(s1, s2) {
+    publish('/ros_robot_controller/pwm_servo/set_state', {
+      duration: 1.0,
+      state: [
+        { id: [1], position: [s1] },
+        { id: [2], position: [s2] }
+      ]
+    });
+    log('舵机位置已发送：' + s1 + ' / ' + s2, 'ok');
+  }
+
+  $('#servo1').addEventListener('input', function () { $('#servo1Val').textContent = this.value; });
+  $('#servo2').addEventListener('input', function () { $('#servo2Val').textContent = this.value; });
+  $('#btnServo').addEventListener('click', function () {
+    sendServo(parseInt($('#servo1').value, 10), parseInt($('#servo2').value, 10));
+  });
+  $('#btnServoHome').addEventListener('click', function () {
+    $('#servo1').value = 1500; $('#servo2').value = 1500;
+    $('#servo1Val').textContent = '1500'; $('#servo2Val').textContent = '1500';
+    sendServo(1500, 1500);
+  });
+
+  // ---------------- 急停 ----------------
+  async function allStop(btn) {
+    stopDrive();
+    if (S.connected) publishTwist(0, 0, 0);
+    if (btn) btn.disabled = true;
+    log('急停：发送零速度并退出所有玩法', 'warn');
+    if (S.connected) {
+      await Promise.allSettled([
+        service('/object_tracking/exit', {}),
+        service('/line_following/exit', {}),
+        service('/avoidance_node/exit', {}),
+        service('/qrcode/exit', {}),
+        service('/gesture_game_control', { data: false })
+      ]).then(function (results) {
+        var okCount = results.filter(function (r) { return r.status === 'fulfilled'; }).length;
+        log('急停完成，退出服务成功 ' + okCount + '/5（未进入的玩法会返回失败，属正常）', 'warn');
+      });
+    }
+    if (btn) btn.disabled = false;
+  }
+
+  $('#btnEstop').addEventListener('click', function () { allStop(this); });
+
+  // ---------------- 初始化 ----------------
+  $('#ip').value = S.ip;
+  $('#btnConnect').addEventListener('click', connect);
+  $('#btnClearLog').addEventListener('click', function () { $('#log').innerHTML = ''; });
+
+  window.addEventListener('beforeunload', function () {
+    try { publishTwist(0, 0, 0); } catch (e) {}
+  });
+
+  loadVideo('/image_raw', true);
+  log('控制台就绪，正在自动连接 ws://' + S.ip + ':9090', 'info');
+  connect();  // 打开页面即自动连接，失败时可手动点顶部“连接”重试
+})();
+</script>
+</body>
+</html>
