@@ -159,7 +159,8 @@ cd ~/walle-device/walle_ws/src/car_control/ros_robot_controller/scripts
 sudo ./create_udev_rules.sh
 ```
 
-> 当前规则仅放行 `ttyACM0`；P1-3.4 会进一步创建 `/dev/rrc` 并收紧权限。
+> 规则会创建 `/dev/rrc`（`ttyAMA0`，`dialout` 0660）和 `/dev/walle-camera`（USB 摄像头，按 idVendor/idProduct 匹配）；确保运行用户在 `dialout` 与 `video` 组。
+> 换摄像头后需更新 `99-walle-camera.rules` 的 USB id 与两个 yaml 中的设备路径。
 
 ## 部署 Walle AI
 

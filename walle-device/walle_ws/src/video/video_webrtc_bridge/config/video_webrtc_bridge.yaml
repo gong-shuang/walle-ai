@@ -4,7 +4,8 @@ video_webrtc_bridge:
     env_file: /etc/walle-ai.conf
 
     image_topic: /image_raw
-    camera_device: /dev/video0
+    # 与 usb_cam 保持一致，使用 udev 固定路径 /dev/walle-camera
+    camera_device: /dev/walle-camera
     framerate: 30.0
     room_number_pattern: "^[A-Za-z0-9_-]{1,64}$"
 

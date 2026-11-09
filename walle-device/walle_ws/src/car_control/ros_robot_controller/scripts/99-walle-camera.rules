@@ -1,0 +1,4 @@
+# Walle USB 摄像头：固定为 /dev/walle-camera
+# usb_cam 不支持 /dev/v4l/by-id 深层符号链接（会把 ../../video0 拼成 /dev/../../video0），
+# 这里在 /dev 下创建一级符号链接 walle-camera -> videoN
+KERNEL=="video*", SUBSYSTEM=="video4linux", ATTR{index}=="0", ATTRS{idVendor}=="0bc8", ATTRS{idProduct}=="5880", SYMLINK+="walle-camera"

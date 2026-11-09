@@ -11,9 +11,9 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
-| P1 上线前应修 | 19 | 9 | 10 |
+| P1 上线前应修 | 19 | 11 | 8 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **26** | **32** |
+| **合计** | **58** | **28** | **30** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -161,15 +161,13 @@
   - 处理：串口读 `timeout=1s`、写 `write_timeout=0.5s`；舵机读取队列 `timeout=2s` 超时返回 None；节点改用 `MultiThreadedExecutor`，底盘/执行器写回调放入 `ReentrantCallbackGroup`，与状态查询回调互不阻塞
   - 验收：串口卡顿时 `/cmd_vel` 与状态查询仍能及时响应（需实车验证）
 
-- [ ] 🔴 **P1-3.3 摄像头设备节点固定**
-  - 证据：`walle_ws/src/video/video_webrtc_bridge/config/video_webrtc_bridge.yaml` L7、`walle_ws/src/video/walle_video/config/usb_cam_param.yaml` L3 固定 `/dev/video0`；本机存在多个 video 节点
-  - 动作：改用 `/dev/v4l/by-id/...` 或 udev 固定符号链接
-  - 验收：重启/插拔后始终打开正确摄像头
+- [x] ✅ **P1-3.3 摄像头设备节点固定**
+  - 处理：新增 `99-walle-camera.rules`，按 `idVendor/idProduct` 创建一级符号链接 `/dev/walle-camera`；`usb_cam_param.yaml` 与 `video_webrtc_bridge.yaml` 使用该路径（`usb_cam` 不支持 by-id 深层链接，会把 `../../video0` 拼成 `/dev/../../video0`）
+  - 验收：重启/插拔后 `/dev/walle-camera` 始终指向正确摄像头，`usb_cam` 正常打开；换相机时更新 udev id 与配置
 
-- [ ] 🔴 **P1-3.4 补齐 `/dev/rrc` udev 规则**
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/scripts/99-ttyACM0.rules` 未创建 `/dev/rrc` 符号链接，且 `GROUP="ubuntu"`、`MODE="0777"` 与当前系统不匹配
-  - 动作：按实际串口设备增加 `SYMLINK+="rrc"`，权限改为 `0660` + 正确属组
-  - 验收：全新镜像启动即存在可读写的 `/dev/rrc`
+- [x] ✅ **P1-3.4 补齐 `/dev/rrc` udev 规则**
+  - 处理：规则改为 `99-rrc.rules`——`ttyAMA0` 创建 `SYMLINK+="rrc"`，属组 `dialout`、`MODE=0660`；兼容 `ttyACM0` 并忽略 ModemManager；`create_udev_rules.sh` 自动安装
+  - 验收：全新镜像安装规则后存在可读写的 `/dev/rrc`；仅 `dialout` 组可访问
 
 - [ ] 🔴 **P1-3.5 声呐 I2C 异常与超时处理**
   - 证据：`walle_ws/src/car_control/sonar_controller/sonar_controller/sonar_controller_node.py` L40-L50 发布线程无 try/except；I2C 异常只打印
@@ -413,6 +411,8 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P1-2.4 | 未提交 | `WALLE_VENV` 可覆盖 venv 路径，site-packages 按实际 Python 版本取；默认路径与不存在路径均已验证 | 待确认 |
 | 2026-11-09 | P1-3.1 | 未提交 | SDK 增加串口自动重连；编译通过；需实车拔插 USB 验证 | 待确认 |
 | 2026-11-09 | P1-3.2 | 未提交 | 串口读写超时收紧 + MultiThreadedExecutor/回调组；编译通过；需实车验证卡顿不阻塞 | 待确认 |
+| 2026-11-09 | P1-3.3 | 未提交 | 新增 `99-walle-camera.rules`，相机固定 `/dev/walle-camera`；待安装 udev 规则后重启验证 | 待确认 |
+| 2026-11-09 | P1-3.4 | 未提交 | `99-rrc.rules` 创建 `/dev/rrc`（ttyAMA0，dialout 0660）；待全新镜像或 reload udev 验证 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -428,6 +428,9 @@ cd walle-device/scripts && ./start.sh
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
 - 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.conf`
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
+- 2026-11-09：P1-3.3/P1-3.4 相机固定为 `/dev/walle-camera`（`99-walle-camera.rules`，
+  usb_cam 不支持 by-id 深层链接）；udev 规则改为 `99-rrc.rules`
+  （ttyAMA0 → `/dev/rrc`，dialout 0660），README 同步说明。
 - 2026-11-09：P1-3.1/P1-3.2 `Board` 增加串口自动重连（1s 周期），读写异常关闭
   端口并重连；串口读 1s/写 0.5s/舵机读取 2s 超时；节点改用 MultiThreadedExecutor
   与 ReentrantCallbackGroup，避免串口卡顿阻塞 `/cmd_vel` 与状态查询（需实车验证）。
