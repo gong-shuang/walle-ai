@@ -11,9 +11,9 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
-| P1 上线前应修 | 19 | 3 | 16 |
+| P1 上线前应修 | 19 | 5 | 14 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **20** | **38** |
+| **合计** | **58** | **22** | **36** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -135,19 +135,18 @@
 
 ### P1-2 部署可复现
 
-- [ ] 🔴 **P1-2.1 修正部署文档**
-  - 证据：`doc/README.md` 与实际仓库/脚本不完全一致，且夸大了 `deploy.sh` 的职责
-  - 动作：写清 build、依赖、udev、systemd、env 的完整步骤
-  - 验收：新人按文档可在全新系统完成部署
+- [x] ✅ **P1-2.1 修正部署文档**
+  - 处理：`doc/README.md` 补齐项目介绍、Ubuntu/ROS2 安装、venv 与 `requirements.txt` 依赖、`colcon build`、udev 规则、`walle-ai.conf` 配置、`deploy.sh`/systemd 启动与上线环境切换
+  - 验收：按文档可从全新 Ubuntu 24.04 完成环境与部署
 
 - [ ] 🔴 **P1-2.2 deploy.sh 覆盖完整部署**
-  - 证据：`scripts/deploy.sh` 目前做配置检查、安装配置与 systemd 单元，未覆盖依赖、colcon build、udev 规则
+  - 证据：`scripts/deploy.sh` 目前做配置检查、安装配置与 systemd 单元，未覆盖依赖、colcon build、udev 规则（README 已写明手动步骤）
   - 动作：安装依赖、colcon build、udev 规则、systemd 单元、权限设置
   - 验收：一条命令完成部署，可重复执行
 
-- [ ] 🔴 **P1-2.3 增加依赖清单**
-  - 动作：增加 `requirements.txt` 或 rosdep keys；锁定 paho-mqtt 2.x、psutil、smbus2、OpenCV 等版本
-  - 验收：全新环境安装无缺包
+- [x] ✅ **P1-2.3 增加依赖清单**
+  - 处理：新增 `doc/requirements.txt`，锁定 `paho-mqtt`、`psutil`、`pyserial`、`smbus2`、`numpy`、`dashscope`、`PyYAML`、`transforms3d` 版本；OpenCV / ffmpeg / python3-smbus 作为 apt 依赖在 README 说明
+  - 验收：按 README 安装后无缺包；ROS2 包由 apt/colcon 提供，不混入 pip
 
 - [ ] 🔴 **P1-2.4 去掉 scripts/env_walle.sh 的环境硬编码**
   - 证据：`scripts/env_walle.sh` 固定 `$HOME/venv` 与 Python 3.12 site-packages
@@ -412,6 +411,8 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P1-1.1 | 未提交 | 关键节点已加 respawn；需实车逐个 `kill` 验证 5s 内恢复 | 待确认 |
 | 2026-11-09 | P1-1.2 | 未提交 | `walle-ai.service` 已由 deploy.sh 安装并 enable，Restart/network-online 已配置；待整机重启与 kill 验证 | 待确认 |
 | 2026-11-09 | P1-1.3 | 未提交 | 4 阶段启动 + `startup_check` 节点就绪判定与 `/bringup/startup_status`；待冷启动验证阶段日志与 `ready` | 待确认 |
+| 2026-11-09 | P1-2.1 | 未提交 | README 补齐项目介绍/依赖/编译/udev/deploy/启动步骤；待按文档在全新环境复测 | 待确认 |
+| 2026-11-09 | P1-2.3 | 未提交 | 新增 `doc/requirements.txt`，直接依赖锁定版本；apt 依赖在 README 说明 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -427,6 +428,8 @@ cd walle-device/scripts && ./start.sh
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
 - 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.conf`
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
+- 2026-11-09：P1-2.1 README 补齐 Ubuntu/ROS2/venv/依赖/编译/udev/部署步骤；
+  P1-2.3 新增 `doc/requirements.txt`（锁定直接 pip 依赖，OpenCV/ffmpeg 走 apt）。
 - 2026-11-09：P1-1.3 `bringup` 改为 4 阶段顺序启动，`startup_check`
   等待关键节点并发布 `/bringup/startup_status`（`ready` / `timeout: missing=...`）；
   声呐、语音、AI 节点作为可选节点只告警不判失败。
