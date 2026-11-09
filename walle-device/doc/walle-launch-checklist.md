@@ -11,9 +11,9 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
-| P1 上线前应修 | 19 | 11 | 8 |
+| P1 上线前应修 | 19 | 12 | 7 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **28** | **30** |
+| **合计** | **58** | **29** | **29** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -169,10 +169,9 @@
   - 处理：规则改为 `99-rrc.rules`——`ttyAMA0` 创建 `SYMLINK+="rrc"`，属组 `dialout`、`MODE=0660`；兼容 `ttyACM0` 并忽略 ModemManager；`create_udev_rules.sh` 自动安装
   - 验收：全新镜像安装规则后存在可读写的 `/dev/rrc`；仅 `dialout` 组可访问
 
-- [ ] 🔴 **P1-3.5 声呐 I2C 异常与超时处理**
-  - 证据：`walle_ws/src/car_control/sonar_controller/sonar_controller/sonar_controller_node.py` L40-L50 发布线程无 try/except；I2C 异常只打印
-  - 动作：异常捕获、连续失败计数、超时发布无效值或告警；线程不退出
-  - 验收：拔掉声呐模块后节点存活并上报异常，不静默停更
+- [x] ✅ **P1-3.5 声呐 I2C 异常与超时处理**
+  - 处理：`Sonar.getDistance()` 不再吞异常，I2C 失败向上抛出；节点读取线程增加 try/except、连续失败计数，失败时发布 `-1` 无效值并按 1/50 次节流告警，恢复后打印恢复日志；RGB 写入与退出清理同样加保护，线程不退出
+  - 验收：拔掉声呐后节点存活，`/sonar_controller/get_distance` 持续输出 `-1` 并告警；插回后自动恢复读数
 
 ### P1-4 日志与可观测性
 
@@ -413,6 +412,7 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P1-3.2 | 未提交 | 串口读写超时收紧 + MultiThreadedExecutor/回调组；编译通过；需实车验证卡顿不阻塞 | 待确认 |
 | 2026-11-09 | P1-3.3 | 未提交 | 新增 `99-walle-camera.rules`，相机固定 `/dev/walle-camera`；待安装 udev 规则后重启验证 | 待确认 |
 | 2026-11-09 | P1-3.4 | 未提交 | `99-rrc.rules` 创建 `/dev/rrc`（ttyAMA0，dialout 0660）；待全新镜像或 reload udev 验证 | 待确认 |
+| 2026-11-09 | P1-3.5 | 未提交 | 声呐 I2C 异常不再吞掉，失败发布 -1 并节流告警；编译后待拔插验证 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -428,6 +428,8 @@ cd walle-device/scripts && ./start.sh
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
 - 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.conf`
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
+- 2026-11-09：P1-3.5 声呐 I2C 读取失败不再静默，节点发布 `-1` 无效值并节流告警，
+  恢复后自动继续；RGB 写入与退出清理加异常保护。
 - 2026-11-09：P1-3.3/P1-3.4 相机固定为 `/dev/walle-camera`（`99-walle-camera.rules`，
   usb_cam 不支持 by-id 深层链接）；udev 规则改为 `99-rrc.rules`
   （ttyAMA0 → `/dev/rrc`，dialout 0660），README 同步说明。
