@@ -47,8 +47,10 @@ class RosRobotController(Node):
         self.create_subscription(LedState, '~/set_led', self.set_led_state, 5)
         self.create_subscription(BuzzerState, '~/set_buzzer', self.set_buzzer_state, 5)
         self.create_subscription(OLEDState, '~/set_oled', self.set_oled_state, 5)
-        self.create_subscription(MotorsSpeedControl, '~/set_motor_speeds', self.set_motor_speeds_callback, 10)
-        self.create_subscription(Bool, '~/enable_reception', self.enable_reception, 1)
+        # 低层直控接口：仅供本机 mecanum 节点内部使用，不对外/rosbridge 暴露
+        # （rosbridge 白名单见 walle_net/launch/net.launch.py 的 ROSBridge_ALLOWED_TOPICS）
+        self.create_subscription(MotorsSpeedControl, '~/internal/set_motor_speeds', self.set_motor_speeds_callback, 10)
+        self.create_subscription(Bool, '~/internal/enable_reception', self.enable_reception, 1)
         self.create_subscription(SetBusServoState, '~/bus_servo/set_state', self.set_bus_servo_state, 10)
         self.create_subscription(ServosPosition, '~/bus_servo/set_position', self.set_bus_servo_position, 10)
         self.create_subscription(SetPWMServoState, '~/pwm_servo/set_state', self.set_pwm_servo_state, 10)

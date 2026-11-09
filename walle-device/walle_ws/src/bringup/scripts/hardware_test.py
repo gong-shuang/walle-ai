@@ -17,7 +17,7 @@ class HardwareTestNode(Node):
                          automatically_declare_parameters_from_overrides=True)
 
         self.servo_pub = self.create_publisher(SetPWMServoState, 'ros_robot_controller/pwm_servo/set_state', 10)
-        self.motor_pub = self.create_publisher(MotorsSpeedControl, 'ros_robot_controller/set_motor_speeds', 10)
+        self.motor_pub = self.create_publisher(MotorsSpeedControl, 'ros_robot_controller/internal/set_motor_speeds', 10)
         self.board_rgb_pub = self.create_publisher(RGBStates, 'ros_robot_controller/set_rgb', 10)
         self.sonar_rgb_pub = self.create_publisher(RGBStates, 'sonar_controller/set_rgb', 10)
 

@@ -31,7 +31,9 @@ class MecanumChassis(Node):
 
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
 
-        self.publisher = self.create_publisher(MotorsSpeedControl, '/ros_robot_controller/set_motor_speeds', 10)
+        # 低层电机占空比接口：mecanum 是唯一合法发布者，话题名带 internal/ 前缀，
+        # 且不在 rosbridge 白名单内，避免外部绕过 /cmd_vel 直接控制电机。
+        self.publisher = self.create_publisher(MotorsSpeedControl, '/ros_robot_controller/internal/set_motor_speeds', 10)
 
         # cmd_vel 看门狗：超过该时长未收到新指令就主动停车（默认 1.5s，可通过参数覆盖）
         self.declare_parameter('cmd_vel_timeout', 1.5)
