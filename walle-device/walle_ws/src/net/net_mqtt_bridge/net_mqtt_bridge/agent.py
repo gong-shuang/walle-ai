@@ -1461,12 +1461,34 @@ class RpiMonitor:
     def on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         logging.warning("MQTT 连接断开（reason_code=%s），paho 将自动重连", reason_code)
 
+    @staticmethod
+    def _redact_payload(payload):
+        """脱敏后的报文，仅用于 DEBUG 日志。"""
+        sensitive = {"password", "secret", "whip_secret", "token", "key",
+                     "api_key", "room", "room_no", "room_number"}
+        try:
+            data = json.loads(payload)
+        except Exception:
+            return payload[:120]
+
+        def redact(obj):
+            if isinstance(obj, dict):
+                return {k: ("***" if str(k).lower() in sensitive else redact(v))
+                        for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [redact(v) for v in obj]
+            return obj
+
+        return json.dumps(redact(data), ensure_ascii=False)[:300]
+
     def on_message(self, client, userdata, msg):
         try:
             payload = msg.payload.decode("utf-8", errors="replace")
         except Exception:
             payload = ""
-        logging.info("收到消息 %s: %s", msg.topic, payload[:500])
+        # 默认只记录主题与长度；DEBUG 级别才输出脱敏后的报文
+        logging.info("收到消息 %s（%d 字节）", msg.topic, len(payload))
+        logging.debug("消息内容 %s: %s", msg.topic, self._redact_payload(payload))
         if msg.topic.startswith(TOPIC_ROOT + "/"):
             self._handle_request(msg.topic, payload)
         else:

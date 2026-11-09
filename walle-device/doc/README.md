@@ -159,7 +159,8 @@ cd ~/walle-device/walle_ws/src/car_control/ros_robot_controller/scripts
 sudo ./create_udev_rules.sh
 ```
 
-> 当前规则仅放行 `ttyACM0`；P1-3.4 会进一步创建 `/dev/rrc` 并收紧权限。
+> 规则会创建 `/dev/rrc`（`ttyAMA0`，`dialout` 0660）和 `/dev/walle-camera`（USB 摄像头，按 idVendor/idProduct 匹配）；确保运行用户在 `dialout` 与 `video` 组。
+> 换摄像头后需更新 `99-walle-camera.rules` 的 USB id 与两个 yaml 中的设备路径。
 
 ## 部署 Walle AI
 
@@ -208,3 +209,29 @@ journalctl -u walle-ai -f       # 查看日志
 ```
 
 上线前请把 `scripts/env_walle.sh` 中的 `WALLE_RUNTIME_ENV=debug` 注释掉，改用 prod。
+
+## 稳定性测试（上线前）
+
+`scripts/stability_test.py` 用于故障注入与长稳验证，建议在整机镜像上以 root 执行：
+
+```bash
+sudo ./scripts/stability_test.py health                       # 服务/节点/MQTT 基线
+sudo ./scripts/stability_test.py kill                         # 逐个 kill 节点，等待自动拉起
+sudo ./scripts/stability_test.py camera                       # 解绑/绑定 uvcvideo，模拟拔插摄像头
+sudo ./scripts/stability_test.py network --offline 15         # 只拦截 Broker 流量，不影响 SSH
+./scripts/stability_test.py soak --hours 24 --require-stream  # 持续推流并采样 24h
+```
+
+- `network --mode link --iface wlan0` 才会断开整块网卡，需在串口/本地终端执行（脚本带延时自动恢复兜底）。
+- 串口掉线无法软件模拟：手动拔插 `/dev/rrc` 后观察 `ros_robot_controller` 是否自动重连。
+- `soak` 的 CSV 写入 `~/.ros/log/stability/soak-*.csv`，结束时按 RSS / FD / 磁盘增长判定泄漏；任一项 `FAIL` 需在发布前处理。
+
+## 持续集成
+
+`.github/workflows/ci.yml` 在 PR / push 到 `main`、`dev` 时执行：
+
+- `lint`：全仓库关键 lint（语法、未定义名）+ `scripts` 与测试目录的 flake8
+- `build-test`：ROS 2 Jazzy 下 `colcon build`，并运行 `controller`、`net_mqtt_bridge`、`video_webrtc_bridge` 的单元测试
+
+首次使用需在 GitHub 仓库 `Settings → Branches` 为 `main` / `dev` 添加保护规则，
+勾选 `Require status checks to pass before merging` 并选择 `lint`、`build-test`。

@@ -30,6 +30,17 @@ from std_msgs.msg import Bool
 from interfaces.msg import VideoStreamStatus
 from interfaces.srv import VideoStreamControl
 
+DEFAULT_ROOM_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
+
+
+def valid_room_number(room, pattern=DEFAULT_ROOM_PATTERN):
+    """校验视频房间号：默认只允许 1-64 位字母/数字/下划线/短横线。
+
+    房间号会拼进 RTMP URL，因此用 fullmatch 而不是 match：即使自定义 pattern
+    忘了加锚点，也不会放过 ``room/../x`` 这类前缀匹配。
+    """
+    return re.fullmatch(pattern, room or "") is not None
+
 
 def _load_env_file(path):
     """读取 KEY=VALUE 环境文件（不覆盖已存在的变量），用于拿 WHIP_SECRET。"""
@@ -158,7 +169,7 @@ class VideoWebrtcBridge(Node):
         self.camera_device = self.declare_parameter("camera_device", "/dev/video0").value
         self.framerate = float(self.declare_parameter("framerate", 30.0).value)
         self.room_pattern = self.declare_parameter(
-            "room_number_pattern", r"^[A-Za-z0-9_-]{1,64}$").value
+            "room_number_pattern", DEFAULT_ROOM_PATTERN).value
 
         default_rtmp = os.environ.get(
             "VIDEO_RTMP_URL_TEMPLATE",
@@ -188,6 +199,13 @@ class VideoWebrtcBridge(Node):
             "log_dir", os.path.expanduser("~/.ros/log/video_webrtc_bridge")).value
         self.log_max_bytes = int(
             self.declare_parameter("log_max_bytes", 20 * 1024 * 1024).value)
+        # 历史日志保留策略：按天数 / 文件数 / 总大小清理，避免 7x24 推流占满磁盘
+        self.log_retention_days = float(
+            self.declare_parameter("log_retention_days", 7.0).value)
+        self.log_max_files = int(
+            self.declare_parameter("log_max_files", 10).value)
+        self.log_max_total_bytes = int(
+            self.declare_parameter("log_max_total_bytes", 100 * 1024 * 1024).value)
 
         self.heartbeat_topic = self.declare_parameter(
             "heartbeat_topic", "/net_mqtt_bridge/heartbeat").value
@@ -336,7 +354,7 @@ class VideoWebrtcBridge(Node):
             response.error = "设备节点不存在: %s" % (device or "<空>")
             return response
 
-        if not re.match(self.room_pattern, room):
+        if not valid_room_number(room, self.room_pattern):
             response.result = -2
             response.cause = "命令执行失败"
             response.action = "failed"
@@ -854,8 +872,54 @@ class VideoWebrtcBridge(Node):
         return info
 
     # ------------------------------------------------------------------ 日志
+    @staticmethod
+    def _safe_size(path):
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
+
+    def _remove_log(self, path):
+        try:
+            os.remove(path)
+        except OSError as exc:
+            self.get_logger().warning("删除旧日志 %s 失败：%s" % (path, exc))
+
+    def _cleanup_logs(self, base_dir):
+        """按保留天数 / 文件数 / 总大小清理历史 ffmpeg 日志。"""
+        try:
+            files = [
+                os.path.join(base_dir, name)
+                for name in os.listdir(base_dir)
+                if name.startswith("ffmpeg_") and name.endswith(".log")
+            ]
+            files.sort(key=lambda p: os.path.getmtime(p))
+            now = time.time()
+            keep = []
+            for path in files:
+                try:
+                    age_days = (now - os.path.getmtime(path)) / 86400.0
+                except OSError:
+                    continue
+                if self.log_retention_days > 0 and age_days > self.log_retention_days:
+                    self._remove_log(path)
+                    continue
+                keep.append(path)
+            while self.log_max_files > 0 and len(keep) > self.log_max_files:
+                self._remove_log(keep.pop(0))
+            if self.log_max_total_bytes > 0:
+                total = sum(self._safe_size(path) for path in keep)
+                while keep and total > self.log_max_total_bytes:
+                    path = keep.pop(0)
+                    total -= self._safe_size(path)
+                    self._remove_log(path)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warning("清理 ffmpeg 日志失败：%s" % exc)
+
     def _make_log_sink(self, header):
         base_dir = self.log_dir or os.path.expanduser("~/.ros/log/video_webrtc_bridge")
+        os.makedirs(base_dir, exist_ok=True)
+        self._cleanup_logs(base_dir)
         path = os.path.join(
             base_dir, "ffmpeg_%s.log" % time.strftime("%Y%m%d_%H%M%S"))
         try:

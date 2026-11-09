@@ -12,6 +12,7 @@ get_device / get_max_sample_rate / log_print）。
 """
 import base64
 import os
+import queue
 import re
 import subprocess
 import tempfile

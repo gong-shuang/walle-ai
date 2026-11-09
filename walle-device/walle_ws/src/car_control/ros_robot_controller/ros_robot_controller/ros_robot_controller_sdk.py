@@ -96,16 +96,22 @@ class Board:
             'GAMEPAD_BUTTON_MASK_R1':        0x8000
     }
 
-    def __init__(self, device="/dev/rrc", baudrate=1000000, timeout=10):
+    def __init__(self, device="/dev/rrc", baudrate=1000000, timeout=1):
         self.enable_recv = False
         self.frame = []
         self.recv_count = 0
 
-        self.port = serial.Serial(None, baudrate, timeout=timeout)
+        self.device = device
+        self.timeout = timeout
+        # write_timeout：串口卡住时最多阻塞 0.5s，避免拖死 ROS 回调
+        self.port = serial.Serial(None, baudrate, timeout=timeout, write_timeout=0.5)
         self.port.rts = False
         self.port.dtr = False
         self.port.setPort(device)
-        self.port.open()
+        self._port_lock = threading.RLock()
+        self._connected = False
+        # 首次打开失败不阻塞节点启动，由 recv_task 周期重连
+        self._connect()
 
         self.state = PacketControllerState.PACKET_CONTROLLER_STATE_STARTBYTE1
         self.servo_read_lock = threading.Lock()
@@ -322,8 +328,15 @@ class Board:
         buf.extend(data)
         buf.append(checksum_crc8(bytes(buf[2:])))
         buf = bytes(buf)
-        self.port.write(buf)
-        #print(buf)
+        with self._port_lock:
+            if not self._connected and not self._connect():
+                return False
+            try:
+                self.port.write(buf)
+                return True
+            except (serial.SerialException, OSError) as exc:
+                self._disconnect(f"写入异常: {exc}")
+                return False
 
 
     def set_led(self, on_time, off_time, repeat=1, led_id=1):
@@ -388,7 +401,10 @@ class Board:
     def pwm_servo_read_and_unpack(self, servo_id, cmd, unpack):
         with self.servo_read_lock:
             self.buf_write(PacketFunction.PACKET_FUNC_PWM_SERVO, [cmd, servo_id])
-            data = self.pwm_servo_queue.get(block=True)
+            try:
+                data = self.pwm_servo_queue.get(block=True, timeout=2.0)
+            except queue.Empty:
+                return None
             servo_id, cmd, info = struct.unpack(unpack, data)
             return info
 
@@ -451,7 +467,10 @@ class Board:
     def bus_servo_read_and_unpack(self, servo_id, cmd, unpack):
         with self.servo_read_lock:
             self.buf_write(PacketFunction.PACKET_FUNC_BUS_SERVO, [cmd, servo_id])
-            data = self.bus_servo_queue.get(block=True)
+            try:
+                data = self.bus_servo_queue.get(block=True, timeout=2.0)
+            except queue.Empty:
+                return None
             servo_id, cmd, success, *info = struct.unpack(unpack, data)
             if success == 0:
                 return info
@@ -486,10 +505,48 @@ class Board:
     def enable_reception(self, enable=True):
         self.enable_recv = enable
 
+    def _connect(self):
+        """打开串口；失败返回 False，由 recv_task 周期重试。"""
+        with self._port_lock:
+            if self._connected:
+                return True
+            try:
+                if not self.port.is_open:
+                    self.port.open()
+                self.port.reset_input_buffer()
+                self.state = PacketControllerState.PACKET_CONTROLLER_STATE_STARTBYTE1
+                self.frame = []
+                self._connected = True
+                print(f"[Board] 串口已连接：{self.device}")
+                return True
+            except (serial.SerialException, OSError) as exc:
+                print(f"[Board] 串口连接失败：{self.device}（{exc}），稍后重试")
+                return False
+
+    def _disconnect(self, reason):
+        with self._port_lock:
+            if self._connected:
+                print(f"[Board] 串口断开：{self.device}（{reason}），稍后重连")
+            self._connected = False
+            try:
+                if self.port.is_open:
+                    self.port.close()
+            except (serial.SerialException, OSError):
+                pass
+
     def recv_task(self):
         while True:
+            if not self._connected:
+                if not self._connect():
+                    time.sleep(1.0)
+                    continue
             if self.enable_recv:
-                recv_data = self.port.read()
+                try:
+                    recv_data = self.port.read()
+                except (serial.SerialException, OSError) as exc:
+                    self._disconnect(f"读取异常: {exc}")
+                    time.sleep(1.0)
+                    continue
                 if recv_data:
                     for dat in recv_data:
                         # print("%0.2X "%dat)

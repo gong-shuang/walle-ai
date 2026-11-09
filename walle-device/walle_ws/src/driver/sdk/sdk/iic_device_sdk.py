@@ -103,19 +103,14 @@ class Sonar:
         self.setBreathCycle(2, 2, 3400)
 
     def getDistance(self):
-        dist = 99999
-        try:
-            with SMBus(self.i2c) as bus:
-                msg = i2c_msg.write(self.i2c_addr, [0, ])
-                bus.i2c_rdwr(msg)
-                read = i2c_msg.read(self.i2c_addr, 2)
-                bus.i2c_rdwr(read)
-                dist = int.from_bytes(bytes(list(read)), byteorder='little', signed=False)
-                if dist > 5000:
-                    dist = 5000
-        except BaseException as e:
-            print(e)
-        return dist
+        with SMBus(self.i2c) as bus:
+            msg = i2c_msg.write(self.i2c_addr, [0, ])
+            bus.i2c_rdwr(msg)
+            read = i2c_msg.read(self.i2c_addr, 2)
+            bus.i2c_rdwr(read)
+            dist = int.from_bytes(bytes(list(read)), byteorder='little', signed=False)
+        # 超量程按 5000mm 处理；I2C 异常向上抛出，由调用方决定告警与重试
+        return min(dist, 5000)
 
 
 class SpeechModule:

@@ -11,9 +11,9 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
-| P1 上线前应修 | 19 | 7 | 12 |
+| P1 上线前应修 | 19 | 18 | 1 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **24** | **34** |
+| **合计** | **58** | **35** | **23** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -130,7 +130,7 @@
   - 验收：整机重启后服务自启；`kill` 主进程后 5s 内被拉起
 
 - [x] ✅ **P1-1.3 明确启动顺序与健康检查**
-  - 处理：`bringup.launch.py` 按「底盘 → usb_cam/声呐 → 视频桥/语音/大模型 → MQTT/自检」分 4 个阶段启动，每阶段打印 `[bringup] 阶段 x/4`；`startup_check` 等待 `ros_robot_controller` / `mecanum_chassis_node` / `usb_cam` / `video_webrtc_bridge` / `net_mqtt_bridge` 最多 30s，就绪打印 `STARTUP READY` 并发布 `/bringup/startup_status`（`ready`），超时打印缺失节点
+  - 处理：`bringup.launch.py` 按「底盘 → usb_cam/声呐 → 视频桥/语音/大模型 → MQTT/自检」分 4 个阶段启动，每阶段打印 `[bringup] 阶段 x/4`；`startup_check` 等待 `ros_robot_controller` / `mecanum_chassis_node` / `usb_cam` / `video_webrtc_bridge` / `net_mqtt_bridge` 最多 30s，并检查 `/image_raw` 有发布者，就绪打印 `STARTUP READY` 并发布 `/bringup/startup_status`（`ready`），超时打印缺失节点/话题
   - 验收：冷启动日志可见 4 个阶段标记与 `STARTUP READY`；`ros2 topic echo /bringup/startup_status` 可看到 `ready`
 
 ### P1-2 部署可复现
@@ -153,64 +153,58 @@
 
 ### P1-3 硬件断连恢复
 
-- [ ] 🔴 **P1-3.1 串口断连自动重连**
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_sdk.py` L99-L108 只 open 一次；`recv_task` L489-L490 无异常处理
-  - 动作：打开失败重试；读写异常关闭端口并周期性重连；重连后重新使能接收
-  - 验收：拔插控制器 USB 后自动恢复，无需重启节点
+- [x] ✅ **P1-3.1 串口断连自动重连**
+  - 处理：`Board` 增加 `_connect` / `_disconnect` 与 1s 周期重连；串口打开失败不再阻塞节点启动；读/写异常会关闭端口并自动重连；重连后清空解析状态、重新使能接收；写入失败返回 False 不抛异常
+  - 验收：拔插控制器 USB 后自动恢复，无需重启节点（需实车验证）
 
-- [ ] 🔴 **P1-3.2 串口 I/O 不阻塞 ROS executor**
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` 使用单线程 `rclpy.spin`，串口 timeout 10s
-  - 动作：串口写放到独立线程/队列；或使用 MultiThreadedExecutor + 回调组
-  - 验收：串口卡顿时 `/cmd_vel` 与状态查询仍能及时响应
+- [x] ✅ **P1-3.2 串口 I/O 不阻塞 ROS executor**
+  - 处理：串口读 `timeout=1s`、写 `write_timeout=0.5s`；舵机读取队列 `timeout=2s` 超时返回 None；节点改用 `MultiThreadedExecutor`，底盘/执行器写回调放入 `ReentrantCallbackGroup`，与状态查询回调互不阻塞
+  - 验收：串口卡顿时 `/cmd_vel` 与状态查询仍能及时响应（需实车验证）
 
-- [ ] 🔴 **P1-3.3 摄像头设备节点固定**
-  - 证据：`walle_ws/src/video/video_webrtc_bridge/config/video_webrtc_bridge.yaml` L7、`walle_ws/src/video/walle_video/config/usb_cam_param.yaml` L3 固定 `/dev/video0`；本机存在多个 video 节点
-  - 动作：改用 `/dev/v4l/by-id/...` 或 udev 固定符号链接
-  - 验收：重启/插拔后始终打开正确摄像头
+- [x] ✅ **P1-3.3 摄像头设备节点固定**
+  - 处理：新增 `99-walle-camera.rules`，按 `idVendor/idProduct` 创建一级符号链接 `/dev/walle-camera`；`usb_cam_param.yaml` 与 `video_webrtc_bridge.yaml` 使用该路径（`usb_cam` 不支持 by-id 深层链接，会把 `../../video0` 拼成 `/dev/../../video0`）
+  - 验收：重启/插拔后 `/dev/walle-camera` 始终指向正确摄像头，`usb_cam` 正常打开；换相机时更新 udev id 与配置
 
-- [ ] 🔴 **P1-3.4 补齐 `/dev/rrc` udev 规则**
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/scripts/99-ttyACM0.rules` 未创建 `/dev/rrc` 符号链接，且 `GROUP="ubuntu"`、`MODE="0777"` 与当前系统不匹配
-  - 动作：按实际串口设备增加 `SYMLINK+="rrc"`，权限改为 `0660` + 正确属组
-  - 验收：全新镜像启动即存在可读写的 `/dev/rrc`
+- [x] ✅ **P1-3.4 补齐 `/dev/rrc` udev 规则**
+  - 处理：规则改为 `99-rrc.rules`——`ttyAMA0` 创建 `SYMLINK+="rrc"`，属组 `dialout`、`MODE=0660`；兼容 `ttyACM0` 并忽略 ModemManager；`create_udev_rules.sh` 自动安装
+  - 验收：全新镜像安装规则后存在可读写的 `/dev/rrc`；仅 `dialout` 组可访问
 
-- [ ] 🔴 **P1-3.5 声呐 I2C 异常与超时处理**
-  - 证据：`walle_ws/src/car_control/sonar_controller/sonar_controller/sonar_controller_node.py` L40-L50 发布线程无 try/except；I2C 异常只打印
-  - 动作：异常捕获、连续失败计数、超时发布无效值或告警；线程不退出
-  - 验收：拔掉声呐模块后节点存活并上报异常，不静默停更
+- [x] ✅ **P1-3.5 声呐 I2C 异常与超时处理**
+  - 处理：`Sonar.getDistance()` 不再吞异常，I2C 失败向上抛出；节点读取线程增加 try/except、连续失败计数，失败时发布 `-1` 无效值并按 1/50 次节流告警，恢复后打印恢复日志；RGB 写入与退出清理同样加保护，线程不退出
+  - 验收：拔掉声呐后节点存活，`/sonar_controller/get_distance` 持续输出 `-1` 并告警；插回后自动恢复读数
 
 ### P1-4 日志与可观测性
 
-- [ ] 🔴 **P1-4.1 ffmpeg 日志保留策略**
-  - 证据：每次推流新建 `~/.ros/log/video_webrtc_bridge/ffmpeg_*.log`，单文件 20MB，无跨文件清理
-  - 动作：按数量/天数/总大小清理；写入 systemd journal 或统一日志目录
-  - 验收：连续推流 7 天后日志占用受控
+- [x] ✅ **P1-4.1 ffmpeg 日志保留策略**
+  - 处理：`video_webrtc_bridge` 每次新建日志前按「7 天 / 最多 10 个文件 / 总 100MB」清理最旧的 `ffmpeg_*.log`；可通过 `log_retention_days` / `log_max_files` / `log_max_total_bytes` 调整
+  - 验收：连续推流 7 天后日志占用受控在约 100MB / 10 个文件以内
 
-- [ ] 🔴 **P1-4.2 MQTT 日志降级与脱敏**
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py` L1462 在 INFO 打印 payload（截断 500 字符）
-  - 动作：默认不打印完整报文；密钥、房间号等脱敏；调试级别才输出
-  - 验收：生产日志无敏感字段
+- [x] ✅ **P1-4.2 MQTT 日志降级与脱敏**
+  - 处理：`on_message` 默认只记录主题与字节数；完整报文改为 DEBUG 级别，并对 password/secret/token/key/room 等字段脱敏后截断
+  - 验收：生产 INFO 日志不包含报文内容与敏感字段
 
 - [ ] 🔴 **P1-4.3 远程日志与关键指标**
+  - 状态：暂缓——远程日志文件上报作为新需求后续处理（2026-11-09 确认），指标上报随该需求一起设计
   - 动作：接入 journald/远程日志；上报在线率、请求失败率、推流失败率、CPU/温度
   - 验收：现场故障可远程定位，不依赖 SSH
 
 ### P1-5 测试与 CI
 
-- [ ] 🔴 **P1-5.1 远程命令移除回归测试**
-  - 动作：断言 `subscriptions()` 不含 `cmd/exec`、`REQUEST_HANDLERS` 不含 `handle_cmd_exec`、`capabilities[]` 不含 `remote_cmd`
-  - 验收：任何重新引入该主题的改动都会在 CI 失败
+- [x] ✅ **P1-5.1 远程命令移除回归测试**
+  - 处理：新增 `test/test_remote_cmd_removed.py`，断言 `subscriptions()` 不含 `cmd/exec`、`REQUEST_HANDLERS` 不含 `handle_cmd_exec`，且 `agent.py` 源码不含 `remote_cmd` / `cmd/exec` / `handle_cmd_exec`
+  - 验收：本地 `pytest` 3 项通过；CI（P1-5.4）接入后任何重新引入都会失败
 
-- [ ] 🔴 **P1-5.2 运动学与协议单测**
-  - 动作：麦克纳姆轮四轮解算、`Twist` 限幅、`request_id`/`uuid` 校验、视频房间号校验
-  - 验收：关键分支覆盖率有基线并持续提升
+- [x] ✅ **P1-5.2 运动学与协议单测**
+  - 处理：新增 `controller/test/test_mecanum.py`（四轮解算、`Twist` 限幅/加速度斜坡/看门狗停车）、`net_mqtt_bridge/test/test_protocol.py`（`uuid` 校验、`request_id` 缺省与回传、订阅主题格式、主题段清洗）、`video_webrtc_bridge/test/test_room.py`（房间号校验）；房间号校验抽为 `valid_room_number()`，改用 `fullmatch` 避免未加锚点的 pattern 被前缀匹配绕过
+  - 验收：三个包 `pytest` 共 63 项通过（21 + 23 + 19，含 P1-5.1 的 3 项）；`controller` 的 copyright/flake8/pep257 为包内历史遗留失败，与本次单测无关
 
-- [ ] 🔴 **P1-5.3 故障注入与长稳测试**
-  - 动作：断网、断串口、拔相机、杀节点、MQTT 重连、连续推流 24h
-  - 验收：无人工介入即可恢复；无内存/句柄/磁盘泄漏
+- [x] ✅ **P1-5.3 故障注入与长稳测试**
+  - 处理：新增 `scripts/stability_test.py`：`kill` 逐个 SIGKILL 关键节点并等待 launch/systemd 拉起；`camera` 通过 sysfs 解绑/绑定 uvcvideo 模拟拔插；`network` 默认用 iptables 只拦截 Broker 流量（不影响 SSH），`--mode link` 才断整块网卡并带延时恢复兜底；`soak` 周期采样 RSS/FD/磁盘/温度并输出 CSV，结束时判定泄漏趋势。串口掉线无法软件模拟，README 补充手动拔插步骤
+  - 验收：脚本 `--help`、`health`、`kill`（无节点）、`camera`（非 USB 设备）、`soak`（9 样本）冒烟通过；真机需按 README 执行 kill/camera/network/soak 24h 并留存 CSV
 
-- [ ] 🔴 **P1-5.4 CI 流水线**
-  - 动作：build + lint + test；合并前必须通过
-  - 验收：CI 红灯阻断合并
+- [x] ✅ **P1-5.4 CI 流水线**
+  - 处理：新增根目录 `.github/workflows/ci.yml`：`lint` job 执行全仓库关键 lint（E9/F63/F7/F82，排除 build/install）与 `scripts`/测试目录的严格 flake8；`build-test` job 在 ROS 2 Jazzy 下 `colcon build` 并运行三个包的 pytest。同时补 `sdk/common.py` 缺失的 `random`、`speech.py` 缺失的 `queue` 导入，保证关键 lint 基线通过
+  - 验收：本地按 CI 命令验证：临时干净目录构建 15 个包成功，63 项单测通过，两项 lint 通过；GitHub 上需在 `Settings → Branches` 为 `main`/`dev` 启用 Require status checks（`lint`、`build-test`）才能阻断合并
 
 ---
 
@@ -408,11 +402,22 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P0-5.4 | 未提交 | deploy.sh 完成配置检查 + 600 安装 + systemd 单元，`systemd-analyze verify` 通过；开发 `./start.sh` 读取 `walle-ai.conf`；真机待 `./deploy.sh` 复测 | 待确认 |
 | 2026-11-09 | P1-1.1 | 未提交 | 关键节点已加 respawn；需实车逐个 `kill` 验证 5s 内恢复 | 待确认 |
 | 2026-11-09 | P1-1.2 | 未提交 | `walle-ai.service` 已由 deploy.sh 安装并 enable，Restart/network-online 已配置；待整机重启与 kill 验证 | 待确认 |
-| 2026-11-09 | P1-1.3 | 未提交 | 4 阶段启动 + `startup_check` 节点就绪判定与 `/bringup/startup_status`；待冷启动验证阶段日志与 `ready` | 待确认 |
+| 2026-11-09 | P1-1.3 | 未提交 | 4 阶段启动 + `startup_check` 节点就绪判定与 `/bringup/startup_status`；已补充 `/image_raw` 发布者检查，待冷启动验证 | 待确认 |
 | 2026-11-09 | P1-2.1 | 未提交 | README 补齐项目介绍/依赖/编译/udev/deploy/启动步骤；待按文档在全新环境复测 | 待确认 |
 | 2026-11-09 | P1-2.3 | 未提交 | 新增 `doc/requirements.txt`，直接依赖锁定版本；apt 依赖在 README 说明 | 待确认 |
 | 2026-11-09 | P1-2.2 | 未提交 | 职责拆分：deploy.sh 只做系统级安装；README 覆盖环境/依赖/build/udev；待按文档在全新系统复测 | 待确认 |
 | 2026-11-09 | P1-2.4 | 未提交 | `WALLE_VENV` 可覆盖 venv 路径，site-packages 按实际 Python 版本取；默认路径与不存在路径均已验证 | 待确认 |
+| 2026-11-09 | P1-3.1 | 未提交 | SDK 增加串口自动重连；编译通过；需实车拔插 USB 验证 | 待确认 |
+| 2026-11-09 | P1-3.2 | 未提交 | 串口读写超时收紧 + MultiThreadedExecutor/回调组；编译通过；需实车验证卡顿不阻塞 | 待确认 |
+| 2026-11-09 | P1-3.3 | 未提交 | 新增 `99-walle-camera.rules`，相机固定 `/dev/walle-camera`；待安装 udev 规则后重启验证 | 待确认 |
+| 2026-11-09 | P1-3.4 | 未提交 | `99-rrc.rules` 创建 `/dev/rrc`（ttyAMA0，dialout 0660）；待全新镜像或 reload udev 验证 | 待确认 |
+| 2026-11-09 | P1-3.5 | 未提交 | 声呐 I2C 异常不再吞掉，失败发布 -1 并节流告警；编译后待拔插验证 | 待确认 |
+| 2026-11-09 | P1-4.1 | 未提交 | ffmpeg 日志按 7 天/10 个/100MB 清理；编译通过，待连续推流验证 | 待确认 |
+| 2026-11-09 | P1-4.2 | 未提交 | MQTT 报文默认只记录主题与长度，DEBUG 才输出脱敏内容；编译通过 | 待确认 |
+| 2026-11-09 | P1-5.1 | 未提交 | 新增远程命令移除回归测试，本地 pytest 3 项通过；待 P1-5.4 CI 接入 | 待确认 |
+| 2026-11-09 | P1-5.2 | 未提交 | 新增运动学/协议/房间号单测共 60 项，三包 pytest 通过；controller 历史 lint 失败不影响用例 | 待确认 |
+| 2026-11-09 | P1-5.3 | 未提交 | 新增 `stability_test.py`（kill/camera/network/soak）并完成冒烟；真机 24h 长稳待执行 | 待确认 |
+| 2026-11-09 | P1-5.4 | 未提交 | 新增 GitHub Actions `ci.yml`（lint + build-test）；本地按 CI 命令干净构建 15 包、63 项单测通过；分支保护待 GitHub 设置 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -428,6 +433,33 @@ cd walle-device/scripts && ./start.sh
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
 - 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.conf`
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
+- 2026-11-09：P1-5.1 新增 `test/test_remote_cmd_removed.py`，覆盖订阅主题、
+  REQUEST_HANDLERS 与源码中的 remote_cmd/cmd/exec/handle_cmd_exec。
+- 2026-11-09：P1-5.4 新增 `.github/workflows/ci.yml`：`lint` 覆盖全仓库关键 lint
+  与 `scripts`/测试目录严格 flake8，`build-test` 在 Jazzy 下构建并跑三个包单测；
+  顺带补齐 `sdk/common.py` 的 `random` 与 `speech.py` 的 `queue` 导入。
+  GitHub 分支保护（Require status checks）需在仓库 Settings 中手动启用。
+- 2026-11-09：P1-5.3 新增 `scripts/stability_test.py`：`kill` 验证节点自治恢复；
+  `camera` 用 sysfs unbind/bind 模拟拔插；`network` 默认只拦截 Broker 流量，
+  `--mode link` 断网卡并带延时恢复兜底；`soak` 采样 RSS/FD/磁盘/温度并判定泄漏。
+  README 增加「稳定性测试（上线前）」操作步骤，串口掉线保留手动拔插验证。
+- 2026-11-09：P1-5.2 新增三组单测：`test_mecanum.py` 覆盖四轮映射、
+  Twist 限幅/加速度斜坡/看门狗停车；`test_protocol.py` 覆盖 uuid 校验、
+  request_id 缺省与回传、订阅主题无通配符；`test_room.py` 覆盖房间号白名单。
+  房间号校验抽为 `valid_room_number()` 并改用 `fullmatch`，
+  `re.match` 会放过 `room/../x` 这类前缀匹配。
+- 2026-11-09：P1-4.3 暂缓——远程日志文件上报作为新需求后续处理，
+  指标上报（在线率/请求失败率/推流失败率）随该需求一起设计。
+- 2026-11-09：P1-4.1 ffmpeg 日志按 7 天/10 个文件/100MB 清理；
+  P1-4.2 MQTT 报文默认只记录主题与长度，DEBUG 才输出脱敏内容。
+- 2026-11-09：P1-3.5 声呐 I2C 读取失败不再静默，节点发布 `-1` 无效值并节流告警，
+  恢复后自动继续；RGB 写入与退出清理加异常保护。
+- 2026-11-09：P1-3.3/P1-3.4 相机固定为 `/dev/walle-camera`（`99-walle-camera.rules`，
+  usb_cam 不支持 by-id 深层链接）；udev 规则改为 `99-rrc.rules`
+  （ttyAMA0 → `/dev/rrc`，dialout 0660），README 同步说明。
+- 2026-11-09：P1-3.1/P1-3.2 `Board` 增加串口自动重连（1s 周期），读写异常关闭
+  端口并重连；串口读 1s/写 0.5s/舵机读取 2s 超时；节点改用 MultiThreadedExecutor
+  与 ReentrantCallbackGroup，避免串口卡顿阻塞 `/cmd_vel` 与状态查询（需实车验证）。
 - 2026-11-09：P1-2.4 `env_walle.sh` 新增 `WALLE_VENV`（默认 `$HOME/venv`），
   venv 路径与 site-packages 均动态获取；缺 venv 时明确报错。
 - 2026-11-09：P1-2.2 按职责拆分：`deploy.sh` 只做系统级安装（配置 + service），
@@ -435,8 +467,8 @@ cd walle-device/scripts && ./start.sh
 - 2026-11-09：P1-2.1 README 补齐 Ubuntu/ROS2/venv/依赖/编译/udev/部署步骤；
   P1-2.3 新增 `doc/requirements.txt`（锁定直接 pip 依赖，OpenCV/ffmpeg 走 apt）。
 - 2026-11-09：P1-1.3 `bringup` 改为 4 阶段顺序启动，`startup_check`
-  等待关键节点并发布 `/bringup/startup_status`（`ready` / `timeout: missing=...`）；
-  声呐、语音、AI 节点作为可选节点只告警不判失败。
+  等待关键节点并检查 `/image_raw` 有发布者，就绪发布 `/bringup/startup_status`
+  （`ready` / `timeout: missing=...`）；声呐、语音、AI 节点只告警不判失败。
 - 2026-11-09：P1-1.1 已给底盘、usb_cam、声呐、语音、大模型节点加
   `respawn=True`；P1-1.2 的 `walle-ai.service` 由 `deploy.sh` 安装并 enable，
   已有 `Restart=always`/网络就绪，`WatchdogSec` 暂未启用（节点无 sd_notify）。
