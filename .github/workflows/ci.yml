@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install flake8
+        run: python3 -m pip install flake8
+
+      # 全仓库只拦截真正的错误（语法、未定义名、语法级 F7x），
+      # 历史代码的风格问题留给下面的新增/维护文件严格检查。
+      - name: Critical lint
+        run: >
+          flake8 --select=E9,F63,F7,F82 --show-source
+          --exclude=build,install,log
+          walle-device
+
+      - name: Lint scripts and tests
+        run: >
+          flake8 --select=E,F,W --max-line-length=99
+          walle-device/scripts
+          walle-device/walle_ws/src/car_control/controller/test
+          walle-device/walle_ws/src/net/net_mqtt_bridge/test
+          walle-device/walle_ws/src/video/video_webrtc_bridge/test
+
+  build-test:
+    name: build-test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: jazzy
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3-colcon-common-extensions \
+            python3-pytest \
+            python3-opencv \
+            ros-jazzy-cv-bridge
+          python3 -m pip install --break-system-packages \
+            -r walle-device/doc/requirements.txt
+
+      - name: Build workspace
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          cd walle-device/walle_ws
+          colcon build --event-handlers console_cohesion+
+
+      - name: Unit tests
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source walle-device/walle_ws/install/setup.bash
+
+          (cd walle-device/walle_ws/src/car_control/controller \
+            && python3 -m pytest -q test/test_mecanum.py)
+          (cd walle-device/walle_ws/src/net/net_mqtt_bridge \
+            && python3 -m pytest -q test)
+          (cd walle-device/walle_ws/src/video/video_webrtc_bridge \
+            && python3 -m pytest -q test)

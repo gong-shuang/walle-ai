@@ -225,3 +225,13 @@ sudo ./scripts/stability_test.py network --offline 15         # 只拦截 Broker
 - `network --mode link --iface wlan0` 才会断开整块网卡，需在串口/本地终端执行（脚本带延时自动恢复兜底）。
 - 串口掉线无法软件模拟：手动拔插 `/dev/rrc` 后观察 `ros_robot_controller` 是否自动重连。
 - `soak` 的 CSV 写入 `~/.ros/log/stability/soak-*.csv`，结束时按 RSS / FD / 磁盘增长判定泄漏；任一项 `FAIL` 需在发布前处理。
+
+## 持续集成
+
+`.github/workflows/ci.yml` 在 PR / push 到 `main`、`dev` 时执行：
+
+- `lint`：全仓库关键 lint（语法、未定义名）+ `scripts` 与测试目录的 flake8
+- `build-test`：ROS 2 Jazzy 下 `colcon build`，并运行 `controller`、`net_mqtt_bridge`、`video_webrtc_bridge` 的单元测试
+
+首次使用需在 GitHub 仓库 `Settings → Branches` 为 `main` / `dev` 添加保护规则，
+勾选 `Require status checks to pass before merging` 并选择 `lint`、`build-test`。

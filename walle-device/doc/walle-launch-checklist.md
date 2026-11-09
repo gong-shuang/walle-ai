@@ -11,9 +11,9 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
-| P1 上线前应修 | 19 | 17 | 2 |
+| P1 上线前应修 | 19 | 18 | 1 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **34** | **24** |
+| **合计** | **58** | **35** | **23** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -202,9 +202,9 @@
   - 处理：新增 `scripts/stability_test.py`：`kill` 逐个 SIGKILL 关键节点并等待 launch/systemd 拉起；`camera` 通过 sysfs 解绑/绑定 uvcvideo 模拟拔插；`network` 默认用 iptables 只拦截 Broker 流量（不影响 SSH），`--mode link` 才断整块网卡并带延时恢复兜底；`soak` 周期采样 RSS/FD/磁盘/温度并输出 CSV，结束时判定泄漏趋势。串口掉线无法软件模拟，README 补充手动拔插步骤
   - 验收：脚本 `--help`、`health`、`kill`（无节点）、`camera`（非 USB 设备）、`soak`（9 样本）冒烟通过；真机需按 README 执行 kill/camera/network/soak 24h 并留存 CSV
 
-- [ ] 🔴 **P1-5.4 CI 流水线**
-  - 动作：build + lint + test；合并前必须通过
-  - 验收：CI 红灯阻断合并
+- [x] ✅ **P1-5.4 CI 流水线**
+  - 处理：新增根目录 `.github/workflows/ci.yml`：`lint` job 执行全仓库关键 lint（E9/F63/F7/F82，排除 build/install）与 `scripts`/测试目录的严格 flake8；`build-test` job 在 ROS 2 Jazzy 下 `colcon build` 并运行三个包的 pytest。同时补 `sdk/common.py` 缺失的 `random`、`speech.py` 缺失的 `queue` 导入，保证关键 lint 基线通过
+  - 验收：本地按 CI 命令验证：临时干净目录构建 15 个包成功，63 项单测通过，两项 lint 通过；GitHub 上需在 `Settings → Branches` 为 `main`/`dev` 启用 Require status checks（`lint`、`build-test`）才能阻断合并
 
 ---
 
@@ -417,6 +417,7 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P1-5.1 | 未提交 | 新增远程命令移除回归测试，本地 pytest 3 项通过；待 P1-5.4 CI 接入 | 待确认 |
 | 2026-11-09 | P1-5.2 | 未提交 | 新增运动学/协议/房间号单测共 60 项，三包 pytest 通过；controller 历史 lint 失败不影响用例 | 待确认 |
 | 2026-11-09 | P1-5.3 | 未提交 | 新增 `stability_test.py`（kill/camera/network/soak）并完成冒烟；真机 24h 长稳待执行 | 待确认 |
+| 2026-11-09 | P1-5.4 | 未提交 | 新增 GitHub Actions `ci.yml`（lint + build-test）；本地按 CI 命令干净构建 15 包、63 项单测通过；分支保护待 GitHub 设置 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -434,6 +435,10 @@ cd walle-device/scripts && ./start.sh
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
 - 2026-11-09：P1-5.1 新增 `test/test_remote_cmd_removed.py`，覆盖订阅主题、
   REQUEST_HANDLERS 与源码中的 remote_cmd/cmd/exec/handle_cmd_exec。
+- 2026-11-09：P1-5.4 新增 `.github/workflows/ci.yml`：`lint` 覆盖全仓库关键 lint
+  与 `scripts`/测试目录严格 flake8，`build-test` 在 Jazzy 下构建并跑三个包单测；
+  顺带补齐 `sdk/common.py` 的 `random` 与 `speech.py` 的 `queue` 导入。
+  GitHub 分支保护（Require status checks）需在仓库 Settings 中手动启用。
 - 2026-11-09：P1-5.3 新增 `scripts/stability_test.py`：`kill` 验证节点自治恢复；
   `camera` 用 sysfs unbind/bind 模拟拔插；`network` 默认只拦截 Broker 流量，
   `--mode link` 断网卡并带延时恢复兜底；`soak` 采样 RSS/FD/磁盘/温度并判定泄漏。
