@@ -34,7 +34,9 @@ fi
 
 export WALLE_ENV_LOADED=1
 
-export VERSION="|V0.0.1|2026-11-7|"
+# 版本号唯一来源：walle-device/VERSION（WALLE_VERSION_NUM / WALLE_VERSION_NAME / WALLE_VERSION_DATE）
+source "$current_dir/VERSION"
+export VERSION="|V${WALLE_VERSION_NAME}|${WALLE_VERSION_DATE}|"
 
 # 注释下面，就是生产环境
 export WALLE_RUNTIME_ENV=debug

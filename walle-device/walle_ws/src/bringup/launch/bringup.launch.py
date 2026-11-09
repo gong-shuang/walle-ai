@@ -3,7 +3,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
-                            OpaqueFunction, TimerAction)
+                            LogInfo, OpaqueFunction, TimerAction)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -14,6 +14,14 @@ def _debug_default():
     """调试类节点的默认开关：WALLE_RUNTIME_ENV=debug 为 true，prod/未设置为 false。"""
     runtime_env = os.environ.get('WALLE_RUNTIME_ENV', 'prod').strip().lower()
     return 'true' if runtime_env == 'debug' else 'false'
+
+
+def _version_banner():
+    """版本横幅：读取 env_walle.sh 从 walle-device/VERSION 导出的变量。"""
+    return 'Walle 版本 %s（build %s，%s）' % (
+        os.environ.get('WALLE_VERSION_NAME', 'unknown'),
+        os.environ.get('WALLE_VERSION_NUM', 'unknown'),
+        os.environ.get('WALLE_VERSION_DATE', 'unknown'))
 
 
 def launch_setup(context):
@@ -106,7 +114,11 @@ def launch_setup(context):
         actions=[startup_check_node]
     )
 
+    # 启动时统一打印版本（来自 env_walle.sh 导出的 WALLE_VERSION_*）
+    version_log = LogInfo(msg=_version_banner())
+
     return [
+        version_log,
         net_launch,
         web_video_server_launch,
         controller_launch,
