@@ -11,9 +11,9 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
-| P1 上线前应修 | 19 | 6 | 13 |
+| P1 上线前应修 | 19 | 7 | 12 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **23** | **35** |
+| **合计** | **58** | **24** | **34** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -147,10 +147,9 @@
   - 处理：新增 `doc/requirements.txt`，锁定 `paho-mqtt`、`psutil`、`pyserial`、`smbus2`、`numpy`、`dashscope`、`PyYAML`、`transforms3d` 版本；OpenCV / ffmpeg / python3-smbus 作为 apt 依赖在 README 说明
   - 验收：按 README 安装后无缺包；ROS2 包由 apt/colcon 提供，不混入 pip
 
-- [ ] 🔴 **P1-2.4 去掉 scripts/env_walle.sh 的环境硬编码**
-  - 证据：`scripts/env_walle.sh` 固定 `$HOME/venv` 与 Python 3.12 site-packages
-  - 动作：统一使用系统 Python + rosdep；或 venv 使用 `--system-site-packages` 并校验版本
-  - 验收：更换用户名/路径/Python 小版本后仍可启动
+- [x] ✅ **P1-2.4 去掉 scripts/env_walle.sh 的环境硬编码**
+  - 处理：新增 `WALLE_VENV` 变量（默认 `$HOME/venv`），激活与 site-packages 均按实际 venv 路径和 Python 版本动态获取；venv 缺失时明确报错并提示用 `WALLE_VENV` 指定；README 同步说明
+  - 验收：更换用户名/路径/Python 小版本后，设置 `WALLE_VENV` 即可正常启动
 
 ### P1-3 硬件断连恢复
 
@@ -413,6 +412,7 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P1-2.1 | 未提交 | README 补齐项目介绍/依赖/编译/udev/deploy/启动步骤；待按文档在全新环境复测 | 待确认 |
 | 2026-11-09 | P1-2.3 | 未提交 | 新增 `doc/requirements.txt`，直接依赖锁定版本；apt 依赖在 README 说明 | 待确认 |
 | 2026-11-09 | P1-2.2 | 未提交 | 职责拆分：deploy.sh 只做系统级安装；README 覆盖环境/依赖/build/udev；待按文档在全新系统复测 | 待确认 |
+| 2026-11-09 | P1-2.4 | 未提交 | `WALLE_VENV` 可覆盖 venv 路径，site-packages 按实际 Python 版本取；默认路径与不存在路径均已验证 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -428,6 +428,8 @@ cd walle-device/scripts && ./start.sh
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
 - 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.conf`
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
+- 2026-11-09：P1-2.4 `env_walle.sh` 新增 `WALLE_VENV`（默认 `$HOME/venv`），
+  venv 路径与 site-packages 均动态获取；缺 venv 时明确报错。
 - 2026-11-09：P1-2.2 按职责拆分：`deploy.sh` 只做系统级安装（配置 + service），
   编译/依赖/udev 由 README 说明；脚本禁止 root 直接执行，可重复运行。
 - 2026-11-09：P1-2.1 README 补齐 Ubuntu/ROS2/venv/依赖/编译/udev/部署步骤；

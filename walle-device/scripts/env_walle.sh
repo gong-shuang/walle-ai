@@ -14,8 +14,11 @@ current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # walle-device/scr
 walle_home="$(cd "$current_dir/.." && pwd)"                  # walle-device
 export TURBOPI_HOME="$walle_home"
 
+# venv 目录：默认 $HOME/venv；实际路径不同时用 WALLE_VENV 指定
+venv_path="${WALLE_VENV:-$HOME/venv}"
+
 # 已加载且 venv 仍是当前路径才跳过，避免重复 source 导致 PATH / PYTHONPATH 越叠越长
-if [[ -n "${WALLE_ENV_LOADED:-}" && "${VIRTUAL_ENV:-}" == "$HOME/venv" ]]; then
+if [[ -n "${WALLE_ENV_LOADED:-}" && "${VIRTUAL_ENV:-}" == "$venv_path" ]]; then
     return 0
 fi
 
@@ -63,14 +66,19 @@ export ROS_DOMAIN_ID=1
 # Jazzy 推荐 ROS_AUTOMATIC_DISCOVERY_RANGE（ROS_LOCALHOST_ONLY 已弃用）。
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 
-source "$HOME/venv/bin/activate"
+if [[ ! -f "$venv_path/bin/activate" ]]; then
+    echo -e "\033[31m[错误] 未找到 venv：$venv_path（可用 WALLE_VENV 指定实际路径）\033[0m" >&2
+    return 1
+fi
+source "$venv_path/bin/activate"
 source /opt/ros/jazzy/setup.bash
 source "$walle_home/walle_ws/install/setup.bash"
 # source "$current_dir/third_party_ros2/third_party_ws/install/setup.bash"
 
 # ROS 节点入口脚本 shebang 固定为 /usr/bin/python3，仅 activate venv 节点看不到其中的包，
-# 需把 venv 的 site-packages 显式加入 PYTHONPATH
-export PYTHONPATH="$PYTHONPATH:$HOME/venv/lib/python3.12/site-packages"
+# 需把 venv 的 site-packages 显式加入 PYTHONPATH（按实际 Python 版本取，兼容小版本变化）
+venv_site="$(python3 -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+export PYTHONPATH="$PYTHONPATH:$venv_site"
 
 # colcon_cd：在任意目录下用 colcon_cd <包名> 直达对应源码目录
 if [ -f /usr/share/colcon_cd/function/colcon_cd.sh ]; then
@@ -96,5 +104,6 @@ echo -e "ROS_DOMAIN_ID: \033[32m$ROS_DOMAIN_ID\033[0m"
 echo -e "ROS_DISCOVERY: \033[32m$ROS_AUTOMATIC_DISCOVERY_RANGE\033[0m"
 echo -e "ASR_LANGUAGE: \033[32m$ASR_LANGUAGE\033[0m"
 echo -e "WORKSPACE: \033[32m$walle_home/walle_ws\033[0m"
+echo -e "VENV:    \033[32m$venv_path\033[0m"
 echo -e "VERSION: \033[32m$VERSION\033[0m"
 echo -e "\033[32m----------------------------------------------\033[0m"

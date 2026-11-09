@@ -140,6 +140,8 @@ sudo apt install -y ffmpeg python3-opencv python3-smbus
 pip install -r ~/walle-device/doc/requirements.txt
 ```
 
+> 若 venv 不在 `~/venv`，在 source 前执行 `export WALLE_VENV=/path/to/venv`，`env_walle.sh` 会按实际路径激活。
+
 ## 编译与设备准备
 
 ### 编译工作空间
