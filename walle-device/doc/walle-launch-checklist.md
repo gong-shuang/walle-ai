@@ -10,10 +10,10 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 18 | 12 | 6 |
+| P0 上线阻断 | 18 | 14 | 4 |
 | P1 上线前应修 | 19 | 0 | 19 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **14** | **44** |
+| **合计** | **58** | **16** | **42** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -101,14 +101,13 @@
   - 处理：与 P0-1.4 一并完成——`MQTT_HOST` / `MQTT_USERNAME` 默认值已删除，必填项缺失时 `validate_mqtt_config()` 直接报错拒绝启动
   - 验收：`agent.py` 中无默认 MQTT 凭据；无 env 文件时节点拒绝启动
 
-- [ ] 🔴 **P0-5.2 env 文件模板化并加入 gitignore**
-  - 证据：`walle_ws/src/scripts/walle-ai.env` L3-L18 被 git 跟踪；`.gitignore` L1-L9 未忽略 env
-  - 动作：仓库只保留 `.env.example`；`*.env` 加入 `.gitignore`
-  - 验收：新增真实 env 文件不会被 `git status` 跟踪
+- [x] ✅ **P0-5.2 env 文件模板化并加入 gitignore**
+  - 处理：`walle_ws/src/scripts/walle-ai.env` 与 `linux/walle-ai.env` 重命名为 `*.env.example`；仓库根 `.gitignore` 新增 `*.env`；`auto.sh` 在缺少真实 `walle-ai.env` 时提示从模板复制并退出；部署文档与 `agent.py` 报错提示同步改为模板路径
+  - 验收：`git ls-files '*.env'` 为空；新建 `walle-ai.env` 后 `git check-ignore -v` 命中 `*.env`，`git status` 不跟踪
 
-- [ ] 🔴 **P0-5.3 扫描历史并轮换已暴露密钥**
-  - 动作：扫描提交历史中的 `ALIYUN_API_KEY`、MQTT 密码、`WHIP_SECRET`；确认暴露后立即轮换
-  - 验收：历史扫描无有效密钥；旧密钥全部失效
+- [x] ✅ **P0-5.3 扫描历史并轮换已暴露密钥**
+  - 处理：对全部 88 个提交执行 `git log --all -p --text`，扫描 `sk-`、`ALIYUN_API_KEY`、`MQTT_PASSWORD`、`WHIP_SECRET` 及私钥 / GitHub / AWS 令牌特征，仅发现占位符（`sk-你的新key`、`xxx`）与 shell 变量引用，无真实密钥；无需轮换
+  - 验收：历史扫描无有效密钥；若后续私下使用过真实密钥，仍建议主动轮换
 
 - [ ] 🔴 **P0-5.4 收紧配置文件权限**
   - 证据：`walle_ws/src/scripts/auto.sh` L8 安装为 `root:gs 640`，依赖固定用户组
@@ -376,6 +375,11 @@ ls -l /dev/rrc /dev/v4l/by-id/
 #    期望：看不到车上的节点/话题（车上为 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST）
 ros2 node list
 ros2 topic list
+
+# 7) env 文件不入库（在仓库根目录执行）
+#    期望：无输出；真实 env 命中 *.env 忽略规则
+git ls-files '*.env'
+git check-ignore -v walle-device/walle_ws/src/scripts/walle-ai.env
 ```
 
 ---
@@ -395,6 +399,8 @@ ros2 topic list
 | 2026-11-08 | P2-5.1 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 9090 无监听；`debug` 或显式传参才启动 | 待确认 |
 | 2026-11-08 | P2-5.2 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 8080 无监听；`debug` 或显式传参才启动 | 待确认 |
 | 2026-11-09 | P0-4.1 / P0-4.2 | 未提交 | 选择 4.1：干净环境 source 后 `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`；需两台车同网段复测互不可见 | 待确认 |
+| 2026-11-09 | P0-5.2 | 未提交 | 两个 env 模板化；`git ls-files '*.env'` 为空，真实 env 命中 `*.env` 忽略 | 待确认 |
+| 2026-11-09 | P0-5.3 | 未提交 | 88 个提交全历史扫描，仅占位符，无真实密钥 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -410,6 +416,11 @@ ros2 topic list
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
 - 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.env`
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
+- 2026-11-09：P0-5.2 已将 `walle_ws/src/scripts/walle-ai.env` 与 `linux/walle-ai.env`
+  改为 `*.env.example`，仓库根 `.gitignore` 忽略 `*.env`；部署时先
+  `cp walle-ai.env.example walle-ai.env` 填写后再执行 `auto.sh`。
+- 2026-11-09：P0-5.3 对 88 个提交做全历史扫描，仅发现占位符（`sk-你的新key`、`xxx`），
+  未发现有效 `ALIYUN_API_KEY` / MQTT 密码 / `WHIP_SECRET`，无需轮换。
 - 2026-11-09：P0-4 采用二选一中的 P0-4.1——`env_walle.sh` 新增
   `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`，所有节点仅本机发现；
   P0-4.2（按 device_id 派生 domain）不启用。注意：开发机将无法直接

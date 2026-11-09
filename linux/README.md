@@ -61,9 +61,10 @@ python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ```
 
-改配置：直接编辑本目录的 `walle-ai.env`（必填一定要正常，可以参考文档 [doc/service_deploy.md](../doc/service_deploy.md)），安装到 `/etc`：
+改配置：复制本目录的 `walle-ai.env.example` 为 `walle-ai.env`（已被 git 忽略，不会入库），填写后安装到 `/etc`：
 
 ```bash
+cp walle-ai.env.example walle-ai.env
 sudo nano walle-ai.env
 sudo install -m 600 walle-ai.env /etc/walle-ai.env   # 仅 root 为可读，数据保密，防止被其他用户读取/修改
 ```
@@ -269,7 +270,7 @@ linux/
 ├── requirements.txt            # paho-mqtt / psutil / aiortc / sounddevice
 ├── selftest_topics.py          # 主题契约自检
 ├── walle-ai.service            # systemd 模板（部署时按实际用户 / 目录改写，见 3.3）
-├── walle-ai.env                # 配置样例（部署时安装到 /etc/walle-ai.env）
+├── walle-ai.env.example        # 配置样例（复制为 walle-ai.env 后安装到 /etc/walle-ai.env）
 └── .device-id                  # 运行后生成：落盘的 device_id（别删，见「四、配置项」）
 ```
 

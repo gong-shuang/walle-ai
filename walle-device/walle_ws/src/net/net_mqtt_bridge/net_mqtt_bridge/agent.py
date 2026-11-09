@@ -2558,7 +2558,7 @@ class RpiMonitor:
             raise RuntimeError(
                 "MQTT 配置不完整，拒绝启动：\n"
                 + "\n".join(f"  - {p}" for p in problems)
-                + "\n请编辑 /etc/walle-ai.env（参考 walle_ws/src/scripts/walle-ai.env），"
+                + "\n请编辑 /etc/walle-ai.env（参考 walle_ws/src/scripts/walle-ai.env.example），"
                   "至少配置 MQTT_HOST / MQTT_USERNAME / MQTT_PASSWORD / MQTT_TENANT，"
                   "并保持 TLS（MQTT_PORT=8883、MQTT_TLS=on）。")
         logging.info("设备 %s (%s) 启动监控，采样周期 %ss", DEVICE_ID, self.lan_ip, MONITOR_INTERVAL)
