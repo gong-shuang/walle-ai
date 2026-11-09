@@ -10,10 +10,10 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 18 | 10 | 8 |
+| P0 上线阻断 | 18 | 12 | 6 |
 | P1 上线前应修 | 19 | 0 | 19 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **12** | **46** |
+| **合计** | **58** | **14** | **44** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -86,14 +86,14 @@
 
 ### P0-4 多车同域串控
 
-- [ ] 🔴 **P0-4.1 启用本机 ROS 隔离**
-  - 证据：`env_walle.sh` L49 固定 `ROS_DOMAIN_ID=1`
-  - 动作：所有节点都在本机，设置 `ROS_LOCALHOST_ONLY=1`（Jazzy 可用 `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`）
-  - 验收：同一局域网两台 Walle 互不可见
+- [x] ✅ **P0-4.1 启用本机 ROS 隔离**
+  - 处理：`env_walle.sh` 保留 `ROS_DOMAIN_ID=1` 用于与本机其它 ROS 栈隔离，并新增 `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`（Jazzy 推荐，`ROS_LOCALHOST_ONLY` 已弃用）；启动横幅同步显示 `ROS_DISCOVERY`
+  - 证据：`env_walle.sh` L57-L61
+  - 验收：同一局域网两台 Walle 互不可见；车上 `ros2 node list` 正常，另一台电脑执行 `ros2 node list` 为空；rosbridge 调试页不受影响
 
-- [ ] 🔴 **P0-4.2 或按设备分配 ROS_DOMAIN_ID**
-  - 动作：若必须跨机通信，由 device_id 派生 domain（0–101），并写入部署配置
-  - 验收：两台车同时运行时 `/cmd_vel`、`/image_raw` 不串流
+- [x] ✅ **P0-4.2 或按设备分配 ROS_DOMAIN_ID**
+  - 处理：二选一，已选择 P0-4.1 本机隔离——设备不跨机通信，无需按 device_id 派生 domain；若后续需要跨机 ROS 调试再启用本项
+  - 验收：不适用（风险已由 P0-4.1 关闭）
 
 ### P0-5 密钥与默认凭据
 
@@ -371,6 +371,11 @@ ls -l /dev/rrc /dev/v4l/by-id/
 
 # 5) 失联停车（车架空）
 # 发布前进指令后断开 Wi-Fi 或 kill rosbridge，观察轮子是否在 0.5s 内停止
+
+# 6) 本机 ROS 隔离（在另一台电脑执行，需与车同一网段）
+#    期望：看不到车上的节点/话题（车上为 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST）
+ros2 node list
+ros2 topic list
 ```
 
 ---
@@ -389,6 +394,7 @@ ls -l /dev/rrc /dev/v4l/by-id/
 | 2026-11-09 | P0-3.5 | 未提交 | 本机 Jazzy rosbridge 实测：两个内部话题 publish 均被拒（No match），`/cmd_vel` 发布与 `/ros_robot_controller/battery` 订阅正常；真机待复测 | 待确认 |
 | 2026-11-08 | P2-5.1 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 9090 无监听；`debug` 或显式传参才启动 | 待确认 |
 | 2026-11-08 | P2-5.2 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 8080 无监听；`debug` 或显式传参才启动 | 待确认 |
+| 2026-11-09 | P0-4.1 / P0-4.2 | 未提交 | 选择 4.1：干净环境 source 后 `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`；需两台车同网段复测互不可见 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -404,6 +410,10 @@ ls -l /dev/rrc /dev/v4l/by-id/
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
 - 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.env`
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
+- 2026-11-09：P0-4 采用二选一中的 P0-4.1——`env_walle.sh` 新增
+  `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`，所有节点仅本机发现；
+  P0-4.2（按 device_id 派生 domain）不启用。注意：开发机将无法直接
+  `ros2 topic echo` 车上话题，远程调试走 rosbridge（9090）。
 - 2026-11-09：P0-3.5 已把低层电机占空比与上报开关接口移入
   `/ros_robot_controller/internal/*`，并在 `walle_net/launch/net.launch.py` 为
   rosbridge 配置 `topics_glob` 白名单；白名单只放行调试页所需的安全话题，

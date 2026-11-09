@@ -56,6 +56,10 @@ export need_compile=True
 # 与 TurboPi 使用不同 Domain，避免两台车在同一局域网内互相串话题/节点
 export ROS_DOMAIN_ID=1
 
+# 所有节点都在本机：仅在本机内发现，避免同局域网多台 Walle 互相串话题/节点。
+# Jazzy 推荐 ROS_AUTOMATIC_DISCOVERY_RANGE（ROS_LOCALHOST_ONLY 已弃用）。
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+
 source "$HOME/venv/bin/activate"
 source /opt/ros/jazzy/setup.bash
 source "$current_dir/walle_ws/install/setup.bash"
@@ -79,13 +83,15 @@ ros_distro="${ROS_DISTRO:-unknown}"
 
 
 echo -e "\033[32m----------------------------------------------
-当前环境是ROS2|The current environment is ROS2 (Walle)
+当前环境是ROS2|The current environment is ROS2
 ----------------------------------------------\033[0m"
 echo -e "MACHINE: \033[32m$MACHINE_TYPE\033[0m"
 echo -e "RUNTIME: \033[32m$WALLE_RUNTIME_ENV\033[0m"
 echo -e "OS:      \033[32m${os_pretty:-Unknown}\033[0m"
 echo -e "ROS2:    \033[32m${ros_distro^}\033[0m"
 echo -e "ROS_DOMAIN_ID: \033[32m$ROS_DOMAIN_ID\033[0m"
+echo -e "ROS_DISCOVERY: \033[32m$ROS_AUTOMATIC_DISCOVERY_RANGE\033[0m"
 echo -e "ASR_LANGUAGE: \033[32m$ASR_LANGUAGE\033[0m"
 echo -e "WORKSPACE: \033[32m$current_dir/walle_ws\033[0m"
 echo -e "VERSION: \033[32m$VERSION\033[0m"
+echo -e "\033[32m----------------------------------------------\033[0m"
