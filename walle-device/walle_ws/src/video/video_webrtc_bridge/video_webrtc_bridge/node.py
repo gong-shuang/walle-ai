@@ -188,6 +188,13 @@ class VideoWebrtcBridge(Node):
             "log_dir", os.path.expanduser("~/.ros/log/video_webrtc_bridge")).value
         self.log_max_bytes = int(
             self.declare_parameter("log_max_bytes", 20 * 1024 * 1024).value)
+        # 历史日志保留策略：按天数 / 文件数 / 总大小清理，避免 7x24 推流占满磁盘
+        self.log_retention_days = float(
+            self.declare_parameter("log_retention_days", 7.0).value)
+        self.log_max_files = int(
+            self.declare_parameter("log_max_files", 10).value)
+        self.log_max_total_bytes = int(
+            self.declare_parameter("log_max_total_bytes", 100 * 1024 * 1024).value)
 
         self.heartbeat_topic = self.declare_parameter(
             "heartbeat_topic", "/net_mqtt_bridge/heartbeat").value
@@ -854,8 +861,54 @@ class VideoWebrtcBridge(Node):
         return info
 
     # ------------------------------------------------------------------ 日志
+    @staticmethod
+    def _safe_size(path):
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
+
+    def _remove_log(self, path):
+        try:
+            os.remove(path)
+        except OSError as exc:
+            self.get_logger().warning("删除旧日志 %s 失败：%s" % (path, exc))
+
+    def _cleanup_logs(self, base_dir):
+        """按保留天数 / 文件数 / 总大小清理历史 ffmpeg 日志。"""
+        try:
+            files = [
+                os.path.join(base_dir, name)
+                for name in os.listdir(base_dir)
+                if name.startswith("ffmpeg_") and name.endswith(".log")
+            ]
+            files.sort(key=lambda p: os.path.getmtime(p))
+            now = time.time()
+            keep = []
+            for path in files:
+                try:
+                    age_days = (now - os.path.getmtime(path)) / 86400.0
+                except OSError:
+                    continue
+                if self.log_retention_days > 0 and age_days > self.log_retention_days:
+                    self._remove_log(path)
+                    continue
+                keep.append(path)
+            while self.log_max_files > 0 and len(keep) > self.log_max_files:
+                self._remove_log(keep.pop(0))
+            if self.log_max_total_bytes > 0:
+                total = sum(self._safe_size(path) for path in keep)
+                while keep and total > self.log_max_total_bytes:
+                    path = keep.pop(0)
+                    total -= self._safe_size(path)
+                    self._remove_log(path)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warning("清理 ffmpeg 日志失败：%s" % exc)
+
     def _make_log_sink(self, header):
         base_dir = self.log_dir or os.path.expanduser("~/.ros/log/video_webrtc_bridge")
+        os.makedirs(base_dir, exist_ok=True)
+        self._cleanup_logs(base_dir)
         path = os.path.join(
             base_dir, "ffmpeg_%s.log" % time.strftime("%Y%m%d_%H%M%S"))
         try:

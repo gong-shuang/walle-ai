@@ -32,6 +32,10 @@ video_webrtc_bridge:
     # ffmpeg 日志目录，留空则用 ~/.ros/log/video_webrtc_bridge
     log_dir: ""
     log_max_bytes: 20971520
+    # 历史日志保留：7 天 / 最多 10 个文件 / 总大小 100MB，优先删最旧的
+    log_retention_days: 7.0
+    log_max_files: 10
+    log_max_total_bytes: 104857600
 
     # net_mqtt_bridge 心跳：丢失超过该时间自动停流，避免 MQTT 网关退出后留下孤儿推流
     heartbeat_topic: /net_mqtt_bridge/heartbeat
