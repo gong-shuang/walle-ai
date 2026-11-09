@@ -109,9 +109,31 @@ def launch_setup(context):
         output='screen',
     )
 
-    delayed_startup_check = TimerAction(
-        period=10.0,  # 10秒后执行 startup_check_node
-        actions=[startup_check_node]
+    # 启动顺序：底盘 -> 摄像头/声呐 -> 视频桥/语音/大模型 -> MQTT/启动自检
+    start_camera = TimerAction(
+        period=3.0,
+        actions=[
+            LogInfo(msg='[bringup] 阶段 2/4：启动 usb_cam 与声呐'),
+            usb_cam_launch,
+            sonar_controller_launch,
+        ],
+    )
+    start_services = TimerAction(
+        period=6.0,
+        actions=[
+            LogInfo(msg='[bringup] 阶段 3/4：启动视频桥、语音与大模型'),
+            video_webrtc_bridge_launch,
+            speech_recognition_launch,
+            large_models_launch,
+        ],
+    )
+    start_net = TimerAction(
+        period=9.0,
+        actions=[
+            LogInfo(msg='[bringup] 阶段 4/4：启动 MQTT 桥与启动自检'),
+            net_mqtt_bridge_launch,
+            startup_check_node,
+        ],
     )
 
     # 启动时统一打印版本（来自 env_walle.sh 导出的 WALLE_VERSION_*）
@@ -119,16 +141,13 @@ def launch_setup(context):
 
     return [
         version_log,
+        LogInfo(msg='[bringup] 阶段 1/4：启动底盘与调试服务'),
         net_launch,
         web_video_server_launch,
         controller_launch,
-        net_mqtt_bridge_launch,
-        usb_cam_launch,
-        video_webrtc_bridge_launch,
-        sonar_controller_launch,
-        large_models_launch,
-        speech_recognition_launch,
-        delayed_startup_check
+        start_camera,
+        start_services,
+        start_net,
     ]
 
 

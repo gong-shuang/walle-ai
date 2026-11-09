@@ -11,9 +11,9 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
-| P1 上线前应修 | 19 | 2 | 17 |
+| P1 上线前应修 | 19 | 3 | 16 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **19** | **39** |
+| **合计** | **58** | **20** | **38** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -129,9 +129,9 @@
   - 证据：`scripts/walle-ai.service.in`、`scripts/deploy.sh`
   - 验收：整机重启后服务自启；`kill` 主进程后 5s 内被拉起
 
-- [ ] 🔴 **P1-1.3 明确启动顺序与健康检查**
-  - 动作：udev/设备就绪 → controller → usb_cam → net/video bridge；用 `startup_check` 或 health topic 判定就绪
-  - 验收：冷启动无“服务未就绪”类失败；日志有明确就绪标记
+- [x] ✅ **P1-1.3 明确启动顺序与健康检查**
+  - 处理：`bringup.launch.py` 按「底盘 → usb_cam/声呐 → 视频桥/语音/大模型 → MQTT/自检」分 4 个阶段启动，每阶段打印 `[bringup] 阶段 x/4`；`startup_check` 等待 `ros_robot_controller` / `mecanum_chassis_node` / `usb_cam` / `video_webrtc_bridge` / `net_mqtt_bridge` 最多 30s，就绪打印 `STARTUP READY` 并发布 `/bringup/startup_status`（`ready`），超时打印缺失节点
+  - 验收：冷启动日志可见 4 个阶段标记与 `STARTUP READY`；`ros2 topic echo /bringup/startup_status` 可看到 `ready`
 
 ### P1-2 部署可复现
 
@@ -411,6 +411,7 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P0-5.4 | 未提交 | deploy.sh 完成配置检查 + 600 安装 + systemd 单元，`systemd-analyze verify` 通过；开发 `./start.sh` 读取 `walle-ai.conf`；真机待 `./deploy.sh` 复测 | 待确认 |
 | 2026-11-09 | P1-1.1 | 未提交 | 关键节点已加 respawn；需实车逐个 `kill` 验证 5s 内恢复 | 待确认 |
 | 2026-11-09 | P1-1.2 | 未提交 | `walle-ai.service` 已由 deploy.sh 安装并 enable，Restart/network-online 已配置；待整机重启与 kill 验证 | 待确认 |
+| 2026-11-09 | P1-1.3 | 未提交 | 4 阶段启动 + `startup_check` 节点就绪判定与 `/bringup/startup_status`；待冷启动验证阶段日志与 `ready` | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -426,6 +427,9 @@ cd walle-device/scripts && ./start.sh
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
 - 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.conf`
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
+- 2026-11-09：P1-1.3 `bringup` 改为 4 阶段顺序启动，`startup_check`
+  等待关键节点并发布 `/bringup/startup_status`（`ready` / `timeout: missing=...`）；
+  声呐、语音、AI 节点作为可选节点只告警不判失败。
 - 2026-11-09：P1-1.1 已给底盘、usb_cam、声呐、语音、大模型节点加
   `respawn=True`；P1-1.2 的 `walle-ai.service` 由 `deploy.sh` 安装并 enable，
   已有 `Restart=always`/网络就绪，`WatchdogSec` 暂未启用（节点无 sd_notify）。

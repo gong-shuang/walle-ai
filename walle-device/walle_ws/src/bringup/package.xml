@@ -8,6 +8,8 @@
   <license>TODO: License declaration</license>
 
   <depend>rclpy</depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>ros_robot_controller_msgs</exec_depend>
   <exec_depend>net_mqtt_bridge</exec_depend>
   <exec_depend>video_webrtc_bridge</exec_depend>
 
