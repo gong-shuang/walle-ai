@@ -30,6 +30,17 @@ from std_msgs.msg import Bool
 from interfaces.msg import VideoStreamStatus
 from interfaces.srv import VideoStreamControl
 
+DEFAULT_ROOM_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
+
+
+def valid_room_number(room, pattern=DEFAULT_ROOM_PATTERN):
+    """校验视频房间号：默认只允许 1-64 位字母/数字/下划线/短横线。
+
+    房间号会拼进 RTMP URL，因此用 fullmatch 而不是 match：即使自定义 pattern
+    忘了加锚点，也不会放过 ``room/../x`` 这类前缀匹配。
+    """
+    return re.fullmatch(pattern, room or "") is not None
+
 
 def _load_env_file(path):
     """读取 KEY=VALUE 环境文件（不覆盖已存在的变量），用于拿 WHIP_SECRET。"""
@@ -158,7 +169,7 @@ class VideoWebrtcBridge(Node):
         self.camera_device = self.declare_parameter("camera_device", "/dev/video0").value
         self.framerate = float(self.declare_parameter("framerate", 30.0).value)
         self.room_pattern = self.declare_parameter(
-            "room_number_pattern", r"^[A-Za-z0-9_-]{1,64}$").value
+            "room_number_pattern", DEFAULT_ROOM_PATTERN).value
 
         default_rtmp = os.environ.get(
             "VIDEO_RTMP_URL_TEMPLATE",
@@ -343,7 +354,7 @@ class VideoWebrtcBridge(Node):
             response.error = "设备节点不存在: %s" % (device or "<空>")
             return response
 
-        if not re.match(self.room_pattern, room):
+        if not valid_room_number(room, self.room_pattern):
             response.result = -2
             response.cause = "命令执行失败"
             response.action = "failed"
