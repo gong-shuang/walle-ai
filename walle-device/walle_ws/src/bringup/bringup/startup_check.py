@@ -18,6 +18,8 @@ REQUIRED_NODES = (
     'video_webrtc_bridge',
     'net_mqtt_bridge',
 )
+# 关键话题必须已有发布者；避免节点进程短暂存在但实际不可用（如 usb_cam 反复崩溃）
+REQUIRED_TOPICS = ('/image_raw',)
 # 可选节点（声呐可关闭、AI 节点可能未启用），只告警不判失败
 OPTIONAL_NODES = (
     'sonar_controller',
@@ -49,20 +51,24 @@ class StartupCheckNode(Node):
             return
         nodes = {name.lstrip('/') for name in self.get_node_names()}
         missing = [name for name in REQUIRED_NODES if name not in nodes]
-        if missing and time.monotonic() < self.deadline:
-            self.get_logger().info('startup_check：等待 %s' % ', '.join(missing))
+        missing_topics = [topic for topic in REQUIRED_TOPICS
+                          if self.count_publishers(topic) == 0]
+        if (missing or missing_topics) and time.monotonic() < self.deadline:
+            waiting = missing + [f'{topic}(无发布者)' for topic in missing_topics]
+            self.get_logger().info('startup_check：等待 %s' % ', '.join(waiting))
             return
 
         self.done = True
         self.timer.cancel()
         optional_missing = [name for name in OPTIONAL_NODES if name not in nodes]
-        if missing:
-            status = 'timeout: missing=' + ','.join(missing)
+        if missing or missing_topics:
+            status = 'timeout: missing=' + ','.join(missing + missing_topics)
             self.get_logger().error(
-                'STARTUP TIMEOUT：关键节点未就绪：%s' % ', '.join(missing))
+                'STARTUP TIMEOUT：未就绪：%s'
+                % ', '.join(missing + [f'{topic}(无发布者)' for topic in missing_topics]))
         else:
             status = 'ready'
-            self.get_logger().info('STARTUP READY：关键节点已全部就绪')
+            self.get_logger().info('STARTUP READY：关键节点与话题已全部就绪')
         if optional_missing:
             self.get_logger().warn(
                 'startup_check：可选节点未就绪：%s' % ', '.join(optional_missing))

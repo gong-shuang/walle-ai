@@ -130,7 +130,7 @@
   - 验收：整机重启后服务自启；`kill` 主进程后 5s 内被拉起
 
 - [x] ✅ **P1-1.3 明确启动顺序与健康检查**
-  - 处理：`bringup.launch.py` 按「底盘 → usb_cam/声呐 → 视频桥/语音/大模型 → MQTT/自检」分 4 个阶段启动，每阶段打印 `[bringup] 阶段 x/4`；`startup_check` 等待 `ros_robot_controller` / `mecanum_chassis_node` / `usb_cam` / `video_webrtc_bridge` / `net_mqtt_bridge` 最多 30s，就绪打印 `STARTUP READY` 并发布 `/bringup/startup_status`（`ready`），超时打印缺失节点
+  - 处理：`bringup.launch.py` 按「底盘 → usb_cam/声呐 → 视频桥/语音/大模型 → MQTT/自检」分 4 个阶段启动，每阶段打印 `[bringup] 阶段 x/4`；`startup_check` 等待 `ros_robot_controller` / `mecanum_chassis_node` / `usb_cam` / `video_webrtc_bridge` / `net_mqtt_bridge` 最多 30s，并检查 `/image_raw` 有发布者，就绪打印 `STARTUP READY` 并发布 `/bringup/startup_status`（`ready`），超时打印缺失节点/话题
   - 验收：冷启动日志可见 4 个阶段标记与 `STARTUP READY`；`ros2 topic echo /bringup/startup_status` 可看到 `ready`
 
 ### P1-2 部署可复现
@@ -404,7 +404,7 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P0-5.4 | 未提交 | deploy.sh 完成配置检查 + 600 安装 + systemd 单元，`systemd-analyze verify` 通过；开发 `./start.sh` 读取 `walle-ai.conf`；真机待 `./deploy.sh` 复测 | 待确认 |
 | 2026-11-09 | P1-1.1 | 未提交 | 关键节点已加 respawn；需实车逐个 `kill` 验证 5s 内恢复 | 待确认 |
 | 2026-11-09 | P1-1.2 | 未提交 | `walle-ai.service` 已由 deploy.sh 安装并 enable，Restart/network-online 已配置；待整机重启与 kill 验证 | 待确认 |
-| 2026-11-09 | P1-1.3 | 未提交 | 4 阶段启动 + `startup_check` 节点就绪判定与 `/bringup/startup_status`；待冷启动验证阶段日志与 `ready` | 待确认 |
+| 2026-11-09 | P1-1.3 | 未提交 | 4 阶段启动 + `startup_check` 节点就绪判定与 `/bringup/startup_status`；已补充 `/image_raw` 发布者检查，待冷启动验证 | 待确认 |
 | 2026-11-09 | P1-2.1 | 未提交 | README 补齐项目介绍/依赖/编译/udev/deploy/启动步骤；待按文档在全新环境复测 | 待确认 |
 | 2026-11-09 | P1-2.3 | 未提交 | 新增 `doc/requirements.txt`，直接依赖锁定版本；apt 依赖在 README 说明 | 待确认 |
 | 2026-11-09 | P1-2.2 | 未提交 | 职责拆分：deploy.sh 只做系统级安装；README 覆盖环境/依赖/build/udev；待按文档在全新系统复测 | 待确认 |
@@ -441,8 +441,8 @@ cd walle-device/scripts && ./start.sh
 - 2026-11-09：P1-2.1 README 补齐 Ubuntu/ROS2/venv/依赖/编译/udev/部署步骤；
   P1-2.3 新增 `doc/requirements.txt`（锁定直接 pip 依赖，OpenCV/ffmpeg 走 apt）。
 - 2026-11-09：P1-1.3 `bringup` 改为 4 阶段顺序启动，`startup_check`
-  等待关键节点并发布 `/bringup/startup_status`（`ready` / `timeout: missing=...`）；
-  声呐、语音、AI 节点作为可选节点只告警不判失败。
+  等待关键节点并检查 `/image_raw` 有发布者，就绪发布 `/bringup/startup_status`
+  （`ready` / `timeout: missing=...`）；声呐、语音、AI 节点只告警不判失败。
 - 2026-11-09：P1-1.1 已给底盘、usb_cam、声呐、语音、大模型节点加
   `respawn=True`；P1-1.2 的 `walle-ai.service` 由 `deploy.sh` 安装并 enable，
   已有 `Restart=always`/网络就绪，`WatchdogSec` 暂未启用（节点无 sd_notify）。
