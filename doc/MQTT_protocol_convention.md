@@ -402,7 +402,7 @@ MQTT 只负责「开 / 关」控制。
 > 秒级延迟（实测手机说话到出声约 10s）。WebRTC 走 UDP，晚到的包直接丢弃，实测端到端约 200ms。
 > 另：服务端 WHIP 端点**必须带 `secret`**，不带会直接 502。这个 secret 由 Oryx 部署时生成、
 > 每台服务器不同，因此**不写死在代码里**：App 构建期注入（`-PoryxSecret` / `gradle.properties`
-> 的 `oryxSecret` / 环境变量 `WHIP_SECRET`），设备端读 `/etc/walle-ai.env` 的 `WHIP_SECRET`。
+> 的 `oryxSecret` / 环境变量 `WHIP_SECRET`），设备端读 `/etc/walle-ai.conf` 的 `WHIP_SECRET`。
 
 - 开启请求：`walle/{t}/{d}/v1/phone/audio/send` → 应答 `.../send/result`
 - 关闭请求：`walle/{t}/{d}/v1/phone/audio/stop` → 应答 `.../stop/result`

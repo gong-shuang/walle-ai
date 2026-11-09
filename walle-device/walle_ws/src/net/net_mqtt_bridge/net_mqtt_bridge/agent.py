@@ -38,13 +38,13 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 依赖：pip install -r requirements.txt  （paho-mqtt>=2.0、psutil）
      摄像头能力探测需 v4l-utils，推流需 ffmpeg。
 
-配置：全部通过环境变量；前台运行时会自动加载 /etc/walle-ai.env，
-      查找顺序 --env-file > $RPI_MONITOR_ENV > /etc/walle-ai.env > ./walle-ai.env，
+配置：全部通过环境变量；前台运行时会自动加载 /etc/walle-ai.conf，
+      查找顺序 --env-file > $RPI_MONITOR_ENV > /etc/walle-ai.conf > ./walle-ai.conf，
       已存在的 shell 变量优先。必填 MQTT_HOST / MQTT_USERNAME / MQTT_PASSWORD / MQTT_TENANT，
       TLS 强制开启（默认 8883）；缺项或明文配置时拒绝启动。
 
 命令行：
-    python3 main.py                         前台运行（自动读 /etc/walle-ai.env）
+    python3 main.py                         前台运行（自动读 /etc/walle-ai.conf）
     python3 main.py --check                 只打印解析后的配置与订阅主题，不连 broker
     python3 main.py --env-file PATH         使用指定配置文件
     python3 main.py --help                  查看本说明
@@ -76,12 +76,12 @@ import psutil
 
 # ============================== 启动参数 / 环境文件 ==============================
 # 目的：既能被 systemd 用 EnvironmentFile= 拉起，也能直接 `python3 main.py`
-# 前台运行（自动读取 /etc/walle-ai.env），两者共用同一份配置。
+# 前台运行（自动读取 /etc/walle-ai.conf），两者共用同一份配置。
 #
 # 优先级：已存在的环境变量（shell / systemd） > 环境文件里的值。
-# 文件查找顺序：--env-file 指定 > $RPI_MONITOR_ENV > /etc/walle-ai.env > ./walle-ai.env
+# 文件查找顺序：--env-file 指定 > $RPI_MONITOR_ENV > /etc/walle-ai.conf > ./walle-ai.conf
 
-ENV_CANDIDATES = ("/etc/walle-ai.env", "walle-ai.env")
+ENV_CANDIDATES = ("/etc/walle-ai.conf", "walle-ai.conf")
 ENV_SOURCE = None      # 实际加载到的文件（None 表示没加载）
 
 
@@ -114,14 +114,21 @@ def _load_env_file(path):
                     os.environ[key] = value
         return True
     except OSError as exc:
+        # 生产环境 /etc/walle-ai.conf 为 600 root:root，由 systemd EnvironmentFile 注入；
+        # 手动开发请改用 scripts/start.sh，不要为了读取而放宽文件权限。
         print(f"[warn] 读取环境文件失败 {path}: {exc}", file=sys.stderr)
-        print("       若是 Permission denied：该文件默认 600 root:root，"
-              "请执行 sudo chown $(whoami) " + path + "，或改用 sudo 运行", file=sys.stderr)
+        print("       若由 systemd 启动，配置已通过 EnvironmentFile 注入，可忽略；"
+              "手动运行请改用 scripts/start.sh", file=sys.stderr)
         return False
 
 
 def _init_env():
     """按优先级加载环境文件，返回加载到的路径。"""
+    # systemd EnvironmentFile 已注入时无需再读文件（生产配置为 600 root:root，
+    # 普通用户不可读，直接读会误报“不存在或不可读”）
+    required = ("MQTT_HOST", "MQTT_USERNAME", "MQTT_PASSWORD", "MQTT_TENANT")
+    if all(os.environ.get(k) for k in required):
+        return None
     explicit = _cli_arg("--env-file") or os.environ.get("RPI_MONITOR_ENV")
     candidates = [explicit] if explicit else list(ENV_CANDIDATES)
     for path in candidates:
@@ -139,7 +146,7 @@ ENV_SOURCE = _init_env()
 # ============================== 配置区 ==============================
 
 # ---- MQTT ----
-# 不提供默认 broker / 用户名：必须由 /etc/walle-ai.env（或 systemd Environment=）注入。
+# 不提供默认 broker / 用户名：必须由 /etc/walle-ai.conf（或 systemd Environment=）注入。
 # 缺失时节点拒绝启动（validate_mqtt_config），避免设备误连演示服务器或使用默认凭据。
 MQTT_HOST = os.environ.get("MQTT_HOST", "").strip()
 _MQTT_PORT_RAW = os.environ.get("MQTT_PORT", "8883").strip()
@@ -344,7 +351,7 @@ def subscriptions():
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
     ]
 
-# ---- 监控阈值（均可用环境变量覆盖，写进 /etc/walle-ai.env 即可）----
+# ---- 监控阈值（均可用环境变量覆盖，写进 /etc/walle-ai.conf 即可）----
 MONITOR_INTERVAL = int(os.environ.get("MONITOR_INTERVAL", "5"))          # 采样周期（秒）
 THRESH_CPU = float(os.environ.get("THRESH_CPU", "90.0"))                 # CPU 使用率 %
 THRESH_MEM = float(os.environ.get("THRESH_MEM", "90.0"))                 # 内存使用率 %
@@ -379,7 +386,7 @@ VIDEO_RTMP_URL_TEMPLATE = os.environ.get(  # 推流地址模板：{room}=房间�
     "rtmp://www.baidong.xyz:1935/live/{room}?secret={secret}")
 # Oryx 部署后会生成一个推流 secret（每台服务器都不同，在控制台「推流鉴权」可查看/重置），
 # 重置后所有旧客户端立即失效。禁止写死在源码里：用 WHIP_SECRET 环境变量
-# （/etc/walle-ai.env）注入；不配置则视频推流会被服务端拒绝。
+# （/etc/walle-ai.conf）注入；不配置则视频推流会被服务端拒绝。
 WHIP_SECRET = os.environ.get("WHIP_SECRET", "").strip()
 VIDEO_LOG_FILE = "log/ffmpeg_{time}.log"  # ffmpeg 日志文件（相对路径以进程工作目录为基准）
                                          # {time} 会替换成推流时刻，如 20261029_162650，
@@ -1954,7 +1961,7 @@ class RpiMonitor:
         if not rtmp_secret_ready():
             self._publish_video_result(
                 req, -2, "命令执行失败",
-                {"error": "未配置 Oryx 推流 secret（请在 /etc/walle-ai.env 设置 WHIP_SECRET）"})
+                {"error": "未配置 Oryx 推流 secret（请在 /etc/walle-ai.conf 设置 WHIP_SECRET）"})
             return
 
         # 3) 已有推流时：video_device 和 room_number 都一样 → 不处理（不重连、不重启）
@@ -2558,7 +2565,7 @@ class RpiMonitor:
             raise RuntimeError(
                 "MQTT 配置不完整，拒绝启动：\n"
                 + "\n".join(f"  - {p}" for p in problems)
-                + "\n请编辑 /etc/walle-ai.env（参考 walle_ws/src/scripts/walle-ai.env.example），"
+                + "\n请编辑 /etc/walle-ai.conf（参考 scripts/walle-ai.conf.example），"
                   "至少配置 MQTT_HOST / MQTT_USERNAME / MQTT_PASSWORD / MQTT_TENANT，"
                   "并保持 TLS（MQTT_PORT=8883、MQTT_TLS=on）。")
         logging.info("设备 %s (%s) 启动监控，采样周期 %ss", DEVICE_ID, self.lan_ip, MONITOR_INTERVAL)
@@ -2568,7 +2575,7 @@ class RpiMonitor:
         if sanitize_segment(MQTT_TENANT) == sanitize_segment(MQTT_USER):
             logging.warning(
                 "租户当前取自 MQTT 用户名（%s）。如果手机 App 用的是另一个账号登录，"
-                "请在 /etc/walle-ai.env 里设置 MQTT_TENANT=<App 的登录用户名>，"
+                "请在 /etc/walle-ai.conf 里设置 MQTT_TENANT=<App 的登录用户名>，"
                 "否则 App 订阅 walle/<App用户名>/# 时收不到本设备的报文。",
                 sanitize_segment(MQTT_TENANT))
         # clean_session=True：每次连接都重新订阅，改了请求主题名也不会残留旧订阅

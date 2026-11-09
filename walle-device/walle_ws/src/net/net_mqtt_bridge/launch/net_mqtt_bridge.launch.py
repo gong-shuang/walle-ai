@@ -21,7 +21,7 @@ def generate_launch_description():
             description='net_mqtt_bridge parameter file'),
         DeclareLaunchArgument(
             'env_file',
-            default_value='/etc/walle-ai.env',
+            default_value='/etc/walle-ai.conf',
             description='MQTT/streaming environment file'),
         DeclareLaunchArgument(
             'respawn', default_value='true',

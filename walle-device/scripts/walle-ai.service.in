@@ -1,0 +1,22 @@
+[Unit]
+Description=Walle AI device stack (ROS2 + MQTT + WebRTC)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 配置文件 root:root 600，由 systemd 以 root 读取后注入进程环境（P0-5.4）
+EnvironmentFile=/etc/walle-ai.conf
+User=@WALLE_USER@
+Group=@WALLE_GROUP@
+Environment=HOME=@WALLE_USER_HOME@
+WorkingDirectory=@WALLE_HOME@
+ExecStart=/bin/bash -c 'source @WALLE_HOME@/scripts/env_walle.sh && exec ros2 launch bringup bringup.launch.py'
+Restart=always
+RestartSec=5
+# 退出时先 SIGTERM，让底盘节点执行安全停车（P0-3.2）
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

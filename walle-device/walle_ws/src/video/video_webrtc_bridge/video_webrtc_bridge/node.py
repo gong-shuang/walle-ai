@@ -151,7 +151,7 @@ class VideoWebrtcBridge(Node):
         super().__init__("video_webrtc_bridge")
 
         # 先读环境文件，再声明依赖环境变量的参数
-        env_file = self.declare_parameter("env_file", "/etc/walle-ai.env").value
+        env_file = self.declare_parameter("env_file", "/etc/walle-ai.conf").value
         _load_env_file(env_file)
 
         self.image_topic = self.declare_parameter("image_topic", "/image_raw").value
@@ -347,7 +347,7 @@ class VideoWebrtcBridge(Node):
             response.result = -2
             response.cause = "命令执行失败"
             response.action = "failed"
-            response.error = "未配置 Oryx 推流 secret（请在 /etc/walle-ai.env 设置 WHIP_SECRET）"
+            response.error = "未配置 Oryx 推流 secret（请在 /etc/walle-ai.conf 设置 WHIP_SECRET）"
             return response
 
         if device != self.camera_device:

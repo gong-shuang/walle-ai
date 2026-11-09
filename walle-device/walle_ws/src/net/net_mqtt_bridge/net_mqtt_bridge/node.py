@@ -31,7 +31,7 @@ class NetMqttBridge(Node):
     def __init__(self):
         super().__init__('net_mqtt_bridge')
 
-        self.declare_parameter('env_file', '/etc/walle-ai.env')
+        self.declare_parameter('env_file', '/etc/walle-ai.conf')
         self.declare_parameter('device_id_file', '')
         self.declare_parameter('video_service', '/video_webrtc_bridge/stream_control')
         self.declare_parameter('video_status_topic', '/video_webrtc_bridge/status')
@@ -63,7 +63,7 @@ class NetMqttBridge(Node):
             for problem in problems:
                 self.get_logger().fatal('MQTT 配置错误: %s' % problem)
             raise RuntimeError(
-                'MQTT 配置不完整，拒绝启动（请检查 /etc/walle-ai.env）')
+                'MQTT 配置不完整，拒绝启动（请检查 /etc/walle-ai.conf）')
 
         if device_id_param:
             device_id_file = device_id_param
@@ -246,7 +246,7 @@ class NetMqttBridge(Node):
         if not self._agent_mod.rtmp_secret_ready():
             self.agent._publish_video_result(
                 req, -2, '命令执行失败',
-                {'error': '未配置 Oryx 推流 secret（请在 /etc/walle-ai.env 设置 WHIP_SECRET）'})
+                {'error': '未配置 Oryx 推流 secret（请在 /etc/walle-ai.conf 设置 WHIP_SECRET）'})
             return
 
         srv_req = VideoStreamControl.Request()

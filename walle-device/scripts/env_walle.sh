@@ -1,6 +1,6 @@
 #!/bin/bash
 # Walle 环境配置（只设置环境变量，不启动节点）
-# 用法：source ~/walle-device/env_walle.sh
+# 用法：source ~/walle-device/scripts/env_walle.sh
 # 注意：不要与 env_TurboPi.sh 在同一个终端里混用，两个工作空间存在同名包。
 
 # 必须用 source 执行，否则 export 的变量不会留在当前终端
@@ -10,8 +10,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 fi
 
 # 以脚本所在目录为基准，不依赖当前工作目录
-current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export TURBOPI_HOME="$current_dir"
+current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # walle-device/scripts
+walle_home="$(cd "$current_dir/.." && pwd)"                  # walle-device
+export TURBOPI_HOME="$walle_home"
 
 # 已加载且 venv 仍是当前路径才跳过，避免重复 source 导致 PATH / PYTHONPATH 越叠越长
 if [[ -n "${WALLE_ENV_LOADED:-}" && "${VIRTUAL_ENV:-}" == "$HOME/venv" ]]; then
@@ -35,7 +36,7 @@ fi
 export WALLE_ENV_LOADED=1
 
 # 版本号唯一来源：walle-device/VERSION（WALLE_VERSION_NUM / WALLE_VERSION_NAME / WALLE_VERSION_DATE）
-source "$current_dir/VERSION"
+source "$walle_home/VERSION"
 export VERSION="|V${WALLE_VERSION_NAME}|${WALLE_VERSION_DATE}|"
 
 # 注释下面，就是生产环境
@@ -64,7 +65,7 @@ export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 
 source "$HOME/venv/bin/activate"
 source /opt/ros/jazzy/setup.bash
-source "$current_dir/walle_ws/install/setup.bash"
+source "$walle_home/walle_ws/install/setup.bash"
 # source "$current_dir/third_party_ros2/third_party_ws/install/setup.bash"
 
 # ROS 节点入口脚本 shebang 固定为 /usr/bin/python3，仅 activate venv 节点看不到其中的包，
@@ -73,7 +74,7 @@ export PYTHONPATH="$PYTHONPATH:$HOME/venv/lib/python3.12/site-packages"
 
 # colcon_cd：在任意目录下用 colcon_cd <包名> 直达对应源码目录
 if [ -f /usr/share/colcon_cd/function/colcon_cd.sh ]; then
-    export _colcon_cd_root="$current_dir/walle_ws"
+    export _colcon_cd_root="$walle_home/walle_ws"
     source /usr/share/colcon_cd/function/colcon_cd.sh
 fi
 
@@ -94,6 +95,6 @@ echo -e "ROS2:    \033[32m${ros_distro^}\033[0m"
 echo -e "ROS_DOMAIN_ID: \033[32m$ROS_DOMAIN_ID\033[0m"
 echo -e "ROS_DISCOVERY: \033[32m$ROS_AUTOMATIC_DISCOVERY_RANGE\033[0m"
 echo -e "ASR_LANGUAGE: \033[32m$ASR_LANGUAGE\033[0m"
-echo -e "WORKSPACE: \033[32m$current_dir/walle_ws\033[0m"
+echo -e "WORKSPACE: \033[32m$walle_home/walle_ws\033[0m"
 echo -e "VERSION: \033[32m$VERSION\033[0m"
 echo -e "\033[32m----------------------------------------------\033[0m"

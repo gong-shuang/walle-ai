@@ -21,7 +21,7 @@ def generate_launch_description():
             description='video_webrtc_bridge parameter file'),
         DeclareLaunchArgument(
             'env_file',
-            default_value='/etc/walle-ai.env',
+            default_value='/etc/walle-ai.conf',
             description='env file providing WHIP_SECRET'),
         DeclareLaunchArgument(
             'respawn', default_value='true',

@@ -1,7 +1,7 @@
 video_webrtc_bridge:
   ros__parameters:
     # 环境文件：用于读取 WHIP_SECRET / VIDEO_RTMP_URL_TEMPLATE（不覆盖已有环境变量）
-    env_file: /etc/walle-ai.env
+    env_file: /etc/walle-ai.conf
 
     image_topic: /image_raw
     camera_device: /dev/video0

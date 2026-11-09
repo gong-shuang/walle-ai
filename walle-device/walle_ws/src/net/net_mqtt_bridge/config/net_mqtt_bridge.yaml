@@ -1,7 +1,7 @@
 net_mqtt_bridge:
   ros__parameters:
-    # 沿用 linux的walle-ai.env 的全部 MQTT/监控/推流配置（不覆盖已有环境变量）
-    env_file: /etc/walle-ai.env
+    # 沿用 linux 端 walle-ai.conf 的全部 MQTT/监控/推流配置（不覆盖已有环境变量）
+    env_file: /etc/walle-ai.conf
 
     # device_id 落盘位置。迁移旧设备时请指向原来的 .device-id，
     # 否则会生成新 device_id，App 里会多出一台设备。

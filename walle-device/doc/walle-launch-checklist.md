@@ -10,10 +10,10 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 18 | 14 | 4 |
+| P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 0 | 19 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **16** | **42** |
+| **合计** | **58** | **17** | **41** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -40,7 +40,7 @@
 
 - [x] ✅ **P0-1.4 MQTT 默认 TLS 8883，缺配置拒绝启动**
   - 处理：删除代码内默认 broker / 用户名；新增 `validate_mqtt_config()`，`MQTT_HOST` / `MQTT_USERNAME` / `MQTT_PASSWORD` / `MQTT_TENANT` 缺失、端口非法或 `MQTT_CA_FILE` 不可读时拒绝启动；默认 `MQTT_PORT=8883` + `MQTT_TLS=on`，禁止 `MQTT_TLS=off` 明文回退
-  - 验收：无 `/etc/walle-ai.env` 时 `net_mqtt_bridge` 构造即报错退出，`agent.py --check` 输出缺失项；TLS 强制开启，抓包无明文 MQTT 报文
+  - 验收：无 `/etc/walle-ai.conf` 时 `net_mqtt_bridge` 构造即报错退出，`agent.py --check` 输出缺失项；TLS 强制开启，抓包无明文 MQTT 报文
 
 - [ ] 🔴 **P0-1.5 Broker 按设备 ACL + 请求审计**
   - 动作：每台设备独立 MQTT 账号，仅允许读写 `walle/{tenant}/{device}/#`；对状态、视频、音频等动作请求记录来源、结果、时间
@@ -52,7 +52,7 @@
 > 已降级为 P2-5.2——两者均定位为开发调试工具，`bringup` 默认不启动（9090/8080 不监听）。
 
 - [x] ✅ **P0-2.3 whip_secret 不再声明为 ROS 参数**
-  - 处理：`video_webrtc_bridge` 不再 `declare_parameter("whip_secret")`，只从 `/etc/walle-ai.env` 的 `WHIP_SECRET` 读取
+  - 处理：`video_webrtc_bridge` 不再 `declare_parameter("whip_secret")`，只从 `/etc/walle-ai.conf` 的 `WHIP_SECRET` 读取
   - 验收：`ros2 param get /video_webrtc_bridge whip_secret` 返回参数不存在；`ros2 param dump` 无明文
 
 - [ ] 🔴 **P0-2.4 防火墙只放行必要端口**
@@ -87,8 +87,8 @@
 ### P0-4 多车同域串控
 
 - [x] ✅ **P0-4.1 启用本机 ROS 隔离**
-  - 处理：`env_walle.sh` 保留 `ROS_DOMAIN_ID=1` 用于与本机其它 ROS 栈隔离，并新增 `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`（Jazzy 推荐，`ROS_LOCALHOST_ONLY` 已弃用）；启动横幅同步显示 `ROS_DISCOVERY`
-  - 证据：`env_walle.sh` L57-L61
+  - 处理：`scripts/env_walle.sh` 保留 `ROS_DOMAIN_ID=1` 用于与本机其它 ROS 栈隔离，并新增 `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`（Jazzy 推荐，`ROS_LOCALHOST_ONLY` 已弃用）；启动横幅同步显示 `ROS_DISCOVERY`
+  - 证据：`scripts/env_walle.sh`（`ROS_DOMAIN_ID` / `ROS_AUTOMATIC_DISCOVERY_RANGE`）
   - 验收：同一局域网两台 Walle 互不可见；车上 `ros2 node list` 正常，另一台电脑执行 `ros2 node list` 为空；rosbridge 调试页不受影响
 
 - [x] ✅ **P0-4.2 或按设备分配 ROS_DOMAIN_ID**
@@ -102,17 +102,17 @@
   - 验收：`agent.py` 中无默认 MQTT 凭据；无 env 文件时节点拒绝启动
 
 - [x] ✅ **P0-5.2 env 文件模板化并加入 gitignore**
-  - 处理：`walle_ws/src/scripts/walle-ai.env` 与 `linux/walle-ai.env` 重命名为 `*.env.example`；仓库根 `.gitignore` 新增 `*.env`；`auto.sh` 在缺少真实 `walle-ai.env` 时提示从模板复制并退出；部署文档与 `agent.py` 报错提示同步改为模板路径
-  - 验收：`git ls-files '*.env'` 为空；新建 `walle-ai.env` 后 `git check-ignore -v` 命中 `*.env`，`git status` 不跟踪
+  - 处理：env 模板统一为 `*.example`（`scripts/walle-ai.conf.example`、`linux/walle-ai.conf.example`）；仓库根与 `walle-device/.gitignore` 忽略 `*.env`、`walle-ai.conf`；`start.sh` / `deploy.sh` 在缺少配置时提示从模板复制；部署文档与 `agent.py` 报错提示同步改为模板路径
+  - 验收：`git ls-files '*.env' 'walle-ai.conf'` 为空；新建 `scripts/walle-ai.conf` 后 `git check-ignore -v` 命中忽略规则，`git status` 不跟踪
 
 - [x] ✅ **P0-5.3 扫描历史并轮换已暴露密钥**
   - 处理：对全部 88 个提交执行 `git log --all -p --text`，扫描 `sk-`、`ALIYUN_API_KEY`、`MQTT_PASSWORD`、`WHIP_SECRET` 及私钥 / GitHub / AWS 令牌特征，仅发现占位符（`sk-你的新key`、`xxx`）与 shell 变量引用，无真实密钥；无需轮换
   - 验收：历史扫描无有效密钥；若后续私下使用过真实密钥，仍建议主动轮换
 
-- [ ] 🔴 **P0-5.4 收紧配置文件权限**
-  - 证据：`walle_ws/src/scripts/auto.sh` L8 安装为 `root:gs 640`，依赖固定用户组
-  - 动作：改为 `root:root 600`，由 systemd `EnvironmentFile` 读取；不依赖 `gs` 组
-  - 验收：普通用户无法读取 `/etc/walle-ai.env`
+- [x] ✅ **P0-5.4 收紧配置文件权限**
+  - 处理：`deploy.sh` 检查 `scripts/walle-ai.conf` 是否存在、MQTT 必填项与 `WHIP_SECRET` 是否已填写，安装为 `/etc/walle-ai.conf`（`root:root 600`），并渲染、安装、启用 `walle-ai.service`（`EnvironmentFile` 注入、`ExecStart` 为 `source env_walle.sh + ros2 launch`、`User=<部署用户>`、`Restart=always`、网络就绪后启动）；`start.sh` 仅用于开发环境并读取脚本同级 `walle-ai.conf`；`large_models/config.py` 改为容忍配置不可读，依赖环境变量注入
+  - 证据：`scripts/deploy.sh`、`scripts/start.sh`、`scripts/walle-ai.service.in`
+  - 验收：生产部署后普通用户 `cat /etc/walle-ai.conf` 返回 Permission denied；`systemctl cat walle-ai` 可见 `EnvironmentFile` 与 `env_walle.sh` 启动命令；开发 `./start.sh` 可正常启动
 
 ---
 
@@ -137,12 +137,12 @@
 ### P1-2 部署可复现
 
 - [ ] 🔴 **P1-2.1 修正部署文档**
-  - 证据：`doc/device_deplay.md` L7-L12 路径与实际仓库不一致，且夸大了 `auto.sh` 的职责
+  - 证据：`doc/README.md` 与实际仓库/脚本不完全一致，且夸大了 `deploy.sh` 的职责
   - 动作：写清 build、依赖、udev、systemd、env 的完整步骤
   - 验收：新人按文档可在全新系统完成部署
 
-- [ ] 🔴 **P1-2.2 auto.sh 覆盖完整部署**
-  - 证据：`walle_ws/src/scripts/auto.sh` L1-L9 只安装 env 文件
+- [ ] 🔴 **P1-2.2 deploy.sh 覆盖完整部署**
+  - 证据：`scripts/deploy.sh` 目前做配置检查、安装配置与 systemd 单元，未覆盖依赖、colcon build、udev 规则
   - 动作：安装依赖、colcon build、udev 规则、systemd 单元、权限设置
   - 验收：一条命令完成部署，可重复执行
 
@@ -150,8 +150,8 @@
   - 动作：增加 `requirements.txt` 或 rosdep keys；锁定 paho-mqtt 2.x、psutil、smbus2、OpenCV 等版本
   - 验收：全新环境安装无缺包
 
-- [ ] 🔴 **P1-2.4 去掉 env_walle.sh 的环境硬编码**
-  - 证据：`env_walle.sh` L59-L66 固定 `$HOME/venv` 与 Python 3.12 site-packages
+- [ ] 🔴 **P1-2.4 去掉 scripts/env_walle.sh 的环境硬编码**
+  - 证据：`scripts/env_walle.sh` 固定 `$HOME/venv` 与 Python 3.12 site-packages
   - 动作：统一使用系统 Python + rosdep；或 venv 使用 `--system-site-packages` 并校验版本
   - 验收：更换用户名/路径/Python 小版本后仍可启动
 
@@ -254,7 +254,7 @@
   - 验收：全仓库只有一套推流实现
 
 - [ ] 🔴 **P2-2.3 版本号单一来源**
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py` L221-L222 的 `VERSION_CODE/VERSION_NAME` 与 `env_walle.sh` L37 的 `VERSION`
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py` L221-L222 的 `VERSION_CODE/VERSION_NAME` 与 `scripts/env_walle.sh` 的 `VERSION`
   - 动作：统一由构建注入或读取同一个文件
   - 验收：发版只改一处
 
@@ -323,7 +323,7 @@
 ### P2-5 调试工具
 
 - [x] ✅ **P2-5.1 rosbridge 默认关闭（仅调试开启）**
-  - 处理：`env_walle.sh` 新增 `WALLE_RUNTIME_ENV`（`prod`/`debug`，默认 `prod`）；`bringup.launch.py` 的 `enable_rosbridge` 默认值随之为 `debug=true`、`prod=false`，也可显式 `enable_rosbridge:=true` 覆盖
+  - 处理：`scripts/env_walle.sh` 新增 `WALLE_RUNTIME_ENV`（`prod`/`debug`，默认 `prod`）；`bringup.launch.py` 的 `enable_rosbridge` 默认值随之为 `debug=true`、`prod=false`，也可显式 `enable_rosbridge:=true` 覆盖
   - 验收：`WALLE_RUNTIME_ENV=prod` 启动后 9090 无监听；`WALLE_RUNTIME_ENV=debug` 启动才监听 9090，局域网其他主机仅在调试模式可连接
 
 - [x] ✅ **P2-5.2 web_video_server 默认关闭（仅调试开启）**
@@ -376,10 +376,18 @@ ls -l /dev/rrc /dev/v4l/by-id/
 ros2 node list
 ros2 topic list
 
-# 7) env 文件不入库（在仓库根目录执行）
-#    期望：无输出；真实 env 命中 *.env 忽略规则
-git ls-files '*.env'
-git check-ignore -v walle-device/walle_ws/src/scripts/walle-ai.env
+# 7) 配置文件不入库（在仓库根目录执行）
+#    期望：无输出；真实 walle-ai.conf 命中忽略规则
+git ls-files '*.env' 'walle-ai.conf'
+git check-ignore -v walle-device/scripts/walle-ai.conf
+
+# 8) 生产配置权限与服务
+ls -l /etc/walle-ai.conf                  # 期望 -rw------- 1 root root
+systemctl cat walle-ai | grep -E "EnvironmentFile|ExecStart"
+sudo -u gs cat /etc/walle-ai.conf         # 期望 Permission denied
+
+# 9) 开发一键启动（读取 scripts/walle-ai.conf）
+cd walle-device/scripts && ./start.sh
 ```
 
 ---
@@ -399,8 +407,9 @@ git check-ignore -v walle-device/walle_ws/src/scripts/walle-ai.env
 | 2026-11-08 | P2-5.1 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 9090 无监听；`debug` 或显式传参才启动 | 待确认 |
 | 2026-11-08 | P2-5.2 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 8080 无监听；`debug` 或显式传参才启动 | 待确认 |
 | 2026-11-09 | P0-4.1 / P0-4.2 | 未提交 | 选择 4.1：干净环境 source 后 `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`；需两台车同网段复测互不可见 | 待确认 |
-| 2026-11-09 | P0-5.2 | 未提交 | 两个 env 模板化；`git ls-files '*.env'` 为空，真实 env 命中 `*.env` 忽略 | 待确认 |
+| 2026-11-09 | P0-5.2 | 未提交 | 模板统一为 `*.example`；`git ls-files '*.env' 'walle-ai.conf'` 为空，真实配置命中忽略 | 待确认 |
 | 2026-11-09 | P0-5.3 | 未提交 | 88 个提交全历史扫描，仅占位符，无真实密钥 | 待确认 |
+| 2026-11-09 | P0-5.4 | 未提交 | deploy.sh 完成配置检查 + 600 安装 + systemd 单元，`systemd-analyze verify` 通过；开发 `./start.sh` 读取 `walle-ai.conf`；真机待 `./deploy.sh` 复测 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -414,14 +423,20 @@ git check-ignore -v walle-device/walle_ws/src/scripts/walle-ai.env
 - 2026-11-08：P0-1.4 已删除默认 broker/用户名，新增 `validate_mqtt_config()`；
   无配置、缺租户或明文配置时节点拒绝启动，TLS 默认 8883 且强制开启。
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
-- 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.env`
+- 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.conf`
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
-- 2026-11-09：P0-5.2 已将 `walle_ws/src/scripts/walle-ai.env` 与 `linux/walle-ai.env`
-  改为 `*.env.example`，仓库根 `.gitignore` 忽略 `*.env`；部署时先
-  `cp walle-ai.env.example walle-ai.env` 填写后再执行 `auto.sh`。
+- 2026-11-09：P0-5.4 新增 `walle-ai.service.in` 与 `deploy.sh`：`deploy.sh`
+  校验 `scripts/walle-ai.conf` 的 MQTT 必填项与 `WHIP_SECRET` 后，安装为
+  `/etc/walle-ai.conf`（固定 `root:root 600`），systemd 通过 `EnvironmentFile`
+  注入并直接 `source env_walle.sh` 启动；`start.sh` 仅用于开发环境。
+  P1-1.2 的 `WatchdogSec` 与健康检查仍未做。
+- 2026-11-09：P0-5.2 已把 env 模板统一为 `*.example`
+  （`scripts/walle-ai.conf.example`、`linux/walle-ai.conf.example`），仓库根与
+  `walle-device/.gitignore` 忽略 `*.env`、`walle-ai.conf`；开发时先
+  `cp walle-ai.conf.example walle-ai.conf`，生产由 `deploy.sh` 安装。
 - 2026-11-09：P0-5.3 对 88 个提交做全历史扫描，仅发现占位符（`sk-你的新key`、`xxx`），
   未发现有效 `ALIYUN_API_KEY` / MQTT 密码 / `WHIP_SECRET`，无需轮换。
-- 2026-11-09：P0-4 采用二选一中的 P0-4.1——`env_walle.sh` 新增
+- 2026-11-09：P0-4 采用二选一中的 P0-4.1——`scripts/env_walle.sh` 新增
   `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`，所有节点仅本机发现；
   P0-4.2（按 device_id 派生 domain）不启用。注意：开发机将无法直接
   `ros2 topic echo` 车上话题，远程调试走 rosbridge（9090）。
@@ -440,7 +455,7 @@ git check-ignore -v walle-device/walle_ws/src/scripts/walle-ai.env
 - 2026-11-09：P0-3.3 阻塞于 MCU 固件源码缺失；需求见
   `doc/mcu-comm-timeout-requirement.md`，验证脚本 `tools/test_mcu_timeout.py`
   （需架空车轮）。
-- 2026-11-08：rosbridge / web_video_server 定位为开发调试工具，`env_walle.sh` 新增
+- 2026-11-08：rosbridge / web_video_server 定位为开发调试工具，`scripts/env_walle.sh` 新增
   `WALLE_RUNTIME_ENV`（prod/debug），`bringup` 的 `enable_rosbridge` /
   `enable_web_video_server` 默认值随之为 false/true；
   P0-2.1 / P0-2.2 降级为 P2-5.1 / P2-5.2，生产启动不再监听 9090 / 8080。
