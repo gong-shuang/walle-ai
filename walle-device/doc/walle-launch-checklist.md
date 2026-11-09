@@ -10,10 +10,10 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 18 | 9 | 9 |
+| P0 上线阻断 | 18 | 10 | 8 |
 | P1 上线前应修 | 19 | 0 | 19 |
 | P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **11** | **47** |
+| **合计** | **58** | **12** | **46** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -79,10 +79,10 @@
   - 处理：`mecanum.py` 新增 `max_linear_speed` / `max_angular_speed` / `max_linear_accel` / `max_angular_accel` 参数（默认 1.0 m/s、3.0 rad/s、1.0 m/s²、3.0 rad/s²）；输入先限幅，再按实际 dt 做加速度斜坡；看门狗急停绕过斜坡立即停车
   - 验收：阶跃指令下电机输出平滑，无电流冲击；参数可通过 ROS 参数在线调整
 
-- [ ] 🔴 **P0-3.5 禁止绕过底盘节点直接控制电机**
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L45-L46 订阅 `~/set_motor_speeds` 与 `~/enable_reception`
-  - 动作：不在 rosbridge 暴露这些话题；或加内部命名空间/鉴权
-  - 验收：外部无法通过 rosbridge 直接下发电机占空比或关闭传感器上报
+- [x] ✅ **P0-3.5 禁止绕过底盘节点直接控制电机**
+  - 处理：低层接口移入内部命名空间——`ros_robot_controller` 改为订阅 `~/internal/set_motor_speeds`、`~/internal/enable_reception`，`mecanum.py` / `hardware_test.py` 同步改发布名；`walle_net/launch/net.launch.py` 为 rosbridge 增加 `topics_glob` 话题白名单，只放行调试页实际使用的 `/cmd_vel`、电池/声呐与灯光、蜂鸣器、OLED、舵机话题，其余话题（含内部直控接口）的 publish / subscribe / advertise 一律拒绝
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L52-L53
+  - 验收：rosbridge 向 `/ros_robot_controller/internal/set_motor_speeds` 或 `/ros_robot_controller/internal/enable_reception` 发布时被拒绝（服务端日志 `No match found for topic`）且不生效；调试页 `/cmd_vel` 遥控不受影响
 
 ### P0-4 多车同域串控
 
@@ -343,6 +343,21 @@
 nc -vz <车IP> 9090
 nc -vz <车IP> 8080
 
+# 1.1) rosbridge 话题白名单（在另一台电脑执行，需 pip install websocket-client）
+#      被拒的 publish 不会回包，只在车上 rosbridge 日志打印
+#      "No match found for topic, cancelling publish to: ..."
+python3 - <<'PY'
+import json, websocket
+ws = websocket.create_connection("ws://<车IP>:9090")
+for topic in ("/ros_robot_controller/internal/set_motor_speeds",
+              "/ros_robot_controller/internal/enable_reception"):
+    ws.send(json.dumps({"op": "publish", "topic": topic, "msg": {"data": []}}))
+ws.close()
+PY
+# 在车上确认参数与拦截日志（期望两条 No match 记录）
+ros2 param get /rosbridge_websocket topics_glob
+journalctl -u walle-ai.service --since "1 min ago" | grep "No match found"
+
 # 2) 参数泄露检查
 ros2 param get /video_webrtc_bridge whip_secret
 
@@ -371,6 +386,7 @@ ls -l /dev/rrc /dev/v4l/by-id/
 | 2026-11-08 | P0-3.1 | 未提交 | 前进中断开 cmd_vel 后 0.5s 内自动发零速度（需架空验证） | 待确认 |
 | 2026-11-08 | P0-3.2 | 未提交 | `kill -TERM` 与串口断连后均尝试下发零速度（需架空验证） | 待确认 |
 | 2026-11-09 | P0-3.4 | 未提交 | 阶跃指令按 10Hz 采样输出平滑递增，无单周期跳变（需架空验证） | 待确认 |
+| 2026-11-09 | P0-3.5 | 未提交 | 本机 Jazzy rosbridge 实测：两个内部话题 publish 均被拒（No match），`/cmd_vel` 发布与 `/ros_robot_controller/battery` 订阅正常；真机待复测 | 待确认 |
 | 2026-11-08 | P2-5.1 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 9090 无监听；`debug` 或显式传参才启动 | 待确认 |
 | 2026-11-08 | P2-5.2 | 未提交 | `WALLE_RUNTIME_ENV=prod` 时 8080 无监听；`debug` 或显式传参才启动 | 待确认 |
 |  |  |  |  |  |
@@ -388,6 +404,10 @@ ls -l /dev/rrc /dev/v4l/by-id/
   同一改动同时关闭了 P0-5.1（代码内兜底凭据）。
 - 2026-11-08：P0-2.3 已移除 `whip_secret` 的 ROS 参数声明，只从 `/etc/walle-ai.env`
   的 `WHIP_SECRET` 读取，避免 `ros2 param get/dump` 泄露明文。
+- 2026-11-09：P0-3.5 已把低层电机占空比与上报开关接口移入
+  `/ros_robot_controller/internal/*`，并在 `walle_net/launch/net.launch.py` 为
+  rosbridge 配置 `topics_glob` 白名单；白名单只放行调试页所需的安全话题，
+  新增话题需同步修改该列表，禁止使用 `set_*` 等会匹配到内部接口的通配。
 - 2026-11-08：P0-3.1 已在 `mecanum.py` 增加 cmd_vel 看门狗（100ms 检查，
   默认 0.5s 超时发零速度）；语音、LLM 控制节点同步改为 10Hz 重发 cmd_vel，
   需架空实车验证。
