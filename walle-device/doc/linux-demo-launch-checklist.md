@@ -239,16 +239,18 @@
   - 验收：`python3 -m unittest discover -s test -t .` 共 19 项通过（15 协议/配置 + 4 版本）；pytest 环境下同类可被发现（本机未安装 pytest，未实跑）；CI 接入见 P1-5.4
   - 证据：`linux-demo/test/test_protocol.py`、`linux-demo/test/test_version.py`、`linux-demo/test/conftest.py`；`README.md`「测试」
 
-- [ ] 🔴 **P1-5.3 故障注入与长稳测试**
+- [ ] 🟡 **P1-5.3 故障注入与长稳测试**
+  - 状态：暂缓至实机阶段（2026-11-10 确认）。代码侧已具备 `PR_SET_PDEATHSIG`、`TimeoutStopSec/KillMode`、断线重连与流租约回收（P0-5.1 / P0-5.2 / P1-2.2 / P1-3.5），需在真实设备上执行故障注入与 24h soak
   - 动作：复用 `walle-device/scripts/stability_test.py` 思路，覆盖 `kill -9`（验证子进程清理）、断网/恢复、摄像头解绑/绑定、声卡不可用、MQTT Broker 重启、24h soak（RSS/FD/磁盘/温度）
   - 验收：`kill -9` 后无 ffmpeg/播放器残留；断网恢复后自动上线；24h 无泄漏趋势
   - 证据：`walle-device/scripts/stability_test.py`；`main.py` L1841-L1858、L2169-L2186
 
-- [ ] 🔴 **P1-5.4 CI 覆盖 linux-demo**
+- [ ] 🟡 **P1-5.4 CI 覆盖 linux-demo**
+  - 状态：暂缓（2026-11-10 确认不修改 `.github/workflows/ci.yml`）。现有 `Critical lint` 已覆盖 linux-demo 的语法级检查；本地已提供 `linux-demo/test/`（19 项 unittest，可用 pytest 运行），CI job 待后续统一处理
   - 现状：`.github/workflows/ci.yml` 的 `Critical lint` 覆盖 `walle-device`（包含 linux-demo 的语法级检查），但 `Lint scripts and tests` 不包含 linux-demo，也没有 linux-demo 的 pytest
   - 动作：将 `walle-device/linux-demo` 纳入严格 flake8；新增 linux-demo 测试 job（安装 `requirements.txt` 后运行 pytest）
   - 验收：PR 触发 lint + linux-demo 测试；故意引入未定义名/语法错误时 CI 失败
-  - 证据：`.github/workflows/ci.yml` L29-L41、L71-L82
+  - 证据：`.github/workflows/ci.yml` L29-L41、L71-L82；`linux-demo/test/`
 
 ---
 
@@ -467,6 +469,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：经确认 P1-5.3（故障注入/24h soak）暂缓至实机阶段，P1-5.4（CI 接入）暂缓，
+  本次不修改 `.github/workflows/ci.yml`；本地测试已就绪（19 项 unittest）。
 - 2026-11-10：新增 `linux-demo/test/`：远程命令移除回归（3 项）+ 协议/配置用例（15 项）
   + 版本优先级用例（4 项），统一 `python3 -m unittest discover -s test -t .` 运行（P1-5.1 / P1-5.2）。
 - 2026-11-10：MQTT 报文 INFO 日志只保留主题与字节数，完整报文降为 DEBUG 并经
