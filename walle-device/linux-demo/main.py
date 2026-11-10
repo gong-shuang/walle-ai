@@ -452,6 +452,10 @@ VIDEO_LOG_LEVEL = "info"                 # ffmpeg 日志级别：quiet/panic/fat
                                          # info（默认）= 记录版本、编解码器、输入/输出流信息 + 实时帧统计，
                                          # 和手动跑 ffmpeg 看到的日志一样；只想记错误就改成 "warning"
 VIDEO_LOG_MAX_BYTES = 20 * 1024 * 1024   # 单个日志超过 20MB 时在下次写入前滚动为 .1 备份
+# 历史日志清理：每次新建推流日志前执行，保留最近 N 天 / 最多 M 个文件 / 总量不超过 X MB
+VIDEO_LOG_KEEP_DAYS = int(os.environ.get("VIDEO_LOG_KEEP_DAYS", "7"))
+VIDEO_LOG_KEEP_FILES = int(os.environ.get("VIDEO_LOG_KEEP_FILES", "10"))
+VIDEO_LOG_MAX_TOTAL_MB = int(os.environ.get("VIDEO_LOG_MAX_TOTAL_MB", "100"))
 # 推流最长时长（秒）；到期自动停止并告警，0 = 不限制（App 崩溃/断网时避免一直占用摄像头）
 VIDEO_MAX_DURATION_SEC = int(os.environ.get("VIDEO_MAX_DURATION_SEC", "1800"))
 VIDEO_VIDEO_SIZE = "640x480"             # 采集分辨率
@@ -1575,9 +1579,50 @@ class _LogSink:
             self.fh = None
 
 
+def cleanup_video_logs(log_path):
+    """清理旧推流日志：按「保留 N 天 / 最多 M 个文件 / 总量 X MB」删除最旧的文件。
+
+    在新建日志前调用，只处理同目录下 ffmpeg_*.log 与 .log.1；当前新文件尚未创建，
+    因此不会删到正在写入的日志。
+    """
+    log_dir = os.path.dirname(log_path) or "."
+    try:
+        names = [n for n in os.listdir(log_dir)
+                 if n.startswith("ffmpeg_") and (n.endswith(".log") or n.endswith(".log.1"))]
+    except OSError:
+        return
+    files = []
+    for name in names:
+        path = os.path.join(log_dir, name)
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        files.append((st.st_mtime, st.st_size, path))
+    files.sort()                      # 最旧在前
+    now = time.time()
+    kept = 0
+    total = 0
+    for mtime, size, path in reversed(files):   # 从新到旧决定保留
+        too_old = VIDEO_LOG_KEEP_DAYS > 0 and now - mtime > VIDEO_LOG_KEEP_DAYS * 86400
+        too_many = VIDEO_LOG_KEEP_FILES > 0 and kept >= VIDEO_LOG_KEEP_FILES
+        too_big = (VIDEO_LOG_MAX_TOTAL_MB > 0
+                   and total + size > VIDEO_LOG_MAX_TOTAL_MB * 1024 * 1024)
+        if too_old or too_many or too_big:
+            try:
+                os.remove(path)
+                logging.info("已清理旧推流日志: %s", path)
+            except OSError as exc:
+                logging.warning("清理旧推流日志失败 %s: %s", path, exc)
+            continue
+        kept += 1
+        total += size
+
+
 def make_log_sink(header=b""):
     """按配置创建日志落地点；配置路径不可写时退回临时文件，保证推流本身不受影响"""
     path = video_log_path()
+    cleanup_video_logs(path)
     try:
         return _LogSink(path, header)
     except Exception as e:  # noqa: BLE001

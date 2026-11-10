@@ -113,7 +113,9 @@ journalctl -u walle-ai -f                 # 实时日志
 journalctl -u walle-ai -n 200 --no-pager  # 最近 200 行
 ```
 
-ffmpeg 推流日志写在安装目录的 `log/ffmpeg_*.log`。
+ffmpeg 推流日志写在安装目录的 `log/ffmpeg_*.log`；每次新建日志前按「保留 7 天 /
+最多 10 个文件 / 总量 100MB」清理最旧文件，可用 `VIDEO_LOG_KEEP_DAYS`、
+`VIDEO_LOG_KEEP_FILES`、`VIDEO_LOG_MAX_TOTAL_MB` 调整（0 表示不限制）。
 
 ### 7. 音频会话（麦克风 / 扬声器）
 

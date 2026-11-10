@@ -55,6 +55,11 @@ PHONE_AUDIO_WHEP_SECRET=
 # MQTT 断连超过该秒数后停止推流/手机音频
 # MQTT_DISCONNECT_STOP_SEC=60
 
+# ---- 可选：推流日志保留（每次新建日志前清理最旧文件；0=不限制）----
+# VIDEO_LOG_KEEP_DAYS=7
+# VIDEO_LOG_KEEP_FILES=10
+# VIDEO_LOG_MAX_TOTAL_MB=100
+
 # ---- 可选：监控阈值 ----
 # MONITOR_INTERVAL=5
 # THRESH_CPU=90.0
