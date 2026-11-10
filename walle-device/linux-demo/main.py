@@ -1700,18 +1700,29 @@ class RpiMonitor:
             "request_id": self._rid(data),
         }
 
-    def publish_json(self, resource, data, retain=False):
+    def publish_json(self, resource, data, retain=False, wait_timeout=None):
         """按资源名发布到 walle/{tenant}/{device}/v1/{resource}。
 
         参数 resource 用模块顶部的 RES_* 常量，例如 RES_ALARM / RES_STATE_RESULT。
+        返回 False 表示未送达（未连接/队列满等），调用方无需处理，但日志会留下警告。
         """
-        self._publish_one(device_topic(resource), data, retain)
+        return self._publish_one(device_topic(resource), data, retain, wait_timeout)
 
-    def _publish_one(self, topic, data, retain=False):
+    def _publish_one(self, topic, data, retain=False, wait_timeout=None):
         info = self.client.publish(
             topic, json.dumps(data, ensure_ascii=False), qos=MQTT_QOS, retain=retain
         )
+        if info.rc != mqtt.MQTT_ERR_SUCCESS:
+            logging.warning("MQTT 发布失败（rc=%s），消息未送达: %s", info.rc, topic)
+            return False
+        if wait_timeout is not None:
+            try:
+                info.wait_for_publish(timeout=wait_timeout)
+            except (RuntimeError, ValueError) as exc:
+                logging.warning("等待 MQTT 发布完成失败（%s）：%s", topic, exc)
+                return False
         logging.debug("publish -> %s mid=%s", topic, info.mid)
+        return True
 
     def _handle_request(self, topic, payload):
         """把请求分发到对应处理函数。
@@ -2844,9 +2855,10 @@ class RpiMonitor:
             self._stop_video_stream("程序退出")
             self._stop_phone_audio("程序退出")
             try:
-                # 双发：LWT 只挂了一个主题，正常退出时把另一套也置为 offline
-                self.publish_json(RES_ONLINE, self.build_online_payload(False), retain=True)
-                time.sleep(0.5)
+                # 正常退出时把 online 置为 offline，并等 PUBACK 后再断开；
+                # 避免 publish 后立即 disconnect 导致 retained offline 没发出去。
+                self.publish_json(RES_ONLINE, self.build_online_payload(False),
+                                  retain=True, wait_timeout=2.0)
             except Exception:
                 pass
             self.pool.shutdown(wait=False, cancel_futures=True)

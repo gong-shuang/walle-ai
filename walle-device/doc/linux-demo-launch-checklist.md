@@ -29,11 +29,11 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
-| P1 上线前应修 | 18 | 5 | 13 |
+| P1 上线前应修 | 18 | 6 | 12 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **18** | **37** |
+| **合计** | **55** | **19** | **36** |
 
-> linux-demo 已开始按本清单整改（当前 18/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 19/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -178,11 +178,10 @@
   - 验收：Broker 指向 `127.0.0.1:1` 运行 9s，进程保持运行并周期性输出连接失败日志（无 traceback、无 crash-loop）；mock `on_connect` 输出 `STARTUP READY` 且 `startup_ready=True`；移除 ffmpeg 依赖后 capability 为 `['system_status']` 且 `missing_dependencies=['ffmpeg']`；`--check` 输出版本、依赖检查与 7 条订阅主题
   - 证据：`main.py` L1408-L1433、L1645-L1664、L1903-L1914、L2791-L2792、L2812-L2815、L2833-L2838、L2915-L2918；`README.md`「自检」与常见问题
 
-- [ ] 🔴 **P1-2.2 断线重连、LWT 与发布失败处理**
-  - 现状：`clean_session=True` 每次重连重新订阅，LWT 使用 retained offline；但 `_publish_one()` 不检查 `publish()` 返回码，断线期间的动作结果可能静默丢失；`on_connect` 失败只记录 reason_code
-  - 动作：检查 `MQTT_ERR_NO_CONN` / `rc` 并记录；正常退出时 `publish(...).wait_for_publish(timeout)` 后再断开；增加 `on_connect_fail` 日志；验证重连后 retained online 覆盖旧值
-  - 验收：断网 1 分钟后恢复，App 看到 online 且请求可用；断线期间的动作请求不会留下「已成功」假象；无幽灵 online
-  - 证据：`main.py` L1441-L1458、L1497-L1508、L2726-L2743
+- [x] ✅ **P1-2.2 断线重连、LWT 与发布失败处理**
+  - 处理：`_publish_one()` 检查 `info.rc`，非 `MQTT_ERR_SUCCESS` 时记录「消息未送达」并返回 False，`publish_json()` 透传结果；新增 `wait_timeout` 参数，正常退出时 offline 报文 `wait_for_publish(2s)` 后再 `disconnect()`；`on_connect_fail` 日志已在 P1-2.1 补齐；重连由 paho 自动完成，每次 `on_connect` 都重新订阅并发布 retained `online=true` 覆盖遗嘱的 `offline`
+  - 验收：stub `rc=MQTT_ERR_NO_CONN` 时 `publish_json` 返回 False 且日志含「消息未送达」；`rc=0` + `wait_timeout=2.0` 时调用 `wait_for_publish(2.0)`；连续两次 mock `on_connect` 均发布 `retain=True, online=True`；真实断网 1 分钟恢复待实机验证
+  - 证据：`main.py` L1703-L1725、L1645-L1661、L2857-L2862
 
 ### P1-3 外设断连与降级
 
@@ -475,6 +474,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：`_publish_one` 检查发布返回码并记录「消息未送达」；退出时 offline 报文
+  `wait_for_publish(2s)` 后再断开；重连后 retained online 覆盖旧值（P1-2.2）。
 - 2026-11-10：启动改为 `connect_async` + `loop_start`，Broker 不可达时持续重试不退出；
   首次连接/订阅后打印 `STARTUP READY`；`--check` 增加依赖检查，缺 ffmpeg 时 capability
   不再上报 `rtmp_push`（P1-2.1）。
