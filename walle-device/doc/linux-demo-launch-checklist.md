@@ -29,11 +29,11 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
-| P1 上线前应修 | 18 | 1 | 17 |
+| P1 上线前应修 | 18 | 2 | 16 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **14** | **41** |
+| **合计** | **55** | **15** | **40** |
 
-> linux-demo 已开始按本清单整改（当前 14/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 15/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -162,11 +162,10 @@
   - 验收：按测试值渲染后 `systemd-analyze verify` 通过（exit 0）；缺 `/etc/walle-ai.conf` 时 systemd 启动失败；`systemctl stop` 由 `TimeoutStopSec=10` / `KillMode=control-group` 兜底（实机待验证）
   - 证据：`walle-ai.service.example` L1-L48
 
-- [ ] 🔴 **P1-1.3 提供 linux-demo 部署脚本**
-  - 现状：`walle-device/scripts/deploy.sh` 只处理 ROS2（`/etc/walle-ai.conf` + ROS2 服务）；linux-demo 完全依赖手工复制与 `sed`，且步骤易错
-  - 动作：新增 `linux-demo/deploy.sh`，或扩展 `scripts/deploy.sh` 支持 `--target linux-demo|ros2`；脚本负责配置检查、600 安装、service 渲染与 enable、可选 udev 规则；按执行用户动态推导 `User`/`Group`，不硬编码用户名
-  - 验收：脚本可重复执行无副作用；不同用户名/路径环境可安装成功；`systemctl status walle-ai` 正常
-  - 证据：`walle-device/scripts/deploy.sh`；`README.md` L11-L24
+- [x] ✅ **P1-1.3 提供 linux-demo 部署脚本**
+  - 处理：新增 `linux-demo/deploy.sh`：`main.py --check` 前置自检 → `install -m 600 root:root` 安装 `/etc/walle-ai.conf` → 按执行用户渲染 `walle-ai.service.example` 占位符 → `daemon-reload` + `enable` + `restart`；支持 `--venv PATH` / `WALLE_VENV` 指定虚拟环境、`--no-start` 只安装不启动；拒绝 root 执行，可重复执行
+  - 验收：`bash -n` 通过；stub `sudo`/`systemctl` 下完整跑通，渲染后的 unit `systemd-analyze verify` 通过（exit 0）；重复执行与 `--no-start` 正常；缺 venv / 缺配置 / 未知参数均以非 0 退出并给出提示
+  - 证据：`linux-demo/deploy.sh` L1-L92
 
 - [ ] 🔴 **P1-1.4 版本号读取一致性**
   - 现状：`main.py` 优先读取 `main.py` 同级 `VERSION`，其次 `../VERSION`（即 `walle-device/VERSION`）；单独部署 linux-demo 时两者都不存在，回退到硬编码 `VERSION_NAME=0.1.1`；`VERSION_CODE` 默认 1
@@ -479,6 +478,9 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：新增 `linux-demo/deploy.sh`（P1-1.3）：先跑 `main.py --check` 再安装
+  `/etc/walle-ai.conf`（600），按部署用户渲染 systemd 单元并 enable/restart；支持
+  `--venv` / `WALLE_VENV` 与 `--no-start`，stub 环境下完整跑通、可重复执行。
 - 2026-11-10：`walle-ai.service.example` 改为占位符模板（`@WALLE_USER@` / `@WALLE_GROUP@` /
   `@WALLE_HOME@` / `@WALLE_VENV@`），补启动频率限制与 systemd 沙箱（`ProtectSystem=strict`、
   `ProtectHome=read-only`、`ReadWritePaths`、`SupplementaryGroups=audio video`）；按测试值渲染后
