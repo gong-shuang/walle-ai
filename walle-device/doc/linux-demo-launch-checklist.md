@@ -89,7 +89,7 @@
 
 - [x] ✅ **P0-2.1 删除代码内默认 Broker 与默认凭据**
   - 处理：`MQTT_HOST` / `MQTT_USERNAME` / `MQTT_PASSWORD` / `MQTT_TENANT` 改为空默认值；`MQTT_PORT` 不再默认 1883，空值或非整数记为 `None`；新增 `validate_config()` 校验五项必填与端口范围；`main()` 正式启动前校验并以退出码 2 拒绝启动，`--check` 返回 1 并列出缺失项
-  - 验收：无配置时 `--check` 退出 1 并列出 4 个缺失项（端口在 P0-2.2 后默认 8883），`python3 main.py` 退出 2；合法配置 `--check` 退出 0；`MQTT_PORT=abc` 返回友好错误而非 traceback；源码无 `RaspPi5` / `123456` / MQTT 默认域名
+  - 验收：无配置时 `--check` 退出 1 并列出 4 个缺失项（端口在 P0-2.2 后默认 8883），`python3 main.py` 退出 2；合法配置 `--check` 退出 0；`MQTT_PORT=abc` 返回友好错误而非 traceback；源码无默认账号/口令与 MQTT 默认域名
   - 证据：`main.py` L140-L158、L206-L246、L2566-L2579、L2630-L2697
 
 - [x] ✅ **P0-2.2 强制 TLS 8883，禁止明文回退**
@@ -115,9 +115,10 @@
 ### P0-3 密钥与历史泄露
 
 - [ ] 🟡 **P0-3.1 全历史扫描并轮换已暴露凭据**
-  - 现状：历史扫描确认提交 `8f112d5` 的 README 明文写了 App 测试账号 `home` / `123456`；根 `README.md` 当前仍保留该行；`walle-device/scripts/walle-ai.conf`（本地真实配置，已被忽略）与 `web/car_ctl_by_mqtt.html` 也使用 `123456`；未发现 `sk-`、私钥或真实 `WHIP_SECRET`
-  - 动作：在 EMQX 修改/禁用 `home` 与设备账号口令，同步 App 与 `/etc/walle-ai.conf`；删除根 README 的明文密码；移除 web 测试页硬编码密码；增加提交前检查
-  - 验收：旧口令无法登录；`git grep -n "123456"` 无匹配；README / web 页无明文凭据
+  - 现状：历史扫描确认提交 `8f112d5` 的 README 明文写了 App 测试账号 `home` / `<已泄露口令>`；根 `README.md` 与 `web/car_ctl_by_mqtt.html` 已在 2026-11-10 清理；`walle-device/scripts/walle-ai.conf`（本地真实配置，已被忽略）仍使用同一口令；未发现 `sk-`、私钥或真实 `WHIP_SECRET`
+  - 处理：已删除根 README 的明文账号/口令；已移除 web 测试页硬编码密码并改为 `type=password` 输入；本地 `scripts/walle-ai.conf` 待改密后更新
+  - 待办：在 EMQX 修改/禁用 `home` 与设备账号口令，同步 App 与 `/etc/walle-ai.conf`
+  - 验收：旧口令无法登录；`git grep -nE "MQTT_PASSWORD=[^x< ]{6,}"` 无真实值；README / web 页无明文凭据
   - 证据：commit `8f112d5`、`README.md` L111、`web/car_ctl_by_mqtt.html` L307、`walle-device/scripts/walle-ai.conf` L14（本地，不入库）
 
 ### P0-4 音视频流鉴权与隐私
@@ -412,7 +413,7 @@
 
 ```bash
 # 0) 静态问题扫描（整改后期望无输出）
-grep -rnE "baidong|RaspPi5|MQTT_PASSWORD[\"']?[=:][\"']?123456|shell=True|cmd/exec|remote_cmd" \
+grep -rnE "baidong|RaspPi5|MQTT_PASSWORD[\"']?[=:][\"']?[^x< ]{6,}|shell=True|cmd/exec|remote_cmd" \
   walle-device/linux-demo --include='*.py'
 
 # 1) 缺失配置必须拒绝启动（期望非 0）
@@ -479,9 +480,9 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
-- 2026-11-10：历史密钥扫描确认 `8f112d5` 的 README 明文写了 App 测试账号 `home` / `123456`；
-  根 `README.md` 仍保留该行，`web/car_ctl_by_mqtt.html` 与本地 `walle-device/scripts/walle-ai.conf`
-  也使用 `123456`。未发现 `sk-`、私钥或真实 `WHIP_SECRET`；需在 EMQX 改密并清理外部明文（P0-3.1）。
+- 2026-11-10：历史密钥扫描确认 `8f112d5` 的 README 明文写了 App 测试账号 `home` / `<已泄露口令>`；
+  根 `README.md` 与 `web/car_ctl_by_mqtt.html` 已清理；本地 `walle-device/scripts/walle-ai.conf`
+  仍使用同一口令。未发现 `sk-`、私钥或真实 `WHIP_SECRET`；需在 EMQX 改密并更新本地配置（P0-3.1）。
 - 2026-11-10：`main()` 在清理完成后 `logging.shutdown()` + `os._exit(0)`，不再等待非 daemon
   线程池；systemd 模板增加 `TimeoutStopSec=10` / `KillMode=control-group`（P0-5.2）。
 - 2026-11-10：ffmpeg 与 WHEP 播放器 Popen 增加 `PR_SET_PDEATHSIG`，主进程崩溃/被
@@ -547,7 +548,7 @@ python3 walle-device/linux-demo/main.py --check
 | --- | --- | --- | --- |
 | S1 | P0-1.3 / P0-1.4 | EMQX 创建每台设备独立账号 `dev_<device_id>`；按 `doc/service_deploy.md` §10 配置 ACL、`{deny, all}.`，并启用 §10.2 审计规则 | §10.1 四条命令：App 允许、设备 A 跨设备订阅/发布被拒；`walle/audit/#` 能收到动作来源与时间 |
 | S2 | P0-1.4 | 把 EMQX 审计动作接到日志系统（Republish 或 Webhook） | 触发一次 video/phone audio 动作后可按 `request_id` 追溯 |
-| S3 | P0-3.1 | **已确认**历史 README 暴露 App 测试账号 `home` / `123456`；本地 `scripts/walle-ai.conf` 与 `web/car_ctl_by_mqtt.html` 也使用该口令；在 EMQX 改密/禁用测试账号，同步 App 与设备配置 | 旧口令无法登录；`git grep -n "123456"` 无匹配 |
+| S3 | P0-3.1 | 历史 README 曾暴露 App 测试账号 `home` / `<已泄露口令>`；README 与 web 页已清理；本地 `scripts/walle-ai.conf` 与 EMQX 账号仍需改密，同步 App 与设备配置 | 旧口令无法登录；`git grep -nE "MQTT_PASSWORD=[^x< ]{6,}"` 无真实值 |
 | S4 | P0-4.1 | 在 8443 配置 Nginx `secure_link`（`doc/service_deploy.md` §6.2）；生成 `PHONE_AUDIO_WHEP_SECRET`；安全组放行 8443/tcp；设备配置写入 WHEP 模板/secret/path | 无 token 403、过期 410、正确 token 502；设备手机音频可出声 |
 | S5 | P0-2.3 / P1-1.2 | 安装 `/etc/walle-ai.conf`（root:root 600），按 README 部署 systemd 服务 | 普通用户不可读配置；`systemctl stop walle-ai` 5s 内退出；重启后自动上线 |
 | S6 | P0-4.2 / P0-5.1 / P0-5.2 | 按对应项整改完成后，在真实设备上验证摄像头 preflight、`kill -9` 子进程清理、systemd 停止耗时 | 非 USB 节点被拒；`kill -9` 后无 ffmpeg/播放器残留；stop 5s 内完成 |

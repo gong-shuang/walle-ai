@@ -271,7 +271,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     </div>
     <div class="field">
       <label>密码</label>
-      <input id="fPass" class="input" spellcheck="false">
+      <input id="fPass" class="input" type="password" placeholder="MQTT 密码" autocomplete="off" spellcheck="false">
     </div>
     <div class="field">
       <label>客户端 ID</label>
@@ -304,7 +304,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   var DEFAULTS = {
     wsUrl: 'wss://www.baidong.xyz:8084/mqtt',
     user: 'home',
-    pass: '123456',
+    pass: '',
     clientId: '',
     keepalive: 60,
     prefix: 'walle',
