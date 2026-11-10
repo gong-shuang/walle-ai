@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 14 | 7 |
-| **合计** | **58** | **47** | **11** |
+| P2 后续优化 | 21 | 15 | 6 |
+| **合计** | **58** | **48** | **10** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -280,10 +280,10 @@
   - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py`（`PROCESS_PERIOD_SEC` / `process`）
   - 验收：mock 冒烟连续 5 轮 `process()`，`time.sleep` 均为 0.05s；空闲时不再无休止自旋，CPU 占用接近 0
 
-- [ ] 🔴 **P2-3.2 去除阻塞式 time.sleep**
-  - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py` L294-L299
-  - 动作：改为定时器/状态机，不阻塞回调线程
-  - 验收：动作执行期间状态查询与停止指令仍可响应
+- [x] ✅ **P2-3.2 去除阻塞式 time.sleep**
+  - 处理：删除 `execute_action_for_one_second` 的 0.6s 阻塞循环，改为非阻塞状态机：`_begin_timed_action` 立即返回并记录截止时间，`process()` 每 50ms 调用 `_tick_timed_action` 按 10Hz 重发速度、到点停车并 `_advance_action`；新请求/动作完成时清理定时状态
+  - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py`（`_begin_timed_action` / `_tick_timed_action` / `_advance_action` / `process`）
+  - 验收：mock 冒烟 `_begin_timed_action` 0.3ms 返回（不再阻塞 0.6s），deadline 正确设置；`_tick_timed_action` 能重发速度并到点推进到下一动作；源码中已无 `execute_action_for_one_second`
 
 - [ ] 🔴 **P2-3.3 声呐超时保护**
   - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py` L116-L117 只保存最后一次距离，断流后可能继续前进
@@ -431,12 +431,16 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-2.6 | 未提交 | `get_pwm_servo_state` 改为 `(request, response)` 并填充/返回 response；mock 冒烟通过 | 待确认 |
 | 2026-11-10 | P2-2.7 | 未提交 | IMU `orientation_covariance[0] = -1`（REP-145）；mock 冒烟通过；本版本无 IMU，保留兼容代码 | 待确认 |
 | 2026-11-10 | P2-3.1 | 未提交 | `process()` 增加 0.05s 固定周期休眠，消除忙等；mock 冒烟验证每轮 sleep | 待确认 |
+| 2026-11-10 | P2-3.2 | 未提交 | 定时动作改为非阻塞状态机，删除 0.6s 阻塞 sleep；mock 冒烟验证立即返回与到点推进 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-3.2 `vllm_obstacle_avoidance` 的 0.6s 定时动作改为非阻塞状态机，
+  `process()` 每 50ms 推进、10Hz 重发速度，动作期间线程不再被 `sleep` 占住；
+  `/agent_process/result` 等 ROS 回调不受影响。
 - 2026-11-10：P2-3.1 `vllm_obstacle_avoidance.process()` 增加 0.05s 固定周期休眠
   （20Hz），空闲时不再忙等；`cmd_vel` 仍按 10Hz 保活，行为不变。
 - 2026-11-10：P2-2.7 IMU 的 `orientation_covariance[0]` 设为 -1（REP-145），零四元数
