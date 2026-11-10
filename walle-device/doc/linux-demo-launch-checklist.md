@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 19 | 3 |
-| **合计** | **55** | **46** | **9** |
+| P2 后续优化 | 22 | 20 | 2 |
+| **合计** | **55** | **47** | **8** |
 
-> linux-demo 已开始按本清单整改（当前 46/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 47/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -354,10 +354,10 @@
   - 验收：新增 3 项用例（回投成功、回投缺失、订阅被拒），全套 56 项通过；`--check --connect` 本机无 Broker 时 DNS 失败返回 1；真实 EMQX 账号/ACL 待现场验证
   - 证据：`ld_selfcheck.py`、`main.py`、`README.md`「4. 自检」；`test/test_selfcheck.py`
 
-- [ ] 🔴 **P2-4.2 本地请求注入脚本**
-  - 动作：提供命令行小工具，模拟 App 发送 `state/query`、`capability/query`、`video/start`、`video/stop`、`phone/audio/*`，支持 `--dry-run` 只打印主题与报文
-  - 验收：无手机时可完成全链路联调；默认不会真正推流/播放
-  - 证据：`main.py` L1510-L1532、L301-L340
+- [x] ✅ **P2-4.2 本地请求注入脚本**
+  - 处理：新增 `inject_request.py`，按 App 的报文格式向设备子主题发送 `state/query`、`capability/query`、`video/start`、`video/stop`、`phone/audio/send|stop`；默认动作只有两个只读查询，推流/播放必须显式 `--action`；`--dry-run` 只打印主题与报文不连 Broker；uuid 默认从 retained `online` 读取（也可 `--uuid`），结果按 `request_id` 匹配并打印，未收到返回退出码 1；支持 `--device-id`、`--room-number`、`--video-device`、`--username/--password`（严格 ACL 下用 App 账号）
+  - 验收：`--dry-run --action video/start --room-number demo` 输出请求/应答主题与报文且不连接；缺 `--room-number` 退出码 2；新增 4 项用例，全套 60 项通过；真实 Broker 全链路待现场验证
+  - 证据：`inject_request.py`、`README.md`「4.1 无手机联调」；`test/test_inject_request.py`
 
 ### P2-5 文档一致性
 
@@ -453,6 +453,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：新增 `inject_request.py` 本地注入工具，默认只发只读查询、支持 `--dry-run`，
+  uuid 从 retained online 读取，结果按 request_id 匹配（P2-4.2）。
 - 2026-11-10：`--check --connect` 增加订阅/发布回执与 nonce 回投验证，临时主题
   `walle/{tenant}/{device_id}-check/v1/selfcheck`，可一条命令区分登录/ACL 问题（P2-4.1）。
 - 2026-11-10：手机音频首帧超时与启动宽限改为环境变量（默认 8s / 2s），主进程等待

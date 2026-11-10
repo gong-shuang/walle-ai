@@ -9,6 +9,7 @@
 | --- | --- |
 | `main.py` | 主程序：MQTT 协议、监控、摄像头能力、推流控制 |
 | `whep_audio_player.py` | 手机麦上行播放器（由 `main.py` 以子进程拉起） |
+| `inject_request.py` | 本地请求注入：模拟 App 发请求，无手机时联调 |
 | `requirements.txt` | Python 依赖 |
 | `walle-ai.conf.example` | 配置模板 |
 | `walle-ai.service.example` | systemd 单元模板（由 `deploy.sh` 渲染） |
@@ -103,6 +104,24 @@ aiortc、sounddevice），缺失只告警、不阻塞启动。
 v4l2-ctl --list-devices
 v4l2-ctl -d /dev/video0 --list-formats-ext   # 确认支持 640x480
 ```
+
+### 4.1 无手机联调（inject_request.py）
+
+模拟 App 向设备子主题发请求；默认只发只读查询，不会触发推流/播放。
+
+```bash
+# 只打印主题与报文，不连接 Broker
+~/venv/bin/python inject_request.py --dry-run --action video/start --room-number demo
+# 查询状态与能力，并打印设备返回的结果
+~/venv/bin/python inject_request.py
+# 动作需显式指定（会真正占用摄像头/声卡）
+~/venv/bin/python inject_request.py --action video/start --room-number demo
+~/venv/bin/python inject_request.py --action video/stop
+```
+
+设备 uuid 默认从 retained `online` 读取（要求设备在线），也可 `--uuid` 指定；
+严格 ACL 环境下用 App 账号连接（`--username home --password '...'`），设备账号只能
+访问自己 clientId 的子树。结果按 `request_id` 匹配，未收到会以退出码 1 提示。
 
 ### 5. 安装为 systemd 服务
 
