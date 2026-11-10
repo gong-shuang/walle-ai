@@ -7,6 +7,7 @@ import uuid as uuidlib
 import pytest
 
 import net_mqtt_bridge.agent as agent
+import net_mqtt_bridge.config as config
 from net_mqtt_bridge.agent import RpiMonitor, generate_device_uuid
 
 FIXED_UUID = "0f8fad5b-d9cb-469f-a165-70867728950e"
@@ -39,7 +40,7 @@ def test_rid_defaults_to_empty_string(data, expected):
 
 @pytest.fixture
 def device_uuid(monkeypatch):
-    monkeypatch.setattr(agent, "DEVICE_UUID", FIXED_UUID)
+    monkeypatch.setattr(config, "DEVICE_UUID", FIXED_UUID)
     return FIXED_UUID
 
 

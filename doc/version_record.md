@@ -42,6 +42,30 @@ fix(rtc): 修复弱网下推流超时
 
 ```
 
+## main分支保护
+github服务器开启了main分支保护和CI，不能在main分支上push代码，只能先在dev分支上进行开发，push之后服务器会进行代码检查，检查通过后，才能合并到main分支。
+
+```bash
+# 1. 本地 dev 开发完，推到远端
+git checkout dev
+git push origin dev
+
+# 2. 在 GitHub 上开 PR：base = main，compare = dev
+#    https://github.com/gong-shuang/walle-ai/compare/main...dev
+
+# 3. 等 PR 上的 lint / build-test 变绿，点 Merge pull request
+
+# 4. 本地同步 main
+git checkout main
+git pull origin main
+
+# 5. 让 dev 与 main 保持一致（二选一）
+git checkout dev
+git merge main          # 保留合并记录
+```
+
+
+
 ## 主要版本变更记录
 
 备注：只记录“a.b.c”，不记录“d”，想查看详细的版本记录，需要查看git log日志。

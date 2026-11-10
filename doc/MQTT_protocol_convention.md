@@ -247,7 +247,9 @@ App 侧重复 online 不去重（幂等）。
 
 ### 4.3 状态查询 state/query → state/result
 
-**作用**：拉取设备实时运行状态（一次约 1 秒的采样），驱动状态页所有卡片。
+**作用**：拉取设备运行状态，驱动状态页所有卡片。CPU/网络数据复用监控循环的
+最近一次采样（`MONITOR_INTERVAL`，默认 5s），USB 列表复用 `check_usb` 的维护结果，
+**查询路径不再阻塞采样**；内存/磁盘/推流/告警在应答时读取。
 
 - 请求：`walle/{t}/{d}/v1/state/query`
 - 应答：`walle/{t}/{d}/v1/state/result`
@@ -263,7 +265,7 @@ App 侧重复 online 不去重（幂等）。
 
 | 分组 | 字段 |
 |---|---|
-| 顶层 | `device_id`、`uuid`、`hostname`、`version_code`、`version_name`、`ip`、`timestamp`、`datetime`、`uptime_seconds`、`request_id` |
+| 顶层 | `device_id`、`uuid`、`hostname`、`version_code`、`version_name`、`ip`、`timestamp`、`datetime`、`uptime_seconds`、`sample_age_sec`、`request_id` |
 | `system` | `os`、`kernel`、`os_version`、`python`、`machine`、`model` |
 | `cpu` | `percent`（总）、`per_core_percent[]`（各核）、`count_logical/physical`、`load_avg_1m/5m/15m`、`frequency_mhz{current,min,max}`、`temperature_c`、`sample_interval_sec` |
 | `memory` | `percent`、`total/used/available/free_bytes` + `*_human`、`swap{percent,total_bytes,used_bytes,total_human,used_human}`（无 swap 时为 null） |
@@ -271,6 +273,10 @@ App 侧重复 online 不去重（幂等）。
 | `network` | `sample_interval_sec`、`total_rx/tx_bytes_per_sec`、`total_rx/tx_rate`（可读）、`interfaces[]`（每网卡 rx/tx 速率） |
 | `usb` | `count`、`devices[]` |
 | `video` | 推流状态（任务 1）：`streaming`、`room_number`、`video_device`、`audio`（推流时的音频信息，无音频/未推流为 null）、`pid`、`started_at`、`uptime_sec`；未推流时 `streaming=false` 且其余字段全为 null。数据来自推流时记录的 `video_meta`，ffmpeg 异常退出后看护线程清理，下一次查询即 `streaming=false` |
+
+**采样时效**：`cpu` / `network` 的 `sample_interval_sec` 是监控循环的实际采样周期；
+`sample_age_sec` 表示这份 CPU/网络数据距采样时刻的秒数（0 ~ 采样周期）。设备刚启动、
+监控尚未产出第一份快照时，查询会现场补采一次（约 0.2s）兜底。
 
 **video 分组的用途**：App 控制页进入时查一次状态，若 `video.streaming=true` 且
 `room_number`/`video_device` 齐全，直接用该房间号拼 WHEP 地址拉流，**自动接管设备正在
@@ -299,8 +305,16 @@ App 侧重复 online 不去重（幂等）。
 | `audio.capture` | 麦克风：`{available, device, sources[], reason}`；`device` 为默认录音源（通常 `default`），不可用时 `reason` 给出原因 |
 | `audio.playback` | 音响：`{available, device, sinks[], volume_percent, muted, reason}`；`volume_percent` 未知为 null（App 归一为 -1） |
 | `summary` | 聚合统计：`total_cameras`、`total_formats`、`total_resolutions`、`audio_sources`、`audio_sinks`、`probe_cost_ms` |
-| `probe` | `{tool: "v4l2-ctl + pactl", error, audio_error}`：`error` / `audio_error` 非 null 分别表示视频 / 音频探测失败（含 CAM_ENABLE=False 的提示） |
+| `probe` | `{tool: "v4l2-ctl + pactl", error, audio_error}`：`error` / `audio_error` 非 null 分别表示视频 / 音频探测失败（含 CAM_ENABLE=False 的提示）；`pending=true` 表示首次探测尚未完成（见下） |
+| `cache` | `{source: "cache" \| "pending", age_sec, ttl_sec}`：本次应答来自缓存（附缓存年龄）还是首次探测未完成时的占位 |
 | `request_id` 及公共字段 | — |
+
+**能力缓存（设备端）**：`v4l2-ctl` / `pactl` 探测耗时可达数秒，设备端由后台线程
+在启动时立即探测一次、之后按 `CAPABILITY_CACHE_TTL`（默认 120s）刷新；查询线程只读
+缓存，不再执行探测。首次查询时若探测尚未完成，最多等待 `CAPABILITY_FIRST_WAIT`
+（默认 3s），仍未完成则返回 `probe.pending=true` 的占位报文（`capabilities` 仅
+`system_status`），App 应稍后重新查询。`CAPABILITY_CACHE_ONLY=True` 时查询完全不等待，
+只返回缓存或 pending。
 
 音频探测（设备端 `probe_audio_capture` / `probe_audio_playback`）：优先
 `pactl list short sources/sinks`（录音侧排除 `*.monitor` 回环源）；pactl 缺失时录音侧用
@@ -498,6 +512,41 @@ python3 linux/selftest_topics.py       # 设备端契约自检
 ---
 
 ## 8. 变更记录
+
+### 2026-11-10：state/query 改为复用监控采样快照
+
+**变更类型**：非破坏性增量（协议 v1 字段只增不改）。
+
+**原因**：`state/query` 原先在请求线程内阻塞 1s 采样，状态页刷新慢且占用请求线程。
+
+**变更内容**：`state/result` 新增顶层 `sample_age_sec`；CPU/网络数据复用监控循环
+最近一次采样，USB 列表复用 `check_usb` 的维护结果，查询不再阻塞采样。
+
+**影响与兼容性**：App 可忽略新增字段；CPU/网络数据最多滞后一个采样周期（默认 5s）。
+
+**验证方式**：`test/test_status_cache.py` 覆盖快照复用、无快照时兜底采样与查询 < 100ms。
+
+### 2026-11-10：capability/query 改为后台缓存探测
+
+**变更类型**：非破坏性增量（协议 v1 字段只增不改）。
+
+**原因**：`capability/query` 原先每次请求都在线程内跑 `v4l2-ctl` / `pactl`，
+最坏数秒，阻塞请求线程并拖慢其它请求。
+
+**变更内容**：`capability/result` 新增 `cache {source, age_sec, ttl_sec}` 与
+`probe.pending`；设备端由后台线程启动即探测、按 `CAPABILITY_CACHE_TTL`
+（默认 120s）刷新，查询只读缓存；首次未就绪时最多等待 `CAPABILITY_FIRST_WAIT`
+（默认 3s），超时或 `CAPABILITY_CACHE_ONLY=True` 时返回 pending 占位。
+
+**影响与兼容性**
+
+- App 可忽略新增字段；若识别 `probe.pending=true`，应提示稍后重试而不是判定「无摄像头」。
+- 缓存期内（默认 120s）热插拔摄像头/声卡不会立即出现在 capability 结果中。
+
+**验证方式**
+
+- `test/test_capability_cache.py`：capability 查询只读缓存、cache-only 立即返回
+  pending、后台探测结果写入缓存、探测失败保留旧缓存。
 
 ### 2026-11-08 20:00（Asia/Shanghai, CST）：移除远程命令 cmd/exec → cmd/result
 

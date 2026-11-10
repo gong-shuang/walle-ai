@@ -25,10 +25,12 @@ class RosRobotController(Node):
     gravity = 9.80665
 
     def __init__(self, name):
-        rclpy.init()
         super().__init__(name)
         self.board = Board()
         self.board.enable_reception()
+        # 传感器上报开关（Bool 回调修改）；不能用 self.enable_reception 存状态，
+        # 否则会把方法名覆盖成 bool（P2-2.4）
+        self._reception_enabled = True
         self.running = True
         # 安全停车相关：串口写/读失败、控制器断连时尽最大努力下发零速度
         self._stop_lock = threading.Lock()
@@ -114,7 +116,7 @@ class RosRobotController(Node):
         last_rx = time.monotonic()
         rx_seen = False
         while self.running:
-            if not self.enable_reception:
+            if not self._reception_enabled:
                 time.sleep(0.02)
                 continue
             try:
@@ -147,8 +149,8 @@ class RosRobotController(Node):
 
     def enable_reception(self, msg):
         self.get_logger().info('\033[1;32m%s\033[0m' % ('enable_reception ' + str(msg.data)))
-        self.enable_reception = msg.data
-        self.board.enable_reception(msg.data)
+        self._reception_enabled = bool(msg.data)
+        self.board.enable_reception(self._reception_enabled)
 
     def set_led_state(self, msg):
         self.board.set_led(msg.on_time, msg.off_time, msg.repeat, msg.id)
@@ -213,9 +215,9 @@ class RosRobotController(Node):
         if data != []:
             self.board.pwm_servo_set_position(msg.duration, data)
 
-    def get_pwm_servo_state(self, msg):
+    def get_pwm_servo_state(self, request, response):
         states = []
-        for i in msg.cmd:
+        for i in request.cmd:
             data = PWMServoState()
             if i.get_position:
                 state = self.board.pwm_servo_read_position(i.id)
@@ -226,7 +228,9 @@ class RosRobotController(Node):
                 if state is not None:
                     data.offset = state
             states.append(data)
-        return [True, states]
+        response.state = states
+        response.success = True
+        return response
 
     def set_bus_servo_position(self, msg):
         data = []
@@ -392,13 +396,17 @@ class RosRobotController(Node):
         msg.angular_velocity.y = math.radians(gy)
         msg.angular_velocity.z = math.radians(gz)
 
-        msg.orientation_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]
+        # 本版本小车没有 IMU 姿态解算，零四元数只是占位，不能当作有效姿态。
+        # REP-145：orientation_covariance[0] = -1 表示「本消息不提供姿态」，
+        # 下游（robot_localization / Nav2 等）会据此忽略 orientation。
+        msg.orientation_covariance = [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         msg.angular_velocity_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]
         msg.linear_acceleration_covariance = [0.0004, 0.0, 0.0, 0.0, 0.0004, 0.0, 0.0, 0.0, 0.004]
         pub.publish(msg)
         return True
 
 def main():
+    rclpy.init()
     node = RosRobotController('ros_robot_controller')
 
     def handle_signal(signum, _frame):
