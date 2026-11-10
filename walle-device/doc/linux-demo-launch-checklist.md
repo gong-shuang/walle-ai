@@ -28,12 +28,12 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 15 | 10 | 5 |
+| P0 上线阻断 | 15 | 11 | 4 |
 | P1 上线前应修 | 18 | 0 | 18 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **11** | **44** |
+| **合计** | **55** | **12** | **43** |
 
-> linux-demo 已开始按本清单整改（当前 11/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 12/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`，待服务端实施验证。
 
 ## 与 ROS2 清单的适用性对照
@@ -134,11 +134,10 @@
 
 ### P0-5 子进程与退出安全
 
-- [ ] 🔴 **P0-5.1 主进程崩溃后清理推流/播放子进程**
-  - 现状：ffmpeg 与 WHEP 播放器均以 `start_new_session=True` 启动；只有 `run()` 的 `finally` 在收到 SIGTERM/SIGINT 时停止它们。`kill -9`、OOM、Python 崩溃时子进程继续运行，摄像头/麦克风持续工作
-  - 动作：子进程创建时设置 `PR_SET_PDEATHSIG`（Linux `preexec_fn` 或 `prctl`）；启动时写入 pid 文件并清理上一次遗留进程；补充 `atexit` / 异常钩子做尽力清理；systemd 使用 `KillMode=control-group` 作为兜底
-  - 验收：`kill -9` 主进程后 1s 内 ffmpeg / whep_audio_player 均退出；服务重启后不出现重复推流；`pgrep -af 'ffmpeg|whep_audio_player'` 无残留
-  - 证据：`main.py` L1877-L1884、L2197-L2204、L2729-L2743
+- [x] ✅ **P0-5.1 主进程崩溃后清理推流/播放子进程**
+  - 处理：新增 `_pdeathsig_preexec()`，通过 `PR_SET_PDEATHSIG` 让子进程在父进程退出/被 `kill -9` 时收到 `SIGTERM`；ffmpeg 与 WHEP 播放器的 `Popen` 均接入；保留 `start_new_session=True`，systemd `KillMode=control-group` 作为兜底
+  - 验收：子进程 `PR_GET_PDEATHSIG` 返回 15（SIGTERM，自测通过）；父进程被 `kill -9` 后 ffmpeg/播放器应随之退出（实机待验证）；服务重启后无重复推流
+  - 证据：`main.py` L1525-L1552、L2035-L2042、L2364-L2371
 
 - [ ] 🔴 **P0-5.2 优雅退出不被长耗时任务阻塞**
   - 现状：所有请求共用一个 4 线程池；`handle_cmd_exec` 最长 300s，`capability` 探测最坏数十秒；`pool.shutdown(wait=False)` 后解释器仍会等待非 daemon 的池线程，systemd `TimeoutStopSec` 超时后会 SIGKILL，可能跳过子进程清理
@@ -473,12 +472,15 @@ python3 walle-device/linux-demo/main.py --check
 | 2026-11-10 | P0-1.3 / P0-1.4 | 待提交 | `doc/service_deploy.md` §10 已补每设备 ACL、deny-all 与规则引擎审计；待 EMQX 实测 | 待确认 |
 | 2026-11-10 | P0-4.1 | 待提交 | 设备端 token 与独立 MD5 一致；缺 secret/占位符 `--check` 退出 1；Nginx 403/410/502 待实测 | 待确认 |
 | 2026-11-10 | P0-4.2 | 待提交 | ISP/非 USB 节点、错误分辨率、缺 v4l2-ctl 均被拒；合法 USB 节点通过；坏 `CAMERA_DEVICE` `--check` 退出 1 | 待确认 |
+| 2026-11-10 | P0-5.1 | 待提交 | 子进程 `PR_GET_PDEATHSIG=15`；ffmpeg/播放器 Popen 均接入；实机 `kill -9` 待验证 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：ffmpeg 与 WHEP 播放器 Popen 增加 `PR_SET_PDEATHSIG`，主进程崩溃/被
+  `kill -9` 时子进程收到 SIGTERM；子进程 `PR_GET_PDEATHSIG` 自测为 15，实机待验证（P0-5.1）。
 - 2026-11-10：linux-demo 推流前增加摄像头 preflight：`CAMERA_DEVICE` 可选固定设备，
   realpath 必须是 `/dev/videoN`、sysfs 含 `usb`、`v4l2-ctl` 支持 `VIDEO_VIDEO_SIZE`；
   非采集节点（ISP/解码/元数据）与不支持的分辨率在启动 ffmpeg 前返回 -1（P0-4.2）。

@@ -52,6 +52,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 """
 
 import base64
+import ctypes
 import hashlib
 import json
 import logging
@@ -1521,6 +1522,36 @@ def mask_rtmp_url(url):
     return re.sub(r"((?:secret|token)=)[^&]+", r"\1***", url)
 
 
+# PR_SET_PDEATHSIG：父进程死亡时给子进程发信号（Linux 专用）
+_PR_SET_PDEATHSIG = 1
+try:
+    _LIBC = ctypes.CDLL(None, use_errno=True) if sys.platform.startswith("linux") else None
+except OSError:
+    _LIBC = None
+
+
+def _pdeathsig_preexec(parent_pid):
+    """返回 Popen 的 preexec_fn：父进程退出/被 kill 时让子进程收到 SIGTERM。
+
+    说明：ffmpeg 与 WHEP 播放器以 start_new_session=True 启动，systemd 的 cgroup
+    清理只覆盖服务停止；PDEATHSIG 负责覆盖主进程崩溃/被 kill -9 的场景。
+    """
+    def _preexec():
+        if _LIBC is not None:
+            try:
+                _LIBC.prctl(_PR_SET_PDEATHSIG, signal.SIGTERM)
+            except Exception:  # noqa: BLE001
+                pass
+        if os.getppid() != parent_pid:
+            os._exit(1)
+    return _preexec
+
+
+def _child_preexec():
+    """Linux 下返回 PDEATHSIG preexec_fn，其他平台返回 None。"""
+    return _pdeathsig_preexec(os.getpid()) if _LIBC is not None else None
+
+
 # ============================== 主类 ==============================
 
 class RpiMonitor:
@@ -2007,6 +2038,7 @@ class RpiMonitor:
                 stderr=subprocess.STDOUT,        # ffmpeg 的日志本来就走 stderr，合并后一起收
                 bufsize=0,                       # 不缓冲，泵线程读到多少就写多少
                 start_new_session=True,          # 独立进程组，避免 Ctrl+C 连带影响
+                preexec_fn=_child_preexec(),     # 父进程崩溃/被 kill 时子进程自动退出
             )
         except FileNotFoundError:
             sink.close()
@@ -2335,6 +2367,7 @@ class RpiMonitor:
                 stderr=subprocess.STDOUT,
                 bufsize=0,
                 start_new_session=True,
+                preexec_fn=_child_preexec(),     # 父进程崩溃/被 kill 时子进程自动退出
             )
         except FileNotFoundError:
             sink.close()
