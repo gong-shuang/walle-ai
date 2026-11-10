@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parent.parent
 MAIN_PY = HERE / "main.py"
 VERSION_KEYS = (
     "WALLE_VERSION_NUM",
