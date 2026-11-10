@@ -7,9 +7,9 @@ Wants=network-online.target
 Type=simple
 User=gs
 # 模板：部署时把用户 / 安装目录替换成实际值（命令见 linux-demo/README.md 3.3）
-WorkingDirectory=/home/gs/walle_linux
+WorkingDirectory=$WALLE_PATH/walle-ai/walle-device/linux-demo
 EnvironmentFile=-/etc/walle-ai.env
-ExecStart=/home/gs/walle_linux/.venv/bin/python /home/gs/walle_linux/main.py
+ExecStart=$VENV_PATH/venv/bin/python $WALLE_PATH/walle-ai/walle-device/linux-demo/main.py
 Restart=always
 RestartSec=5
 StandardOutput=journal
