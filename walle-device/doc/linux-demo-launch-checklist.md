@@ -34,6 +34,7 @@
 | **合计** | **55** | **9** | **46** |
 
 > linux-demo 已开始按本清单整改（当前 9/55）；每次勾选后请同步更新本表数字。
+> P0-1.3 / P0-1.4 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`，待服务端实施验证。
 
 ## 与 ROS2 清单的适用性对照
 
@@ -67,17 +68,17 @@
   - 验收：`grep -n "shell=True" walle-device/linux-demo/main.py` 无匹配
   - 证据：`main.py`（原 L2542-L2570 已删除）
 
-- [ ] 🔴 **P0-1.3 uuid 不再作为动作鉴权凭证**
-  - 现状：`uuid` 会随 `discovery/result` 与 retained `online` 明文下发；`verify_uuid()` 仅比较该公开值即放行 video/phone audio 动作；`discovery/query` 本身不校验 uuid，任何租户内客户端都能先发现再取 uuid
-  - 动作：动作授权改为「Broker 按设备独立账号 ACL + 每设备独立凭据」；`uuid` 只保留为实例标识/请求配对，不承担鉴权语义；`discovery/query` 明确标记为租户内公开能力
-  - 验收：只拿到 discovery/online 报文（含 uuid）无法执行任何动作；设备 A 的账号无法发布到设备 B 的主题
-  - 证据：`main.py` L36-L37、L1668-L1692、L2462-L2485
+- [ ] 🟡 **P0-1.3 uuid 不再作为动作鉴权凭证**
+  - 现状：`uuid` 仍随 discovery/online 明文下发；代码 `verify_uuid()` 只做请求配对。访问边界已改由 Broker ACL 承担，部署文档 §10 明确「uuid 不是鉴权凭证」，并要求每台设备独立账号仅访问自己的子树
+  - 动作：按 `doc/service_deploy.md` §10 在 EMQX 落地 ACL；设备侧保持 `uuid` 仅用于请求配对，不再作为安全边界
+  - 验收：只拿到 discovery/online 报文（含 uuid）无法发布动作主题；设备 A 账号访问设备 B 主题被拒（§10.1 四条命令）
+  - 证据：`doc/service_deploy.md` §10、§10.1；`main.py` 的 `verify_uuid` / `build_device_info` / `discovery/query`
 
-- [ ] 🔴 **P0-1.4 Broker 按设备 ACL + 动作审计**
-  - 现状：代码注释假设「Broker 侧按 `walle/${clientid}/#` 授权」，但仓库内没有对应的 ACL 配置与校验；动作请求（video/phone audio）没有来源、结果、时间的结构化审计
-  - 动作：在 Broker（EMQX/Oryx 部署文档）为每台设备建立独立账号，仅允许读写 `walle/{tenant}/{device}/#`；设备侧对动作请求记录 `client_id`/来源账号（如 Broker 提供）、`request_id`、动作、结果、耗时
-  - 验收：设备 A 账号订阅/发布设备 B 主题被拒绝；`journalctl -u walle-ai` 能按 `request_id` 还原一次 video/phone audio 动作的完整链路
-  - 证据：`main.py` L36-L37、L1497-L1532；`doc/service_deploy.md`
+- [ ] 🟡 **P0-1.4 Broker 按设备 ACL + 动作审计**
+  - 现状：`doc/service_deploy.md` §10 已补每设备独立账号、`walle/+/${clientid}/#` 规则与 `{deny, all}.`；§10.2 已补 EMQX 规则引擎审计（来源账号/clientid/topic/payload/timestamp → `walle/audit/...`），设备日志可按 `request_id` 关联结果；服务端尚未实际配置验证
+  - 动作：按 §10 / §10.1 / §10.2 在 EMQX 落地并复测；设备侧保持动作结果日志
+  - 验收：A 账号无法订阅/发布 B 主题；触发一次 video/phone audio 动作后 `walle/audit/#` 收到来源与时间；`journalctl -u walle-ai | grep <request_id>` 可还原结果
+  - 证据：`doc/service_deploy.md` §10、§10.1、§10.2、§11 第 9-11 项
 
 - [x] ✅ **P0-1.5 远程命令子进程不得继承密钥环境变量**
   - 处理：随 P0-1.1 删除远程命令能力，不再存在由 MQTT 触发的任意子进程；ffmpeg / 播放器仍继承环境变量，但只接受固定参数，不构成命令执行面
@@ -471,12 +472,16 @@ python3 walle-device/linux-demo/main.py --check
 | 2026-11-10 | P2-5.3 | 待提交 | README 手动运行命令改为 `venv/bin/python`，并补充先停 systemd 服务 | 待确认 |
 | 2026-11-10 | P0-2.4 | 待提交 | 必填项/端口/TLS/CA/模板校验通过；空模板仅告警；非法模板 `--check` 退出 1 | 待确认 |
 | 2026-11-10 | P0-2.5 | 待提交 | 源码无 `baidong`；空模板 video/phone audio 返回 -2；完整模板 `build_rtmp_url` 正常 | 待确认 |
+| 2026-11-10 | P0-1.3 / P0-1.4 | 待提交 | `doc/service_deploy.md` §10 已补每设备 ACL、deny-all 与规则引擎审计；待 EMQX 实测 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：`doc/service_deploy.md` §10 已补每设备 MQTT ACL
+  （`walle/+/${clientid}/#`、discovery、`{deny, all}.`）与动作审计
+  （EMQX 规则引擎 → `walle/audit/...`）；P0-1.3 / P0-1.4 待服务端落地验证。
 - 2026-11-10：linux-demo 删除推流/拉流地址中的生产域名默认值，模板改为显式配置；
   空模板时仅告警并在 video/phone audio 动作入口返回 -2，完整模板时校验占位符与
   `WHIP_SECRET`（P0-2.4 / P0-2.5）。
