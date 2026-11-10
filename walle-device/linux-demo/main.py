@@ -1639,6 +1639,36 @@ def mask_rtmp_url(url):
     return re.sub(r"((?:secret|token)=)[^&]+", r"\1***", url)
 
 
+# 报文脱敏字段（子串匹配，password/phone_audio_whep_secret 等都会命中）
+_SENSITIVE_FIELDS = ("password", "secret", "token", "key", "room", "room_number")
+
+
+def _mask_obj(value):
+    if isinstance(value, dict):
+        masked = {}
+        for key, item in value.items():
+            if (any(name in str(key).lower() for name in _SENSITIVE_FIELDS)
+                    and not isinstance(item, (dict, list))):
+                masked[key] = "***"
+            else:
+                masked[key] = _mask_obj(item)
+        return masked
+    if isinstance(value, list):
+        return [_mask_obj(item) for item in value]
+    if isinstance(value, str):
+        return mask_rtmp_url(value)
+    return value
+
+
+def mask_payload(payload, limit=500):
+    """日志用报文：password/secret/token/key/room 等字段替换为 ***，URL 参数脱敏后截断。"""
+    try:
+        data = json.loads(payload)
+    except (TypeError, ValueError):
+        return mask_rtmp_url(payload)[:limit]
+    return json.dumps(_mask_obj(data), ensure_ascii=False)[:limit]
+
+
 # PR_SET_PDEATHSIG：父进程死亡时给子进程发信号（Linux 专用）
 _PR_SET_PDEATHSIG = 1
 try:
@@ -1756,7 +1786,9 @@ class RpiMonitor:
             payload = msg.payload.decode("utf-8", errors="replace")
         except Exception:
             payload = ""
-        logging.info("收到消息 %s: %s", msg.topic, payload[:500])
+        logging.info("收到消息 %s（%d 字节）", msg.topic, len(msg.payload))
+        if logging.getLogger().isEnabledFor(logging.DEBUG):
+            logging.debug("收到消息 %s: %s", msg.topic, mask_payload(payload))
         if msg.topic.startswith(TOPIC_ROOT + "/"):
             self._handle_request(msg.topic, payload)
         else:
