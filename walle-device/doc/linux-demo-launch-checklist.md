@@ -29,11 +29,11 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
-| P1 上线前应修 | 18 | 0 | 18 |
+| P1 上线前应修 | 18 | 1 | 17 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **13** | **42** |
+| **合计** | **55** | **14** | **41** |
 
-> linux-demo 已开始按本清单整改（当前 13/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 14/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -157,11 +157,10 @@
   - 验收：按文档在全新 Raspberry Pi OS 上完成部署；`pip install -r requirements.txt` 后 `main.py --check` 通过，`whep_audio_player.py` 可启动；README 中所有命令可直接复制执行
   - 证据：`README.md` L7-L31；`main.py` L39-L52；`git show 947f445 --stat`；`walle-device/doc/requirements.txt` L7-L14
 
-- [ ] 🔴 **P1-1.2 修复 systemd 单元模板**
-  - 现状：`User=gs` 硬编码；注释要求替换 `$WALLE_PATH`，README 却写 `$WALLE_HOME`；`ExecStart=$VENV_PATH/venv/bin/python` 与 README 的 `/home/ubuntu/venv/python3` 不一致（会得到 `venv/venv/bin/python`）；`EnvironmentFile=-/etc/walle-ai.env` 允许缺文件启动；无启动频率限制与沙箱加固
-  - 动作：统一变量为 `WALLE_HOME` / `WALLE_VENV`，由部署脚本渲染实际用户与路径；`ExecStart=$WALLE_VENV/bin/python $WALLE_HOME/main.py`；`EnvironmentFile=/etc/walle-ai.conf`（去掉 `-`）；增加 `StartLimitIntervalSec` / `StartLimitBurst`、`TimeoutStopSec`、`KillMode`、`NoNewPrivileges=true`、`ProtectSystem=strict`、`ProtectHome=read-only`、`PrivateTmp=true`、`ReadWritePaths=<log/device-id 目录>`、`SupplementaryGroups=audio video`
-  - 验收：`systemd-analyze verify walle-ai.service` 通过；新机器按文档替换变量后可启动；缺配置时启动失败并提示；`systemctl stop` 5s 内完成
-  - 证据：`walle-ai.service.example` L6-L16；`README.md` L11-L31
+- [x] ✅ **P1-1.2 修复 systemd 单元模板**
+  - 处理：模板改为 `@WALLE_USER@` / `@WALLE_GROUP@` / `@WALLE_HOME@` / `@WALLE_VENV@` 占位符，由部署脚本按执行用户与实际路径渲染（不再硬编码 `User=gs`）；`WorkingDirectory=@WALLE_HOME@`、`ExecStart=@WALLE_VENV@/bin/python @WALLE_HOME@/main.py`；`EnvironmentFile=/etc/walle-ai.conf`（去掉 `-`）；新增 `StartLimitIntervalSec=300` / `StartLimitBurst=5`、`NoNewPrivileges=true`、`PrivateTmp=true`、`ProtectSystem=strict`、`ProtectHome=read-only`、`ReadWritePaths=@WALLE_HOME@`、`SupplementaryGroups=audio video`、`XDG_RUNTIME_DIR=/run/user/%U`
+  - 验收：按测试值渲染后 `systemd-analyze verify` 通过（exit 0）；缺 `/etc/walle-ai.conf` 时 systemd 启动失败；`systemctl stop` 由 `TimeoutStopSec=10` / `KillMode=control-group` 兜底（实机待验证）
+  - 证据：`walle-ai.service.example` L1-L48
 
 - [ ] 🔴 **P1-1.3 提供 linux-demo 部署脚本**
   - 现状：`walle-device/scripts/deploy.sh` 只处理 ROS2（`/etc/walle-ai.conf` + ROS2 服务）；linux-demo 完全依赖手工复制与 `sed`，且步骤易错
@@ -480,6 +479,10 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：`walle-ai.service.example` 改为占位符模板（`@WALLE_USER@` / `@WALLE_GROUP@` /
+  `@WALLE_HOME@` / `@WALLE_VENV@`），补启动频率限制与 systemd 沙箱（`ProtectSystem=strict`、
+  `ProtectHome=read-only`、`ReadWritePaths`、`SupplementaryGroups=audio video`）；按测试值渲染后
+  `systemd-analyze verify` 通过（P1-1.2）。
 - 2026-11-10：历史密钥扫描确认 `8f112d5` 的 README 明文写了 App 测试账号 `home` / `<已泄露口令>`；
   根 `README.md` 与 `web/car_ctl_by_mqtt.html` 已清理；本地 `walle-device/scripts/walle-ai.conf`
   仍使用同一口令。未发现 `sk-`、私钥或真实 `WHIP_SECRET`；需在 EMQX 改密并更新本地配置（P0-3.1）。

@@ -1,19 +1,48 @@
+# linux-demo 设备端 systemd 单元模板
+#
+# 不要直接复制使用：以下占位符由 linux-demo/deploy.sh 按当前部署用户与实际路径渲染：
+#   @WALLE_USER@  运行用户（执行 deploy.sh 的用户）
+#   @WALLE_GROUP@ 运行用户的主组
+#   @WALLE_HOME@  linux-demo 目录绝对路径（main.py / README.md 所在目录）
+#   @WALLE_VENV@  Python 虚拟环境根目录（其下有 bin/python）
+# 手工安装时把上述占位符替换成实际值，再安装到 /etc/systemd/system/walle-ai.service。
+
 [Unit]
-Description=RaspberryPi System Monitor over MQTT
-After=network-online.target
+Description=Walle linux-demo agent (MQTT + camera/audio)
+Documentation=file://@WALLE_HOME@/README.md
+After=network-online.target sound.target
 Wants=network-online.target
+# 启动频率限制：5 分钟内最多启动 5 次，配置错误时不会无限重启刷日志
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
-User=gs
-# 模板：部署时把用户 / 安装目录替换成实际值（命令见 linux-demo/README.md 3.3）
-WorkingDirectory=$WALLE_PATH/walle-ai/walle-device/linux-demo
+User=@WALLE_USER@
+Group=@WALLE_GROUP@
+# 摄像头 /dev/video* 与声卡 /dev/snd/* 通常属于 video、audio 组
+SupplementaryGroups=audio video
+WorkingDirectory=@WALLE_HOME@
+# 配置必须存在：缺失时 systemd 直接启动失败，而不是带着空配置连 Broker
 EnvironmentFile=/etc/walle-ai.conf
-ExecStart=$VENV_PATH/venv/bin/python $WALLE_PATH/walle-ai/walle-device/linux-demo/main.py
+Environment=PYTHONUNBUFFERED=1
+# systemd 用户服务默认没有会话环境，PulseAudio / PortAudio 需要该变量
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+ExecStart=@WALLE_VENV@/bin/python @WALLE_HOME@/main.py
+
 Restart=always
 RestartSec=5
 TimeoutStopSec=10
 KillMode=control-group
+
+# 沙箱加固：系统盘与家目录只读，仅安装目录可写（log/ 与 .device-id）
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@WALLE_HOME@
+# 若 DEVICE_ID_FILE 指向安装目录之外，需把该路径追加到上面的 ReadWritePaths=
+
 StandardOutput=journal
 StandardError=journal
 
