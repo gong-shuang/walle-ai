@@ -32,7 +32,7 @@ if [[ ! -f "$conf_file" ]]; then
 fi
 
 missing=0
-for key in MQTT_HOST MQTT_USERNAME MQTT_PASSWORD MQTT_TENANT WHIP_SECRET; do
+for key in MQTT_HOST MQTT_USERNAME MQTT_PASSWORD MQTT_TENANT MEDIA_SERVER_HOST MEDIA_SERVER_SECRET; do
     value="$(get_conf "$key")"
     if [[ -z "$value" || "$value" == "xxx" || "$value" == "xxxx" || "$value" == "xxxxx" ]]; then
         echo "  $key 未配置或仍是模板占位符" >&2
@@ -43,7 +43,7 @@ if [[ "$missing" -ne 0 ]]; then
     echo "  请补全 $conf_file 后重试" >&2
     exit 1
 fi
-echo "  必填项检查通过：MQTT_HOST / MQTT_USERNAME / MQTT_PASSWORD / MQTT_TENANT / WHIP_SECRET"
+echo "  必填项检查通过：MQTT_HOST / MQTT_USERNAME / MQTT_PASSWORD / MQTT_TENANT / MEDIA_SERVER_HOST / MEDIA_SERVER_SECRET"
 
 echo "[2/4] 安装配置到 /etc/walle-ai.conf（root:root 600）"
 sudo install -m 600 -o root -g root "$conf_file" /etc/walle-ai.conf

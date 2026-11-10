@@ -103,7 +103,7 @@ def probe_hw_h264_encoder(timeout=8.0):
 
 
 def _load_env_file(path):
-    """读取 KEY=VALUE 环境文件（不覆盖已存在的变量），用于拿 WHIP_SECRET。"""
+    """读取 KEY=VALUE 环境文件（不覆盖已存在的变量），用于拿 MEDIA_SERVER_HOST / MEDIA_SERVER_SECRET。"""
     if not path:
         return
     try:
@@ -231,14 +231,10 @@ class VideoWebrtcBridge(Node):
         self.room_pattern = self.declare_parameter(
             "room_number_pattern", DEFAULT_ROOM_PATTERN).value
 
-        default_rtmp = os.environ.get(
-            "VIDEO_RTMP_URL_TEMPLATE",
-            "rtmp://www.baidong.xyz:1935/live/{room}?secret={secret}")
-        self.rtmp_url_template = self.declare_parameter(
-            "rtmp_url_template", default_rtmp).value
-        # 安全：whip_secret 只从环境文件/环境变量读取，不声明为 ROS 参数，
-        # 避免 `ros2 param get/dump` 泄露明文（P0-2.3）
-        self.whip_secret = os.environ.get("WHIP_SECRET", "").strip()
+        # 媒体面配置只从环境文件/环境变量读取，不声明为 ROS 参数，
+        # 避免 `ros2 param get/dump` 泄露 secret（P0-2.3）
+        self.media_host = os.environ.get("MEDIA_SERVER_HOST", "").strip()
+        self.media_secret = os.environ.get("MEDIA_SERVER_SECRET", "").strip()
         self.video_bitrate = self.declare_parameter("video_bitrate", "1000k").value
         self.video_gop = int(self.declare_parameter("video_gop", 60).value)
         self.video_preset = self.declare_parameter("video_preset", "ultrafast").value
@@ -340,10 +336,10 @@ class VideoWebrtcBridge(Node):
         return re.sub(r"(secret=)[^&]+", r"\1***", url or "")
 
     def _rtmp_secret_ready(self):
-        return "{secret}" not in self.rtmp_url_template or bool(self.whip_secret)
+        return bool(self.media_host and self.media_secret)
 
     def _build_rtmp_url(self, room):
-        return self.rtmp_url_template.format(room=room, secret=self.whip_secret)
+        return f"rtmp://{self.media_host}:1935/live/{room}?secret={self.media_secret}"
 
     def _ensure_image_subscription(self):
         if self._image_sub is not None:
@@ -430,7 +426,7 @@ class VideoWebrtcBridge(Node):
             response.result = -2
             response.cause = "命令执行失败"
             response.action = "failed"
-            response.error = "未配置 Oryx 推流 secret（请在 /etc/walle-ai.conf 设置 WHIP_SECRET）"
+            response.error = "未配置 Oryx 推流 secret（请在 /etc/walle-ai.conf 设置 MEDIA_SERVER_SECRET）"
             return response
 
         if device != self.camera_device:

@@ -288,7 +288,7 @@ class MonitorVideoMixin:
                 {"error": "room_number 不合法（只允许 1-64 位字母/数字/下划线/短横线）"})
             return
 
-        # 2.1) Oryx 推流 secret：每台服务器不同，部署时用 WHIP_SECRET 注入。
+        # 2.1) Oryx 推流 secret：每台服务器不同，部署时用 MEDIA_SERVER_SECRET 注入。
         #      没配置时不提前拦下，ffmpeg 会因为鉴权失败一直重连，看起来像“推流成功但黑屏”。
         ok_url, url_error = rtmp_url_ready()
         if not ok_url:

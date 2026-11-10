@@ -59,10 +59,15 @@ class FfmpegCmdTest(unittest.TestCase):
         self.assertEqual(cmd[-3:], ["-f", "flv", "rtmp://h/live/x"])
 
     def test_builds_url_when_absent(self):
-        with mock.patch.object(media, "VIDEO_RTMP_URL_TEMPLATE", "rtmp://h/live/{room}"), \
-                mock.patch.object(media, "WHIP_SECRET", ""):
+        with mock.patch.object(media, "MEDIA_SERVER_HOST", "h"), \
+                mock.patch.object(media, "MEDIA_SERVER_SECRET", "s"):
             cmd = media.build_ffmpeg_cmd("/dev/video0", "room1")
-        self.assertEqual(cmd[-1], "rtmp://h/live/room1")
+        self.assertEqual(cmd[-1], "rtmp://h:1935/live/room1?secret=s")
+
+    def test_builds_whep_url(self):
+        with mock.patch.object(media, "MEDIA_SERVER_HOST", "h"):
+            self.assertEqual(media.build_whep_url("room1_audio"),
+                             "https://h/rtc/v1/whep/?app=live&stream=room1_audio")
 
 
 class LogPathTest(unittest.TestCase):

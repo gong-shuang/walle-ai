@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """媒体面工具：ffmpeg 参数、推流/拉流地址、日志落地与脱敏、子进程清理。"""
-import base64
 import ctypes
-import hashlib
 import json
 import logging
 import os
@@ -93,7 +91,13 @@ def build_ffmpeg_cmd(video_device, room_number, audio=None, rtmp_url=None,
 
 
 def build_rtmp_url(room_number):
-    return VIDEO_RTMP_URL_TEMPLATE.format(room=room_number, secret=WHIP_SECRET)
+    """按固定协议拼 RTMP 推流地址：rtmp://{host}:1935/live/{room}?secret={secret}"""
+    return f"rtmp://{MEDIA_SERVER_HOST}:1935/live/{room_number}?secret={MEDIA_SERVER_SECRET}"
+
+
+def build_whep_url(stream):
+    """按固定协议拼 WHEP 拉流地址：https://{host}/rtc/v1/whep/?app=live&stream={stream}"""
+    return f"https://{MEDIA_SERVER_HOST}/rtc/v1/whep/?app=live&stream={stream}"
 
 
 def available_video_encoders():
@@ -144,35 +148,19 @@ def ffmpeg_startup_error(tail):
 
 
 def rtmp_url_ready():
-    """推流地址模板与 secret 是否就绪；返回 (ok, reason)。"""
-    if not VIDEO_RTMP_URL_TEMPLATE:
-        return False, "未配置 VIDEO_RTMP_URL_TEMPLATE（推流地址模板）"
-    if "{room}" not in VIDEO_RTMP_URL_TEMPLATE:
-        return False, "VIDEO_RTMP_URL_TEMPLATE 缺少 {room} 占位符"
-    if "{secret}" in VIDEO_RTMP_URL_TEMPLATE and not WHIP_SECRET:
-        return False, "未配置 Oryx 推流 secret（请在 /etc/walle-ai.conf 设置 WHIP_SECRET）"
+    """媒体服务器地址与推流 secret 是否就绪；返回 (ok, reason)。"""
+    if not MEDIA_SERVER_HOST:
+        return False, "未配置 MEDIA_SERVER_HOST（媒体服务器地址）"
+    if not MEDIA_SERVER_SECRET:
+        return False, "未配置 MEDIA_SERVER_SECRET（Oryx 推流 secret）"
     return True, None
 
 
 def whep_url_ready():
-    """手机音频 WHEP 地址模板与鉴权参数是否就绪；返回 (ok, reason)。"""
-    if not PHONE_AUDIO_WHEP_URL_TEMPLATE:
-        return False, "未配置 PHONE_AUDIO_WHEP_URL_TEMPLATE（手机音频拉流地址模板）"
-    for placeholder in ("{stream}", "{expires}", "{token}"):
-        if placeholder not in PHONE_AUDIO_WHEP_URL_TEMPLATE:
-            return False, f"PHONE_AUDIO_WHEP_URL_TEMPLATE 缺少 {placeholder} 占位符"
-    if not PHONE_AUDIO_WHEP_SECRET:
-        return False, "未配置 PHONE_AUDIO_WHEP_SECRET（WHEP 鉴权密钥）"
-    if PHONE_AUDIO_WHEP_TOKEN_TTL <= 0:
-        return False, "PHONE_AUDIO_WHEP_TOKEN_TTL 必须大于 0"
+    """手机音频拉流是否就绪（固定路径，只依赖服务器地址）；返回 (ok, reason)。"""
+    if not MEDIA_SERVER_HOST:
+        return False, "未配置 MEDIA_SERVER_HOST（媒体服务器地址）"
     return True, None
-
-
-def whep_token(stream, expires):
-    """按 Nginx secure_link_md5 规则生成 token：base64url(md5(expires+path+stream secret))。"""
-    raw = f"{expires}{PHONE_AUDIO_WHEP_PATH}{stream} {PHONE_AUDIO_WHEP_SECRET}"
-    digest = hashlib.md5(raw.encode("utf-8")).digest()
-    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
 def video_log_path():

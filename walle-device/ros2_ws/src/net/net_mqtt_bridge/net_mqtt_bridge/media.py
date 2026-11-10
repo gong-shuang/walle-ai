@@ -145,8 +145,8 @@ def list_cameras():
 
 
 def rtmp_secret_ready():
-    """模板里还留着 {secret} 占位符时，必须配置了 WHIP_SECRET 才能推流。"""
-    return "{secret}" not in config.VIDEO_RTMP_URL_TEMPLATE or bool(config.WHIP_SECRET)
+    """媒体服务器地址与推流 secret 都配置后才能推流。"""
+    return bool(config.MEDIA_SERVER_HOST and config.MEDIA_SERVER_SECRET)
 
 
 def video_log_path():

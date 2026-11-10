@@ -68,10 +68,8 @@ vi walle-ai.conf
 ```
 
 - 必填：`MQTT_HOST`、`MQTT_PORT`、`MQTT_USERNAME`、`MQTT_PASSWORD`、`MQTT_TENANT`；
-- 视频：`WHIP_SECRET` 与 `VIDEO_RTMP_URL_TEMPLATE`；
-- 手机麦上行：`PHONE_AUDIO_WHEP_SECRET` 与 `PHONE_AUDIO_WHEP_URL_TEMPLATE`（模板需含
-  `{expires}` / `{token}`，由 Nginx `secure_link` 校验，见
-  [`doc/service_deploy.md`](../../../doc/service_deploy.md) §6.2）；
+- 媒体服务器：`MEDIA_SERVER_HOST`（地址）与 `MEDIA_SERVER_SECRET`（Oryx 推流 secret）；
+  推流/拉流路径由协议固定，无需配置 URL 模板；
 - 不需要对应能力时把 `VIDEO_ENABLE` / `PHONE_AUDIO_ENABLE` 置为 `false`。
 
 配置查找顺序：`--env-file` > `$RPI_MONITOR_ENV` > `/etc/walle-ai.conf` > 脚本同级

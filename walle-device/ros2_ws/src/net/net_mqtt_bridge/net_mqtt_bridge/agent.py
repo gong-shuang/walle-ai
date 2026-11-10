@@ -270,7 +270,8 @@ def print_config_check():
           f"TLS={'on' if tls_on else 'off'} (MQTT_TLS={config.MQTT_TLS})")
     print(f"  用户名   : {config.MQTT_USER}")
     print(f"  密码     : {'********' if config.MQTT_PASSWORD else '(空)'}")
-    print(f"  Oryx secret: {'已配置' if config.WHIP_SECRET else '未配置（视频推流会被服务端拒绝）'}")
+    print(f"  媒体服务器: {config.MEDIA_SERVER_HOST or '(未配置)'}")
+    print(f"  推流 secret: {'已配置' if config.MEDIA_SERVER_SECRET else '未配置（视频推流会被服务端拒绝）'}")
     print(f"  租户     : {config.sanitize_segment(config.MQTT_TENANT)}")
     print(f"  设备号   : {config.DEVICE_ID}")
     if config.DEVICE_ID_SOURCE:

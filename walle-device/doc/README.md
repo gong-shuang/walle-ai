@@ -197,7 +197,7 @@ sudo ./create_udev_rules.sh
 ### 前置条件
 
 配置 MQTT 服务器，获得 MQTT_HOST、MQTT_USERNAME、MQTT_PASSWORD、MQTT_TENANT。
-配置 WebRTC 服务器，获得 WHIP_SECRET。
+配置媒体服务器（Oryx），获得服务器地址与推流 secret（MEDIA_SERVER_HOST / MEDIA_SERVER_SECRET）。
 配置阿里云 API 密钥，获得 ALIYUN_API_KEY。
 
 ### 部署步骤
@@ -219,7 +219,7 @@ vi walle-ai.conf  # 打开配置文件，并修改相关参数
 ```
 
 脚本会：
-1. 检查 `walle-ai.conf` 是否存在，以及 MQTT 必填项、`WHIP_SECRET` 是否已填写；
+1. 检查 `walle-ai.conf` 是否存在，以及 MQTT 必填项、`MEDIA_SERVER_HOST` / `MEDIA_SERVER_SECRET` 是否已填写；
 2. 安装为 `/etc/walle-ai.conf`（`root:root 600`）；
 3. 安装并启用 `walle-ai.service`。
 

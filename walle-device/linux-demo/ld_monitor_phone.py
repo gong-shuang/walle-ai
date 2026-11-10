@@ -25,13 +25,8 @@ class MonitorPhoneMixin:
 
         媒体面走 WebRTC：App 用 WHIP 推、本机用 WHEP 拉。相比 RTMP 拉流，RTC 走 UDP、
         按最新帧转发，端到端延迟约 200ms（RTMP+ffmpeg 实测会被各级缓冲拖到数秒）。
-        拉流地址带短期 token，由 Nginx secure_link 校验（见 doc/service_deploy.md §6.2）。
         """
-        stream = room_number + PHONE_AUDIO_STREAM_SUFFIX
-        expires = int(time.time()) + PHONE_AUDIO_WHEP_TOKEN_TTL
-        token = whep_token(stream, expires)
-        return PHONE_AUDIO_WHEP_URL_TEMPLATE.format(
-            stream=stream, expires=expires, token=token)
+        return build_whep_url(room_number + PHONE_AUDIO_STREAM_SUFFIX)
 
     def _publish_phone_audio_result(self, resource, req, result_code, cause, extra=None):
         """手机音频动作的结果报文（result 语义与 video 一致：0 成功 / -1 无流 / -2 失败）"""

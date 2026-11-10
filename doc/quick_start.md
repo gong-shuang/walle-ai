@@ -79,7 +79,7 @@ EMQX 默认端口对应关系：
 
 - 只影响**推流**（手机麦克风 WHIP、设备视频 RTMP）；拉流（WHEP）不需要。
 - 没配置时构建会打印警告，点麦克风按钮会提示「未配置 Oryx 推流 secret」。
-- 获取方式与设备端配置（`/etc/walle-ai.conf` 的 `WHIP_SECRET`）见
+- 获取方式与设备端配置（`/etc/walle-ai.conf` 的 `MEDIA_SERVER_SECRET`）见
   [服务器部署文档 §6.1](service_deploy.md)。
 
 ## 证书

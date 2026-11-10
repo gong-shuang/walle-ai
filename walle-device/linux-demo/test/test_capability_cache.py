@@ -79,9 +79,9 @@ class CapabilityCacheTest(unittest.TestCase):
             return self.mon._probe_capability()
 
     def test_rtmp_push_hidden_when_url_not_ready(self):
-        payload = self._probe_with((False, "WHIP_SECRET 未配置"))
+        payload = self._probe_with((False, "MEDIA_SERVER_SECRET 未配置"))
         self.assertNotIn("rtmp_push", payload["capabilities"])
-        self.assertEqual(payload["probe"]["video_error"], "WHIP_SECRET 未配置")
+        self.assertEqual(payload["probe"]["video_error"], "MEDIA_SERVER_SECRET 未配置")
 
     def test_rtmp_push_visible_when_ready(self):
         payload = self._probe_with((True, None))

@@ -247,7 +247,7 @@ class NetMqttBridge(Node):
         if not self._agent_mod.rtmp_secret_ready():
             self.agent._publish_video_result(
                 req, -2, '命令执行失败',
-                {'error': '未配置 Oryx 推流 secret（请在 /etc/walle-ai.conf 设置 WHIP_SECRET）'})
+                {'error': '未配置 Oryx 推流 secret（请在 /etc/walle-ai.conf 设置 MEDIA_SERVER_SECRET）'})
             return
 
         srv_req = VideoStreamControl.Request()

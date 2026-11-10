@@ -22,7 +22,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'env_file',
             default_value='/etc/walle-ai.conf',
-            description='env file providing WHIP_SECRET'),
+            description='env file providing MEDIA_SERVER_HOST / MEDIA_SERVER_SECRET'),
         DeclareLaunchArgument(
             'respawn', default_value='true',
             description='restart the node if it exits'),

@@ -424,7 +424,7 @@ MQTT 只负责「开 / 关」控制。
 > 秒级延迟（实测手机说话到出声约 10s）。WebRTC 走 UDP，晚到的包直接丢弃，实测端到端约 200ms。
 > 另：服务端 WHIP 端点**必须带 `secret`**，不带会直接 502。这个 secret 由 Oryx 部署时生成、
 > 每台服务器不同，因此**不写死在代码里**：App 构建期注入（`-PoryxSecret` / `gradle.properties`
-> 的 `oryxSecret` / 环境变量 `WHIP_SECRET`），设备端读 `/etc/walle-ai.conf` 的 `WHIP_SECRET`。
+> 的 `oryxSecret` / 环境变量 `WHIP_SECRET`），设备端读 `/etc/walle-ai.conf` 的 `MEDIA_SERVER_SECRET`。
 
 - 开启请求：`walle/{t}/{d}/v1/phone/audio/send` → 应答 `.../send/result`
 - 关闭请求：`walle/{t}/{d}/v1/phone/audio/stop` → 应答 `.../stop/result`
@@ -446,7 +446,7 @@ MQTT 只负责「开 / 关」控制。
 
 **关键约定**：
 
-- **流名 = `{room}_audio`**（设备端 `PHONE_AUDIO_WHEP_URL_TEMPLATE` 拼 `{stream}`，可用
+- **流名 = `{room}_audio`**（设备端按 `MEDIA_SERVER_HOST` 拼 `https://{host}/rtc/v1/whep/?app=live&stream={stream}`，可用
   `PHONE_AUDIO_STREAM_SUFFIX` 覆盖）。与设备自己推的视频流 `live/{room}` 错开，
   避免两端抢同一路 stream。
 - **先连上再通知**：App 必须等 WHIP 的 PeerConnection 进入 `CONNECTED`（媒体面已通）才发

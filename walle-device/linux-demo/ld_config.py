@@ -207,15 +207,10 @@ def validate_config():
         errors.append(f"MQTT_CA_FILE 不存在或不可读: {MQTT_CA_FILE}")
     if CAMERA_DEVICE and not os.path.exists(CAMERA_DEVICE):
         errors.append(f"CAMERA_DEVICE 不存在: {CAMERA_DEVICE}")
-    if VIDEO_ENABLE and VIDEO_RTMP_URL_TEMPLATE:
-        if "{room}" not in VIDEO_RTMP_URL_TEMPLATE:
-            errors.append("VIDEO_RTMP_URL_TEMPLATE 缺少 {room} 占位符")
-        elif "{secret}" in VIDEO_RTMP_URL_TEMPLATE and not WHIP_SECRET:
-            errors.append("VIDEO_RTMP_URL_TEMPLATE 含 {secret} 但 WHIP_SECRET 未配置")
-    if PHONE_AUDIO_ENABLE and PHONE_AUDIO_WHEP_URL_TEMPLATE:
-        ok, reason = whep_url_ready()
-        if not ok:
-            errors.append(reason)
+    if (VIDEO_ENABLE or PHONE_AUDIO_ENABLE) and not MEDIA_SERVER_HOST:
+        errors.append("MEDIA_SERVER_HOST 未配置（媒体服务器地址）")
+    if VIDEO_ENABLE and MEDIA_SERVER_HOST and not MEDIA_SERVER_SECRET:
+        errors.append("MEDIA_SERVER_SECRET 未配置（推流会被服务端拒绝）")
     return errors
 
 
@@ -317,12 +312,13 @@ VIDEO_ENABLE = _env_flag("VIDEO_ENABLE", True)  # 不需要推流能力时置 Fa
 # 可选：固定摄像头设备（如 udev 符号链接 /dev/walle-camera）；留空接受任意 /dev/videoN
 CAMERA_DEVICE = os.environ.get("CAMERA_DEVICE", "").strip()
 VIDEO_FFMPEG_BIN = "ffmpeg"              # ffmpeg 可执行文件（不在 PATH 就写绝对路径）
-# 推流地址模板，必须显式配置：{room}=房间号，{secret}=Oryx 推流 secret
-VIDEO_RTMP_URL_TEMPLATE = os.environ.get("VIDEO_RTMP_URL_TEMPLATE", "").strip()
-# Oryx 部署后会生成一个推流 secret（每台服务器都不同，在控制台「推流鉴权」可查看/重置），
-# 重置后所有旧客户端立即失效。禁止写死在源码里：用 WHIP_SECRET 环境变量
-# （/etc/walle-ai.conf）注入；不配置则视频推流会被服务端拒绝。
-WHIP_SECRET = os.environ.get("WHIP_SECRET", "").strip()
+# ---- 媒体服务器（Oryx：视频 RTMP 推流 + 手机音频 WHEP 拉流）----
+# 只配服务器地址与推流 secret；端口与路径由协议固定：
+#   推流 rtmp://{host}:1935/live/{room}?secret={secret}
+#   拉流 https://{host}/rtc/v1/whep/?app=live&stream={stream}
+MEDIA_SERVER_HOST = os.environ.get("MEDIA_SERVER_HOST", "").strip()
+# Oryx 控制台「推流鉴权」生成的 secret；重置后需同步更新 App 与设备
+MEDIA_SERVER_SECRET = os.environ.get("MEDIA_SERVER_SECRET", "").strip()
 VIDEO_LOG_FILE = "log/ffmpeg_{time}.log"  # ffmpeg 日志文件（相对路径以进程工作目录为基准）
                                          # {time} 会替换成推流时刻，如 20261029_162650，
                                          # 所以每次推流都是一个独立的日志文件；目录不存在会自动创建
@@ -359,15 +355,6 @@ VIDEO_AUDIO_FRAGMENT_SIZE = 1024         # pulse 采集分片（字节）：越�
 
 # ---- 反向音频（phone/audio/*：手机麦 → WebRTC(WHIP→WHEP) → 本机扬声器）----
 PHONE_AUDIO_ENABLE = _env_flag("PHONE_AUDIO_ENABLE", True)  # 不需要时置 False
-# 拉流地址模板，必须显式配置：{stream}/{expires}/{token} 由设备填充
-PHONE_AUDIO_WHEP_URL_TEMPLATE = os.environ.get("PHONE_AUDIO_WHEP_URL_TEMPLATE", "").strip()
-# WHEP 拉流鉴权：与 Nginx secure_link 的 secret 一致（见 doc/service_deploy.md §6.2）
-PHONE_AUDIO_WHEP_SECRET = os.environ.get("PHONE_AUDIO_WHEP_SECRET", "").strip()
-PHONE_AUDIO_WHEP_PATH = os.environ.get("PHONE_AUDIO_WHEP_PATH", "/whep-audio/").strip()
-try:
-    PHONE_AUDIO_WHEP_TOKEN_TTL = int(os.environ.get("PHONE_AUDIO_WHEP_TOKEN_TTL", "300"))
-except ValueError:
-    PHONE_AUDIO_WHEP_TOKEN_TTL = 0
 PHONE_AUDIO_DEVICE = os.environ.get("PHONE_AUDIO_DEVICE", "")   # sounddevice 输出设备名，空=系统默认
 PHONE_AUDIO_LATENCY = os.environ.get("PHONE_AUDIO_LATENCY", "low")  # PortAudio 延迟档位：low/high
 # 首帧超时（秒）：超过即判定手机端没在推流（播放器以退出码 4 退出）；弱网可调大
@@ -394,7 +381,7 @@ PHONE_AUDIO_EXIT_REASONS = {
 
 
 def media_config_warnings():
-    """音视频模板未配置时的告警；不阻塞仅使用监控功能的设备启动。"""
+    """媒体服务器配置缺失时的告警；不阻塞仅使用监控功能的设备启动。"""
     from ld_media import rtmp_url_ready, whep_url_ready
     warnings = []
     if VIDEO_ENABLE:

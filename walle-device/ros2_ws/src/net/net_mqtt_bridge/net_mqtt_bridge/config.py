@@ -385,13 +385,13 @@ CAPABILITY_FIRST_WAIT = float(os.environ.get("CAPABILITY_FIRST_WAIT", "3"))   # 
 # ---- 视频推流（video/start，ffmpeg -> RTMP）----
 VIDEO_ENABLE = _env_flag("VIDEO_ENABLE", True)  # 不需要推流能力时置 False
 VIDEO_FFMPEG_BIN = "ffmpeg"              # ffmpeg 可执行文件（不在 PATH 就写绝对路径）
-VIDEO_RTMP_URL_TEMPLATE = os.environ.get(  # 推流地址模板：{room}=房间号，{secret}=Oryx 推流 secret
-    "VIDEO_RTMP_URL_TEMPLATE",
-    "rtmp://www.baidong.xyz:1935/live/{room}?secret={secret}")
-# Oryx 部署后会生成一个推流 secret（每台服务器都不同，在控制台「推流鉴权」可查看/重置），
-# 重置后所有旧客户端立即失效。禁止写死在源码里：用 WHIP_SECRET 环境变量
-# （/etc/walle-ai.conf）注入；不配置则视频推流会被服务端拒绝。
-WHIP_SECRET = os.environ.get("WHIP_SECRET", "").strip()
+# ---- 媒体服务器（Oryx：视频 RTMP 推流 + 手机音频 WHEP 拉流）----
+# 只配服务器地址与推流 secret；端口与路径由协议固定：
+#   推流 rtmp://{host}:1935/live/{room}?secret={secret}
+#   拉流 https://{host}/rtc/v1/whep/?app=live&stream={stream}
+MEDIA_SERVER_HOST = os.environ.get("MEDIA_SERVER_HOST", "").strip()
+# Oryx 控制台「推流鉴权」生成的 secret；重置后需同步更新 App 与设备
+MEDIA_SERVER_SECRET = os.environ.get("MEDIA_SERVER_SECRET", "").strip()
 VIDEO_LOG_FILE = "log/ffmpeg_{time}.log"  # ffmpeg 日志文件（相对路径以进程工作目录为基准）
                                          # {time} 会替换成推流时刻，如 20261029_162650，
                                          # 所以每次推流都是一个独立的日志文件；目录不存在会自动创建
@@ -408,9 +408,6 @@ VIDEO_AUDIO_BITRATE = "128k"             # 音频码率
 
 # ---- 反向音频（phone/audio/*：手机麦 → WebRTC(WHIP→WHEP) → 本机扬声器）----
 PHONE_AUDIO_ENABLE = _env_flag("PHONE_AUDIO_ENABLE", True)  # 不需要时置 False
-PHONE_AUDIO_WHEP_URL_TEMPLATE = os.environ.get(    # 拉流地址模板，{stream} 会被替换成流名
-    "PHONE_AUDIO_WHEP_URL_TEMPLATE",
-    "https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream={stream}")
 PHONE_AUDIO_DEVICE = os.environ.get("PHONE_AUDIO_DEVICE", "")   # sounddevice 输出设备名，空=系统默认
 PHONE_AUDIO_LATENCY = os.environ.get("PHONE_AUDIO_LATENCY", "low")  # PortAudio 延迟档位：low/high
 PHONE_AUDIO_FIRST_FRAME_TIMEOUT = 8.0     # 首帧超时：超时即判定手机端没在推流
@@ -418,3 +415,8 @@ PHONE_AUDIO_STARTUP_GRACE = 2.0          # 启动宽限：播放进程活过这�
 PHONE_AUDIO_STREAM_SUFFIX = "_audio"     # 音频流名后缀：与视频房间号错开，避免抢同一路 stream
 PHONE_AUDIO_PLAYER_SCRIPT = os.path.join(  # WHEP 播放器脚本（与被监控脚本同目录）
     os.path.dirname(os.path.abspath(__file__)), "whep_audio_player.py")
+
+
+def build_phone_audio_url(stream):
+    """手机音频 WHEP 拉流地址（Oryx 443 固定路径，无需鉴权）。"""
+    return f"https://{MEDIA_SERVER_HOST}/rtc/v1/whep/?app=live&stream={stream}"

@@ -1,6 +1,6 @@
 video_webrtc_bridge:
   ros__parameters:
-    # 环境文件：用于读取 WHIP_SECRET / VIDEO_RTMP_URL_TEMPLATE（不覆盖已有环境变量）
+    # 环境文件：用于读取 MEDIA_SERVER_HOST / MEDIA_SERVER_SECRET（不覆盖已有环境变量）
     env_file: /etc/walle-ai.conf
 
     image_topic: /image_raw
@@ -9,11 +9,9 @@ video_webrtc_bridge:
     framerate: 30.0
     room_number_pattern: "^[A-Za-z0-9_-]{1,64}$"
 
-    # 推流地址模板与 secret 从 env_file 读取（VIDEO_RTMP_URL_TEMPLATE / WHIP_SECRET）。
-    # 不要把 whip_secret 写进 YAML：ros2 param dump 会把明文打出来。
-    # 需要覆盖时再取消下面两行注释：
-    # rtmp_url_template: "rtmp://www.baidong.xyz:1935/live/{room}?secret={secret}"
-    # whip_secret: "******"
+    # 媒体服务器地址与推流 secret 从 env_file 读取（MEDIA_SERVER_HOST / MEDIA_SERVER_SECRET）。
+    # 推流地址由协议固定：rtmp://{host}:1935/live/{room}?secret={secret}，无需配置模板。
+    # 不要把 secret 写进 YAML：ros2 param dump 会把明文打出来。
     video_bitrate: "1000k"
     video_gop: 60
     video_preset: "ultrafast"

@@ -21,8 +21,8 @@ class PhoneAudioMixin:
         媒体面走 WebRTC：App 用 WHIP 推、本机用 WHEP 拉。相比 RTMP 拉流，RTC 走 UDP、
         按最新帧转发，端到端延迟约 200ms（RTMP+ffmpeg 实测会被各级缓冲拖到数秒）。
         """
-        return config.PHONE_AUDIO_WHEP_URL_TEMPLATE.format(
-            stream=room_number + config.PHONE_AUDIO_STREAM_SUFFIX)
+        return config.build_phone_audio_url(
+            room_number + config.PHONE_AUDIO_STREAM_SUFFIX)
 
     def _publish_phone_audio_result(self, resource, req, result_code, cause, extra=None):
         """手机音频动作的结果报文（result 语义与 video 一致：0 成功 / -1 无流 / -2 失败）"""
