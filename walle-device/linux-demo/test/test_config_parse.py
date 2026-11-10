@@ -39,6 +39,20 @@ class EnvFileParseTest(unittest.TestCase):
                 self.assertEqual(os.environ["WALLE_TEST_F"], 'esc " quote')
 
 
+class PhoneAudioTimeoutConfigTest(unittest.TestCase):
+    def test_env_override(self):
+        import importlib
+        try:
+            with mock.patch.dict(os.environ, {
+                    "PHONE_AUDIO_FIRST_FRAME_TIMEOUT": "15",
+                    "PHONE_AUDIO_STARTUP_GRACE": "4"}):
+                importlib.reload(config)
+                self.assertEqual(config.PHONE_AUDIO_FIRST_FRAME_TIMEOUT, 15.0)
+                self.assertEqual(config.PHONE_AUDIO_STARTUP_GRACE, 4.0)
+        finally:
+            importlib.reload(config)   # 还原为无覆盖时的默认值，避免影响其它用例
+
+
 class FfmpegCmdTest(unittest.TestCase):
     def test_reuses_given_rtmp_url(self):
         cmd = media.build_ffmpeg_cmd("/dev/video0", "room1", rtmp_url="rtmp://h/live/x")

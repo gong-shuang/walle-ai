@@ -198,7 +198,8 @@ class MonitorPhoneMixin:
 
         # 成功判定对齐「首个音频帧」：等待播放器输出 PLAYBACK READY，
         # 而不是仅靠存活时间——否则手机未推流时会出现「返回成功但无声」。
-        wait_sec = max(PHONE_AUDIO_FIRST_FRAME_TIMEOUT + 1, PHONE_AUDIO_STARTUP_GRACE)
+        # 首帧超时由播放器自身控制（无帧时退出码 4），这里再加启动宽限等它写完日志退出。
+        wait_sec = PHONE_AUDIO_FIRST_FRAME_TIMEOUT + PHONE_AUDIO_STARTUP_GRACE
         state = self._wait_process_ready(proc, ready, wait_sec)
         code = proc.poll()
         if state == "exit" or code is not None:
@@ -217,7 +218,9 @@ class MonitorPhoneMixin:
                 proc.kill()
             tail = sink.error_line()
             sink.close()
-            return None, (f"播放器 {wait_sec:g}s 内未开始播放（首帧超时），"
+            return None, (f"播放器 {wait_sec:g}s 内未开始播放（首帧超时 "
+                          f"{PHONE_AUDIO_FIRST_FRAME_TIMEOUT:g}s + 启动宽限 "
+                          f"{PHONE_AUDIO_STARTUP_GRACE:g}s），"
                           f"请确认手机端已推流（日志: {sink.path}）"
                           + (f": {tail}" if tail else ""))
 

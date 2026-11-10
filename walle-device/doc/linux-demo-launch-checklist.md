@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 17 | 5 |
-| **合计** | **55** | **44** | **11** |
+| P2 后续优化 | 22 | 18 | 4 |
+| **合计** | **55** | **45** | **10** |
 
-> linux-demo 已开始按本清单整改（当前 44/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 45/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -342,11 +342,10 @@
   - 验收：显式 `DEVICE_ID_FILE` 行为不变（原有落盘/复用测试通过）；渲染后的 unit `systemd-analyze verify` 通过；升级迁移逻辑待实机验证；`.device-id` 已被 `.gitignore` 忽略
   - 证据：`ld_utils.py`、`deploy.sh`、`walle-ai.service.example`、`walle-ai.conf.example`、`README.md`「升级」
 
-- [ ] 🔴 **P2-3.7 手机音频启动超时参数化**
-  - 现状：`PHONE_AUDIO_FIRST_FRAME_TIMEOUT` / `STARTUP_GRACE` 为硬编码 8.0 / 2.0，其余配置均可通过环境变量覆盖
-  - 动作：改为环境变量；与 P2-3.5 的成功判定一起调整
-  - 验收：弱网环境可通过配置延长首帧超时；启动宽限与首帧超时语义一致
-  - 证据：`main.py` L418-L419
+- [x] ✅ **P2-3.7 手机音频启动超时参数化**
+  - 处理：`PHONE_AUDIO_FIRST_FRAME_TIMEOUT`（默认 8.0）与 `PHONE_AUDIO_STARTUP_GRACE`（默认 2.0）改为环境变量；语义对齐 P2-3.5——首帧超时由播放器自身控制（无帧退出码 4），主进程等待 `首帧超时 + 启动宽限` 以覆盖播放器写日志并退出的时间；超时失败信息同时给出两个配置值
+  - 验收：`PHONE_AUDIO_FIRST_FRAME_TIMEOUT=20 PHONE_AUDIO_STARTUP_GRACE=5` 下 `--check` 退出 0；`python3 -c "import ld_config"` 读取到覆盖值 12.0/2.0；新增 1 项用例，全套 53 项通过；弱网实机待验证
+  - 证据：`ld_config.py`、`ld_monitor_phone.py`、`walle-ai.conf.example`；`test/test_config_parse.py`
 
 ### P2-4 调试工具
 
@@ -454,6 +453,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：手机音频首帧超时与启动宽限改为环境变量（默认 8s / 2s），主进程等待
+  `首帧超时 + 启动宽限`，弱网可延长首帧超时（P2-3.7）。
 - 2026-11-10：设备标识默认放 `/var/lib/walle-ai/device-id`，deploy.sh 创建目录并迁移旧
   `.device-id`；systemd 模板增加对应环境变量与 ReadWritePaths（P2-3.6）。
 - 2026-11-10：手机音频以 `PLAYBACK READY` 作为成功判据（等待首帧），推流启动后检查

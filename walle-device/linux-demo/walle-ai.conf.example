@@ -59,6 +59,10 @@ PHONE_AUDIO_WHEP_SECRET=
 # VIDEO_ENCODER=auto
 # VIDEO_PRESET=ultrafast
 # VIDEO_TUNE=zerolatency
+# 手机音频首帧超时（秒）：超时即判定手机未推流（退出码 4）；弱网可调大
+# PHONE_AUDIO_FIRST_FRAME_TIMEOUT=8
+# 启动宽限（秒）：首帧超时之外再等播放器写完错误日志并退出
+# PHONE_AUDIO_STARTUP_GRACE=2
 # 手机音频超过该秒数没有收到音频帧时退出播放器（退出码 7）
 # PHONE_AUDIO_IDLE_TIMEOUT=30
 # MQTT 断连超过该秒数后停止推流/手机音频

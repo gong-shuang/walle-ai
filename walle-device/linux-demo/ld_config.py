@@ -370,12 +370,16 @@ except ValueError:
     PHONE_AUDIO_WHEP_TOKEN_TTL = 0
 PHONE_AUDIO_DEVICE = os.environ.get("PHONE_AUDIO_DEVICE", "")   # sounddevice 输出设备名，空=系统默认
 PHONE_AUDIO_LATENCY = os.environ.get("PHONE_AUDIO_LATENCY", "low")  # PortAudio 延迟档位：low/high
-PHONE_AUDIO_FIRST_FRAME_TIMEOUT = 8.0     # 首帧超时：超时即判定手机端没在推流
-PHONE_AUDIO_IDLE_TIMEOUT = float(os.environ.get("PHONE_AUDIO_IDLE_TIMEOUT", "30"))
-PHONE_AUDIO_MAX_DURATION_SEC = int(os.environ.get("PHONE_AUDIO_MAX_DURATION_SEC", "1800"))
+# 首帧超时（秒）：超过即判定手机端没在推流（播放器以退出码 4 退出）；弱网可调大
+PHONE_AUDIO_FIRST_FRAME_TIMEOUT = float(
+    os.environ.get("PHONE_AUDIO_FIRST_FRAME_TIMEOUT", "8.0"))
+# 启动宽限（秒）：在首帧超时之外再等这么久，留给播放器写完错误日志并退出
+PHONE_AUDIO_STARTUP_GRACE = float(
+    os.environ.get("PHONE_AUDIO_STARTUP_GRACE", "2.0"))
 # 无音频帧超时（秒）：超过即退出播放器（退出码 7），0 = 关闭
+PHONE_AUDIO_IDLE_TIMEOUT = float(os.environ.get("PHONE_AUDIO_IDLE_TIMEOUT", "30"))
 # 最长播放时长（秒）：到期由主程序停止并告警，0 = 不限制
-PHONE_AUDIO_STARTUP_GRACE = 2.0          # 启动宽限：播放进程活过这段时间即视为开始播放（秒）
+PHONE_AUDIO_MAX_DURATION_SEC = int(os.environ.get("PHONE_AUDIO_MAX_DURATION_SEC", "1800"))
 PHONE_AUDIO_STREAM_SUFFIX = "_audio"     # 音频流名后缀：与视频房间号错开，避免抢同一路 stream
 PHONE_AUDIO_PLAYER_SCRIPT = os.path.join(  # WHEP 播放器脚本（与被监控脚本同目录）
     os.path.dirname(os.path.abspath(__file__)), "whep_audio_player.py")
