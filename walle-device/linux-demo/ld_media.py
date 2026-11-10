@@ -18,7 +18,7 @@ from ld_config import *
 from ld_utils import *
 
 def build_ffmpeg_cmd(video_device, room_number, audio=None, rtmp_url=None,
-                     video_size=None, framerate=None):
+                     video_size=None, framerate=None, encoder=None):
     """
     按收到的请求动态拼 ffmpeg 参数（视频设备、房间号都不写死）。
     用参数列表而不是 shell 字符串，避免命令注入。
@@ -27,9 +27,11 @@ def build_ffmpeg_cmd(video_device, room_number, audio=None, rtmp_url=None,
     录音源（-f pulse -i default）并编码为 AAC，否则保持 -an 纯视频。
     rtmp_url: 已构造好的推流地址；不传则按 room_number 现构造。
     video_size / framerate: 本次推流参数；不传则用配置默认值。
+    encoder: 视频编码器；不传则用 libx264。
     """
     size = video_size or VIDEO_VIDEO_SIZE
     fps = framerate or VIDEO_FRAMERATE
+    enc = encoder or "libx264"
     cmd = [
         VIDEO_FFMPEG_BIN,
         # 不加 -hide_banner：日志里保留 ffmpeg 版本/编译选项/流信息，便于排查
@@ -52,10 +54,10 @@ def build_ffmpeg_cmd(video_device, room_number, audio=None, rtmp_url=None,
             "-i", audio.get("device") or VIDEO_AUDIO_DEVICE,
         ]
 
+    cmd += ["-c:v", enc]
+    if enc == "libx264":
+        cmd += ["-preset", VIDEO_PRESET, "-tune", VIDEO_TUNE]
     cmd += [
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-tune", "zerolatency",
         "-pix_fmt", "yuv420p",
         "-g", str(VIDEO_GOP),
         "-b:v", VIDEO_BITRATE,
@@ -92,6 +94,39 @@ def build_ffmpeg_cmd(video_device, room_number, audio=None, rtmp_url=None,
 
 def build_rtmp_url(room_number):
     return VIDEO_RTMP_URL_TEMPLATE.format(room=room_number, secret=WHIP_SECRET)
+
+
+def available_video_encoders():
+    """枚举 ffmpeg 支持的 H.264 编码器；探测失败返回 None。"""
+    try:
+        proc = subprocess.run(
+            [VIDEO_FFMPEG_BIN, "-hide_banner", "-encoders"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=8,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    text = (proc.stdout or b"").decode("utf-8", "replace")
+    return {name for name in ("libx264", "h264_v4l2m2m") if name in text}
+
+
+def pick_video_encoder():
+    """按 VIDEO_ENCODER 选择编码器，返回 (encoder, note)；note 非空表示发生了回退。"""
+    wanted = VIDEO_ENCODER
+    encoders = available_video_encoders()
+    if encoders is None:
+        return "libx264", "无法枚举 ffmpeg 编码器，回退 libx264"
+    if wanted == "auto":
+        return ("h264_v4l2m2m" if "h264_v4l2m2m" in encoders else "libx264"), None
+    if wanted not in ("libx264", "h264_v4l2m2m"):
+        return "libx264", f"未知 VIDEO_ENCODER={wanted}，回退 libx264"
+    if wanted not in encoders:
+        return "libx264", f"ffmpeg 不支持 {wanted}，回退 libx264"
+    return wanted, None
 
 
 def rtmp_url_ready():

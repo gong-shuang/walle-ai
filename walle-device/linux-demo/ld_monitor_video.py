@@ -150,7 +150,7 @@ class MonitorVideoMixin:
         )
 
     def _start_video_stream(self, video_device, room_number, audio=None, rtmp_url=None,
-                            video_size=None):
+                            video_size=None, encoder=None):
         """
         启动 ffmpeg 推流。返回 (proc, error)：
           - proc 不为 None：启动宽限期内未退出，视为推流成功
@@ -158,12 +158,13 @@ class MonitorVideoMixin:
 
         audio: detect_microphone() 的结果，决定是否混入音频（见 build_ffmpeg_cmd）。
         rtmp_url: 已构造好的推流地址，避免重复构造。
-        video_size: 本次推流分辨率；不传则用配置默认值。
+        video_size / encoder: 本次推流分辨率与编码器；不传则用默认值。
         """
         rtmp = rtmp_url or build_rtmp_url(room_number)
         size = video_size or VIDEO_VIDEO_SIZE
+        enc = encoder or "libx264"
         cmd = build_ffmpeg_cmd(video_device, room_number, audio,
-                               rtmp_url=rtmp, video_size=size)
+                               rtmp_url=rtmp, video_size=size, encoder=enc)
         # 日志文件开头写一段分隔头，记录这次推流的时间/房间号/设备/实际命令
         header = (
             f"\n===== {now_str()} 启动推流 room={room_number} device={video_device} =====\n"
@@ -215,6 +216,7 @@ class MonitorVideoMixin:
                 "started_ts": time.time(),
                 "rtmp_url": mask_rtmp_url(rtmp),
                 "video_size": size,
+                "encoder": enc,
                 "audio": audio or {"available": False, "reason": None},
             }
         threading.Thread(target=self._video_watch, args=(proc, room_number, sink),
@@ -258,6 +260,10 @@ class MonitorVideoMixin:
             return
         if size_note:
             logging.warning("%s", size_note)
+        encoder, encoder_note = pick_video_encoder()
+        if encoder_note:
+            logging.warning("%s", encoder_note)
+        logging.info("推流参数: %s %s %s", video_size, encoder, VIDEO_BITRATE)
 
         # 2) 房间号白名单（要拼进 RTMP URL，必须严格校验）
         if not re.match(VIDEO_ROOM_PATTERN, room_number):
@@ -296,6 +302,7 @@ class MonitorVideoMixin:
                 "room_number": room_number,
                 "rtmp_url": masked_rtmp,
                 "video_size": cur_meta.get("video_size"),
+                "encoder": cur_meta.get("encoder"),
                 "pid": cur_meta.get("pid"),
                 "started_at": cur_meta.get("started_at"),
                 "audio": cur_meta.get("audio") or {"available": False, "reason": None},
@@ -320,14 +327,15 @@ class MonitorVideoMixin:
 
         # 5) 启动 ffmpeg 推流
         proc, err = self._start_video_stream(
-            video_device, room_number, audio, rtmp_url, video_size)
+            video_device, room_number, audio, rtmp_url, video_size, encoder)
         extra = {
             "rtmp_url": masked_rtmp,
             "video_size": video_size,
             "framerate": VIDEO_FRAMERATE,
+            "encoder": encoder,
             "command": " ".join(build_ffmpeg_cmd(
                 video_device, room_number, audio,
-                rtmp_url=rtmp_url, video_size=video_size)).replace(
+                rtmp_url=rtmp_url, video_size=video_size, encoder=encoder)).replace(
                     rtmp_url, masked_rtmp),
             "pid": proc.pid if proc else None,
             "audio": audio,

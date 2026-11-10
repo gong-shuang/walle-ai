@@ -55,6 +55,10 @@ PHONE_AUDIO_WHEP_SECRET=
 # VIDEO_FRAMERATE=30
 # VIDEO_BITRATE=1000k
 # VIDEO_GOP=60
+# 编码器：auto（有硬件编码器优先 h264_v4l2m2m，否则 libx264）/ libx264 / h264_v4l2m2m
+# VIDEO_ENCODER=auto
+# VIDEO_PRESET=ultrafast
+# VIDEO_TUNE=zerolatency
 # 手机音频超过该秒数没有收到音频帧时退出播放器（退出码 7）
 # PHONE_AUDIO_IDLE_TIMEOUT=30
 # MQTT 断连超过该秒数后停止推流/手机音频

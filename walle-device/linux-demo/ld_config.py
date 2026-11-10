@@ -340,6 +340,10 @@ VIDEO_VIDEO_SIZE = os.environ.get("VIDEO_VIDEO_SIZE", "640x480").strip()  # 采�
 VIDEO_FRAMERATE = int(os.environ.get("VIDEO_FRAMERATE", "30"))           # 采集帧率
 VIDEO_BITRATE = os.environ.get("VIDEO_BITRATE", "1000k")                 # 视频码率
 VIDEO_GOP = int(os.environ.get("VIDEO_GOP", "60"))                       # 关键帧间隔
+# 编码器：auto（优先硬件 h264_v4l2m2m，否则 libx264）/ libx264 / h264_v4l2m2m
+VIDEO_ENCODER = os.environ.get("VIDEO_ENCODER", "auto").strip().lower()
+VIDEO_PRESET = os.environ.get("VIDEO_PRESET", "ultrafast")               # libx264 预设
+VIDEO_TUNE = os.environ.get("VIDEO_TUNE", "zerolatency")                 # libx264 调优
 VIDEO_STARTUP_GRACE = 3.0                # 启动宽限：ffmpeg 活过这段时间即视为推流成功（秒）
 VIDEO_ROOM_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"  # 房间号白名单，防注入/防拼错
 

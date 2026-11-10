@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 12 | 10 |
-| **合计** | **55** | **39** | **16** |
+| P2 后续优化 | 22 | 13 | 9 |
+| **合计** | **55** | **40** | **15** |
 
-> linux-demo 已开始按本清单整改（当前 39/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 40/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -317,11 +317,10 @@
   - 验收：新增 `test/test_video_size.py` 6 项（解析、优先命中、向下/向上回退、探测失败、ffmpeg 参数）；全套 40 项通过；真实摄像头降级与推流成功待实机验证
   - 证据：`ld_camera.py`、`ld_media.py`、`ld_monitor_video.py`、`ld_config.py`；`test/test_video_size.py`；`walle-ai.conf.example`
 
-- [ ] 🔴 **P2-3.2 推流编码器与参数可配置**
-  - 现状：`libx264` / `ultrafast` / `zerolatency` / 码率 / GOP 均硬编码；无法按设备性能调整
-  - 动作：新增 `VIDEO_ENCODER`（`auto|libx264|h264_v4l2m2m`）与码率/GOP/分辨率配置；启动时探测硬件编码器，失败回退并打印原因
-  - 验收：Pi 5 无硬件编码器时自动回退 `libx264`；带 V4L2 M2M 的设备可切换成功；参数可通过环境变量调整
-  - 证据：`main.py` L1200-L1256；`walle-device/doc/walle-launch-checklist.md` P2-1.3
+- [x] ✅ **P2-3.2 推流编码器与参数可配置**
+  - 处理：新增 `VIDEO_ENCODER`（`auto|libx264|h264_v4l2m2m`）、`VIDEO_PRESET`、`VIDEO_TUNE`；`available_video_encoders()` 用 `ffmpeg -encoders` 探测，`pick_video_encoder()` 在 auto 下优先硬件编码器，指定但不可用/未知/探测失败时回退 `libx264` 并返回原因；`build_ffmpeg_cmd()` 对 `libx264` 追加 preset/tune，硬件编码器不追加；`video/start/result` 与 `video_meta` 增加 `encoder`
+  - 验收：新增 `test/test_video_encoder.py` 6 项（auto 优先/回退、显式不可用、未知值、探测失败、参数差异）；全套 46 项通过；Pi 5 无硬件编码器时回退 libx264，带 V4L2 M2M 设备待实机验证
+  - 证据：`ld_config.py`、`ld_media.py`、`ld_monitor_video.py`；`test/test_video_encoder.py`；`walle-ai.conf.example`
 
 - [ ] 🔴 **P2-3.3 视频日志路径固定**
   - 现状：`VIDEO_LOG_FILE` 默认相对路径 `log/ffmpeg_{time}.log`，按进程工作目录解析；手动从其他目录启动会把日志写到意外位置
@@ -459,6 +458,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：编码器支持 auto/libx264/h264_v4l2m2m，不可用时回退并记录原因；
+  preset/tune 可配置，推流结果返回实际 `encoder`，新增 6 项用例（P2-3.2）。
 - 2026-11-10：推流分辨率按摄像头能力自动降级，`VIDEO_VIDEO_SIZE`/帧率/码率/GOP 可配置；
   推流结果新增 `video_size`/`framerate`，新增 6 项分辨率用例（P2-3.1）。
 - 2026-11-10：`--check` 增加 Python 包与协议配对检查，并支持 `--check --connect`
