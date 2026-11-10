@@ -350,15 +350,7 @@ WHIP_SECRET = os.environ.get("WHIP_SECRET", "").strip()
 VIDEO_LOG_FILE = "log/ffmpeg_{time}.log"  # ffmpeg 日志文件（相对路径以进程工作目录为基准）
                                          # {time} 会替换成推流时刻，如 20261029_162650，
                                          # 所以每次推流都是一个独立的日志文件；目录不存在会自动创建
-VIDEO_LOG_LEVEL = "info"                 # ffmpeg 日志级别：quiet/panic/fatal/error/warning/info/verbose/debug
-                                         # info（默认）= 记录版本、编解码器、输入/输出流信息 + 实时帧统计，
-                                         # 和手动跑 ffmpeg 看到的日志一样；只想记错误就改成 "warning"
 VIDEO_LOG_MAX_BYTES = 20 * 1024 * 1024   # 单个日志超过 20MB 时在下次写入前滚动为 .1 备份
-VIDEO_VIDEO_SIZE = "640x480"             # 采集分辨率
-VIDEO_FRAMERATE = 30                     # 采集帧率
-VIDEO_BITRATE = "1000k"                  # 视频码率
-VIDEO_GOP = 60                           # 关键帧间隔
-VIDEO_STARTUP_GRACE = 3.0                # 启动宽限：ffmpeg 活过这段时间即视为推流成功（秒）
 VIDEO_ROOM_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"  # 房间号白名单，防注入/防拼错
 
 # ---- 音频采集（检测到麦克风时自动把默认录音源混入推流）----
@@ -368,8 +360,6 @@ VIDEO_PACTL_BIN = "pactl"                # pactl 可执行文件（来自 pulsea
 VIDEO_AUDIO_PROBE_TIMEOUT = 3            # 麦克风探测超时（秒）
 VIDEO_AUDIO_CODEC = "aac"                # 音频编码
 VIDEO_AUDIO_BITRATE = "128k"             # 音频码率
-VIDEO_AUDIO_FRAGMENT_SIZE = 1024         # pulse 采集分片（字节）：越小采集端延迟越低，
-                                         # 过大是混音后播放端延迟明显增大的主要原因
 
 # ---- 反向音频（phone/audio/*：手机麦 → WebRTC(WHIP→WHEP) → 本机扬声器）----
 PHONE_AUDIO_ENABLE = _env_flag("PHONE_AUDIO_ENABLE", True)  # 不需要时置 False

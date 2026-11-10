@@ -24,9 +24,6 @@ def _bare_monitor():
     monitor.active_alarms = set()
     monitor.usb_state = {}
     monitor.lan_ip = "192.168.1.10"
-    monitor.video_lock = threading.Lock()
-    monitor.video_proc = None
-    monitor.video_meta = {}
     return monitor
 
 

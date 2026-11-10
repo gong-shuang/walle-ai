@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 7 | 14 |
-| **合计** | **58** | **40** | **18** |
+| P2 后续优化 | 21 | 8 | 13 |
+| **合计** | **58** | **41** | **17** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -235,14 +235,14 @@
 ### P2-2 代码质量
 
 - [x] ✅ **P2-2.1 拆分 agent.py**
-  - 处理：按职责拆为 `config` / `identity` / `monitor` / `protocol` / `capability` / `media` / `audio` / `video` / `phone_audio` 九个模块；`agent.py` 只保留 `RpiMonitor` 组合、启动流程、`--check` 与公共名 re-export（`__getattr__` 兼容 `DEVICE_ID` 等运行期配置读取）。最大文件 `monitor.py` 408 行，原 2935 行的 `agent.py` 降至 321 行
+  - 处理：按职责拆为 `config` / `identity` / `monitor` / `protocol` / `capability` / `media` / `audio` / `video` / `phone_audio` 九个模块；`agent.py` 只保留 `RpiMonitor` 组合、启动流程、`--check` 与公共名 re-export（`__getattr__` 兼容 `DEVICE_ID` 等运行期配置读取）。最大文件 `monitor.py` 388 行，原 2935 行的 `agent.py` 降至 321 行
   - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/` 下 `config.py`（环境/主题）、`identity.py`（身份/格式化）、`monitor.py`（采样与 state 快照）、`protocol.py`（MQTT 回调/查询）、`capability.py`（能力缓存）、`media.py`（摄像头/ffmpeg/日志）、`audio.py`（音频探测）、`video.py`、`phone_audio.py`
   - 验收：`test/test_modules.py` 逐一导入各模块并断言所有 `.py` < 500 行；`net_mqtt_bridge` 36 项 pytest 通过；`node.py` 仅改为从 `config` 读写 `DEVICE_ID_FILE`/`DEVICE_ID`，其余接口不变
 
-- [ ] 🔴 **P2-2.2 删除被 node 覆盖的旧视频实现**
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/node.py` L113-L116 覆盖 `handle_video_request` 等方法，`video.py` 内仍保留整套 ffmpeg 代码
-  - 动作：删除死代码，避免两套逻辑分叉
-  - 验收：全仓库只有一套推流实现
+- [x] ✅ **P2-2.2 删除被 node 覆盖的旧视频实现**
+  - 处理：删除 net_mqtt_bridge 内整套 ffmpeg 推流实现——`video.py` 只保留推流/停止结果报文与独立运行占位（明确提示由 `video_webrtc_bridge` 推流），`_stop_video_stream` 变为空实现；删除 `media.py` 的 `build_ffmpeg_cmd` / `build_rtmp_url` 及只被旧实现使用的 `VIDEO_LOG_LEVEL` / `VIDEO_VIDEO_SIZE` / `VIDEO_FRAMERATE` / `VIDEO_BITRATE` / `VIDEO_GOP` / `VIDEO_STARTUP_GRACE` / `VIDEO_AUDIO_FRAGMENT_SIZE`；`_video_status` 默认值简化为未推流（ROS 下仍由 node.py 覆盖）
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/video.py`、`media.py`；唯一推流实现见 `walle_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py`
+  - 验收：`test/test_video_removed.py` 断言包内无 `libx264` / `v4l2` 推流管线与 `build_ffmpeg_cmd` 等旧符号；独立模式 start 返回 -2、stop 返回 -1 并提示走 ROS 桥；`net_mqtt_bridge` 39 项 pytest 通过
 
 - [ ] 🔴 **P2-2.3 版本号单一来源**
   - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/config.py` 的 `VERSION_CODE` / `VERSION_NAME` 与 `scripts/env_walle.sh` 的 `VERSION`
@@ -424,12 +424,16 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-1.3 | 未提交 | Pi 5 实测无 V4L2 M2M 编码器（h264/hevc_v4l2m2m 均报无设备）；实现 auto 探测与 libx264 回退，新增编码器选择/命令构造单测 | 待确认 |
 | 2026-11-10 | P2-1.4 | 未提交 | 查询/动作分池 + 有界队列 + 丢弃告警；新增队列限流、动作不阻塞查询、洪峰下采样不中断单测 | 待确认 |
 | 2026-11-10 | P2-2.1 | 未提交 | agent.py 拆为 9 个职责模块；新增模块导入与 <500 行约束测试；36 项 pytest 通过 | 待确认 |
+| 2026-11-10 | P2-2.2 | 未提交 | 删除 net 侧旧 ffmpeg 推流实现与专用常量；新增“仅 video_webrtc_bridge 推流”回归测试；39 项 pytest 通过 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-2.2 删除 net_mqtt_bridge 内旧 ffmpeg 推流实现，`video.py` 仅保留
+  结果报文与独立模式占位；`media.py` 不再提供视频命令拼装，唯一推流实现位于
+  `video_webrtc_bridge`。新增 `test/test_video_removed.py` 防止旧实现回流。
 - 2026-11-10：P2-2.1 `agent.py` 按职责拆为 `config` / `identity` / `monitor` /
   `protocol` / `capability` / `media` / `audio` / `video` / `phone_audio`；
   `agent.py` 保留 `RpiMonitor` 组合、启动流程、`--check` 与公共名 re-export，

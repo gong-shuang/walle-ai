@@ -156,10 +156,6 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
         config.DEVICE_UUID = generate_device_uuid(self.mac, self.lan_ip)
         logging.info("设备 UUID: %s（MAC=%s, IP=%s, 启动时间=%s）",
                      config.DEVICE_UUID, self.mac, self.lan_ip, now_str())
-        # 当前推流进程（同一时刻只保留一路推流）
-        self.video_proc = None
-        self.video_lock = threading.Lock()
-        self.video_meta = {}
         # 反向音频：手机麦上行后在本地播放的 ffmpeg 进程（与视频互不影响）
         self.audio_proc = None
         self.audio_lock = threading.Lock()

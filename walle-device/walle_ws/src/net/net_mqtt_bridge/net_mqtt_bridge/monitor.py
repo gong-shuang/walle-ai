@@ -313,38 +313,18 @@ class MonitorMixin:
         }
 
     def _video_status(self):
-        """
-        当前推流状态快照（state/result 的 video 分组）。
-
-        数据复用推流时写入的 self.video_meta；进程已退出（poll() 非 None，看护线程
-        还来不及清理）也按未推流返回，避免误报 streaming=true。未推流时除
-        streaming=False 外所有字段为 null，App 端按「无推流」处理。
-        """
-        with self.video_lock:
-            proc = self.video_proc
-            meta = dict(self.video_meta)
-        if not proc or proc.poll() is not None or not meta:
-            return {
-                "streaming": False,
-                "room_number": None,
-                "video_device": None,
-                "audio": None,
-                "pid": None,
-                "started_at": None,
-                "uptime_sec": None,
-            }
-        started_ts = meta.get("started_ts")
+        """state/result 的 video 分组：独立运行没有推流；ROS 模式下由 node.py 覆盖。"""
         return {
-            "streaming": True,
-            "room_number": meta.get("room_number"),
-            "video_device": meta.get("video_device"),
-            "audio": meta.get("audio"),
-            "pid": meta.get("pid"),
-            "started_at": meta.get("started_at"),
-            "uptime_sec": round(time.time() - started_ts, 1) if started_ts else None,
+            "streaming": False,
+            "room_number": None,
+            "video_device": None,
+            "audio": None,
+            "pid": None,
+            "started_at": None,
+            "uptime_sec": None,
         }
 
-    # ---------- 订阅报文 UUID 校验 ----------
+    # ---------- 周期监控主循环 ----------
 
     def monitor_loop(self):
         # CPU 百分比首次打点
