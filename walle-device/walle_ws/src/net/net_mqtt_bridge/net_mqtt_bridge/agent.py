@@ -334,6 +334,12 @@ REQUEST_HANDLERS = {
     REQ_PHONE_AUDIO_STOP: "handle_phone_audio_stop",
 }
 
+# 动作类请求：可能阻塞数秒（等首帧 / 推流宽限期 / 音频启动），单独线程池处理，
+# 避免占满查询线程（P2-1.4）
+ACTION_REQUESTS = frozenset({
+    REQ_VIDEO_START, REQ_VIDEO_STOP, REQ_PHONE_AUDIO_SEND, REQ_PHONE_AUDIO_STOP,
+})
+
 
 def subscriptions():
     """本设备要订阅的主题（只有请求类 + 租户内发现广播）。
@@ -363,6 +369,12 @@ THRESH_TEMP = float(os.environ.get("THRESH_TEMP", "80.0"))               # CPU �
 # 网络带宽阈值：默认 10 MiB/s，环境变量按 MiB/s 配置
 THRESH_NET_BPS = float(os.environ.get("THRESH_NET_MIB", "10")) * 1024 * 1024
 RECOVER_RATIO = 0.9                      # 回滞系数：降到阈值的 90% 以下才算恢复，防止边界抖动
+
+# ---- 请求处理并发（P2-1.4：查询/动作分池，限制并发与排队长度）----
+QUERY_WORKERS = max(1, int(os.environ.get("MQTT_QUERY_WORKERS", "2")))
+ACTION_WORKERS = max(1, int(os.environ.get("MQTT_ACTION_WORKERS", "2")))
+MAX_QUERY_BACKLOG = max(0, int(os.environ.get("MQTT_MAX_QUERY_BACKLOG", "16")))
+MAX_ACTION_BACKLOG = max(0, int(os.environ.get("MQTT_MAX_ACTION_BACKLOG", "8")))
 
 # ---- 布尔环境变量 ----
 def _env_flag(name, default):
@@ -1413,8 +1425,20 @@ class RpiMonitor:
     def __init__(self):
         self.client = None
         self.stop_event = threading.Event()
-        # 命令/查询单独走线程池，避免长命令阻塞 MQTT 收发线程
-        self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mqtt-worker")
+        # 查询/动作分池 + 有界排队（P2-1.4）：
+        # · 监控采样在 agent 主线程（monitor_loop），与请求池完全解耦；
+        # · 慢动作（推流等首帧/宽限期、音频启动）不占用状态/能力查询线程；
+        # · BoundedSemaphore 限制「执行中 + 排队」总量，洪峰时丢弃并计数，
+        #   避免无界队列吃内存。
+        self.query_pool = ThreadPoolExecutor(QUERY_WORKERS,
+                                             thread_name_prefix="mqtt-query")
+        self.action_pool = ThreadPoolExecutor(ACTION_WORKERS,
+                                              thread_name_prefix="mqtt-action")
+        self._query_slots = threading.BoundedSemaphore(QUERY_WORKERS + MAX_QUERY_BACKLOG)
+        self._action_slots = threading.BoundedSemaphore(ACTION_WORKERS + MAX_ACTION_BACKLOG)
+        self.dropped_requests = 0
+        self._dropped_lock = threading.Lock()
+        self._last_drop_log = 0.0
         # psutil 的 CPU 采样在进程内共享上一次时间点，多线程采样需加锁
         self.sample_lock = threading.Lock()
         self.active_alarms = set()
@@ -1561,7 +1585,8 @@ class RpiMonitor:
         resource="query"，匹配不到处理函数而被静默忽略 —— 设备永远不会应答发现。
         """
         if topic == tenant_topic(REQ_DISCOVERY):
-            self.pool.submit(self.handle_device_query, payload)
+            self._submit(self.query_pool, self._query_slots,
+                         self.handle_device_query, payload, topic)
             return
 
         parts = topic.split("/", 4)
@@ -1570,10 +1595,46 @@ class RpiMonitor:
             return
         resource = parts[4]
         handler_name = REQUEST_HANDLERS.get(resource)
-        if handler_name:
-            self.pool.submit(getattr(self, handler_name), payload)
-        else:
+        if not handler_name:
             logging.debug("忽略非请求类主题: %s", topic)
+            return
+        handler = getattr(self, handler_name)
+        if resource in ACTION_REQUESTS:
+            self._submit(self.action_pool, self._action_slots, handler, payload, topic)
+        else:
+            self._submit(self.query_pool, self._query_slots, handler, payload, topic)
+
+    def _submit(self, pool, slots, handler, payload, topic):
+        """把请求提交到指定线程池；执行中 + 排队超过上限时丢弃并计数（P2-1.4）。
+
+        MQTT 回调线程只做投递，绝不执行处理函数；采样线程（monitor_loop）
+        独立于这里的两个池，因此请求洪峰不会阻塞监控采样。
+        """
+        if not slots.acquire(blocking=False):
+            self._note_dropped(topic)
+            return
+
+        def _run():
+            try:
+                handler(payload)
+            finally:
+                slots.release()
+
+        try:
+            pool.submit(_run)
+        except RuntimeError:          # 退出阶段池已关闭
+            slots.release()
+            logging.debug("请求池已关闭，忽略 %s", topic)
+
+    def _note_dropped(self, topic):
+        with self._dropped_lock:
+            self.dropped_requests += 1
+            total = self.dropped_requests
+            now = time.monotonic()
+            if now - self._last_drop_log < 5.0:
+                return
+            self._last_drop_log = now
+        logging.warning("请求队列已满，丢弃 %s（累计 %d 个）", topic, total)
 
     def _event(self, event, level, metric, alarm_type, message, detail=None):
         """统一告警报文封装"""
@@ -2799,7 +2860,8 @@ class RpiMonitor:
                 time.sleep(0.5)
             except Exception:
                 pass
-            self.pool.shutdown(wait=False, cancel_futures=True)
+            self.query_pool.shutdown(wait=False, cancel_futures=True)
+            self.action_pool.shutdown(wait=False, cancel_futures=True)
             self.client.loop_stop()
             self.client.disconnect()
 

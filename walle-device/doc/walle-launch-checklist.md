@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 5 | 16 |
-| **合计** | **58** | **38** | **20** |
+| P2 后续优化 | 21 | 6 | 15 |
+| **合计** | **58** | **39** | **19** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -227,9 +227,10 @@
   - 证据：`walle_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py`（`probe_hw_h264_encoder` / `select_encoder` / `_select_encoder` / `_build_ffmpeg_cmd`）
   - 验收：本机探测 0.2s 后正确回退 libx264（Pi 5 无硬件编码器，CPU 不下降属硬件限制）；带 V4L2 M2M 编码器的设备上 `auto` 会自动切到 `h264_v4l2m2m`
 
-- [ ] 🔴 **P2-1.4 MQTT 消息处理与监控解耦**
-  - 动作：命令线程池与采样线程分离；限制并发与队列长度
-  - 验收：大量查询/命令下监控采样不丢点
+- [x] ✅ **P2-1.4 MQTT 消息处理与监控解耦**
+  - 处理：请求按「查询（state/capability/discovery）/动作（video、phone audio）」分两个线程池，慢动作不再占用查询线程；每池用 `BoundedSemaphore` 限制「执行中 + 排队」总量（默认查询 2+16、动作 2+8），洪峰时丢弃并每 5s 汇总告警；监控采样仍在独立线程 `monitor_loop`，与请求池完全解耦
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py`（`ACTION_REQUESTS` / `query_pool` / `action_pool` / `_submit` / `_note_dropped`）
+  - 验收：`test/test_request_queue.py` 验证队列超限丢弃、动作池占满时查询仍可执行、请求洪峰下采样快照持续更新；可用 `MQTT_*_WORKERS` / `MQTT_MAX_*_BACKLOG` 调整
 
 ### P2-2 代码质量
 
@@ -421,6 +422,7 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-1.1 | 未提交 | `build_status` 复用 monitor_loop 快照；单测断言 `state/query` < 100ms 且不现场采样 | 待确认 |
 | 2026-11-10 | P2-1.2 | 未提交 | 后台能力缓存 + TTL + cache-only；单测覆盖只读缓存/首次等待/pending/探测失败保留旧缓存 | 待确认 |
 | 2026-11-10 | P2-1.3 | 未提交 | Pi 5 实测无 V4L2 M2M 编码器（h264/hevc_v4l2m2m 均报无设备）；实现 auto 探测与 libx264 回退，新增编码器选择/命令构造单测 | 待确认 |
+| 2026-11-10 | P2-1.4 | 未提交 | 查询/动作分池 + 有界队列 + 丢弃告警；新增队列限流、动作不阻塞查询、洪峰下采样不中断单测 | 待确认 |
 |  |  |  |  |  |
 
 ---
@@ -433,6 +435,10 @@ cd walle-device/scripts && ./start.sh
   `Could not find a valid device`，GStreamer 也无 `v4l2h264enc`。已加
   `video_encoder` 参数（默认 auto）：启动时试编码探测，硬件可用才启用
   `h264_v4l2m2m`，否则回退 `libx264` 并打印原因；本机探测约 0.2s。
+- 2026-11-10：P2-1.4 请求按查询/动作分池：`mqtt-query`（默认 2 线程，排队上限 16）
+  处理 state/capability/discovery，`mqtt-action`（默认 2 线程，排队上限 8）处理
+  推流与手机音频；`BoundedSemaphore` 超限时丢弃并每 5s 告警一次。采样线程
+  `monitor_loop` 独立于请求池，洪峰下仍按周期更新 `state/query` 快照。
 - 2026-11-10：P2-1.1 `state/query` 改为复用 `monitor_loop` 最近一次采样
   （CPU/网络）与 `check_usb` 维护的 USB 列表，查询路径不再阻塞 1s；应答新增
   `sample_age_sec`。连接 broker 前先补采一次、监控首轮采样提前到 1s，仅首份
