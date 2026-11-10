@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 17 | 4 |
-| **合计** | **58** | **50** | **8** |
+| P2 后续优化 | 21 | 18 | 3 |
+| **合计** | **58** | **51** | **7** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -297,10 +297,10 @@
 
 ### P2-4 摄像头与兼容性
 
-- [ ] 🔴 **P2-4.1 usb_cam 控制名适配**
-  - 证据：`walle_ws/src/video/walle_video/config/usb_cam_param.yaml` L18-L23 注释已说明 kernel 6.8 控制名不匹配
-  - 动作：升级/补丁 usb_cam，或增加 V4L2 控制名映射；无法解决则明确记录为已知告警
-  - 验收：启动日志无控制设置失败错误
+- [x] ✅ **P2-4.1 usb_cam 控制名适配**
+  - 处理：确认 usb_cam 0.8.1 在 kernel 6.8 下仍用旧控制名（`white_balance_temperature_auto` / `exposure_auto` / `focus_auto`），与 UVC 新名称（`white_balance_automatic` / `auto_exposure` / `focus_automatic_continuous`）不匹配且无法通过参数跳过；按本项允许的兜底方式记录为已知告警，同时在 `usb_cam.launch.py` 中用 `v4l2-ctl` 按新名称设置自动白平衡/曝光/对焦
+  - 证据：`walle_ws/src/video/walle_video/config/usb_cam_param.yaml`（已知告警说明）、`walle_ws/src/video/walle_video/launch/usb_cam.launch.py`（`v4l2-ctl` 预设置）
+  - 验收：`/image_raw` 正常 30 FPS；`white_balance_automatic=1`、`auto_exposure=3` 已由 v4l2-ctl 设置；启动日志仍有 3 条 usb_cam 0.8.1 的 `unknown control` 告警，属上游已知问题、非致命，已在本项与配置文件中明确记录
 
 - [ ] 🔴 **P2-4.2 多 video 节点环境固定设备**
   - 证据：本机存在 `/dev/video0`–`/dev/video33`
@@ -435,12 +435,17 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-3.2 | 未提交 | 定时动作改为非阻塞状态机，删除 0.6s 阻塞 sleep；mock 冒烟验证立即返回与到点推进 | 待确认 |
 | 2026-11-10 | P2-3.3 | 未提交 | 声呐记录时间戳，0.4s 断流/无效值即停车并终止动作；mock 冒烟验证 | 待确认 |
 | 2026-11-10 | P2-3.4 | 未提交 | 核查生产 launch：仅 vocal_detect/agent_process/tts_node；实验驾驶节点均为独立 launch，未被 bringup 引用 | 待确认 |
+| 2026-11-10 | P2-4.1 | 未提交 | usb_cam 0.8.1 旧控制名告警记录为已知问题；launch 中用 v4l2-ctl 按新名称设置自动模式；实测 30FPS | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-4.1 usb_cam 0.8.1 的控制名仍为 `white_balance_temperature_auto` /
+  `exposure_auto` / `focus_auto`，与 kernel 6.8 的 UVC 新名称不匹配；参数无法跳过，
+  仓库内也无更新版本。按本项兜底方式记录为已知告警，并在 `usb_cam.launch.py`
+  用 `v4l2-ctl` 按新名称设置自动白平衡/曝光/对焦；实测 `/image_raw` 30FPS 正常。
 - 2026-11-10：P2-3.4 核查结论——生产 `bringup` → `large_models/start.launch.py` 只启动
   `vocal_detect` / `agent_process` / `tts_node`，均不发布 `/cmd_vel`；`vllm_obstacle_avoidance`
   等实验驾驶节点均为独立 launch 文件，生产 bringup 不引用，需手动启动。因此无需再删

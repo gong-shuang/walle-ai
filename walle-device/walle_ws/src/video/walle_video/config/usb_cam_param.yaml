@@ -16,9 +16,11 @@
       saturation: -1
       sharpness: -1
       gain: -1
-      # 该 UVC 相机在 kernel 6.8 下的控制名为 white_balance_automatic /
-      # auto_exposure / exposure_time_absolute / focus_automatic_continuous，
-      # usb_cam 0.8.1 仍使用旧名称，手动值设置必然失败，这里统一走自动模式。
+      # 该 UVC 相机在 kernel 6.8 下的控制名已变为 white_balance_automatic /
+      # auto_exposure / focus_automatic_continuous，usb_cam 0.8.1 仍按旧名
+      # （white_balance_temperature_auto / exposure_auto / focus_auto）设置，
+      # 启动时会打印 3 条 "unknown control" 告警（已知、非致命，画面正常）。
+      # 自动模式由 usb_cam.launch.py 里的 v4l2-ctl 按新名称设置。
       auto_white_balance: true
       autoexposure: true
       autofocus: true
