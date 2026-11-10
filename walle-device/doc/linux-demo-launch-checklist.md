@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 10 | 12 |
-| **合计** | **55** | **37** | **18** |
+| P2 后续优化 | 22 | 11 | 11 |
+| **合计** | **55** | **38** | **17** |
 
-> linux-demo 已开始按本清单整改（当前 37/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 38/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -300,10 +300,10 @@
   - 验收：`WHIP_SECRET` 未配置时 `capabilities` 不含 `rtmp_push` 且 `video_error="WHIP_SECRET 未配置"`；配置就绪时包含且 `video_error=null`；新增 2 项用例，全套 28 项通过
   - 证据：`main.py` L2248-L2263、L2290-L2296；`test/test_capability_cache.py`
 
-- [ ] 🔴 **P2-2.4 `--check` 扩展为完整自检**
-  - 动作：增加配置校验、依赖检查（python 包/ffmpeg/v4l2-ctl/pactl/播放器脚本）、设备节点、配置模板占位符、版本号、主题配对；可选 `--check --connect` 做 DNS/TLS/登录/订阅验证
-  - 验收：部署前一条命令即可发现缺失依赖与配置错误；不产生任何 MQTT 副作用
-  - 证据：`main.py` L2746-L2793
+- [x] ✅ **P2-2.4 `--check` 扩展为完整自检**
+  - 处理：新增 `ld_selfcheck.py`：Python 包检查（paho-mqtt / psutil 为致命项，aiortc / sounddevice 仅告警）、`topic_pair_errors()` 校验请求/应答映射与处理函数、`check_connect()` 依次验证 DNS → TCP → TLS → MQTT CONNACK；`--check` 输出新增「Python 依赖」段并把协议配对错误计入退出码；`--check --connect` 使用 `<device_id>-check` 临时 clientId，不订阅、不发布
+  - 验收：`--check` 输出依赖与 Python 包状态、退出 0；`--check --connect` 对 `127.0.0.1:1` 返回 TCP 失败且退出 1；新增 3 项用例，全套 34 项通过
+  - 证据：`ld_selfcheck.py`、`main.py`、`README.md`「自检」；`test/test_selfcheck.py`
 
 - [x] ✅ **P2-2.5 恢复协议自检脚本**
   - 处理：不再单独恢复 `selftest_topics.py`，其能力并入 `test/test_protocol.py` 的 `TopicTest`：校验 `REQUEST_TO_RESULT` 请求/应答命名配对、`REQUEST_HANDLERS` 覆盖、`subscriptions()` 7 个主题与 discovery 广播、`sanitize_segment` 与 Android `TopicNames` 一致（含长段短哈希）；pytest/unittest 均可执行
@@ -460,6 +460,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：`--check` 增加 Python 包与协议配对检查，并支持 `--check --connect`
+  做 DNS/TCP/TLS/CONNACK 验证（不订阅/不发布），新增 3 项自检用例（P2-2.4）。
 - 2026-11-10：清理重复实现（P2-2.2）：统一 state 段术语、ssl 顶部导入、每次推流只构造
   一次 RTMP URL；配置解析支持行内注释与引号转义，新增 3 项解析用例。
 - 2026-11-10：`main.py` 按职责拆分为 12 个模块（`ld_*`），主文件 180 行，全部 <500 行；

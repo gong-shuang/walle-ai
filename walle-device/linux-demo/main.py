@@ -66,6 +66,8 @@ from ld_camera import *          # noqa: F401,F403
 from ld_audio import *           # noqa: F401,F403
 from ld_media import *           # noqa: F401,F403
 from ld_monitor import RpiMonitor
+from ld_selfcheck import (check_connect, python_dependency_errors,
+                          python_dependency_status, topic_pair_errors)
 
 
 def print_config_check():
@@ -79,6 +81,10 @@ def print_config_check():
         config.DEVICE_ID = f"<无法计算: {exc}>"
         config.DEVICE_ID_SOURCE = "计算失败"
     errors = validate_config()
+    py_deps = python_dependency_status()
+    py_errors, py_warnings = python_dependency_errors(py_deps)
+    errors.extend(py_errors)
+    errors.extend(f"协议配对: {err}" for err in topic_pair_errors())
     tls_on = MQTT_TLS == "on"
     host = MQTT_HOST or "(未配置)"
     port = MQTT_PORT if MQTT_PORT is not None else "(未配置)"
@@ -119,6 +125,7 @@ def print_config_check():
         print("\n== 配置检查通过 ==")
     warnings = [w for w in media_config_warnings()
                 if not any(err in w for err in errors)]
+    warnings.extend(py_warnings)
     if config.VERSION_SOURCE.startswith("内置默认值"):
         warnings.append("未找到 VERSION 文件，使用内置默认版本；"
                         "单独部署时请把 walle-device/VERSION 放到 main.py 同级")
@@ -130,6 +137,10 @@ def print_config_check():
     for item in dependency_status():
         state = item["path"] if item["ok"] else f"未找到（{item['impact']}）"
         print(f"  {item['name']}: {state}")
+    print("\n== Python 依赖 ==")
+    for item in py_deps:
+        state = "已安装" if item["ok"] else f"未安装（{item['impact']}）"
+        print(f"  {item['package']}: {state}")
     return errors
 
 
@@ -148,7 +159,10 @@ def main():
         print(__doc__)
         return 0
     if "--check" in sys.argv:
-        return 1 if print_config_check() else 0
+        errors = print_config_check()
+        if "--connect" in sys.argv and not errors:
+            return 0 if check_connect() else 1
+        return 1 if errors else 0
 
     errors = validate_config()
     if errors:

@@ -81,7 +81,18 @@ cd ~/walle-ai/walle-device/linux-demo
 
 期望输出 `== 配置检查通过 ==` 与 7 条订阅主题，退出码 0；失败时逐条列出缺失/非法项，退出码 1。
 `--check` 只解析配置，不连接 Broker、不写设备标识文件；末尾的「依赖检查」会列出
-`ffmpeg` / `v4l2-ctl` / `pactl` / `whep_audio_player.py`，缺失只告警、不阻塞启动。
+`ffmpeg` / `v4l2-ctl` / `pactl` / `whep_audio_player.py` 与 Python 包（paho-mqtt、psutil、
+aiortc、sounddevice），缺失只告警、不阻塞启动。
+
+需要验证 Broker 连通性时加 `--connect`：
+
+```bash
+~/venv/bin/python main.py --check --connect
+```
+
+依次检查 DNS、TCP、TLS 与 MQTT 登录（CONNACK），**不订阅、不发布**；使用
+`<device_id>-check` 临时 clientId，不会把正在运行的服务踢下线。订阅权限仍由 Broker ACL
+决定，需在服务端单独验证。
 
 摄像头单独确认（推流前还会自动 preflight）：
 
