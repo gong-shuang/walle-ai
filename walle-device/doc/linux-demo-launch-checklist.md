@@ -29,11 +29,11 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
-| P1 上线前应修 | 18 | 8 | 10 |
+| P1 上线前应修 | 18 | 9 | 9 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **21** | **34** |
+| **合计** | **55** | **22** | **33** |
 
-> linux-demo 已开始按本清单整改（当前 21/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 22/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -195,11 +195,10 @@
   - 验收：mock exit=6 发布 `phone_audio_lost`，`detail.reason` 为声卡失败；`recover` 正常发出；主动停止不告警。停 PulseAudio / 拔声卡 / 手机停止推流的真机告警待验证
   - 证据：`main.py` L487-L493、L2451-L2507、L2546-L2549、L2614；`doc/MQTT_protocol_convention.md` §4.7
 
-- [ ] 🔴 **P1-3.3 PulseAudio 会话依赖与 systemd 运行方式**
-  - 现状：linux-demo 作为系统级服务运行时默认没有用户音频会话；`pactl`、`ffmpeg -f pulse`、`sounddevice` 可能全部失败。`detect_microphone()` 会降级为纯视频，用户无感知；手机音频则直接失败
-  - 动作：文档明确要求 `systemd --user` + `loginctl enable-linger <user>`，或为系统服务设置 `XDG_RUNTIME_DIR` / `PULSE_SERVER`；启动时检测音频会话并打印明确原因；`capability/result` 的 `audio.capture/playback.reason` 反映会话问题
-  - 验收：按文档配置后系统服务可正常使用麦克风/音响；未配置时 App 能看到明确不可用原因，而不是静默无音频
-  - 证据：`main.py` L1043-L1143、L1696-L1748、L2685-L2727；`walle-ai.service.example`
+- [x] ✅ **P1-3.3 PulseAudio 会话依赖与 systemd 运行方式**
+  - 处理：新增 `audio_session_hint()`，启动时用 `pactl list short sources` 探测音频会话，失败时告警并在缺少 `XDG_RUNTIME_DIR` 时提示按 README 配置（pactl 未安装时交给依赖检查，不重复告警）；systemd 模板已设 `Environment=XDG_RUNTIME_DIR=/run/user/%U` 并补注释；README 新增「音频会话」章节：`pactl info` 验证、`loginctl enable-linger`、用户级 `systemctl --user`、`PULSE_SERVER` 显式指定；`capability/result` 的 `audio.capture/playback.reason` 沿用 pactl stderr 说明
+  - 验收：mock「pactl 返回 1 + 无 XDG_RUNTIME_DIR」输出「音频会话不可用…」提示；pactl 正常或无 pactl 时返回 None（不误报）；模板渲染后 `systemd-analyze verify` 通过；真机按文档配置后可录音/放音待验证
+  - 证据：`main.py` L1443-L1455、L2911-L2913；`README.md`「音频会话」；`walle-ai.service.example` L29-L31
 
 - [ ] 🔴 **P1-3.4 摄像头节点变化与能力刷新**
   - 现状：`capability/query` 每次实时探测（结果最新但慢）；推流使用 App 传入的 `/dev/videoN`，重新插拔后编号可能变化；旧节点 start 只返回「设备节点不存在」
@@ -472,6 +471,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：启动增加音频会话探测 `audio_session_hint()`，pactl 连不上时给出
+  XDG_RUNTIME_DIR / linger / 用户级服务建议；README 新增「音频会话」章节（P1-3.3）。
 - 2026-11-10：推流/手机音频看护线程区分主动停止、被新流替换与非主动退出；非主动退出发
   `alarm`（`video_lost` / `phone_audio_lost`），重新启动成功发 `recover`；协议文档 §4.7
   已同步补充 metric=`video`/`audio` 与 detail 字段（P1-3.1 / P1-3.2）。

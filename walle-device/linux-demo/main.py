@@ -1440,6 +1440,21 @@ def dependency_warnings():
             for item in dependency_status() if not item["ok"]]
 
 
+def audio_session_hint():
+    """检测用户音频会话是否可用；返回可读提示，正常/未启用音视频时返回 None。"""
+    if not (VIDEO_ENABLE or PHONE_AUDIO_ENABLE):
+        return None
+    if not shutil.which(VIDEO_PACTL_BIN):
+        return None          # 已在依赖检查里提示，避免重复
+    names, reason = _pactl_list_names("sources")
+    if names is not None:
+        return None
+    hint = f"音频会话不可用：{reason}"
+    if not os.environ.get("XDG_RUNTIME_DIR"):
+        hint += "；当前进程没有 XDG_RUNTIME_DIR，系统服务请按 README「音频会话」配置"
+    return hint
+
+
 def video_log_path():
     """解析 ffmpeg 日志文件路径：支持 {time} 占位符，相对路径按当前工作目录解析"""
     name = VIDEO_LOG_FILE.replace("{time}", time.strftime("%Y%m%d_%H%M%S"))
@@ -2893,6 +2908,9 @@ class RpiMonitor:
                      MQTT_HOST, MQTT_PORT)
         for warning in dependency_warnings():
             logging.warning("依赖缺失: %s", warning)
+        hint = audio_session_hint()
+        if hint:
+            logging.warning("%s", hint)
         if sanitize_segment(MQTT_TENANT) == sanitize_segment(MQTT_USER):
             logging.warning(
                 "租户与 MQTT 用户名相同（%s）。如果手机 App 用的是另一个账号登录，"

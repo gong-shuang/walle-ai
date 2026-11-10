@@ -115,6 +115,26 @@ journalctl -u walle-ai -n 200 --no-pager  # 最近 200 行
 
 ffmpeg 推流日志写在安装目录的 `log/ffmpeg_*.log`。
 
+### 7. 音频会话（麦克风 / 扬声器）
+
+`pactl`、`ffmpeg -f pulse` 与 `sounddevice` 都需要访问运行用户的 PulseAudio/PipeWire 会话。
+systemd 单元已设置 `Environment=XDG_RUNTIME_DIR=/run/user/%U`，以桌面登录用户运行时通常可直接使用。
+
+无桌面会话（Lite 镜像）或日志出现 `pactl 返回 1（Connection refused / No such file or directory）` 时：
+
+```bash
+pactl info                          # 确认当前用户能连上音频服务
+loginctl enable-linger "$USER"      # 允许用户服务在未登录时运行
+systemctl --user start pulseaudio   # 或 pipewire-pulse，视系统实际服务名
+```
+
+也可以把服务改为用户级：把渲染后的 unit 放到 `~/.config/systemd/user/`，执行
+`systemctl --user enable --now walle-ai`（此时不需要 `User=`/`Group=`）。
+若音频服务由其他用户或容器提供，可显式设置
+`PULSE_SERVER=unix:/run/user/<uid>/pulse/native`（systemd 中用 `Environment=` 注入）。
+未配置音频会话时，`capability/result` 的 `audio.capture.reason` / `audio.playback.reason`
+会给出具体原因，启动日志也会输出「音频会话不可用」提示。
+
 ## 手动运行（仅开发调试）
 
 同一 `clientId` 同时连接会被 Broker 互相踢下线，先停服务再手动运行：

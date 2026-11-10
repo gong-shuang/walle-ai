@@ -26,7 +26,8 @@ WorkingDirectory=@WALLE_HOME@
 # 配置必须存在：缺失时 systemd 直接启动失败，而不是带着空配置连 Broker
 EnvironmentFile=/etc/walle-ai.conf
 Environment=PYTHONUNBUFFERED=1
-# systemd 用户服务默认没有会话环境，PulseAudio / PortAudio 需要该变量
+# systemd 用户服务默认没有会话环境，PulseAudio / PortAudio 需要该变量；
+# 无桌面会话时还需按 README「音频会话」启用 linger 或改用用户级服务
 Environment=XDG_RUNTIME_DIR=/run/user/%U
 ExecStart=@WALLE_VENV@/bin/python @WALLE_HOME@/main.py
 
