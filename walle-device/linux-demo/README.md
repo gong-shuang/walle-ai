@@ -13,6 +13,7 @@
 | `walle-ai.conf.example` | 配置模板 |
 | `walle-ai.service.example` | systemd 单元模板（由 `deploy.sh` 渲染） |
 | `deploy.sh` | 部署脚本：配置检查、安装配置与服务 |
+| `test_version.py` | 版本号读取优先级测试 |
 
 ## 首次部署
 
@@ -148,6 +149,25 @@ sudo systemctl restart walle-ai
 
 安装目录下的 `.device-id` 记录设备标识（MQTT clientId 与主题段），升级时不要删除；
 删除后会按硬件指纹重新生成，旧主题上的 retained 在线状态会变成幽灵卡片。
+
+## 版本号
+
+版本来自 `VERSION`（与 ROS2 共用 `walle-device/VERSION`），查找顺序：
+`WALLE_VERSION_FILE` > `main.py` 同级 `VERSION` > 上一级 `walle-device/VERSION`；
+环境变量 `WALLE_VERSION_NUM` / `WALLE_VERSION_NAME` 优先于文件。
+
+- 在仓库内用 `./deploy.sh` 部署不需要额外操作，`--check` 会打印生效版本与来源；
+- 只拷贝 linux-demo 目录单独部署时，把 `walle-device/VERSION` 放到 `main.py` 同级；
+- 两处都找不到时使用内置默认版本，并在 `--check` 与启动日志中告警；
+- 与 App `versionName` 的同步要求见
+  [`doc/version_record.md`](../../../doc/version_record.md)。
+
+版本读取逻辑的测试（需先安装 requirements）：
+
+```bash
+cd ~/walle-ai/walle-device/linux-demo
+python3 -m unittest test_version -v
+```
 
 ## 常见问题
 

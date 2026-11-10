@@ -29,11 +29,11 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
-| P1 上线前应修 | 18 | 3 | 15 |
+| P1 上线前应修 | 18 | 4 | 14 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **16** | **39** |
+| **合计** | **55** | **17** | **38** |
 
-> linux-demo 已开始按本清单整改（当前 16/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 17/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -166,11 +166,10 @@
   - 验收：`bash -n` 通过；stub `sudo`/`systemctl` 下完整跑通，渲染后的 unit `systemd-analyze verify` 通过（exit 0）；重复执行与 `--no-start` 正常；缺 venv / 缺配置 / 未知参数均以非 0 退出并给出提示
   - 证据：`linux-demo/deploy.sh` L1-L92
 
-- [ ] 🔴 **P1-1.4 版本号读取一致性**
-  - 现状：`main.py` 优先读取 `main.py` 同级 `VERSION`，其次 `../VERSION`（即 `walle-device/VERSION`）；单独部署 linux-demo 时两者都不存在，回退到硬编码 `VERSION_NAME=0.1.1`；`VERSION_CODE` 默认 1
-  - 动作：部署时一并安装 `VERSION`；找不到文件时至少打印明确警告（或拒绝启动）；增加测试覆盖「环境变量 > 文件 > 默认值」优先级；文档说明与 Android `versionName` 的同步要求
-  - 验收：单独部署目录放入 `VERSION` 后 `--check` / `discovery/result` 返回文件中的版本；删除 `VERSION` 有明确警告；`WALLE_VERSION_NUM/NAME` 覆盖生效
-  - 证据：`main.py` L215-L255；`walle-device/VERSION`
+- [x] ✅ **P1-1.4 版本号读取一致性**
+  - 处理：新增 `VERSION_SOURCE`，优先级明确为「环境变量 > `WALLE_VERSION_FILE` > 同级 `VERSION` > 上级 `walle-device/VERSION` > 内置默认值」；`--check` 打印生效版本与来源，找不到文件时输出警告；启动日志记录版本并在使用默认值时告警；新增 `linux-demo/test_version.py` 覆盖文件/环境变量/显式文件/默认值四种场景；README 增加「版本号」章节与 App 同步链接
+  - 验收：仓库内 `--check` 显示 `0.0.2`（来源 `walle-device/VERSION`）；`WALLE_VERSION_NUM=42` / `WALLE_VERSION_NAME=9.9.9` 覆盖生效；单独复制 `main.py` 且无 VERSION 时显示 `0.1.1` 并告警；`python3 -m unittest test_version -v` 4 项通过
+  - 证据：`main.py` L272-L323、L2824-L2827、L2857-L2865、L2870-L2878；`test_version.py`；`README.md`「版本号」
 
 ### P1-2 进程守护与启动可靠性
 
@@ -477,6 +476,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：版本号读取增加来源追踪与告警（P1-1.4）：`--check` 打印版本/来源，未找到
+  `VERSION` 时告警；新增 `linux-demo/test_version.py`（环境变量 > 文件 > 默认值，4 项通过）。
 - 2026-11-10：恢复 `linux-demo/requirements.txt`（paho-mqtt / psutil / aiortc / sounddevice），
   重写 README 的「首次部署」（系统依赖、venv、配置、`--check`、`deploy.sh`、日志、升级、FAQ）；
   ROS2 侧 `doc/requirements.txt` 保持原样，音视频依赖只在 linux-demo 安装（P1-1.1）。

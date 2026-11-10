@@ -271,8 +271,10 @@ def validate_config():
 
 # 设备端软件版本：与 ROS2 共用 walle-device/VERSION，环境变量优先。
 # 查找顺序：WALLE_VERSION_FILE > 同目录 VERSION（单独部署时一并拷贝）> 上级目录 VERSION（仓库内）。
+# 优先级：环境变量 > VERSION 文件 > 内置默认值；三者都没有时启动/--check 会告警。
 VERSION_CODE = 1
 VERSION_NAME = "0.1.1"
+VERSION_SOURCE = "内置默认值"
 
 
 def _parse_version_file(path):
@@ -294,15 +296,18 @@ def _parse_version_file(path):
 
 
 def _load_version():
+    """返回 (版本字典, 命中的文件路径)；都没命中时路径为空。"""
     here = Path(__file__).resolve().parent
     for path in (os.environ.get("WALLE_VERSION_FILE", ""),
                  str(here / "VERSION"), str(here.parent / "VERSION")):
         if path and os.path.isfile(path):
-            return _parse_version_file(path)
-    return {}
+            return _parse_version_file(path), path
+    return {}, ""
 
 
-_VERSION_VALUES = _load_version()
+_VERSION_VALUES, _VERSION_FILE = _load_version()
+_VERSION_ENV = bool(os.environ.get("WALLE_VERSION_NUM")
+                    or os.environ.get("WALLE_VERSION_NAME"))
 try:
     VERSION_CODE = int(os.environ.get("WALLE_VERSION_NUM")
                        or _VERSION_VALUES.get("WALLE_VERSION_NUM") or VERSION_CODE)
@@ -310,6 +315,12 @@ except ValueError:
     pass
 VERSION_NAME = (os.environ.get("WALLE_VERSION_NAME")
                 or _VERSION_VALUES.get("WALLE_VERSION_NAME") or VERSION_NAME)
+if _VERSION_ENV:
+    VERSION_SOURCE = "环境变量"
+elif _VERSION_FILE:
+    VERSION_SOURCE = f"文件 {_VERSION_FILE}"
+else:
+    VERSION_SOURCE = "内置默认值（未找到 VERSION 文件）"
 
 
 def _is_ascii_alnum(ch):
@@ -2813,6 +2824,7 @@ def print_config_check():
     print("== 生效配置 ==")
     print(f"  环境文件 : {ENV_SOURCE or '未加载（使用环境变量）'}")
     print(f"  运行环境 : {WALLE_RUNTIME_ENV}")
+    print(f"  版本     : {VERSION_NAME} ({VERSION_CODE})，来源: {VERSION_SOURCE}")
     print(f"  Broker   : {host}:{port}   TLS={'on' if tls_on else 'off'} (MQTT_TLS={MQTT_TLS})")
     print(f"  用户名   : {MQTT_USER or '(未配置)'}")
     print(f"  密码     : {'********' if MQTT_PASSWORD else '(未配置)'}")
@@ -2844,6 +2856,9 @@ def print_config_check():
         print("\n== 配置检查通过 ==")
     warnings = [w for w in media_config_warnings()
                 if not any(err in w for err in errors)]
+    if VERSION_SOURCE.startswith("内置默认值"):
+        warnings.append("未找到 VERSION 文件，使用内置默认版本；"
+                        "单独部署时请把 walle-device/VERSION 放到 main.py 同级")
     if warnings:
         print("\n== 配置警告 ==")
         for warn in warnings:
@@ -2857,6 +2872,10 @@ def main():
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    logging.info("版本: %s (%s)，来源: %s", VERSION_NAME, VERSION_CODE, VERSION_SOURCE)
+    if VERSION_SOURCE.startswith("内置默认值"):
+        logging.warning("未找到 VERSION 文件，使用内置默认版本；"
+                        "单独部署时请把 walle-device/VERSION 放到 main.py 同级")
     if "-h" in sys.argv or "--help" in sys.argv:
         print(__doc__)
         return 0
