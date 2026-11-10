@@ -29,6 +29,9 @@ class RosRobotController(Node):
         super().__init__(name)
         self.board = Board()
         self.board.enable_reception()
+        # 传感器上报开关（Bool 回调修改）；不能用 self.enable_reception 存状态，
+        # 否则会把方法名覆盖成 bool（P2-2.4）
+        self._reception_enabled = True
         self.running = True
         # 安全停车相关：串口写/读失败、控制器断连时尽最大努力下发零速度
         self._stop_lock = threading.Lock()
@@ -114,7 +117,7 @@ class RosRobotController(Node):
         last_rx = time.monotonic()
         rx_seen = False
         while self.running:
-            if not self.enable_reception:
+            if not self._reception_enabled:
                 time.sleep(0.02)
                 continue
             try:
@@ -147,8 +150,8 @@ class RosRobotController(Node):
 
     def enable_reception(self, msg):
         self.get_logger().info('\033[1;32m%s\033[0m' % ('enable_reception ' + str(msg.data)))
-        self.enable_reception = msg.data
-        self.board.enable_reception(msg.data)
+        self._reception_enabled = bool(msg.data)
+        self.board.enable_reception(self._reception_enabled)
 
     def set_led_state(self, msg):
         self.board.set_led(msg.on_time, msg.off_time, msg.repeat, msg.id)

@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 9 | 12 |
-| **合计** | **58** | **42** | **16** |
+| P2 后续优化 | 21 | 10 | 11 |
+| **合计** | **58** | **43** | **15** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -249,10 +249,10 @@
   - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/config.py`（`_workspace_dir` / `_parse_version_file` / `VERSION_FILE`）、`walle_ws/VERSION`、`scripts/env_walle.sh`
   - 验收：`test/test_version.py` 覆盖 VERSION 解析、工作空间定位、`WALLE_HOME` 优先、常量与文件一致；本机解析到 `walle_ws/VERSION`（`VERSION_CODE=1`、`VERSION_NAME=0.0.2`）
 
-- [ ] 🔴 **P2-2.4 修复 enable_reception 属性覆盖**
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L46/L116-L119，回调把方法名覆盖为 bool
-  - 动作：改名为 `_reception_enabled`，方法保持独立
-  - 验收：重复调用 `enable_reception` 不抛 `TypeError`
+- [x] ✅ **P2-2.4 修复 enable_reception 属性覆盖**
+  - 处理：新增 `self._reception_enabled` 保存上报开关，`pub_callback` 改为读该字段；`enable_reception()` 保持为独立方法，回调里只更新 `_reception_enabled` 并同步 `board.enable_reception()`，不再把方法名覆盖成 bool
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`__init__` / `pub_callback` / `enable_reception`）
+  - 验收：本地以 `object.__new__` 冒烟连续调用两次 `enable_reception()`（False→True）不抛 `TypeError`，Board 收到 `[False, True]`；订阅回调引用仍为方法本身
 
 - [ ] 🔴 **P2-2.5 移除节点构造函数内的 rclpy.init()**
   - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L26、`walle_ws/src/car_control/sonar_controller/sonar_controller/sonar_controller_node.py` L24
@@ -426,12 +426,16 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-2.1 | 未提交 | agent.py 拆为 9 个职责模块；新增模块导入与 <500 行约束测试；36 项 pytest 通过 | 待确认 |
 | 2026-11-10 | P2-2.2 | 未提交 | 删除 net 侧旧 ffmpeg 推流实现与专用常量；新增“仅 video_webrtc_bridge 推流”回归测试；39 项 pytest 通过 | 待确认 |
 | 2026-11-10 | P2-2.3 | 未提交 | config.py 改为读 walle_ws/VERSION（env 优先）；新增版本解析与一致性单测；43 项 pytest 通过 | 待确认 |
+| 2026-11-10 | P2-2.4 | 未提交 | 上报开关改用 `_reception_enabled`，`enable_reception()` 保持方法；冒烟验证重复调用不抛 TypeError | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-2.4 `ros_robot_controller` 的上报开关改用 `_reception_enabled`，
+  避免 Bool 回调把 `enable_reception` 方法名覆盖成 bool；连续调用回调不再抛
+  `TypeError`，Board 仍同步收到开关值。
 - 2026-11-10：P2-2.3 设备版本统一读取 ROS2 工作空间下的 `walle_ws/VERSION`
   （环境变量 `WALLE_VERSION_NUM` / `WALLE_VERSION_NAME` 优先；未注入时按
   `WALLE_WS`/`WALLE_HOME` 或包路径定位 `walle_ws`；
