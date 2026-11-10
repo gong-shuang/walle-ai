@@ -13,7 +13,7 @@ walle_home="$(pwd)"
 conf_file="$walle_home/walle-ai.conf"
 
 usage() {
-    sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,8p' "$walle_home/deploy.sh" | sed 's/^# \{0,1\}//'
 }
 
 if [[ "$(id -u)" -eq 0 ]]; then

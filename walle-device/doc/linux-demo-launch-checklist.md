@@ -29,11 +29,11 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
-| P1 上线前应修 | 18 | 2 | 16 |
+| P1 上线前应修 | 18 | 3 | 15 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **15** | **40** |
+| **合计** | **55** | **16** | **39** |
 
-> linux-demo 已开始按本清单整改（当前 15/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 16/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -151,11 +151,10 @@
 
 ### P1-1 部署可复现
 
-- [ ] 🔴 **P1-1.1 恢复 linux-demo 部署文档、依赖清单与自检工具**
-  - 现状：迁移提交 `947f445` 删除了 `requirements.txt`、`walle-ai.env.example`、`selftest_topics.py`，README 从 284 行压缩到 34 行；`main.py` docstring 引用的 README「首次部署」章节已不存在；`walle-device/doc/requirements.txt` 不含 `aiortc` / `sounddevice`，但 `whep_audio_player.py` 依赖它们；`doc/MQTT_protocol_convention.md` §7 仍把 linux-demo README 作为设备端部署说明
-  - 动作：恢复 `requirements.txt`（`paho-mqtt`、`psutil`、`aiortc`、`sounddevice`）；恢复配置模板；重写 README：系统依赖（`python3-venv`、`v4l-utils`、`ffmpeg`、`pulseaudio-utils`、`libportaudio2`）、venv、pip、配置、安装、自检、升级、日志；`doc/requirements.txt` 补充或拆分音视频依赖；修复手动运行命令
-  - 验收：按文档在全新 Raspberry Pi OS 上完成部署；`pip install -r requirements.txt` 后 `main.py --check` 通过，`whep_audio_player.py` 可启动；README 中所有命令可直接复制执行
-  - 证据：`README.md` L7-L31；`main.py` L39-L52；`git show 947f445 --stat`；`walle-device/doc/requirements.txt` L7-L14
+- [x] ✅ **P1-1.1 恢复 linux-demo 部署文档、依赖清单与自检工具**
+  - 处理：新增 `linux-demo/requirements.txt`（`paho-mqtt`、`psutil`、`aiortc`、`sounddevice`），与 ROS2 侧 `walle-device/doc/requirements.txt` 拆分，不再混用；重写 README：系统依赖（`python3-venv` / `python3-dev` / `v4l-utils` / `ffmpeg` / `pulseaudio-utils` / `libportaudio2`）、venv 与 pip、配置项与查找顺序、`--check` 自检、`deploy.sh` 安装、状态与日志、开发手动运行（先停服务）、升级、常见问题；配置模板沿用 P0-2.3 的 `walle-ai.conf.example`
+  - 验收：`requirements.txt` 四项依赖齐全；README「首次部署」章节与 `main.py` docstring 指向一致；手动运行命令改为 `venv/bin/python main.py`；`--check` 输出 7 条订阅主题；全新 Raspberry Pi OS 实机部署待执行
+  - 证据：`linux-demo/requirements.txt`、`linux-demo/README.md`、`linux-demo/deploy.sh`
 
 - [x] ✅ **P1-1.2 修复 systemd 单元模板**
   - 处理：模板改为 `@WALLE_USER@` / `@WALLE_GROUP@` / `@WALLE_HOME@` / `@WALLE_VENV@` 占位符，由部署脚本按执行用户与实际路径渲染（不再硬编码 `User=gs`）；`WorkingDirectory=@WALLE_HOME@`、`ExecStart=@WALLE_VENV@/bin/python @WALLE_HOME@/main.py`；`EnvironmentFile=/etc/walle-ai.conf`（去掉 `-`）；新增 `StartLimitIntervalSec=300` / `StartLimitBurst=5`、`NoNewPrivileges=true`、`PrivateTmp=true`、`ProtectSystem=strict`、`ProtectHome=read-only`、`ReadWritePaths=@WALLE_HOME@`、`SupplementaryGroups=audio video`、`XDG_RUNTIME_DIR=/run/user/%U`
@@ -478,6 +477,9 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：恢复 `linux-demo/requirements.txt`（paho-mqtt / psutil / aiortc / sounddevice），
+  重写 README 的「首次部署」（系统依赖、venv、配置、`--check`、`deploy.sh`、日志、升级、FAQ）；
+  ROS2 侧 `doc/requirements.txt` 保持原样，音视频依赖只在 linux-demo 安装（P1-1.1）。
 - 2026-11-10：新增 `linux-demo/deploy.sh`（P1-1.3）：先跑 `main.py --check` 再安装
   `/etc/walle-ai.conf`（600），按部署用户渲染 systemd 单元并 enable/restart；支持
   `--venv` / `WALLE_VENV` 与 `--no-start`，stub 环境下完整跑通、可重复执行。

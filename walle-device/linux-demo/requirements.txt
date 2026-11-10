@@ -1,0 +1,14 @@
+# linux-demo 设备端 Python 依赖（树莓派 / Debian 系，Python 3.11+）
+#
+# 系统 apt 依赖（不在 pip 中安装）：
+#   sudo apt install -y python3-venv v4l-utils ffmpeg pulseaudio-utils libportaudio2
+# 说明：
+#   - v4l2-ctl（v4l-utils）用于摄像头能力探测，ffmpeg 用于 RTMP 推流；
+#   - pactl（pulseaudio-utils）用于列出 PulseAudio 录音源；
+#   - sounddevice 依赖 libportaudio2，缺失时 whep_audio_player.py 退出码 3。
+
+paho-mqtt>=2.0,<3
+psutil>=5.9
+# 手机麦上行：whep_audio_player.py 用 aiortc 拉 WHEP，sounddevice 写本机声卡
+aiortc>=1.9
+sounddevice>=0.4.6

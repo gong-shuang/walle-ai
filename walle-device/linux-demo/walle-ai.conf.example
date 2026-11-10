@@ -32,7 +32,7 @@ WHIP_SECRET=
 VIDEO_RTMP_URL_TEMPLATE=rtmp://your-server:1935/live/{room}?secret={secret}
 # 可选：固定摄像头设备（udev 符号链接，如 /dev/walle-camera）；留空接受任意 /dev/videoN
 # CAMERA_DEVICE=/dev/walle-camera
-# 手机麦上行 WHEP 地址模板（经 Nginx secure_link 鉴权，见 doc/service_deploy.md §6.2）
+# 手机麦上行 WHEP 地址模板（经 Nginx secure_link 鉴权，见 ../../../doc/service_deploy.md §6.2）
 # {stream}/{expires}/{token} 由设备填充
 PHONE_AUDIO_WHEP_URL_TEMPLATE=https://your-server:8443/whep-audio/?app=live&stream={stream}&expires={expires}&token={token}
 # 与 Nginx secure_link 的 secret 一致；不要复用 WHIP_SECRET
