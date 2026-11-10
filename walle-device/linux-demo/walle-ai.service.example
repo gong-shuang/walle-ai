@@ -26,6 +26,8 @@ WorkingDirectory=@WALLE_HOME@
 # 配置必须存在：缺失时 systemd 直接启动失败，而不是带着空配置连 Broker
 EnvironmentFile=/etc/walle-ai.conf
 Environment=PYTHONUNBUFFERED=1
+# 设备标识固定放 /var/lib/walle-ai（deploy.sh 创建并迁移旧 .device-id）
+Environment=DEVICE_ID_FILE=/var/lib/walle-ai/device-id
 # systemd 用户服务默认没有会话环境，PulseAudio / PortAudio 需要该变量；
 # 无桌面会话时还需按 README「音频会话」启用 linger 或改用用户级服务
 Environment=XDG_RUNTIME_DIR=/run/user/%U
@@ -41,7 +43,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=@WALLE_HOME@
+ReadWritePaths=@WALLE_HOME@ /var/lib/walle-ai
 # 若 DEVICE_ID_FILE 指向安装目录之外，需把该路径追加到上面的 ReadWritePaths=
 
 StandardOutput=journal

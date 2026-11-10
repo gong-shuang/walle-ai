@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 16 | 6 |
-| **合计** | **55** | **43** | **12** |
+| P2 后续优化 | 22 | 17 | 5 |
+| **合计** | **55** | **44** | **11** |
 
-> linux-demo 已开始按本清单整改（当前 43/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 44/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -337,11 +337,10 @@
   - 验收：新增 `test/test_startup_ready.py` 4 项（鉴权错误识别、正常输出、ready/exit/timeout、就绪提前返回）；全套 52 项通过；真机「手机未推流」与「推流 secret 错误」场景待验证
   - 证据：`ld_monitor_phone.py`、`ld_monitor_video.py`、`ld_media.py`、`whep_audio_player.py`；`test/test_startup_ready.py`
 
-- [ ] 🔴 **P2-3.6 device-id 持久化位置**
-  - 现状：`resolve_device_id()` 默认把 `.device-id` 写在 `main.py` 同级；目录不可写时回退 `~/.config/walle-ai/device-id`；升级时若整目录替换，可能丢失标识；`.device-id` 未加入 gitignore
-  - 动作：统一到 `/var/lib/walle-ai/device-id`（或可配置 `DEVICE_ID_FILE`）；部署脚本负责创建目录与权限；升级说明保留该文件
-  - 验收：升级/重装后 `device_id` 不变，App 不出现重复设备卡片；`git status` 不出现 `.device-id`
-  - 证据：`main.py` L200-L202、L622-L724
+- [x] ✅ **P2-3.6 device-id 持久化位置**
+  - 处理：`_default_device_id_file()` 优先级改为「`DEVICE_ID_FILE` > 已存在的安装目录 `.device-id`（升级兼容）> `/var/lib/walle-ai/device-id`（目录可写）> 安装目录 > `~/.config`」；`deploy.sh` 创建 `/var/lib/walle-ai`（属主为部署用户）并在目标不存在时迁移旧 `.device-id`；systemd 模板新增 `Environment=DEVICE_ID_FILE=/var/lib/walle-ai/device-id` 与 `ReadWritePaths=/var/lib/walle-ai`；README/配置模板说明保留该文件
+  - 验收：显式 `DEVICE_ID_FILE` 行为不变（原有落盘/复用测试通过）；渲染后的 unit `systemd-analyze verify` 通过；升级迁移逻辑待实机验证；`.device-id` 已被 `.gitignore` 忽略
+  - 证据：`ld_utils.py`、`deploy.sh`、`walle-ai.service.example`、`walle-ai.conf.example`、`README.md`「升级」
 
 - [ ] 🔴 **P2-3.7 手机音频启动超时参数化**
   - 现状：`PHONE_AUDIO_FIRST_FRAME_TIMEOUT` / `STARTUP_GRACE` 为硬编码 8.0 / 2.0，其余配置均可通过环境变量覆盖
@@ -455,6 +454,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：设备标识默认放 `/var/lib/walle-ai/device-id`，deploy.sh 创建目录并迁移旧
+  `.device-id`；systemd 模板增加对应环境变量与 ReadWritePaths（P2-3.6）。
 - 2026-11-10：手机音频以 `PLAYBACK READY` 作为成功判据（等待首帧），推流启动后检查
   ffmpeg 鉴权/连接错误，失败不再误报成功；新增 4 项用例（P2-3.5）。
 - 2026-11-10：retained online 最小化（保留 device_id/uuid/版本/型号/主机名/IP/运行时长），

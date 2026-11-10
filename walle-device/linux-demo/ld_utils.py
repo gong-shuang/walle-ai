@@ -216,14 +216,25 @@ def _norm_mac(mac):
 
 
 def _default_device_id_file():
-    """标识文件路径：config.DEVICE_ID_FILE > 安装目录/.device-id > ~/.config/walle-ai/device-id。"""
+    """标识文件路径优先级：
+
+    1. `DEVICE_ID_FILE` 显式指定；
+    2. 安装目录已存在的 `.device-id`（升级兼容，原地保留）；
+    3. `/var/lib/walle-ai/device-id`（部署脚本创建、属主为运行用户）；
+    4. 安装目录 `.device-id`（目录可写时）；
+    5. `~/.config/walle-ai/device-id`（兜底）。
+    """
     if config.DEVICE_ID_FILE:
         return config.DEVICE_ID_FILE
-    beside_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".device-id")
-    # 安装目录可写就用它（最直观）；否则退到用户配置目录
-    parent = os.path.dirname(beside_script)
-    if os.access(parent, os.W_OK):
-        return beside_script
+    here = os.path.dirname(os.path.abspath(__file__))
+    beside = os.path.join(here, ".device-id")
+    if os.path.isfile(beside):
+        return beside
+    system = "/var/lib/walle-ai/device-id"
+    if os.access(os.path.dirname(system), os.W_OK):
+        return system
+    if os.access(here, os.W_OK):
+        return beside
     return os.path.join(os.path.expanduser("~"), ".config", "walle-ai", "device-id")
 
 

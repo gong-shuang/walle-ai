@@ -90,4 +90,6 @@ PHONE_AUDIO_WHEP_SECRET=
 # THRESH_NET_MIB=10
 
 # ---- 可选：设备标识文件 ----
+# 生产默认由 deploy.sh 安装到 /var/lib/walle-ai/device-id；
+# 显式配置会覆盖该默认值（需同步 systemd ReadWritePaths）
 # DEVICE_ID_FILE=/var/lib/walle-ai/device-id

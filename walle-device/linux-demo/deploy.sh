@@ -42,7 +42,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "[1/5] 检查 Python 解释器"
+echo "[1/6] 检查 Python 解释器"
 if [[ ! -x "$venv/bin/python" ]]; then
     echo "  未找到 $venv/bin/python" >&2
     echo "  请先按 README 创建 venv 并安装依赖，或用 --venv / WALLE_VENV 指定实际路径" >&2
@@ -50,23 +50,31 @@ if [[ ! -x "$venv/bin/python" ]]; then
 fi
 echo "  $venv/bin/python"
 
-echo "[2/5] 检查配置文件"
+echo "[2/6] 检查配置文件"
 if [[ ! -f "$conf_file" ]]; then
     echo "  未找到 $conf_file，请先复制模板：cp walle-ai.conf.example walle-ai.conf" >&2
     exit 1
 fi
 echo "  $conf_file"
 
-echo "[3/5] 配置自检（main.py --check，不连接 Broker）"
+echo "[3/6] 配置自检（main.py --check，不连接 Broker）"
 if ! "$venv/bin/python" "$walle_home/main.py" --env-file "$conf_file" --check; then
     echo "  配置检查失败，请修改 $conf_file 后重试" >&2
     exit 1
 fi
 
-echo "[4/5] 安装 /etc/walle-ai.conf（root:root 600）"
+echo "[4/6] 准备设备标识目录 /var/lib/walle-ai"
+sudo install -d -m 750 -o "$target_user" -g "$target_group" /var/lib/walle-ai
+if [[ -f "$walle_home/.device-id" && ! -f /var/lib/walle-ai/device-id ]]; then
+    sudo install -m 600 -o "$target_user" -g "$target_group" \
+        "$walle_home/.device-id" /var/lib/walle-ai/device-id
+    echo "  已迁移 $walle_home/.device-id -> /var/lib/walle-ai/device-id"
+fi
+
+echo "[5/6] 安装 /etc/walle-ai.conf（root:root 600）"
 sudo install -m 600 -o root -g root "$conf_file" /etc/walle-ai.conf
 
-echo "[5/5] 渲染并启用 walle-ai.service"
+echo "[6/6] 渲染并启用 walle-ai.service"
 unit_tmp="$(mktemp)"
 trap 'rm -f "$unit_tmp"' EXIT
 sed -e "s|@WALLE_USER@|$target_user|g" \

@@ -184,8 +184,9 @@ sudo systemctl restart walle-ai
 ./deploy.sh
 ```
 
-安装目录下的 `.device-id` 记录设备标识（MQTT clientId 与主题段），升级时不要删除；
-删除后会按硬件指纹重新生成，旧主题上的 retained 在线状态会变成幽灵卡片。
+设备标识默认存放在 `/var/lib/walle-ai/device-id`（`deploy.sh` 会创建目录并迁移旧的安装目录
+`.device-id`），升级时不要删除；删除后会按硬件指纹重新生成，旧主题上的 retained online
+会变成幽灵卡片。
 
 ## 版本号
 
