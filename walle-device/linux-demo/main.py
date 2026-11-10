@@ -2883,7 +2883,10 @@ def main():
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
     monitor.run()
-    return 0
+    # 线程池任务可能阻塞在 v4l2/pactl；清理完成后直接退出，
+    # 避免解释器等待非 daemon 线程导致 systemd stop 卡到 TimeoutStopSec。
+    logging.shutdown()
+    os._exit(0)
 
 
 if __name__ == "__main__":

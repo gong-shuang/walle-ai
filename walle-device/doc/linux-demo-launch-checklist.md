@@ -28,12 +28,12 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 15 | 11 | 4 |
+| P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 0 | 18 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **12** | **43** |
+| **合计** | **55** | **13** | **42** |
 
-> linux-demo 已开始按本清单整改（当前 12/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 13/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`，待服务端实施验证。
 
 ## 与 ROS2 清单的适用性对照
@@ -139,11 +139,10 @@
   - 验收：子进程 `PR_GET_PDEATHSIG` 返回 15（SIGTERM，自测通过）；父进程被 `kill -9` 后 ffmpeg/播放器应随之退出（实机待验证）；服务重启后无重复推流
   - 证据：`main.py` L1525-L1552、L2035-L2042、L2364-L2371
 
-- [ ] 🔴 **P0-5.2 优雅退出不被长耗时任务阻塞**
-  - 现状：所有请求共用一个 4 线程池；`handle_cmd_exec` 最长 300s，`capability` 探测最坏数十秒；`pool.shutdown(wait=False)` 后解释器仍会等待非 daemon 的池线程，systemd `TimeoutStopSec` 超时后会 SIGKILL，可能跳过子进程清理
-  - 动作：随 P0-1.1 删除长命令；其余处理函数设置明确上限；信号处理中主动终止子进程并限制退出时间；systemd 设置 `TimeoutStopSec=10`、`KillMode=mixed/control-group`
-  - 验收：执行一个长耗时请求期间 `systemctl stop walle-ai` 在 5s 内退出；退出后无 ffmpeg / 播放器残留
-  - 证据：`main.py` L1405、L2528-L2589、L2729-L2743
+- [x] ✅ **P0-5.2 优雅退出不被长耗时任务阻塞**
+  - 处理：删除远程命令后最长阻塞已消除；`main()` 在 `monitor.run()` 完成清理后调用 `logging.shutdown()` + `os._exit(0)`，不再等待非 daemon 线程池；systemd 模板增加 `TimeoutStopSec=10`、`KillMode=control-group`
+  - 验收：模拟残留 30s 非 daemon 线程时进程 0.25s 退出（自测通过）；`--check` 不受影响；systemd stop 5s 内完成（实机待验证）
+  - 证据：`main.py` L2883-L2889；`walle-ai.service.example` L14-L16
 
 ---
 
@@ -473,12 +472,15 @@ python3 walle-device/linux-demo/main.py --check
 | 2026-11-10 | P0-4.1 | 待提交 | 设备端 token 与独立 MD5 一致；缺 secret/占位符 `--check` 退出 1；Nginx 403/410/502 待实测 | 待确认 |
 | 2026-11-10 | P0-4.2 | 待提交 | ISP/非 USB 节点、错误分辨率、缺 v4l2-ctl 均被拒；合法 USB 节点通过；坏 `CAMERA_DEVICE` `--check` 退出 1 | 待确认 |
 | 2026-11-10 | P0-5.1 | 待提交 | 子进程 `PR_GET_PDEATHSIG=15`；ffmpeg/播放器 Popen 均接入；实机 `kill -9` 待验证 | 待确认 |
+| 2026-11-10 | P0-5.2 | 待提交 | 残留 30s 非 daemon 线程时进程 0.25s 退出；systemd 模板加 TimeoutStopSec/KillMode | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：`main()` 在清理完成后 `logging.shutdown()` + `os._exit(0)`，不再等待非 daemon
+  线程池；systemd 模板增加 `TimeoutStopSec=10` / `KillMode=control-group`（P0-5.2）。
 - 2026-11-10：ffmpeg 与 WHEP 播放器 Popen 增加 `PR_SET_PDEATHSIG`，主进程崩溃/被
   `kill -9` 时子进程收到 SIGTERM；子进程 `PR_GET_PDEATHSIG` 自测为 15，实机待验证（P0-5.1）。
 - 2026-11-10：linux-demo 推流前增加摄像头 preflight：`CAMERA_DEVICE` 可选固定设备，

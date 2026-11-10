@@ -12,6 +12,8 @@ EnvironmentFile=/etc/walle-ai.conf
 ExecStart=$VENV_PATH/venv/bin/python $WALLE_PATH/walle-ai/walle-device/linux-demo/main.py
 Restart=always
 RestartSec=5
+TimeoutStopSec=10
+KillMode=control-group
 StandardOutput=journal
 StandardError=journal
 
