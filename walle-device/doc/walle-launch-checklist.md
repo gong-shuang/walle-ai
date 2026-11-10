@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 19 | 2 |
-| **合计** | **58** | **52** | **6** |
+| P2 后续优化 | 21 | 20 | 1 |
+| **合计** | **58** | **53** | **5** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -307,10 +307,10 @@
   - 证据：`walle_ws/src/car_control/ros_robot_controller/scripts/99-walle-camera.rules`、`walle_ws/src/video/walle_video/launch/usb_cam.launch.py`（`_is_usb_camera` / `_preflight`）
   - 验收：`_preflight('/dev/walle-camera')` 返回 True；`/dev/video19`（rpivid）与 `/dev/video20`（pispbe）均返回 False；启动后 `/image_raw` 约 28–30 FPS，无前置检查失败日志
 
-- [ ] 🔴 **P2-4.3 修复测试页缺失服务**
-  - 证据：`web/car_ctl_by_bridge.html`（仓库根目录）L323 调用 `/avoidance_node/enter`，当前代码库无此服务
-  - 动作：实现服务或移除按钮
-  - 验收：点击对应按钮不再出现 rosbridge 错误
+- [x] ✅ **P2-4.3 修复测试页缺失服务**
+  - 处理：原 `app` 包的 `avoidance_node` 未迁移到 `walle_ws`（`object_tracking` / `line_following` / `qrcode` 同样未迁移），按本项允许的“移除按钮”方案处理：删除测试页避障页签、面板、参数与按钮 JS、`TAB_VIDEO` / `VIDEO_TIP` 条目，并去掉急停中的 `/avoidance_node/exit` 调用（成功计数 5 → 4）
+  - 证据：`web/car_ctl_by_bridge.html` 已无 `avoidance_node` / 避障相关引用；`grep -nE "avoid|避障"` 无匹配
+  - 验收：页签与面板一一对应（`manual` / `gesture` / `tracking` / `line` / `qr` / `hw`），JS 中 `#id` 引用无悬空；点击急停只调用已存在玩法的退出服务，不再出现 `/avoidance_node/enter` 的 rosbridge 错误
 
 ### P2-5 调试工具
 
@@ -437,12 +437,16 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-3.4 | 未提交 | 核查生产 launch：仅 vocal_detect/agent_process/tts_node；实验驾驶节点均为独立 launch，未被 bringup 引用 | 待确认 |
 | 2026-11-10 | P2-4.1 | 未提交 | usb_cam 0.8.1 旧控制名告警记录为已知问题；launch 中用 v4l2-ctl 按新名称设置自动模式；实测 30FPS | 待确认 |
 | 2026-11-10 | P2-4.2 | 未提交 | udev 已按 USB VID/PID 固定设备；launch 增加 USB/格式/分辨率前置校验，实测不会误开 ISP/解码节点 | 待确认 |
+| 2026-11-10 | P2-4.3 | 未提交 | 移除测试页避障页签/面板/JS 与急停中的 `/avoidance_node/exit`；页面已无避障引用，页签与面板一致 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-4.3 `app` 包（`avoidance_node` / `object_tracking` / `line_following` /
+  `qrcode` / 手势）未迁移到 `walle_ws`，测试页按“移除按钮”方案删除避障页签及相关
+  服务调用；其余玩法页签仍依赖未迁移的 `app` 节点，仅适用于 TurboPi 原始环境调试。
 - 2026-11-10：P2-4.2 摄像头设备由 `99-walle-camera.rules`（USB VID/PID + index=0）
   固定为 `/dev/walle-camera`；`usb_cam.launch.py` 启动前校验目标必须是 USB video
   节点且支持 MJPG 640x480，失败则跳过启动，避免误开 `pispbe`/`rpivid` 节点。

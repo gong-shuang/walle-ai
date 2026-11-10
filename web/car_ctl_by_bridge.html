@@ -167,7 +167,6 @@
   <button class="tab" data-tab="gesture">手势控制</button>
   <button class="tab" data-tab="tracking">目标追踪</button>
   <button class="tab" data-tab="line">巡线</button>
-  <button class="tab" data-tab="avoid">避障</button>
   <button class="tab" data-tab="qr">二维码</button>
   <button class="tab" data-tab="hw">硬件设置</button>
 </nav>
@@ -210,7 +209,7 @@
             <div class="item"><div class="k">电池</div><div class="v" id="statBattery">--</div></div>
             <div class="item"><div class="k">超声波距离</div><div class="v" id="statSonar">--</div></div>
           </div>
-          <div class="muted">急停会同时发送零速度并退出追踪/巡线/避障/二维码玩法，是最可靠的停车方式。</div>
+          <div class="muted">急停会同时发送零速度并退出追踪/巡线/二维码玩法，是最可靠的停车方式。</div>
         </div>
       </div>
     </div>
@@ -315,31 +314,6 @@ n        <div class="muted" style="margin-top:8px">
         <div class="muted" style="margin-top:8px">超声波距离小于 20 cm 时自动停车；进入巡线会把 1 号舵机抬到 1850。</div>
       </div>
       <div class="hintline">顺序：进入巡线 → 取色/选色 → 开始巡线。5 秒丢失线会自动退出。</div>
-    </div>
-
-    <!-- ================= 避障 ================= -->
-    <div class="panel" id="panel-avoid">
-      <div class="row">
-        <button class="btn primary" data-svc="/avoidance_node/enter" data-args="{}">进入避障</button>
-        <button class="btn ghost" data-svc="/avoidance_node/exit" data-args="{}">退出避障</button>
-      </div>
-      <div class="card">
-        <div class="title">参数与运行</div>
-        <div class="row">
-          <label class="field">避障距离阈值 (cm)<input id="avoidThr" type="number" value="30" min="10" max="50" step="1"></label>
-          <label class="field">行驶速度 (m/s)<input id="avoidSpeed" type="number" value="0.4" min="0.1" max="1" step="0.1"></label>
-          <button class="btn" id="btnAvoidApply">应用参数</button>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <button class="btn primary" data-svc="/avoidance_node/set_running" data-args='{"data":true}'>开始避障行驶</button>
-          <button class="btn ghost" data-svc="/avoidance_node/set_running" data-args='{"data":false}'>停止</button>
-        </div>
-        <div class="stat" style="margin-top:12px">
-          <div class="item"><div class="k">实时距离</div><div class="v"><span id="avoidDist">--</span> cm</div></div>
-          <div class="item"><div class="k">当前速度</div><div class="v"><span id="avoidSpeedShow">--</span> m/s</div></div>
-        </div>
-      </div>
-      <div class="hintline">避障逻辑：距离小于阈值时左转（angular.z=11），否则直行；参数阈值只接受 10~50 cm。</div>
     </div>
 
     <!-- ================= 二维码 ================= -->
@@ -600,7 +574,6 @@ n        <div class="muted" style="margin-top:8px">
     } else if (topic === '/sonar_controller/get_distance') {
       var cm = (Number(msg.data) / 10).toFixed(1);
       $('#sonar').textContent = cm;
-      $('#avoidDist').textContent = cm;
       $('#statSonar').textContent = cm + ' cm';
     }
   }
@@ -712,7 +685,6 @@ n        <div class="muted" style="margin-top:8px">
     gesture:  ['/image_gesture_recognition', '手势识别画面（需开启手势玩法）'],
     tracking: ['/object_tracking/image_result', '追踪画面（需先进入追踪）'],
     line:     ['/line_following/image_result', '巡线画面（需先进入巡线）'],
-    avoid:    ['/avoidance_node/image_result', '避障画面（需先进入避障）'],
     qr:       ['/qrcode/image_result', '二维码画面（需先进入二维码）'],
     hw:       ['/image_raw', '原始画面']
   };
@@ -744,7 +716,6 @@ n        <div class="muted" style="margin-top:8px">
     gesture:  '先点“开启手势控制”',
     tracking: '先点“进入追踪”',
     line:     '先点“进入巡线”',
-    avoid:    '先点“进入避障”',
     qr:       '先点“进入二维码”',
     manual:   '检查摄像头 usb_cam 是否运行',
     hw:       '检查摄像头 usb_cam 是否运行'
@@ -890,16 +861,6 @@ n        <div class="muted" style="margin-top:8px">
   $('#thrTrack').addEventListener('input', function () { $('#thrTrackVal').textContent = this.value; });
   $('#thrLine').addEventListener('input', function () { $('#thrLineVal').textContent = this.value; });
 
-  // ---------------- 避障参数 ----------------
-  $('#btnAvoidApply').addEventListener('click', async function () {
-    var thr = parseFloat($('#avoidThr').value);
-    var spd = parseFloat($('#avoidSpeed').value);
-    if (!(thr >= 10 && thr <= 50)) { log('阈值必须在 10~50 cm', 'err'); return; }
-    if (!(spd > 0)) { log('速度必须大于 0', 'err'); return; }
-    await runSvc('/avoidance_node/set_param', { data: [thr, spd * 80] }, this);
-    $('#avoidSpeedShow').textContent = spd.toFixed(1);
-  });
-
   // ---------------- 手势 ----------------
   $$('[data-act]').forEach(function (btn) {
     btn.addEventListener('click', async function () {
@@ -1020,12 +981,11 @@ n        <div class="muted" style="margin-top:8px">
       await Promise.allSettled([
         service('/object_tracking/exit', {}),
         service('/line_following/exit', {}),
-        service('/avoidance_node/exit', {}),
         service('/qrcode/exit', {}),
         service('/gesture_game_control', { data: false })
       ]).then(function (results) {
         var okCount = results.filter(function (r) { return r.status === 'fulfilled'; }).length;
-        log('急停完成，退出服务成功 ' + okCount + '/5（未进入的玩法会返回失败，属正常）', 'warn');
+        log('急停完成，退出服务成功 ' + okCount + '/4（未进入的玩法会返回失败，属正常）', 'warn');
       });
     }
     if (btn) btn.disabled = false;
