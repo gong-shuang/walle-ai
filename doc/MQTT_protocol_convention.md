@@ -305,8 +305,16 @@ App 侧重复 online 不去重（幂等）。
 | `audio.capture` | 麦克风：`{available, device, sources[], reason}`；`device` 为默认录音源（通常 `default`），不可用时 `reason` 给出原因 |
 | `audio.playback` | 音响：`{available, device, sinks[], volume_percent, muted, reason}`；`volume_percent` 未知为 null（App 归一为 -1） |
 | `summary` | 聚合统计：`total_cameras`、`total_formats`、`total_resolutions`、`audio_sources`、`audio_sinks`、`probe_cost_ms` |
-| `probe` | `{tool: "v4l2-ctl + pactl", error, audio_error}`：`error` / `audio_error` 非 null 分别表示视频 / 音频探测失败（含 CAM_ENABLE=False 的提示） |
+| `probe` | `{tool: "v4l2-ctl + pactl", error, audio_error}`：`error` / `audio_error` 非 null 分别表示视频 / 音频探测失败（含 CAM_ENABLE=False 的提示）；`pending=true` 表示首次探测尚未完成（见下） |
+| `cache` | `{source: "cache" \| "pending", age_sec, ttl_sec}`：本次应答来自缓存（附缓存年龄）还是首次探测未完成时的占位 |
 | `request_id` 及公共字段 | — |
+
+**能力缓存（设备端）**：`v4l2-ctl` / `pactl` 探测耗时可达数秒，设备端由后台线程
+在启动时立即探测一次、之后按 `CAPABILITY_CACHE_TTL`（默认 120s）刷新；查询线程只读
+缓存，不再执行探测。首次查询时若探测尚未完成，最多等待 `CAPABILITY_FIRST_WAIT`
+（默认 3s），仍未完成则返回 `probe.pending=true` 的占位报文（`capabilities` 仅
+`system_status`），App 应稍后重新查询。`CAPABILITY_CACHE_ONLY=True` 时查询完全不等待，
+只返回缓存或 pending。
 
 音频探测（设备端 `probe_audio_capture` / `probe_audio_playback`）：优先
 `pactl list short sources/sinks`（录音侧排除 `*.monitor` 回环源）；pactl 缺失时录音侧用
@@ -517,6 +525,28 @@ python3 linux/selftest_topics.py       # 设备端契约自检
 **影响与兼容性**：App 可忽略新增字段；CPU/网络数据最多滞后一个采样周期（默认 5s）。
 
 **验证方式**：`test/test_status_cache.py` 覆盖快照复用、无快照时兜底采样与查询 < 100ms。
+
+### 2026-11-10：capability/query 改为后台缓存探测
+
+**变更类型**：非破坏性增量（协议 v1 字段只增不改）。
+
+**原因**：`capability/query` 原先每次请求都在线程内跑 `v4l2-ctl` / `pactl`，
+最坏数秒，阻塞请求线程并拖慢其它请求。
+
+**变更内容**：`capability/result` 新增 `cache {source, age_sec, ttl_sec}` 与
+`probe.pending`；设备端由后台线程启动即探测、按 `CAPABILITY_CACHE_TTL`
+（默认 120s）刷新，查询只读缓存；首次未就绪时最多等待 `CAPABILITY_FIRST_WAIT`
+（默认 3s），超时或 `CAPABILITY_CACHE_ONLY=True` 时返回 pending 占位。
+
+**影响与兼容性**
+
+- App 可忽略新增字段；若识别 `probe.pending=true`，应提示稍后重试而不是判定「无摄像头」。
+- 缓存期内（默认 120s）热插拔摄像头/声卡不会立即出现在 capability 结果中。
+
+**验证方式**
+
+- `test/test_capability_cache.py`：capability 查询只读缓存、cache-only 立即返回
+  pending、后台探测结果写入缓存、探测失败保留旧缓存。
 
 ### 2026-11-08 20:00（Asia/Shanghai, CST）：移除远程命令 cmd/exec → cmd/result
 

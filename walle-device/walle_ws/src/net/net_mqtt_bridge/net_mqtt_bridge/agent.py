@@ -52,6 +52,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 部署：见 linux/README.md「首次部署」（systemd 单元为 walle-ai.service）
 """
 
+import copy
 import hashlib
 import json
 import logging
@@ -379,6 +380,11 @@ SKIP_FSTYPE = {"tmpfs", "devtmpfs", "squashfs", "iso9660", "overlay", "aufs", "f
 # ---- 摄像头能力探测（v4l2-ctl，需要 sudo apt install -y v4l-utils）----
 CAM_CMD_TIMEOUT = 8                      # 单条 v4l2-ctl 命令超时（秒）
 CAM_ENABLE = _env_flag("CAM_ENABLE", True)   # 不需要摄像头能力查询时置 False
+
+# ---- 能力缓存（capability/query：后台探测，查询只读缓存）----
+CAPABILITY_CACHE_TTL = float(os.environ.get("CAPABILITY_CACHE_TTL", "120"))  # 缓存有效期（秒）
+CAPABILITY_CACHE_ONLY = _env_flag("CAPABILITY_CACHE_ONLY", False)  # True=查询只读缓存，不等待首次探测
+CAPABILITY_FIRST_WAIT = float(os.environ.get("CAPABILITY_FIRST_WAIT", "3"))   # 首次查询等待探测的秒数上限
 
 # ---- 视频推流（video/start，ffmpeg -> RTMP）----
 VIDEO_ENABLE = _env_flag("VIDEO_ENABLE", True)  # 不需要推流能力时置 False
@@ -1441,6 +1447,12 @@ class RpiMonitor:
         # 避免每次查询都阻塞采样 1s（P2-1.1）
         self.status_sample = None       # (cores, per_iface, total_rx, total_tx, interval, monotonic_ts)
         self.status_sample_lock = threading.Lock()
+        # capability/query 缓存：后台线程按 TTL 探测，查询线程只读缓存（P2-1.2）
+        self.capability_result = None
+        self.capability_at = 0.0
+        self.capability_refreshing = False
+        self.capability_lock = threading.Lock()
+        self.capability_ready = threading.Event()
 
     def _will_message(self):
         """遗嘱消息：掉线时由 broker 代发 offline 到 walle/{t}/{d}/v1/online。"""
@@ -1779,6 +1791,83 @@ class RpiMonitor:
             "datetime": now_str(),
         }
 
+    def refresh_capability(self):
+        """
+        探测一次外设能力并写入缓存（P2-1.2）。
+
+        由后台线程调用，绝不在 MQTT 请求线程里跑 v4l2/pactl；同一时刻只允许
+        一个探测，重复调用直接返回 False。探测失败时保留上一次缓存。
+        """
+        with self.capability_lock:
+            if self.capability_refreshing:
+                return False
+            self.capability_refreshing = True
+        try:
+            result = self.build_capability()
+            with self.capability_lock:
+                self.capability_result = result
+                self.capability_at = time.monotonic()
+            self.capability_ready.set()
+            logging.info("能力缓存已刷新（摄像头 %d 个，耗时 %dms）",
+                         result.get("camera_count", 0),
+                         result.get("summary", {}).get("probe_cost_ms", 0))
+            return True
+        except Exception:
+            logging.exception("能力探测失败，保留上一次缓存")
+            return False
+        finally:
+            with self.capability_lock:
+                self.capability_refreshing = False
+
+    def capability_snapshot(self):
+        """返回 (缓存副本, 缓存年龄秒)；从未探测成功时返回 (None, None)。"""
+        with self.capability_lock:
+            result = self.capability_result
+            at = self.capability_at
+        if result is None:
+            return None, None
+        return copy.deepcopy(result), max(time.monotonic() - at, 0.0)
+
+    def _capability_loop(self):
+        """后台能力缓存：启动后立即探测一次，之后按 CAPABILITY_CACHE_TTL 刷新。"""
+        while not self.stop_event.is_set():
+            self.refresh_capability()
+            if self.stop_event.wait(max(CAPABILITY_CACHE_TTL, 1.0)):
+                break
+
+    def _capability_pending(self, reason):
+        """首次探测尚未完成时的占位应答：不阻塞查询，提示调用方稍后重试。"""
+        empty_capture = {"available": False, "device": None, "sources": [], "reason": reason}
+        empty_playback = {"available": False, "device": None, "sinks": [],
+                          "volume_percent": None, "muted": None, "reason": reason}
+        return {
+            "device_id": DEVICE_ID,
+            "uuid": DEVICE_UUID,
+            "hostname": HOSTNAME,
+            "ip": self.lan_ip,
+            "capability": "device",
+            "capabilities": ["system_status"],
+            "camera_count": 0,
+            "cameras": [],
+            "audio": {"capture": empty_capture, "playback": empty_playback},
+            "summary": {
+                "total_cameras": 0,
+                "total_formats": 0,
+                "total_resolutions": 0,
+                "audio_sources": 0,
+                "audio_sinks": 0,
+                "probe_cost_ms": 0,
+            },
+            "probe": {
+                "tool": "v4l2-ctl + pactl",
+                "error": reason,
+                "audio_error": reason,
+                "pending": True,
+            },
+            "timestamp": now_ts(),
+            "datetime": now_str(),
+        }
+
     def handle_capability_query(self, payload):
         # 该主题必须校验 uuid，不匹配/格式非法直接忽略
         ok, data = self.verify_uuid(payload, REQ_CAPABILITY)
@@ -1786,16 +1875,38 @@ class RpiMonitor:
             return
         rid = self._rid(data)
         try:
-            result = self.build_capability()
+            result, age = self.capability_snapshot()
+            if result is None and not CAPABILITY_CACHE_ONLY:
+                # 首次查询：后台探测已在跑，这里只做有上限的等待，不在请求线程探测
+                deadline = time.monotonic() + max(CAPABILITY_FIRST_WAIT, 0.0)
+                while time.monotonic() < deadline:
+                    self.capability_ready.wait(0.1)
+                    result, age = self.capability_snapshot()
+                    if result is not None:
+                        break
+            if result is None:
+                # 只读缓存模式或首次探测未完成：立刻回占位报文
+                reason = ("能力探测尚未完成（CAPABILITY_CACHE_ONLY=True，查询只读缓存）"
+                          if CAPABILITY_CACHE_ONLY else "能力探测进行中，请稍后重新查询")
+                result = self._capability_pending(reason)
+                result["cache"] = {"source": "pending", "age_sec": None,
+                                   "ttl_sec": CAPABILITY_CACHE_TTL}
+                result["request_id"] = rid
+                self.publish_json(RES_CAPABILITY_RESULT, result)
+                logging.info("能力探测尚未完成，返回占位报文 -> %s（request_id=%s）",
+                             device_topic(RES_CAPABILITY_RESULT), rid or "-")
+                return
+            result["cache"] = {"source": "cache", "age_sec": round(age, 1),
+                               "ttl_sec": CAPABILITY_CACHE_TTL}
             result["request_id"] = rid
             self.publish_json(RES_CAPABILITY_RESULT, result)
             audio = result["audio"]
-            logging.info("已响应能力查询 -> %s（request_id=%s，摄像头 %d 个，麦克风%s，音响%s，耗时 %dms%s）",
+            logging.info("已响应能力查询 -> %s（request_id=%s，摄像头 %d 个，麦克风%s，音响%s，缓存 %.1fs，探测耗时 %dms%s）",
                          device_topic(RES_CAPABILITY_RESULT), rid or "-", result["camera_count"],
                          "" if audio["capture"]["available"] else "：无",
                          "" if audio["playback"]["available"] else "：无",
-                         result["summary"]["probe_cost_ms"],
-                         f"，探测异常: {result['probe']['error']}" if result["probe"]["error"] else "")
+                         age, result["summary"]["probe_cost_ms"],
+                         f"，探测异常: {result['probe'].get('error')}" if result["probe"].get("error") else "")
         except Exception:
             logging.exception("上报 capability/result 失败")
 
@@ -2637,6 +2748,9 @@ class RpiMonitor:
                 "请在 /etc/walle-ai.conf 里设置 MQTT_TENANT=<App 的登录用户名>，"
                 "否则 App 订阅 walle/<App用户名>/# 时收不到本设备的报文。",
                 sanitize_segment(MQTT_TENANT))
+        # P2-1.2：外设能力探测放后台线程，查询只读缓存，避免 v4l2/pactl 阻塞请求
+        threading.Thread(target=self._capability_loop, daemon=True,
+                         name="capability-cache").start()
         # P2-1.1：连接 broker 前先填充一次状态快照，保证上线后的首个 state/query 也能立即响应
         try:
             sample = self.sample_once(0.2)
