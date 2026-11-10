@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 8 | 13 |
-| **合计** | **58** | **41** | **17** |
+| P2 后续优化 | 21 | 9 | 12 |
+| **合计** | **58** | **42** | **16** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -244,10 +244,10 @@
   - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/video.py`、`media.py`；唯一推流实现见 `walle_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py`
   - 验收：`test/test_video_removed.py` 断言包内无 `libx264` / `v4l2` 推流管线与 `build_ffmpeg_cmd` 等旧符号；独立模式 start 返回 -2、stop 返回 -1 并提示走 ROS 桥；`net_mqtt_bridge` 39 项 pytest 通过
 
-- [ ] 🔴 **P2-2.3 版本号单一来源**
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/config.py` 的 `VERSION_CODE` / `VERSION_NAME` 与 `scripts/env_walle.sh` 的 `VERSION`
-  - 动作：统一由构建注入或读取同一个文件
-  - 验收：发版只改一处
+- [x] ✅ **P2-2.3 版本号单一来源**
+  - 处理：`config.py` 不再写死版本，环境变量 `WALLE_VERSION_NUM` / `WALLE_VERSION_NAME` 优先（`env_walle.sh` 已 source 并 export）；未注入时按目录结构定位 ROS2 工作空间根目录（`WALLE_WS`/`WALLE_HOME`，其次按包路径查找 `walle_ws`），读取其下的 `VERSION`，不写死绝对路径；`WALLE_VERSION_FILE` 可覆盖。发版只需改 `walle_ws/VERSION`
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/config.py`（`_workspace_dir` / `_parse_version_file` / `VERSION_FILE`）、`walle_ws/VERSION`、`scripts/env_walle.sh`
+  - 验收：`test/test_version.py` 覆盖 VERSION 解析、工作空间定位、`WALLE_HOME` 优先、常量与文件一致；本机解析到 `walle_ws/VERSION`（`VERSION_CODE=1`、`VERSION_NAME=0.0.2`）
 
 - [ ] 🔴 **P2-2.4 修复 enable_reception 属性覆盖**
   - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L46/L116-L119，回调把方法名覆盖为 bool
@@ -425,12 +425,19 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-1.4 | 未提交 | 查询/动作分池 + 有界队列 + 丢弃告警；新增队列限流、动作不阻塞查询、洪峰下采样不中断单测 | 待确认 |
 | 2026-11-10 | P2-2.1 | 未提交 | agent.py 拆为 9 个职责模块；新增模块导入与 <500 行约束测试；36 项 pytest 通过 | 待确认 |
 | 2026-11-10 | P2-2.2 | 未提交 | 删除 net 侧旧 ffmpeg 推流实现与专用常量；新增“仅 video_webrtc_bridge 推流”回归测试；39 项 pytest 通过 | 待确认 |
+| 2026-11-10 | P2-2.3 | 未提交 | config.py 改为读 walle_ws/VERSION（env 优先）；新增版本解析与一致性单测；43 项 pytest 通过 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-2.3 设备版本统一读取 ROS2 工作空间下的 `walle_ws/VERSION`
+  （环境变量 `WALLE_VERSION_NUM` / `WALLE_VERSION_NAME` 优先；未注入时按
+  `WALLE_WS`/`WALLE_HOME` 或包路径定位 `walle_ws`；
+  `WALLE_VERSION_FILE` 可覆盖）。`env_walle.sh` 同步 source 该文件。当前
+  `VERSION` 为 `0.0.2`，而 Android `versionName` 仍为 `0.1.1`——按协议约定两端
+  版本需一致，正式发版前请确认以哪个为准并同步。
 - 2026-11-10：P2-2.2 删除 net_mqtt_bridge 内旧 ffmpeg 推流实现，`video.py` 仅保留
   结果报文与独立模式占位；`media.py` 不再提供视频命令拼装，唯一推流实现位于
   `video_webrtc_bridge`。新增 `test/test_video_removed.py` 防止旧实现回流。

@@ -161,9 +161,54 @@ TOPIC_ROOT = "walle"
 # 升协议（报文结构变了）时新增 v2 段，旧设备继续用 v1，两套主题可以并存。
 PROTOCOL_VERSION = "v1"
 
-# 设备端软件版本（写死；发版时手动改这两行）
-VERSION_CODE = 1
-VERSION_NAME = "0.1.1"
+# 设备端软件版本：环境变量优先（env_walle.sh 会 source 并 export）；
+# 未注入时读取 ROS2 工作空间根目录（walle_ws）下的 VERSION，路径按目录结构推导，
+# 不写死绝对路径；非标准部署可用 WALLE_VERSION_FILE 覆盖。
+def _workspace_dir():
+    """定位 ROS2 工作空间根目录（walle_ws）：环境变量优先，其次按包路径推导。"""
+    for key in ("WALLE_WS", "WALLE_HOME"):
+        value = os.environ.get(key)
+        if value:
+            base = Path(value)
+            return base if base.name == "walle_ws" else base / "walle_ws"
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if parent.name == "walle_ws":
+            return parent
+    return here.parent
+
+
+VERSION_FILE = os.environ.get("WALLE_VERSION_FILE") or str(
+    _workspace_dir() / "VERSION")
+
+
+def _parse_version_file(path):
+    values = {}
+    with open(path, encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[len("export "):].strip()
+            key, sep, value = line.partition("=")
+            if sep:
+                values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+try:
+    _VERSION_VALUES = _parse_version_file(VERSION_FILE)
+except OSError:
+    _VERSION_VALUES = {}
+
+try:
+    VERSION_CODE = int(os.environ.get("WALLE_VERSION_NUM")
+                       or _VERSION_VALUES.get("WALLE_VERSION_NUM") or 0)
+except ValueError:
+    VERSION_CODE = 0
+VERSION_NAME = (os.environ.get("WALLE_VERSION_NAME")
+                or _VERSION_VALUES.get("WALLE_VERSION_NAME") or "0.0.0")
 
 
 def _is_ascii_alnum(ch):

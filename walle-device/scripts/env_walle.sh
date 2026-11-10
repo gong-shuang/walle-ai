@@ -38,8 +38,9 @@ fi
 
 export WALLE_ENV_LOADED=1
 
-# 版本号唯一来源：walle-device/VERSION（WALLE_VERSION_NUM / WALLE_VERSION_NAME / WALLE_VERSION_DATE）
-source "$walle_home/VERSION"
+# 版本号唯一来源：ROS2 工作空间 walle_ws/VERSION
+# （WALLE_VERSION_NUM / WALLE_VERSION_NAME / WALLE_VERSION_DATE）
+source "$walle_home/walle_ws/VERSION"
 export VERSION="|V${WALLE_VERSION_NAME}|${WALLE_VERSION_DATE}|"
 
 # 注释下面，就是生产环境
