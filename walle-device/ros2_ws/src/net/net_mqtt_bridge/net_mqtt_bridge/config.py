@@ -162,24 +162,24 @@ TOPIC_ROOT = "walle"
 PROTOCOL_VERSION = "v1"
 
 # 设备端软件版本：环境变量优先（env_walle.sh 会 source 并 export）；
-# 未注入时读取 ROS2 工作空间根目录（ros2_ws）下的 VERSION，路径按目录结构推导，
-# 不写死绝对路径；非标准部署可用 WALLE_VERSION_FILE 覆盖。
-def _workspace_dir():
-    """定位 ROS2 工作空间根目录（ros2_ws）：环境变量优先，其次按包路径推导。"""
-    for key in ("WALLE_WS", "WALLE_HOME"):
+# 未注入时读取设备端根目录（walle-device）下的 VERSION，linux-demo 与 ROS2 共用；
+# 路径按目录结构推导，不写死绝对路径；非标准部署可用 WALLE_VERSION_FILE 覆盖。
+def _version_root():
+    """定位设备端根目录（VERSION 所在目录）：环境变量优先，其次按包路径推导。"""
+    for key in ("WALLE_HOME", "WALLE_WS"):
         value = os.environ.get(key)
         if value:
             base = Path(value)
-            return base if base.name == "ros2_ws" else base / "ros2_ws"
+            return base.parent if base.name == "ros2_ws" else base
     here = Path(__file__).resolve()
     for parent in here.parents:
         if parent.name == "ros2_ws":
-            return parent
+            return parent.parent
     return here.parent
 
 
 VERSION_FILE = os.environ.get("WALLE_VERSION_FILE") or str(
-    _workspace_dir() / "VERSION")
+    _version_root() / "VERSION")
 
 
 def _parse_version_file(path):

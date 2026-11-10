@@ -212,9 +212,47 @@ TOPIC_ROOT = "walle"
 # 升协议（报文结构变了）时新增 v2 段，旧设备继续用 v1，两套主题可以并存。
 PROTOCOL_VERSION = "v1"
 
-# 设备端软件版本（写死；发版时手动改这两行）
+# 设备端软件版本：与 ROS2 共用 walle-device/VERSION，环境变量优先。
+# 查找顺序：WALLE_VERSION_FILE > 同目录 VERSION（单独部署时一并拷贝）> 上级目录 VERSION（仓库内）。
 VERSION_CODE = 1
 VERSION_NAME = "0.1.1"
+
+
+def _parse_version_file(path):
+    values = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("export "):
+                    line = line[len("export "):].lstrip()
+                key, sep, value = line.partition("=")
+                if sep:
+                    values[key.strip()] = value.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return values
+
+
+def _load_version():
+    here = Path(__file__).resolve().parent
+    for path in (os.environ.get("WALLE_VERSION_FILE", ""),
+                 str(here / "VERSION"), str(here.parent / "VERSION")):
+        if path and os.path.isfile(path):
+            return _parse_version_file(path)
+    return {}
+
+
+_VERSION_VALUES = _load_version()
+try:
+    VERSION_CODE = int(os.environ.get("WALLE_VERSION_NUM")
+                       or _VERSION_VALUES.get("WALLE_VERSION_NUM") or VERSION_CODE)
+except ValueError:
+    pass
+VERSION_NAME = (os.environ.get("WALLE_VERSION_NAME")
+                or _VERSION_VALUES.get("WALLE_VERSION_NAME") or VERSION_NAME)
 
 
 def _is_ascii_alnum(ch):

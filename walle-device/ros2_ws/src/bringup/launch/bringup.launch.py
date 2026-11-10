@@ -17,7 +17,7 @@ def _debug_default():
 
 
 def _version_banner():
-    """版本横幅：读取 env_walle.sh 从 ros2_ws/VERSION 导出的变量。"""
+    """版本横幅：读取 env_walle.sh 从 VERSION 导出的变量。"""
     return 'Walle 版本 %s（build %s，%s）' % (
         os.environ.get('WALLE_VERSION_NAME', 'unknown'),
         os.environ.get('WALLE_VERSION_NUM', 'unknown'),

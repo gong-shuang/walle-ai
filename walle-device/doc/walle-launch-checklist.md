@@ -245,9 +245,9 @@
   - 验收：`test/test_video_removed.py` 断言包内无 `libx264` / `v4l2` 推流管线与 `build_ffmpeg_cmd` 等旧符号；独立模式 start 返回 -2、stop 返回 -1 并提示走 ROS 桥；`net_mqtt_bridge` 39 项 pytest 通过
 
 - [x] ✅ **P2-2.3 版本号单一来源**
-  - 处理：`config.py` 不再写死版本，环境变量 `WALLE_VERSION_NUM` / `WALLE_VERSION_NAME` 优先（`env_walle.sh` 已 source 并 export）；未注入时按目录结构定位 ROS2 工作空间根目录（`WALLE_WS`/`WALLE_HOME`，其次按包路径查找 `ros2_ws`），读取其下的 `VERSION`，不写死绝对路径；`WALLE_VERSION_FILE` 可覆盖。发版只需改 `ros2_ws/VERSION`
-  - 证据：`ros2_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/config.py`（`_workspace_dir` / `_parse_version_file` / `VERSION_FILE`）、`ros2_ws/VERSION`、`scripts/env_walle.sh`
-  - 验收：`test/test_version.py` 覆盖 VERSION 解析、工作空间定位、`WALLE_HOME` 优先、常量与文件一致；本机解析到 `ros2_ws/VERSION`（`VERSION_CODE=1`、`VERSION_NAME=0.0.2`）
+  - 处理：`config.py` 不再写死版本，环境变量 `WALLE_VERSION_NUM` / `WALLE_VERSION_NAME` 优先（`env_walle.sh` 已 source 并 export）；未注入时按目录结构定位设备端根目录（`WALLE_WS`/`WALLE_HOME`，其次按包路径查找 `ros2_ws` 的上级目录），读取其中的 `VERSION`（linux-demo 与 ROS2 共用），不写死绝对路径；`WALLE_VERSION_FILE` 可覆盖。发版只需改 `VERSION`
+  - 证据：`ros2_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/config.py`（`_version_root` / `_parse_version_file` / `VERSION_FILE`）、`VERSION`、`scripts/env_walle.sh`
+  - 验收：`test/test_version.py` 覆盖 VERSION 解析、设备端根目录定位、`WALLE_HOME` 优先、常量与文件一致；本机解析到 `VERSION`（`VERSION_CODE=1`、`VERSION_NAME=0.0.2`）
 
 - [x] ✅ **P2-2.4 修复 enable_reception 属性覆盖**
   - 处理：新增 `self._reception_enabled` 保存上报开关，`pub_callback` 改为读该字段；`enable_reception()` 保持为独立方法，回调里只更新 `_reception_enabled` 并同步 `board.enable_reception()`，不再把方法名覆盖成 bool
@@ -426,7 +426,7 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-1.4 | 未提交 | 查询/动作分池 + 有界队列 + 丢弃告警；新增队列限流、动作不阻塞查询、洪峰下采样不中断单测 | 待确认 |
 | 2026-11-10 | P2-2.1 | 未提交 | agent.py 拆为 9 个职责模块；新增模块导入与 <500 行约束测试；36 项 pytest 通过 | 待确认 |
 | 2026-11-10 | P2-2.2 | 未提交 | 删除 net 侧旧 ffmpeg 推流实现与专用常量；新增“仅 video_webrtc_bridge 推流”回归测试；39 项 pytest 通过 | 待确认 |
-| 2026-11-10 | P2-2.3 | 未提交 | config.py 改为读 ros2_ws/VERSION（env 优先）；新增版本解析与一致性单测；43 项 pytest 通过 | 待确认 |
+| 2026-11-10 | P2-2.3 | 未提交 | config.py 改为读 VERSION（env 优先）；新增版本解析与一致性单测；43 项 pytest 通过 | 待确认 |
 | 2026-11-10 | P2-2.4 | 未提交 | 上报开关改用 `_reception_enabled`，`enable_reception()` 保持方法；冒烟验证重复调用不抛 TypeError | 待确认 |
 | 2026-11-10 | P2-2.5 | 未提交 | 两个控制器节点移除构造函数内的 `rclpy.init()`，统一放到 main；colcon build 后单进程双节点组合验证通过 | 待确认 |
 | 2026-11-10 | P2-2.6 | 未提交 | `get_pwm_servo_state` 改为 `(request, response)` 并填充/返回 response；mock 冒烟通过 | 待确认 |
@@ -476,9 +476,9 @@ cd walle-device/scripts && ./start.sh
 - 2026-11-10：P2-2.4 `ros_robot_controller` 的上报开关改用 `_reception_enabled`，
   避免 Bool 回调把 `enable_reception` 方法名覆盖成 bool；连续调用回调不再抛
   `TypeError`，Board 仍同步收到开关值。
-- 2026-11-10：P2-2.3 设备版本统一读取 ROS2 工作空间下的 `ros2_ws/VERSION`
+- 2026-11-10：P2-2.3 设备版本统一读取 `VERSION`（linux-demo 与 ROS2 共用）
   （环境变量 `WALLE_VERSION_NUM` / `WALLE_VERSION_NAME` 优先；未注入时按
-  `WALLE_WS`/`WALLE_HOME` 或包路径定位 `ros2_ws`；
+  `WALLE_WS`/`WALLE_HOME` 或包路径定位 `ros2_ws` 的上级目录；
   `WALLE_VERSION_FILE` 可覆盖）。`env_walle.sh` 同步 source 该文件。当前
   `VERSION` 为 `0.0.2`，而 Android `versionName` 仍为 `0.1.1`——按协议约定两端
   版本需一致，正式发版前请确认以哪个为准并同步。
