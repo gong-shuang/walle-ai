@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 15 | 7 |
-| **合计** | **55** | **42** | **13** |
+| P2 后续优化 | 22 | 16 | 6 |
+| **合计** | **55** | **43** | **12** |
 
-> linux-demo 已开始按本清单整改（当前 42/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 43/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -332,11 +332,10 @@
   - 验收：online 报文不含 `mac` / `disk_total_bytes` 等字段且含 `ip`；`discovery/result` 仍返回完整身份；全套 48 项通过、`--check` 退出 0
   - 证据：`ld_monitor_identity.py`、`doc/MQTT_protocol_convention.md` §4.1 与「待办」；`test/test_online_identity.py`
 
-- [ ] 🔴 **P2-3.5 动作成功判定与实际可用性对齐**
-  - 现状：视频推流以「进程活过 3s」判成功，手机音频以「播放器活过 2s」判成功；而手机音频首帧超时是 8s，可能出现「返回成功但实际无声」；推流鉴权失败也可能在宽限期后才退出
-  - 动作：成功判定改为「首帧/首个媒体包到达」或延长宽限期并异步更正结果；失败后发布事件
-  - 验收：无声/黑屏场景不会再返回成功；App 能收到后续失败事件
-  - 证据：`main.py` L398、L419、L1897-L1908、L2217-L2228；`whep_audio_player.py` L143-L153
+- [x] ✅ **P2-3.5 动作成功判定与实际可用性对齐**
+  - 处理：手机音频改为等待播放器输出 `PLAYBACK READY`（`_log_pump` 检测到标记即置位），最长等待 `PHONE_AUDIO_FIRST_FRAME_TIMEOUT + 1`；超时则终止进程并返回失败，不再以「存活 2s」判成功；视频推流在启动宽限期后检查 ffmpeg 日志，命中 401/Unauthorized/Connection refused/Error opening output 等关键词时终止并返回失败；运行中异常仍由 `video_lost` / `phone_audio_lost` 异步告警
+  - 验收：新增 `test/test_startup_ready.py` 4 项（鉴权错误识别、正常输出、ready/exit/timeout、就绪提前返回）；全套 52 项通过；真机「手机未推流」与「推流 secret 错误」场景待验证
+  - 证据：`ld_monitor_phone.py`、`ld_monitor_video.py`、`ld_media.py`、`whep_audio_player.py`；`test/test_startup_ready.py`
 
 - [ ] 🔴 **P2-3.6 device-id 持久化位置**
   - 现状：`resolve_device_id()` 默认把 `.device-id` 写在 `main.py` 同级；目录不可写时回退 `~/.config/walle-ai/device-id`；升级时若整目录替换，可能丢失标识；`.device-id` 未加入 gitignore
@@ -456,6 +455,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：手机音频以 `PLAYBACK READY` 作为成功判据（等待首帧），推流启动后检查
+  ffmpeg 鉴权/连接错误，失败不再误报成功；新增 4 项用例（P2-3.5）。
 - 2026-11-10：retained online 最小化（保留 device_id/uuid/版本/型号/主机名/IP/运行时长），
   MAC/序列号/系统与磁盘明细只走 discovery；协议 §4.1 与「待办」同步更新（P2-3.4）。
 - 2026-11-10：推流日志路径改为以 `WALLE_LOG_DIR` 或 main.py 目录为基准，不再受启动

@@ -129,6 +129,20 @@ def pick_video_encoder():
     return wanted, None
 
 
+_FFMPEG_STARTUP_ERROR_HINTS = (
+    "401", "unauthorized", "connection refused", "error opening output",
+    "server error", "broken pipe", "invalid data found", "no such file",
+)
+
+
+def ffmpeg_startup_error(tail):
+    """启动宽限期后检查 ffmpeg 输出，命中鉴权/连接类错误时返回原因。"""
+    lowered = (tail or "").lower()
+    if any(hint in lowered for hint in _FFMPEG_STARTUP_ERROR_HINTS):
+        return (tail or "")[-300:]
+    return None
+
+
 def rtmp_url_ready():
     """推流地址模板与 secret 是否就绪；返回 (ok, reason)。"""
     if not VIDEO_RTMP_URL_TEMPLATE:

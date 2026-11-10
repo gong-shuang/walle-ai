@@ -161,7 +161,7 @@ class Player:
         self.writer.start()
         self._feed(first)
         self.play_started = True
-        log(f"开始播放音频（{rate}Hz {channels}ch）")
+        log(f"PLAYBACK READY（开始播放音频 {rate}Hz {channels}ch）")
         last_frame_at = time.monotonic()
 
         while not self.stop.is_set():

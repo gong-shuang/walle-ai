@@ -154,6 +154,18 @@ class MonitorPhoneMixin:
             },
         )
 
+    @staticmethod
+    def _wait_process_ready(proc, ready_event, timeout):
+        """等待播放器就绪：返回 ready / exit / timeout。"""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if proc.poll() is not None:
+                return "exit"
+            if ready_event.is_set():
+                return "ready"
+            time.sleep(0.05)
+        return "timeout"
+
     def _start_phone_audio(self, room_number):
         url = self._phone_audio_url(room_number)
         cmd = self._build_phone_audio_cmd(room_number, url)
@@ -180,15 +192,16 @@ class MonitorPhoneMixin:
             sink.close()
             return None, f"启动 WHEP 播放器失败: {e}"
 
-        threading.Thread(target=self._log_pump, args=(proc, sink),
+        ready = threading.Event()
+        threading.Thread(target=self._log_pump, args=(proc, sink, ready),
                          daemon=True, name="phone-audio-log").start()
 
-        # 宽限期内就退出：多半是流还不存在（App 推流未就绪）、缺依赖或声卡不可用
-        try:
-            code = proc.wait(timeout=PHONE_AUDIO_STARTUP_GRACE)
-        except subprocess.TimeoutExpired:
-            code = None
-        if code is not None:
+        # 成功判定对齐「首个音频帧」：等待播放器输出 PLAYBACK READY，
+        # 而不是仅靠存活时间——否则手机未推流时会出现「返回成功但无声」。
+        wait_sec = max(PHONE_AUDIO_FIRST_FRAME_TIMEOUT + 1, PHONE_AUDIO_STARTUP_GRACE)
+        state = self._wait_process_ready(proc, ready, wait_sec)
+        code = proc.poll()
+        if state == "exit" or code is not None:
             time.sleep(0.2)
             tail = sink.error_line()
             msg = f"播放器退出码 {code}（日志: {sink.path}）"
@@ -196,6 +209,17 @@ class MonitorPhoneMixin:
                 msg += f"；{PHONE_AUDIO_EXIT_REASONS[code]}"
             sink.close()
             return None, msg + (f": {tail}" if tail else "")
+        if state == "timeout":
+            try:
+                proc.terminate()
+                proc.wait(timeout=1)
+            except Exception:  # noqa: BLE001
+                proc.kill()
+            tail = sink.error_line()
+            sink.close()
+            return None, (f"播放器 {wait_sec:g}s 内未开始播放（首帧超时），"
+                          f"请确认手机端已推流（日志: {sink.path}）"
+                          + (f": {tail}" if tail else ""))
 
         with self.audio_lock:
             self.audio_proc = proc

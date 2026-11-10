@@ -68,11 +68,13 @@ class MonitorVideoMixin:
         return True
 
     @staticmethod
-    def _log_pump(proc, sink):
+    def _log_pump(proc, sink, ready_event=None):
         """
         把 ffmpeg 的实时输出持续写进日志文件，直到管道关闭。
         按块读而不是按行读：ffmpeg 的帧统计（frame= ... fps= ...）是用 \r 原地刷新的，
         按行读会一直等不到换行，日志里就看不到实时进度。
+
+        ready_event: 可选；日志里出现播放器就绪标记时置位（手机音频用）。
         """
         try:
             fd = proc.stdout.fileno()
@@ -81,6 +83,9 @@ class MonitorVideoMixin:
                 if not chunk:
                     break
                 sink.write(chunk)
+                if (ready_event is not None and not ready_event.is_set()
+                        and b"PLAYBACK READY" in chunk):
+                    ready_event.set()
         except Exception:  # noqa: BLE001
             pass
         finally:
@@ -205,6 +210,17 @@ class MonitorVideoMixin:
                 msg += f"（日志文件不可写: {sink.fallback_error}）"
             sink.close()
             return None, msg + (f": {tail}" if tail else "")
+
+        # 进程还活着，但日志里已经出现鉴权/连接错误：不要误判为推流成功
+        startup_error = ffmpeg_startup_error(sink.tail())
+        if startup_error:
+            try:
+                proc.terminate()
+                proc.wait(timeout=1)
+            except Exception:  # noqa: BLE001
+                proc.kill()
+            sink.close()
+            return None, f"推流启动失败（ffmpeg 报告错误）: {startup_error}"
 
         with self.video_lock:
             self.video_proc = proc
