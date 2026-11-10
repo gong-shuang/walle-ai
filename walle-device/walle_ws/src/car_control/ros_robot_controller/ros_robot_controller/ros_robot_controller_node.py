@@ -215,9 +215,9 @@ class RosRobotController(Node):
         if data != []:
             self.board.pwm_servo_set_position(msg.duration, data)
 
-    def get_pwm_servo_state(self, msg):
+    def get_pwm_servo_state(self, request, response):
         states = []
-        for i in msg.cmd:
+        for i in request.cmd:
             data = PWMServoState()
             if i.get_position:
                 state = self.board.pwm_servo_read_position(i.id)
@@ -228,7 +228,9 @@ class RosRobotController(Node):
                 if state is not None:
                     data.offset = state
             states.append(data)
-        return [True, states]
+        response.state = states
+        response.success = True
+        return response
 
     def set_bus_servo_position(self, msg):
         data = []

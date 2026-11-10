@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 11 | 10 |
-| **合计** | **58** | **44** | **14** |
+| P2 后续优化 | 21 | 12 | 9 |
+| **合计** | **58** | **45** | **13** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -259,10 +259,10 @@
   - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`main`）、`walle_ws/src/car_control/sonar_controller/sonar_controller/sonar_controller_node.py`（`main`）
   - 验收：AST 检查两个文件均为「类内 `rclpy.init` 0 次、`main` 内 1 次」；`py_compile` 通过；`colcon build` 后单节点启动正常，单进程同时构造 controller + sonar 运行 3s 未出现 `Context.init() must only be called once`
 
-- [ ] 🔴 **P2-2.6 修复 PWM 舵机状态服务**
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L163-L176 返回 list 而非 response，服务签名也不符
-  - 动作：改为 `(request, response)` 并填充 `response`
-  - 验收：`ros2 service call .../pwm_servo/get_state` 正常返回
+- [x] ✅ **P2-2.6 修复 PWM 舵机状态服务**
+  - 处理：`get_pwm_servo_state` 改为标准服务回调签名 `(request, response)`，遍历 `request.cmd` 后把结果写入 `response.state`、`response.success` 并返回 `response`，不再返回 `[True, states]` list
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`get_pwm_servo_state`）
+  - 验收：mock 冒烟返回同一 `response` 对象（`success=True`、`state` 含 1 项，position/offset 正确）；实车可再执行 `ros2 service call /ros_robot_controller/pwm_servo/get_state ros_robot_controller_msgs/srv/GetPWMServoState "{cmd: [{id: 1, get_position: 1, get_offset: 1}]}"` 复核
 
 - [ ] 🔴 **P2-2.7 修正 IMU 数据语义**
   - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L326-L341 orientation 恒 0 但 covariance 非 0
@@ -428,12 +428,16 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-2.3 | 未提交 | config.py 改为读 walle_ws/VERSION（env 优先）；新增版本解析与一致性单测；43 项 pytest 通过 | 待确认 |
 | 2026-11-10 | P2-2.4 | 未提交 | 上报开关改用 `_reception_enabled`，`enable_reception()` 保持方法；冒烟验证重复调用不抛 TypeError | 待确认 |
 | 2026-11-10 | P2-2.5 | 未提交 | 两个控制器节点移除构造函数内的 `rclpy.init()`，统一放到 main；colcon build 后单进程双节点组合验证通过 | 待确认 |
+| 2026-11-10 | P2-2.6 | 未提交 | `get_pwm_servo_state` 改为 `(request, response)` 并填充/返回 response；mock 冒烟通过 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-2.6 `get_pwm_servo_state` 改为标准 `(request, response)` 回调，
+  结果写入 `response.state` / `response.success` 后返回 `response`，修复服务调用
+  返回 list 导致的类型错误；mock 冒烟通过，实车建议再跑一次 `ros2 service call`。
 - 2026-11-10：P2-2.5 `ros_robot_controller` 与 `sonar_controller` 的构造函数不再
   调用 `rclpy.init()`，改由各自 `main()` 在创建节点前初始化一次；`colcon build`
   后单节点启动与单进程双节点组合均验证通过，无重复初始化。
