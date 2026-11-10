@@ -34,7 +34,7 @@
 | **合计** | **55** | **13** | **42** |
 
 > linux-demo 已开始按本清单整改（当前 13/55）；每次勾选后请同步更新本表数字。
-> P0-1.3 / P0-1.4 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`，待服务端实施验证。
+> P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
 
@@ -114,11 +114,11 @@
 
 ### P0-3 密钥与历史泄露
 
-- [ ] 🔴 **P0-3.1 全历史扫描并轮换已暴露凭据**
-  - 现状：当前 HEAD 即包含 `MQTT_PASSWORD=123456`、`RaspPi5`、`www.baidong.xyz`；历史提交 `054db6c` 明确「给 MQTT 服务默认配置值，仅用于演示」；迁移提交 `947f445` 删除的 `walle-ai.env.example` 也含域名与账号示例
-  - 动作：对全部历史执行 `git log --all -p --text`，扫描 `MQTT_PASSWORD`、`WHIP_SECRET`、`sk-`、`ALIYUN_API_KEY`、私钥/令牌特征；确认 `123456` / `RaspPi5` 是否为真实可用账号，若是立即在 Broker 改密并同步 App/设备；`WHIP_SECRET` 若曾以明文提交则重置；整改后增加提交前检查
-  - 验收：形成历史扫描报告；Broker 侧旧口令失效；`git grep -nE "MQTT_PASSWORD=|WHIP_SECRET="` 无真实值
-  - 证据：`main.py` L143-L146；`git log --all -S 'MQTT_PASSWORD'`、`-S 'www.baidong.xyz'`、`-S 'RaspPi5'`；commit `054db6c`、`947f445`
+- [ ] 🟡 **P0-3.1 全历史扫描并轮换已暴露凭据**
+  - 现状：历史扫描确认提交 `8f112d5` 的 README 明文写了 App 测试账号 `home` / `123456`；根 `README.md` 当前仍保留该行；`walle-device/scripts/walle-ai.conf`（本地真实配置，已被忽略）与 `web/car_ctl_by_mqtt.html` 也使用 `123456`；未发现 `sk-`、私钥或真实 `WHIP_SECRET`
+  - 动作：在 EMQX 修改/禁用 `home` 与设备账号口令，同步 App 与 `/etc/walle-ai.conf`；删除根 README 的明文密码；移除 web 测试页硬编码密码；增加提交前检查
+  - 验收：旧口令无法登录；`git grep -n "123456"` 无匹配；README / web 页无明文凭据
+  - 证据：commit `8f112d5`、`README.md` L111、`web/car_ctl_by_mqtt.html` L307、`walle-device/scripts/walle-ai.conf` L14（本地，不入库）
 
 ### P0-4 音视频流鉴权与隐私
 
@@ -479,6 +479,9 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：历史密钥扫描确认 `8f112d5` 的 README 明文写了 App 测试账号 `home` / `123456`；
+  根 `README.md` 仍保留该行，`web/car_ctl_by_mqtt.html` 与本地 `walle-device/scripts/walle-ai.conf`
+  也使用 `123456`。未发现 `sk-`、私钥或真实 `WHIP_SECRET`；需在 EMQX 改密并清理外部明文（P0-3.1）。
 - 2026-11-10：`main()` 在清理完成后 `logging.shutdown()` + `os._exit(0)`，不再等待非 daemon
   线程池；systemd 模板增加 `TimeoutStopSec=10` / `KillMode=control-group`（P0-5.2）。
 - 2026-11-10：ffmpeg 与 WHEP 播放器 Popen 增加 `PR_SET_PDEATHSIG`，主进程崩溃/被
@@ -544,7 +547,7 @@ python3 walle-device/linux-demo/main.py --check
 | --- | --- | --- | --- |
 | S1 | P0-1.3 / P0-1.4 | EMQX 创建每台设备独立账号 `dev_<device_id>`；按 `doc/service_deploy.md` §10 配置 ACL、`{deny, all}.`，并启用 §10.2 审计规则 | §10.1 四条命令：App 允许、设备 A 跨设备订阅/发布被拒；`walle/audit/#` 能收到动作来源与时间 |
 | S2 | P0-1.4 | 把 EMQX 审计动作接到日志系统（Republish 或 Webhook） | 触发一次 video/phone audio 动作后可按 `request_id` 追溯 |
-| S3 | P0-3.1 | 确认历史中的 `RaspPi5` / `123456` 是否为真实 Broker 账号；若是，在 EMQX 改密并同步 `/etc/walle-ai.conf` 与 App | 旧口令无法登录；`git log --all -p --text` 扫描报告留档 |
+| S3 | P0-3.1 | **已确认**历史 README 暴露 App 测试账号 `home` / `123456`；本地 `scripts/walle-ai.conf` 与 `web/car_ctl_by_mqtt.html` 也使用该口令；在 EMQX 改密/禁用测试账号，同步 App 与设备配置 | 旧口令无法登录；`git grep -n "123456"` 无匹配 |
 | S4 | P0-4.1 | 在 8443 配置 Nginx `secure_link`（`doc/service_deploy.md` §6.2）；生成 `PHONE_AUDIO_WHEP_SECRET`；安全组放行 8443/tcp；设备配置写入 WHEP 模板/secret/path | 无 token 403、过期 410、正确 token 502；设备手机音频可出声 |
 | S5 | P0-2.3 / P1-1.2 | 安装 `/etc/walle-ai.conf`（root:root 600），按 README 部署 systemd 服务 | 普通用户不可读配置；`systemctl stop walle-ai` 5s 内退出；重启后自动上线 |
 | S6 | P0-4.2 / P0-5.1 / P0-5.2 | 按对应项整改完成后，在真实设备上验证摄像头 preflight、`kill -9` 子进程清理、systemd 停止耗时 | 非 USB 节点被拒；`kill -9` 后无 ffmpeg/播放器残留；stop 5s 内完成 |
