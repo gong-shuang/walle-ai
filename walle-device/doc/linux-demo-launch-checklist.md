@@ -29,11 +29,11 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
-| P1 上线前应修 | 18 | 13 | 5 |
+| P1 上线前应修 | 18 | 14 | 4 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **26** | **29** |
+| **合计** | **55** | **27** | **28** |
 
-> linux-demo 已开始按本清单整改（当前 26/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 27/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -229,10 +229,10 @@
 
 ### P1-5 测试与 CI
 
-- [ ] 🔴 **P1-5.1 远程命令移除回归测试**
-  - 动作：新增 `test/test_remote_cmd_removed.py`，断言 `subscriptions()` 不含 `cmd/exec`、`REQUEST_HANDLERS` 不含 `handle_cmd_exec`、`capabilities` 不含 `remote_cmd`，且包内源码不含 `shell=True` / `cmd/exec`
-  - 验收：本地 pytest 通过；CI 接入后任何回流都会失败
-  - 证据：ROS2 侧同类测试 `walle-device/ros2_ws/src/net/net_mqtt_bridge/test/test_remote_cmd_removed.py`
+- [x] ✅ **P1-5.1 远程命令移除回归测试**
+  - 处理：新增 `linux-demo/test/`（`__init__.py`、`conftest.py`）与 `test_remote_cmd_removed.py`：断言 `subscriptions()` 为 7 个主题且不含 `cmd/exec`、`cmd/result`，`REQUEST_HANDLERS` 不含 `handle_cmd_exec`，`build_capability` 源码不含 `remote_cmd`，`main.py` / `whep_audio_player.py` 不含 `cmd/exec`、`cmd/result`、`remote_cmd`、`handle_cmd_exec`、`shell=True`
+  - 验收：`cd linux-demo && python3 -m unittest discover -s test -t .` 通过（当前 19 项）；pytest 环境同样可发现（unittest 类）
+  - 证据：`linux-demo/test/test_remote_cmd_removed.py`、`linux-demo/test/conftest.py`
 
 - [ ] 🔴 **P1-5.2 协议与配置单元测试**
   - 动作：覆盖 `sanitize_segment`（与 Android `TopicNames` 一致）、`device_topic`、`subscriptions` 主题配对、`verify_uuid`、`VIDEO_ROOM_PATTERN`（含 `../`、超长、空值）、`mask_rtmp_url`、`resolve_device_id` 落盘/复用/换 MAC、TLS 判定、`validate_config` 缺失项
