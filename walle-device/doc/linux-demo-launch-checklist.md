@@ -29,11 +29,11 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
-| P1 上线前应修 | 18 | 9 | 9 |
+| P1 上线前应修 | 18 | 10 | 8 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **22** | **33** |
+| **合计** | **55** | **23** | **32** |
 
-> linux-demo 已开始按本清单整改（当前 22/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 23/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -200,11 +200,10 @@
   - 验收：mock「pactl 返回 1 + 无 XDG_RUNTIME_DIR」输出「音频会话不可用…」提示；pactl 正常或无 pactl 时返回 None（不误报）；模板渲染后 `systemd-analyze verify` 通过；真机按文档配置后可录音/放音待验证
   - 证据：`main.py` L1443-L1455、L2911-L2913；`README.md`「音频会话」；`walle-ai.service.example` L29-L31
 
-- [ ] 🔴 **P1-3.4 摄像头节点变化与能力刷新**
-  - 现状：`capability/query` 每次实时探测（结果最新但慢）；推流使用 App 传入的 `/dev/videoN`，重新插拔后编号可能变化；旧节点 start 只返回「设备节点不存在」
-  - 动作：推流失败时返回当前可用摄像头列表；USB 插拔事件（`check_usb`）触发能力缓存失效；可选 udev 固定 `/dev/walle-camera`
-  - 验收：重新插拔后重新查询 capability 能拿到新节点；对旧节点 start 返回新节点列表与明确原因
-  - 证据：`main.py` L1577-L1591、L1925-L1946、L926-L986
+- [x] ✅ **P1-3.4 摄像头节点变化与能力刷新**
+  - 处理：新增 `cameras_cached()`（`CAMERA_CACHE_TTL=10s`）供 `capability/query` 复用探测结果；`check_usb()` 检测到 USB 接入/拔出时调用 `invalidate_camera_cache()` 立即失效；`video/start` 的设备不存在或 preflight 失败时，结果新增 `cameras` 列表（`node`/`name`），便于 App 重新选择；`CAMERA_DEVICE` 固定设备沿用 udev 符号链接方案
+  - 验收：连续两次 `capability` 只调用一次 `list_cameras()`；手动失效后重新探测；USB 变化后缓存为 None；`camera_nodes()` 返回当前节点；失败结果包含 `cameras` 列表（真实插拔待实机验证）
+  - 证据：`main.py` L431-L432、L1943-L1964、L1971、L1828-L1830、L2260-L2271；`README.md` 常见问题
 
 - [ ] 🔴 **P1-3.5 推流/播放缺少租约与空闲回收**
   - 现状：`video/start` 与 `phone/audio/send` 没有过期时间；App 崩溃/断网后设备会一直推流或播放；MQTT 断连不会停止流；WHEP 播放器在 track 停滞时只持续 0.5s 超时循环，不会自行退出
@@ -471,6 +470,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：摄像头能力增加 10s 缓存，USB 插拔立即失效；`video/start` 失败时回传
+  当前 `cameras` 节点列表，便于 App 重新选择（P1-3.4）。
 - 2026-11-10：启动增加音频会话探测 `audio_session_hint()`，pactl 连不上时给出
   XDG_RUNTIME_DIR / linger / 用户级服务建议；README 新增「音频会话」章节（P1-3.3）。
 - 2026-11-10：推流/手机音频看护线程区分主动停止、被新流替换与非主动退出；非主动退出发

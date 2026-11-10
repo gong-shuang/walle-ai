@@ -201,4 +201,4 @@ python3 -m unittest test_version -v
 | Broker 不可达 | 进程不会退出，按 3s→30s 持续重试；首次连接并订阅成功时日志出现 `STARTUP READY` |
 | 推流失败 | 确认 `ffmpeg` 已安装、`v4l2-ctl -d <设备> --list-formats-ext` 支持 640x480；查看 `log/ffmpeg_*.log` |
 | 手机音频无声音 | 确认 `libportaudio2` 已安装，`aplay -l` / `pactl list short sinks` 能看到声卡 |
-| 摄像头节点不对 | 用 udev 符号链接并设置 `CAMERA_DEVICE=/dev/walle-camera`；preflight 会拒绝 ISP/解码等非采集节点 |
+| 摄像头节点不对 | 用 udev 符号链接并设置 `CAMERA_DEVICE=/dev/walle-camera`；`video/start` 失败结果会带回当前 `cameras` 列表 |

@@ -429,6 +429,7 @@ SKIP_FSTYPE = {"tmpfs", "devtmpfs", "squashfs", "iso9660", "overlay", "aufs", "f
 
 # ---- 摄像头能力探测（v4l2-ctl，需要 sudo apt install -y v4l-utils）----
 CAM_CMD_TIMEOUT = 8                      # 单条 v4l2-ctl 命令超时（秒）
+CAMERA_CACHE_TTL = 10.0                  # 摄像头能力缓存（秒）；USB 插拔时立即失效
 CAM_ENABLE = _env_flag("CAM_ENABLE", True)   # 不需要摄像头能力查询时置 False
 
 # ---- 视频推流（video/start，ffmpeg -> RTMP）----
@@ -1652,6 +1653,9 @@ class RpiMonitor:
         self.audio_meta = {}
         # 最近一次非主动停止的手机音频播放；重新开始播放后发 recover 并清空
         self.audio_lost = None
+        # 摄像头能力缓存：(过期时间, cameras, error)；USB 插拔事件会清空
+        self._camera_cache = None
+        self._camera_cache_lock = threading.Lock()
         # 上一次应答 discovery 的时间（单调时钟），用于限频
         self._last_discovery_at = 0.0
         self.startup_ready = False   # 首次连上 Broker 并订阅后置位，用于 STARTUP READY
@@ -1821,6 +1825,9 @@ class RpiMonitor:
         current = scan_usb_devices()
         added = sorted(set(current) - set(self.usb_state))
         removed = sorted(set(self.usb_state) - set(current))
+        if added or removed:
+            # 摄像头节点编号可能随插拔变化，立即失效缓存，下一次 capability 重新探测
+            self.invalidate_camera_cache("USB 设备变化")
         for key in added:
             self._event("usb_connect", "info", "usb", "usb_connect",
                         f"USB 设备接入：{current[key].get('product') or key}",
@@ -1936,12 +1943,35 @@ class RpiMonitor:
 
     # ---------- capability/query 设备能力查询（摄像头/麦克风/音响等外设） ----------
 
+    def cameras_cached(self):
+        """摄像头探测结果缓存：capability/query 不再每次都跑 v4l2-ctl；USB 插拔时失效。"""
+        now = time.time()
+        with self._camera_cache_lock:
+            if self._camera_cache and self._camera_cache[0] > now:
+                return self._camera_cache[1], self._camera_cache[2]
+        cameras, error = list_cameras()
+        with self._camera_cache_lock:
+            self._camera_cache = (time.time() + CAMERA_CACHE_TTL, cameras, error)
+        return cameras, error
+
+    def invalidate_camera_cache(self, reason=""):
+        with self._camera_cache_lock:
+            had_cache = self._camera_cache is not None
+            self._camera_cache = None
+        if had_cache and reason:
+            logging.info("摄像头能力缓存已失效：%s", reason)
+
+    def camera_nodes(self):
+        """当前可用采集节点（推流失败时回给 App，便于重新选择）。"""
+        cameras, _ = self.cameras_cached()
+        return [{"node": c["node"], "name": c["name"]} for c in cameras]
+
     def build_capability(self):
         """采集本机外设能力（摄像头 + 麦克风 + 音响），生成 capability/result 报文"""
         t0 = time.time()
         cameras, cam_error = ([], "摄像头能力探测已关闭（CAM_ENABLE=False）")
         if CAM_ENABLE:
-            cameras, cam_error = list_cameras()
+            cameras, cam_error = self.cameras_cached()
         capture = probe_audio_capture()
         playback = probe_audio_playback()
         cost_ms = int((time.time() - t0) * 1000)
@@ -2230,12 +2260,14 @@ class RpiMonitor:
         if not video_device or not os.path.exists(video_device):
             self._publish_video_result(
                 req, -1, "没有此摄像头设备",
-                {"error": f"设备节点不存在: {video_device or '<空>'}"})
+                {"error": f"设备节点不存在: {video_device or '<空>'}",
+                 "cameras": self.camera_nodes()})
             return
         ok_cam, cam_error = camera_preflight(video_device)
         if not ok_cam:
             self._publish_video_result(
-                req, -1, "没有此摄像头设备", {"error": cam_error})
+                req, -1, "没有此摄像头设备",
+                {"error": cam_error, "cameras": self.camera_nodes()})
             return
 
         # 2) 房间号白名单（要拼进 RTMP URL，必须严格校验）
