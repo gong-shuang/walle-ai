@@ -29,11 +29,11 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
-| P1 上线前应修 | 18 | 4 | 14 |
+| P1 上线前应修 | 18 | 5 | 13 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **17** | **38** |
+| **合计** | **55** | **18** | **37** |
 
-> linux-demo 已开始按本清单整改（当前 17/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 18/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -173,11 +173,10 @@
 
 ### P1-2 进程守护与启动可靠性
 
-- [ ] 🔴 **P1-2.1 启动健康检查与 Broker 不可达重试**
-  - 现状：`client.connect()` 首次失败直接抛异常退出，依赖 systemd 反复重启；没有就绪标记；启动前不检查 `ffmpeg` / `v4l2-ctl` / `pactl` / 播放器脚本是否存在
-  - 动作：实现「配置校验 → 依赖检查 → 连接 Broker（带指数退避或 paho 重连）→ 订阅成功 → 打印 `STARTUP READY`」；缺失可选依赖时告警但不阻塞；`--check` 覆盖依赖检查
-  - 验收：Broker 不可达时日志持续重试而不是快速 crash-loop；Broker 恢复后自动上线；冷启动日志出现 `STARTUP READY`；缺失 ffmpeg 时 capability 明确反映推流不可用
-  - 证据：`main.py` L2685-L2727、L2780-L2803
+- [x] ✅ **P1-2.1 启动健康检查与 Broker 不可达重试**
+  - 处理：改为 `connect_async` + `loop_start`，Broker 不可达时按 `reconnect_delay_set(3s→30s)` 在后台持续重试，进程不再因首次连接失败退出；新增 `on_connect_fail` 日志；首次连接并订阅后打印 `STARTUP READY`（含 broker/device/version）；新增 `dependency_status()` / `dependency_warnings()`，启动与 `--check` 检查 `ffmpeg`、`v4l2-ctl`、`pactl`、`whep_audio_player.py`，缺失只告警；`build_capability()` 在缺 ffmpeg 时不再上报 `rtmp_push`，并在 `probe.missing_dependencies` 列出缺失项
+  - 验收：Broker 指向 `127.0.0.1:1` 运行 9s，进程保持运行并周期性输出连接失败日志（无 traceback、无 crash-loop）；mock `on_connect` 输出 `STARTUP READY` 且 `startup_ready=True`；移除 ffmpeg 依赖后 capability 为 `['system_status']` 且 `missing_dependencies=['ffmpeg']`；`--check` 输出版本、依赖检查与 7 条订阅主题
+  - 证据：`main.py` L1408-L1433、L1645-L1664、L1903-L1914、L2791-L2792、L2812-L2815、L2833-L2838、L2915-L2918；`README.md`「自检」与常见问题
 
 - [ ] 🔴 **P1-2.2 断线重连、LWT 与发布失败处理**
   - 现状：`clean_session=True` 每次重连重新订阅，LWT 使用 retained offline；但 `_publish_one()` 不检查 `publish()` 返回码，断线期间的动作结果可能静默丢失；`on_connect` 失败只记录 reason_code
@@ -476,6 +475,9 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：启动改为 `connect_async` + `loop_start`，Broker 不可达时持续重试不退出；
+  首次连接/订阅后打印 `STARTUP READY`；`--check` 增加依赖检查，缺 ffmpeg 时 capability
+  不再上报 `rtmp_push`（P1-2.1）。
 - 2026-11-10：版本号读取增加来源追踪与告警（P1-1.4）：`--check` 打印版本/来源，未找到
   `VERSION` 时告警；新增 `linux-demo/test_version.py`（环境变量 > 文件 > 默认值，4 项通过）。
 - 2026-11-10：恢复 `linux-demo/requirements.txt`（paho-mqtt / psutil / aiortc / sounddevice），

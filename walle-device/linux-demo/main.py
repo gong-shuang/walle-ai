@@ -60,6 +60,7 @@ import os
 import platform
 import random
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -1404,6 +1405,34 @@ def media_config_warnings():
     return warnings
 
 
+def dependency_status():
+    """外部依赖检查：返回 [{name, path, ok, impact}]，只告警不阻塞启动。"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    items = [
+        ("ffmpeg", VIDEO_FFMPEG_BIN, "视频推流不可用"),
+        ("v4l2-ctl", "v4l2-ctl", "摄像头能力探测不可用"),
+        ("pactl", VIDEO_PACTL_BIN, "音频采集源探测不可用"),
+    ]
+    status = []
+    for name, exe, impact in items:
+        path = shutil.which(exe)
+        status.append({"name": name, "path": path, "ok": bool(path), "impact": impact})
+    player = os.path.join(here, "whep_audio_player.py")
+    player_ok = os.path.isfile(player)
+    status.append({
+        "name": "whep_audio_player.py",
+        "path": player if player_ok else None,
+        "ok": player_ok,
+        "impact": "手机麦上行不可用",
+    })
+    return status
+
+
+def dependency_warnings():
+    return [f"未找到 {item['name']}（{item['impact']}）"
+            for item in dependency_status() if not item["ok"]]
+
+
 def video_log_path():
     """解析 ffmpeg 日志文件路径：支持 {time} 占位符，相对路径按当前工作目录解析"""
     name = VIDEO_LOG_FILE.replace("{time}", time.strftime("%Y%m%d_%H%M%S"))
@@ -1599,6 +1628,7 @@ class RpiMonitor:
         self.audio_meta = {}
         # 上一次应答 discovery 的时间（单调时钟），用于限频
         self._last_discovery_at = 0.0
+        self.startup_ready = False   # 首次连上 Broker 并订阅后置位，用于 STARTUP READY
 
     def _will_message(self):
         """遗嘱消息：掉线时由 broker 代发 offline 到 walle/{t}/{d}/v1/online。"""
@@ -1619,8 +1649,16 @@ class RpiMonitor:
                          len(subs), len(self.usb_state))
             for t, _ in subs:
                 logging.info("  · %s", t)
+            if not self.startup_ready:
+                self.startup_ready = True
+                logging.info("STARTUP READY broker=%s:%s device=%s version=%s",
+                             MQTT_HOST, MQTT_PORT, sanitize_segment(DEVICE_ID), VERSION_NAME)
         else:
             logging.error("MQTT 连接失败，原因码: %s", reason_code)
+
+    def on_connect_fail(self, client, userdata):
+        logging.warning("MQTT 连接 Broker 失败（%s:%s），按重连间隔继续重试",
+                        MQTT_HOST, MQTT_PORT)
 
     def on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         logging.warning("MQTT 连接断开（reason_code=%s），paho 将自动重连", reason_code)
@@ -1875,10 +1913,13 @@ class RpiMonitor:
         total_resolutions = sum(c["resolution_count"] for c in cameras)
 
         # 能力清单如实反映探测结果：App 按它显隐功能入口
+        deps = dependency_status()
+        missing_deps = [d["name"] for d in deps if not d["ok"]]
+        ffmpeg_ok = "ffmpeg" not in missing_deps
         capabilities = ["system_status"]
         if cameras:
             capabilities.append("camera_video_capture")
-        if VIDEO_ENABLE:
+        if VIDEO_ENABLE and ffmpeg_ok:
             capabilities.append("rtmp_push")
         if capture["available"]:
             capabilities.append("audio_capture")
@@ -1910,6 +1951,7 @@ class RpiMonitor:
                 "tool": "v4l2-ctl + pactl",
                 "error": cam_error,          # None 表示摄像头探测正常
                 "audio_error": capture["reason"] or playback["reason"],
+                "missing_dependencies": missing_deps,
             },
             "timestamp": now_ts(),
             "datetime": now_str(),
@@ -2746,6 +2788,8 @@ class RpiMonitor:
         logging.info("协议 v1: tenant=%s device=%s broker=%s:%s",
                      sanitize_segment(MQTT_TENANT), sanitize_segment(DEVICE_ID),
                      MQTT_HOST, MQTT_PORT)
+        for warning in dependency_warnings():
+            logging.warning("依赖缺失: %s", warning)
         if sanitize_segment(MQTT_TENANT) == sanitize_segment(MQTT_USER):
             logging.warning(
                 "租户与 MQTT 用户名相同（%s）。如果手机 App 用的是另一个账号登录，"
@@ -2766,6 +2810,7 @@ class RpiMonitor:
         )
         logging.info("遗嘱(LWT)主题: %s", will_topic)
         self.client.on_connect = self.on_connect
+        self.client.on_connect_fail = self.on_connect_fail
         self.client.on_disconnect = self.on_disconnect
         self.client.on_message = self.on_message
         self.client.reconnect_delay_set(min_delay=3, max_delay=30)
@@ -2785,8 +2830,12 @@ class RpiMonitor:
         else:
             logging.warning("调试模式：使用明文 MQTT 连接 %s:%s（WALLE_RUNTIME_ENV=%s）",
                             MQTT_HOST, MQTT_PORT, WALLE_RUNTIME_ENV)
-        self.client.connect(MQTT_HOST, MQTT_PORT, MQTT_KEEPALIVE)
+        # connect_async + loop_start：Broker 不可达时由 paho 按 reconnect_delay_set
+        # （3s → 30s）在后台持续重试，进程不会快速退出形成 systemd crash-loop；
+        # 连上后在 on_connect 中订阅并打印 STARTUP READY。
+        self.client.connect_async(MQTT_HOST, MQTT_PORT, MQTT_KEEPALIVE)
         self.client.loop_start()
+        logging.info("正在连接 Broker（异步，失败自动重试）...")
 
         try:
             self.monitor_loop()
@@ -2863,6 +2912,10 @@ def print_config_check():
         print("\n== 配置警告 ==")
         for warn in warnings:
             print(f"  - {warn}")
+    print("\n== 依赖检查 ==")
+    for item in dependency_status():
+        state = item["path"] if item["ok"] else f"未找到（{item['impact']}）"
+        print(f"  {item['name']}: {state}")
     return errors
 
 

@@ -79,7 +79,8 @@ cd ~/walle-ai/walle-device/linux-demo
 ```
 
 期望输出 `== 配置检查通过 ==` 与 7 条订阅主题，退出码 0；失败时逐条列出缺失/非法项，退出码 1。
-`--check` 只解析配置，不连接 Broker、不写设备标识文件。
+`--check` 只解析配置，不连接 Broker、不写设备标识文件；末尾的「依赖检查」会列出
+`ffmpeg` / `v4l2-ctl` / `pactl` / `whep_audio_player.py`，缺失只告警、不阻塞启动。
 
 摄像头单独确认（推流前还会自动 preflight）：
 
@@ -177,6 +178,7 @@ python3 -m unittest test_version -v
 | 正式启动退出码 2 | 配置校验失败（必填项、端口、TLS、CA、模板占位符），按日志逐条修复 |
 | `Permission denied` 读取 `/etc/walle-ai.conf` | 正常：生产配置仅 root 可读，由 systemd 注入；调试用同级 `walle-ai.conf` |
 | 服务启动失败 | `journalctl -u walle-ai -n 50`；常见原因是缺少 `/etc/walle-ai.conf` |
+| Broker 不可达 | 进程不会退出，按 3s→30s 持续重试；首次连接并订阅成功时日志出现 `STARTUP READY` |
 | 推流失败 | 确认 `ffmpeg` 已安装、`v4l2-ctl -d <设备> --list-formats-ext` 支持 640x480；查看 `log/ffmpeg_*.log` |
 | 手机音频无声音 | 确认 `libportaudio2` 已安装，`aplay -l` / `pactl list short sinks` 能看到声卡 |
 | 摄像头节点不对 | 用 udev 符号链接并设置 `CAMERA_DEVICE=/dev/walle-camera`；preflight 会拒绝 ISP/解码等非采集节点 |
