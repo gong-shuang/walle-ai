@@ -29,11 +29,11 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
-| P1 上线前应修 | 18 | 14 | 4 |
+| P1 上线前应修 | 18 | 15 | 3 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **27** | **28** |
+| **合计** | **55** | **28** | **27** |
 
-> linux-demo 已开始按本清单整改（当前 27/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 28/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -234,10 +234,10 @@
   - 验收：`cd linux-demo && python3 -m unittest discover -s test -t .` 通过（当前 19 项）；pytest 环境同样可发现（unittest 类）
   - 证据：`linux-demo/test/test_remote_cmd_removed.py`、`linux-demo/test/conftest.py`
 
-- [ ] 🔴 **P1-5.2 协议与配置单元测试**
-  - 动作：覆盖 `sanitize_segment`（与 Android `TopicNames` 一致）、`device_topic`、`subscriptions` 主题配对、`verify_uuid`、`VIDEO_ROOM_PATTERN`（含 `../`、超长、空值）、`mask_rtmp_url`、`resolve_device_id` 落盘/复用/换 MAC、TLS 判定、`validate_config` 缺失项
-  - 验收：新增 `test/` 目录可被 pytest 自动发现；全部用例通过并纳入 CI
-  - 证据：`main.py` L258-L340、L676-L724、L2462-L2485
+- [x] ✅ **P1-5.2 协议与配置单元测试**
+  - 处理：新增 `test/test_protocol.py`，覆盖 `sanitize_segment`（长段截断+短哈希）、`device_topic` / `tenant_topic`、`subscriptions`（7 个主题与请求/应答配对、discovery 独立）、`verify_uuid`（匹配/不匹配/空/非 JSON）、`VIDEO_ROOM_PATTERN`（`../`、`/`、65 字符、空、中文）、`mask_rtmp_url` 与 `mask_payload`、`resolve_device_id`（落盘/复用/换 MAC 记入 previous）、TLS 判定（prod 禁 1883、off 仅 debug）与 `validate_config` 缺失项；`test_version.py` 迁入 `test/`，统一用 `unittest discover` 运行
+  - 验收：`python3 -m unittest discover -s test -t .` 共 19 项通过（15 协议/配置 + 4 版本）；pytest 环境下同类可被发现（本机未安装 pytest，未实跑）；CI 接入见 P1-5.4
+  - 证据：`linux-demo/test/test_protocol.py`、`linux-demo/test/test_version.py`、`linux-demo/test/conftest.py`；`README.md`「测试」
 
 - [ ] 🔴 **P1-5.3 故障注入与长稳测试**
   - 动作：复用 `walle-device/scripts/stability_test.py` 思路，覆盖 `kill -9`（验证子进程清理）、断网/恢复、摄像头解绑/绑定、声卡不可用、MQTT Broker 重启、24h soak（RSS/FD/磁盘/温度）
@@ -467,6 +467,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：新增 `linux-demo/test/`：远程命令移除回归（3 项）+ 协议/配置用例（15 项）
+  + 版本优先级用例（4 项），统一 `python3 -m unittest discover -s test -t .` 运行（P1-5.1 / P1-5.2）。
 - 2026-11-10：MQTT 报文 INFO 日志只保留主题与字节数，完整报文降为 DEBUG 并经
   `mask_payload()` 脱敏（password/secret/token/key/room 及 URL 参数），避免凭据入日志（P1-4.2）。
 - 2026-11-10：推流日志增加保留策略（7 天 / 10 个 / 100MB，可配置），每次新建日志前

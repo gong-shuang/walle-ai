@@ -13,7 +13,7 @@
 | `walle-ai.conf.example` | 配置模板 |
 | `walle-ai.service.example` | systemd 单元模板（由 `deploy.sh` 渲染） |
 | `deploy.sh` | 部署脚本：配置检查、安装配置与服务 |
-| `test_version.py` | 版本号读取优先级测试 |
+| `test/` | 单元测试（unittest / pytest） |
 
 ## 首次部署
 
@@ -185,12 +185,18 @@ sudo systemctl restart walle-ai
 - 与 App `versionName` 的同步要求见
   [`doc/version_record.md`](../../../doc/version_record.md)。
 
-版本读取逻辑的测试（需先安装 requirements）：
+版本读取逻辑包含在「测试」章节的用例中。
+
+## 测试
 
 ```bash
 cd ~/walle-ai/walle-device/linux-demo
-python3 -m unittest test_version -v
+python3 -m unittest discover -s test -t . -v
+# 已安装 pytest 时也可：python3 -m pytest test -q
 ```
+
+测试不连接 Broker、不访问摄像头，覆盖主题命名与配对、UUID 校验、房间号白名单、
+报文脱敏、设备标识落盘复用、配置校验与远程命令移除回归。
 
 ## 常见问题
 
