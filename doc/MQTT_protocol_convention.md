@@ -247,7 +247,9 @@ App 侧重复 online 不去重（幂等）。
 
 ### 4.3 状态查询 state/query → state/result
 
-**作用**：拉取设备实时运行状态（一次约 1 秒的采样），驱动状态页所有卡片。
+**作用**：拉取设备运行状态，驱动状态页所有卡片。CPU/网络数据复用监控循环的
+最近一次采样（`MONITOR_INTERVAL`，默认 5s），USB 列表复用 `check_usb` 的维护结果，
+**查询路径不再阻塞采样**；内存/磁盘/推流/告警在应答时读取。
 
 - 请求：`walle/{t}/{d}/v1/state/query`
 - 应答：`walle/{t}/{d}/v1/state/result`
@@ -263,7 +265,7 @@ App 侧重复 online 不去重（幂等）。
 
 | 分组 | 字段 |
 |---|---|
-| 顶层 | `device_id`、`uuid`、`hostname`、`version_code`、`version_name`、`ip`、`timestamp`、`datetime`、`uptime_seconds`、`request_id` |
+| 顶层 | `device_id`、`uuid`、`hostname`、`version_code`、`version_name`、`ip`、`timestamp`、`datetime`、`uptime_seconds`、`sample_age_sec`、`request_id` |
 | `system` | `os`、`kernel`、`os_version`、`python`、`machine`、`model` |
 | `cpu` | `percent`（总）、`per_core_percent[]`（各核）、`count_logical/physical`、`load_avg_1m/5m/15m`、`frequency_mhz{current,min,max}`、`temperature_c`、`sample_interval_sec` |
 | `memory` | `percent`、`total/used/available/free_bytes` + `*_human`、`swap{percent,total_bytes,used_bytes,total_human,used_human}`（无 swap 时为 null） |
@@ -271,6 +273,10 @@ App 侧重复 online 不去重（幂等）。
 | `network` | `sample_interval_sec`、`total_rx/tx_bytes_per_sec`、`total_rx/tx_rate`（可读）、`interfaces[]`（每网卡 rx/tx 速率） |
 | `usb` | `count`、`devices[]` |
 | `video` | 推流状态（任务 1）：`streaming`、`room_number`、`video_device`、`audio`（推流时的音频信息，无音频/未推流为 null）、`pid`、`started_at`、`uptime_sec`；未推流时 `streaming=false` 且其余字段全为 null。数据来自推流时记录的 `video_meta`，ffmpeg 异常退出后看护线程清理，下一次查询即 `streaming=false` |
+
+**采样时效**：`cpu` / `network` 的 `sample_interval_sec` 是监控循环的实际采样周期；
+`sample_age_sec` 表示这份 CPU/网络数据距采样时刻的秒数（0 ~ 采样周期）。设备刚启动、
+监控尚未产出第一份快照时，查询会现场补采一次（约 0.2s）兜底。
 
 **video 分组的用途**：App 控制页进入时查一次状态，若 `video.streaming=true` 且
 `room_number`/`video_device` 齐全，直接用该房间号拼 WHEP 地址拉流，**自动接管设备正在
@@ -498,6 +504,19 @@ python3 linux/selftest_topics.py       # 设备端契约自检
 ---
 
 ## 8. 变更记录
+
+### 2026-11-10：state/query 改为复用监控采样快照
+
+**变更类型**：非破坏性增量（协议 v1 字段只增不改）。
+
+**原因**：`state/query` 原先在请求线程内阻塞 1s 采样，状态页刷新慢且占用请求线程。
+
+**变更内容**：`state/result` 新增顶层 `sample_age_sec`；CPU/网络数据复用监控循环
+最近一次采样，USB 列表复用 `check_usb` 的维护结果，查询不再阻塞采样。
+
+**影响与兼容性**：App 可忽略新增字段；CPU/网络数据最多滞后一个采样周期（默认 5s）。
+
+**验证方式**：`test/test_status_cache.py` 覆盖快照复用、无快照时兜底采样与查询 < 100ms。
 
 ### 2026-11-08 20:00（Asia/Shanghai, CST）：移除远程命令 cmd/exec → cmd/result
 

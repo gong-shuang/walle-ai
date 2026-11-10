@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 2 | 19 |
-| **合计** | **58** | **35** | **23** |
+| P2 后续优化 | 21 | 3 | 18 |
+| **合计** | **58** | **36** | **22** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -212,10 +212,10 @@
 
 ### P2-1 性能
 
-- [ ] 🔴 **P2-1.1 state/query 使用缓存快照**
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py` 的 `handle_query_status()`（L2484）每次查询阻塞 1s 采样
-  - 动作：复用 monitor_loop 的最近一次采样结果
-  - 验收：`state/query` 响应 < 100ms
+- [x] ✅ **P2-1.1 state/query 使用缓存快照**
+  - 处理：`monitor_loop` 每轮采样后写入 `status_sample`（各核 CPU、各网卡速率、采样间隔与时刻），USB 列表复用 `check_usb` 维护的 `usb_state`，`build_status()` 直接复用；连接 broker 前先补采一次，监控首轮采样提前到 1s（`STATUS_PRIME_INTERVAL`）；仅首份快照未建立时现场补采 0.2s 兜底。应答新增顶层 `sample_age_sec`
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py`（`_status_sample` / `_update_status_sample` / `build_status` / `monitor_loop`）
+  - 验收：`test/test_status_cache.py` 断言 `handle_query_status` 全程 < 100ms 且命中缓存时不调用 `sample_once`
 
 - [ ] 🔴 **P2-1.2 capability 探测异步/按需**
   - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py` 的 `handle_capability_query()`（L1747）在请求线程里跑 v4l2/pactl，可能数秒
@@ -418,6 +418,7 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P1-5.2 | 未提交 | 新增运动学/协议/房间号单测共 60 项，三包 pytest 通过；controller 历史 lint 失败不影响用例 | 待确认 |
 | 2026-11-09 | P1-5.3 | 未提交 | 新增 `stability_test.py`（kill/camera/network/soak）并完成冒烟；真机 24h 长稳待执行 | 待确认 |
 | 2026-11-09 | P1-5.4 | 未提交 | 新增 GitHub Actions `ci.yml`（lint + build-test）；本地按 CI 命令干净构建 15 包、63 项单测通过；分支保护待 GitHub 设置 | 待确认 |
+| 2026-11-10 | P2-1.1 | 未提交 | `build_status` 复用 monitor_loop 快照；单测断言 `state/query` < 100ms 且不现场采样 | 待确认 |
 |  |  |  |  |  |
 |  |  |  |  |  |
 
@@ -425,6 +426,10 @@ cd walle-device/scripts && ./start.sh
 
 ## 备注
 
+- 2026-11-10：P2-1.1 `state/query` 改为复用 `monitor_loop` 最近一次采样
+  （CPU/网络）与 `check_usb` 维护的 USB 列表，查询路径不再阻塞 1s；应答新增
+  `sample_age_sec`。连接 broker 前先补采一次、监控首轮采样提前到 1s，仅首份
+  快照未建立时现场补采 0.2s 兜底。
 - 本清单中的“证据”行号基于 2026-11-08 的工作区版本，代码变更后请同步核对。
 - 2026-11-08：P0-1.1~P0-1.3 已通过删除 `cmd/exec` / `cmd/result` 完成，详见
   `doc/MQTT_protocol_convention.md` §8 变更记录。

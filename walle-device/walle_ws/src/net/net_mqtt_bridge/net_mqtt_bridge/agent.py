@@ -353,6 +353,8 @@ def subscriptions():
 
 # ---- 监控阈值（均可用环境变量覆盖，写进 /etc/walle-ai.conf 即可）----
 MONITOR_INTERVAL = int(os.environ.get("MONITOR_INTERVAL", "5"))          # 采样周期（秒）
+# 首次采样提前到 1s 完成，让 state/query 尽快命中缓存（后续仍按 MONITOR_INTERVAL）
+STATUS_PRIME_INTERVAL = min(1.0, MONITOR_INTERVAL)
 THRESH_CPU = float(os.environ.get("THRESH_CPU", "90.0"))                 # CPU 使用率 %
 THRESH_MEM = float(os.environ.get("THRESH_MEM", "90.0"))                 # 内存使用率 %
 THRESH_DISK = float(os.environ.get("THRESH_DISK", "90.0"))               # 磁盘使用率 %
@@ -1435,6 +1437,10 @@ class RpiMonitor:
         self.audio_meta = {}
         # 上一次应答 discovery 的时间（单调时钟），用于限频
         self._last_discovery_at = 0.0
+        # state/query 快照：monitor_loop 每次采样后写入，查询直接复用，
+        # 避免每次查询都阻塞采样 1s（P2-1.1）
+        self.status_sample = None       # (cores, per_iface, total_rx, total_tx, interval, monotonic_ts)
+        self.status_sample_lock = threading.Lock()
 
     def _will_message(self):
         """遗嘱消息：掉线时由 broker 代发 offline 到 walle/{t}/{d}/v1/online。"""
@@ -2352,8 +2358,30 @@ class RpiMonitor:
             _, per_iface, total_rx, total_tx = calc_net_rates(prev, elapsed)
         return cores, per_iface, total_rx, total_tx, elapsed
 
+    def _status_sample(self):
+        """取 monitor_loop 最近一次采样；尚未产出时返回 None。"""
+        with self.status_sample_lock:
+            return self.status_sample
+
+    def _update_status_sample(self, cores, per_iface, total_rx, total_tx, interval):
+        """monitor_loop 每轮写入 state/query 快照（P2-1.1）。"""
+        sample = (cores, per_iface, total_rx, total_tx, interval, time.monotonic())
+        with self.status_sample_lock:
+            self.status_sample = sample
+
     def build_status(self):
-        cores, per_iface, total_rx, total_tx, interval = self.sample_once(1.0)
+        """
+        state/query 的状态快照。
+
+        P2-1.1：优先复用 monitor_loop 最近一次采样结果，查询路径不再阻塞采样；
+        监控尚未产出第一份快照（启动 1s 内或自检脚本）时才现场采样兜底。
+        """
+        sample = self._status_sample()
+        if sample is None:
+            cores, per_iface, total_rx, total_tx, interval = self.sample_once(0.2)
+            sampled_at = time.monotonic()
+        else:
+            cores, per_iface, total_rx, total_tx, interval, sampled_at = sample
 
         vm = psutil.virtual_memory()
         sw = None
@@ -2369,7 +2397,8 @@ class RpiMonitor:
             freq = psutil.cpu_freq()
         except (OSError, RuntimeError, SystemError):
             freq = None
-        usb = scan_usb_devices()
+        # USB 列表由 monitor_loop 的 check_usb 每轮刷新，查询直接复用（≤1 个采样周期）
+        usb = dict(self.usb_state)
 
         return {
             "device_id": DEVICE_ID,
@@ -2381,6 +2410,8 @@ class RpiMonitor:
             "timestamp": now_ts(),
             "datetime": now_str(),
             "uptime_seconds": int(time.time() - psutil.boot_time()),
+            # CPU/网络数据距采样时刻的秒数（其余分组为应答时实时读取）
+            "sample_age_sec": round(max(time.monotonic() - sampled_at, 0.0), 1),
             "system": {
                 "os": platform.system(),
                 "kernel": platform.release(),
@@ -2532,9 +2563,13 @@ class RpiMonitor:
             psutil.cpu_percent(percpu=True)
         prev_net = net_snapshot()
         prev_t = time.time()
+        first = True
 
         while not self.stop_event.is_set():
-            if self.stop_event.wait(MONITOR_INTERVAL):
+            # 首次采样提前到 1s，让 state/query 尽快命中缓存
+            wait = STATUS_PRIME_INTERVAL if first else MONITOR_INTERVAL
+            first = False
+            if self.stop_event.wait(wait):
                 break
             now = time.time()
             elapsed = max(now - prev_t, 0.1)
@@ -2545,8 +2580,10 @@ class RpiMonitor:
             mem = psutil.virtual_memory()
             mounts = disk_mounts()
             temp = get_cpu_temp()
-            prev_net, _ifaces, rx_rate, tx_rate = calc_net_rates(prev_net, elapsed)
+            prev_net, ifaces, rx_rate, tx_rate = calc_net_rates(prev_net, elapsed)
             prev_t = now
+            # 先更新查询快照，再做阈值/USB 判断（查询路径直接复用本次采样）
+            self._update_status_sample(cores, ifaces, rx_rate, tx_rate, elapsed)
 
             # 1) 阈值类告警
             self.check_threshold("cpu_high", cpu, THRESH_CPU, "cpu", "cpu_high",
@@ -2600,6 +2637,12 @@ class RpiMonitor:
                 "请在 /etc/walle-ai.conf 里设置 MQTT_TENANT=<App 的登录用户名>，"
                 "否则 App 订阅 walle/<App用户名>/# 时收不到本设备的报文。",
                 sanitize_segment(MQTT_TENANT))
+        # P2-1.1：连接 broker 前先填充一次状态快照，保证上线后的首个 state/query 也能立即响应
+        try:
+            sample = self.sample_once(0.2)
+            self._update_status_sample(*sample)
+        except Exception:
+            logging.exception("启动采样失败，state/query 将退化为现场采样")
         # clean_session=True：每次连接都重新订阅，改了请求主题名也不会残留旧订阅
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
                                   client_id=DEVICE_ID, clean_session=True)
