@@ -419,6 +419,8 @@ QUERY_WORKERS = int(os.environ.get("QUERY_WORKERS", "2"))
 ACTION_WORKERS = int(os.environ.get("ACTION_WORKERS", "2"))
 QUERY_QUEUE_LIMIT = int(os.environ.get("QUERY_QUEUE_LIMIT", "16"))
 ACTION_QUEUE_LIMIT = int(os.environ.get("ACTION_QUEUE_LIMIT", "4"))
+# 设备身份缓存刷新周期（秒）：online/LWT 只读缓存，磁盘扫描放到监控线程
+IDENTITY_CACHE_TTL = int(os.environ.get("IDENTITY_CACHE_TTL", "60"))
 THRESH_CPU = float(os.environ.get("THRESH_CPU", "90.0"))                 # CPU 使用率 %
 THRESH_MEM = float(os.environ.get("THRESH_MEM", "90.0"))                 # 内存使用率 %
 THRESH_DISK = float(os.environ.get("THRESH_DISK", "90.0"))               # 磁盘使用率 %
@@ -1772,6 +1774,9 @@ class RpiMonitor:
         self.capability_lock = threading.Lock()
         self.capability_ready = threading.Event()
         self.capability_refresh = threading.Event()
+        # 设备身份缓存：online/LWT 只读缓存或轻量采集，不扫描可能卡死的网络挂载
+        self.identity_cache = None
+        self.identity_lock = threading.Lock()
         self.startup_ready = False   # 首次连上 Broker 并订阅后置位，用于 STARTUP READY
         self.disconnected_at = None  # 断连起始时间；用于长时间断连后回收推流/播放
 
@@ -1986,9 +1991,34 @@ class RpiMonitor:
 
     # ---------- identity 设备身份信息 ----------
 
-    def build_device_info(self):
+    def refresh_identity_cache(self):
+        """监控线程刷新完整身份（含磁盘扫描），供 online/LWT 复用。"""
+        try:
+            info = self.build_device_info(include_disk=True)
+        except Exception:
+            logging.exception("刷新设备身份缓存失败")
+            return
+        with self.identity_lock:
+            self.identity_cache = info
+
+    def _online_info(self):
+        with self.identity_lock:
+            cached = dict(self.identity_cache) if self.identity_cache else None
+        if cached:
+            return cached
+        # 首次上线尚无缓存：只做轻量采集，绝不扫描磁盘/网络挂载
+        info = self.build_device_info(include_disk=False)
+        with self.identity_lock:
+            self.identity_cache = info
+        return info
+
+    def build_device_info(self, include_disk=True):
         """组装设备身份信息：型号、主机名、IP、系统版本、内核、运行时长等
-        （不含 interfaces / mqtt / monitor，保持报文精简）"""
+        （不含 interfaces / mqtt / monitor，保持报文精简）。
+
+        include_disk=False 时跳过 disk_mounts()，用于 online/LWT 等不能卡在
+        网络挂载上的路径；此时磁盘总量为 null。
+        """
         vm = psutil.virtual_memory()
         boot = psutil.boot_time()
         uptime = int(time.time() - boot)
@@ -1997,8 +2027,11 @@ class RpiMonitor:
         except (OSError, RuntimeError, SystemError):
             freq = None
         mac = self.mac
-        mounts = disk_mounts()
-        disk_total = sum(m["total_bytes"] for m in mounts)
+        if include_disk:
+            mounts = disk_mounts()
+            disk_total = sum(m["total_bytes"] for m in mounts)
+        else:
+            disk_total = None
         model = get_pi_model()
 
         return {
@@ -2037,7 +2070,7 @@ class RpiMonitor:
             "memory_total_bytes": vm.total,
             "memory_total_human": human_size(vm.total),
             "disk_total_bytes": disk_total,
-            "disk_total_human": human_size(disk_total),
+            "disk_total_human": human_size(disk_total) if disk_total is not None else None,
             "uptime_seconds": uptime,
             "uptime_human": human_duration(uptime),
             "boot_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(boot)),
@@ -2048,9 +2081,9 @@ class RpiMonitor:
     def build_online_payload(self, online=True):
         """
         online 报文：内容与 identity 保持一致（同一份 build_device_info），
-        只额外加一个 online 布尔字段区分上线/下线。
+        只额外加一个 online 布尔字段区分上线/下线。使用身份缓存，避免磁盘扫描。
         """
-        info = self.build_device_info()
+        info = self._online_info()
         payload = {
             "device_id": info["device_id"],
             "uuid": info["uuid"],
@@ -3167,6 +3200,7 @@ class RpiMonitor:
             psutil.cpu_percent(percpu=True)
         prev_net = net_snapshot()
         prev_t = time.time()
+        last_identity_refresh = 0.0
 
         while not self.stop_event.is_set():
             if self.stop_event.wait(MONITOR_INTERVAL):
@@ -3239,6 +3273,11 @@ class RpiMonitor:
                 logging.warning(
                     "最近一个周期丢弃请求：query %d、action %d（累计 query %d、action %d）",
                     recent["query"], recent["action"], totals["query"], totals["action"])
+
+            # 5) 定时刷新身份缓存（含磁盘扫描，只在监控线程里做）
+            if IDENTITY_CACHE_TTL > 0 and now - last_identity_refresh >= IDENTITY_CACHE_TTL:
+                self.refresh_identity_cache()
+                last_identity_refresh = now
 
     # ---------- 启动 ----------
 

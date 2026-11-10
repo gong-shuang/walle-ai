@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 5 | 17 |
-| **合计** | **55** | **32** | **23** |
+| P2 后续优化 | 22 | 6 | 16 |
+| **合计** | **55** | **33** | **22** |
 
-> linux-demo 已开始按本清单整改（当前 32/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 33/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -278,11 +278,10 @@
   - 验收：新增 `test/test_discovery_jitter.py`：抖动 0.2s 时处理函数 <0.05s 返回且尚未发布，随后由 Timer 发出；全套 24 项通过
   - 证据：`main.py` L2062-L2094；`test/test_discovery_jitter.py`
 
-- [ ] 🔴 **P2-1.5 在线/遗嘱报文避免慢采集**
-  - 现状：`build_device_info()` 会调用 `disk_mounts()` 等可能阻塞的系统调用；`_will_message()` 在启动连接前构造遗嘱，若存在卡死的网络挂载，可能拖住启动；retained online 报文也包含完整身份信息
-  - 动作：在线/遗嘱只使用轻量缓存信息；磁盘等慢采集放到监控线程；必要时限制 `disk_partitions` 范围
-  - 验收：无网络挂载/挂载卡死时启动与 LWT 构造不被阻塞
-  - 证据：`main.py` L1435-L1437、L1595-L1666
+- [x] ✅ **P2-1.5 在线/遗嘱报文避免慢采集**
+  - 处理：`build_device_info()` 增加 `include_disk` 参数；新增 `identity_cache` 与 `refresh_identity_cache()`，由监控线程每 `IDENTITY_CACHE_TTL`（默认 60s）刷新完整身份（含 `disk_mounts()`）；`build_online_payload()`（含 LWT）改用 `_online_info()`：有缓存用缓存，首次无缓存时只做轻量采集（磁盘字段为 null），连接路径完全不扫描挂载
+  - 验收：mock `disk_mounts()` 阻塞 2s 时，`build_online_payload()` 仍在 0.3s 内返回且未调用该函数；刷新缓存后 online 报文复用 `disk_total_bytes`；新增 `test/test_online_identity.py`，全套 26 项通过
+  - 证据：`main.py` L422-L423、L1777-L1779、L1994-L2013、L2015-L2079、L2081-L2086、L3277-L3280；`test/test_online_identity.py`
 
 ### P2-2 代码质量
 
@@ -465,6 +464,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：online/LWT 改用身份缓存（监控线程每 60s 刷新完整信息），首次上线只做
+  轻量采集，不扫描磁盘/网络挂载（P2-1.5）。
 - 2026-11-10：discovery 抖动改为 Timer 延迟发布，处理函数立即返回，不再占用查询线程
   （P2-1.4）。
 - 2026-11-10：请求线程池拆分为 query/action 两池，并用 BoundedSemaphore 限制排队总量，
