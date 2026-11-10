@@ -46,6 +46,15 @@ PHONE_AUDIO_WHEP_SECRET=
 # VIDEO_ENABLE=true
 # PHONE_AUDIO_ENABLE=true
 
+# ---- 可选：流租约与断连回收（秒，0=不限制）----
+# 推流/手机音频达到最长时长后自动停止并告警，避免 App 崩溃后一直占用摄像头/声卡
+# VIDEO_MAX_DURATION_SEC=1800
+# PHONE_AUDIO_MAX_DURATION_SEC=1800
+# 手机音频超过该秒数没有收到音频帧时退出播放器（退出码 7）
+# PHONE_AUDIO_IDLE_TIMEOUT=30
+# MQTT 断连超过该秒数后停止推流/手机音频
+# MQTT_DISCONNECT_STOP_SEC=60
+
 # ---- 可选：监控阈值 ----
 # MONITOR_INTERVAL=5
 # THRESH_CPU=90.0

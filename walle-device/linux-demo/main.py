@@ -169,6 +169,8 @@ MQTT_QOS = 1
 # TLS：生产强制开启；仅 WALLE_RUNTIME_ENV=debug 且显式 MQTT_TLS=off 才允许明文
 MQTT_TLS = os.environ.get("MQTT_TLS", "on").strip().lower()  # on | off（off 仅 debug）
 MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE", "").strip()      # 留空则用系统 CA
+# MQTT 断连超过该秒数后停止推流/手机音频（App 已无法控制，避免一直占用外设）；0 = 不断流
+MQTT_DISCONNECT_STOP_SEC = int(os.environ.get("MQTT_DISCONNECT_STOP_SEC", "60"))
 
 # ---- 主题命名约定（完整主题 = walle/{tenant}/{device}/v1/{资源}）----
 #   请求按语义命名：查询 .../query、动作 .../request；
@@ -450,6 +452,8 @@ VIDEO_LOG_LEVEL = "info"                 # ffmpeg 日志级别：quiet/panic/fat
                                          # info（默认）= 记录版本、编解码器、输入/输出流信息 + 实时帧统计，
                                          # 和手动跑 ffmpeg 看到的日志一样；只想记错误就改成 "warning"
 VIDEO_LOG_MAX_BYTES = 20 * 1024 * 1024   # 单个日志超过 20MB 时在下次写入前滚动为 .1 备份
+# 推流最长时长（秒）；到期自动停止并告警，0 = 不限制（App 崩溃/断网时避免一直占用摄像头）
+VIDEO_MAX_DURATION_SEC = int(os.environ.get("VIDEO_MAX_DURATION_SEC", "1800"))
 VIDEO_VIDEO_SIZE = "640x480"             # 采集分辨率
 VIDEO_FRAMERATE = 30                     # 采集帧率
 VIDEO_BITRATE = "1000k"                  # 视频码率
@@ -481,6 +485,10 @@ except ValueError:
 PHONE_AUDIO_DEVICE = os.environ.get("PHONE_AUDIO_DEVICE", "")   # sounddevice 输出设备名，空=系统默认
 PHONE_AUDIO_LATENCY = os.environ.get("PHONE_AUDIO_LATENCY", "low")  # PortAudio 延迟档位：low/high
 PHONE_AUDIO_FIRST_FRAME_TIMEOUT = 8.0     # 首帧超时：超时即判定手机端没在推流
+PHONE_AUDIO_IDLE_TIMEOUT = float(os.environ.get("PHONE_AUDIO_IDLE_TIMEOUT", "30"))
+PHONE_AUDIO_MAX_DURATION_SEC = int(os.environ.get("PHONE_AUDIO_MAX_DURATION_SEC", "1800"))
+# 无音频帧超时（秒）：超过即退出播放器（退出码 7），0 = 关闭
+# 最长播放时长（秒）：到期由主程序停止并告警，0 = 不限制
 PHONE_AUDIO_STARTUP_GRACE = 2.0          # 启动宽限：播放进程活过这段时间即视为开始播放（秒）
 PHONE_AUDIO_STREAM_SUFFIX = "_audio"     # 音频流名后缀：与视频房间号错开，避免抢同一路 stream
 PHONE_AUDIO_PLAYER_SCRIPT = os.path.join(  # WHEP 播放器脚本（与被监控脚本同目录）
@@ -491,6 +499,7 @@ PHONE_AUDIO_EXIT_REASONS = {
     4: "首帧超时（手机未推流或网络不通）",
     5: "WHEP 协商失败（拉流地址、token 或服务端异常）",
     6: "声卡打开失败（检查 libportaudio2 与音频会话）",
+    7: "长时间无音频帧（手机停止推流或网络中断）",
 }
 
 
@@ -1659,6 +1668,7 @@ class RpiMonitor:
         # 上一次应答 discovery 的时间（单调时钟），用于限频
         self._last_discovery_at = 0.0
         self.startup_ready = False   # 首次连上 Broker 并订阅后置位，用于 STARTUP READY
+        self.disconnected_at = None  # 断连起始时间；用于长时间断连后回收推流/播放
 
     def _will_message(self):
         """遗嘱消息：掉线时由 broker 代发 offline 到 walle/{t}/{d}/v1/online。"""
@@ -1668,6 +1678,7 @@ class RpiMonitor:
 
     def on_connect(self, client, userdata, flags, reason_code, properties):
         if reason_code == 0:
+            self.disconnected_at = None
             logging.info("MQTT 连接成功: %s:%s（tenant=%s device=%s）",
                          MQTT_HOST, MQTT_PORT, sanitize_segment(MQTT_TENANT),
                          sanitize_segment(DEVICE_ID))
@@ -1691,6 +1702,8 @@ class RpiMonitor:
                         MQTT_HOST, MQTT_PORT)
 
     def on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
+        if self.disconnected_at is None:
+            self.disconnected_at = time.time()
         logging.warning("MQTT 连接断开（reason_code=%s），paho 将自动重连", reason_code)
 
     def on_message(self, client, userdata, msg):
@@ -2490,7 +2503,8 @@ class RpiMonitor:
         cmd = [sys.executable, PHONE_AUDIO_PLAYER_SCRIPT,
                "--url", url or self._phone_audio_url(room_number),
                "--latency", PHONE_AUDIO_LATENCY,
-               "--first-frame-timeout", str(PHONE_AUDIO_FIRST_FRAME_TIMEOUT)]
+               "--first-frame-timeout", str(PHONE_AUDIO_FIRST_FRAME_TIMEOUT),
+               "--idle-timeout", str(PHONE_AUDIO_IDLE_TIMEOUT)]
         if PHONE_AUDIO_DEVICE:
             cmd += ["--device", PHONE_AUDIO_DEVICE]
         return cmd
@@ -2875,6 +2889,42 @@ class RpiMonitor:
 
     # ---------- 周期监控主循环 ----------
 
+    def _enforce_stream_leases(self):
+        """到期回收：最长推流/播放时长、MQTT 长时间断连后释放外设。"""
+        now = time.time()
+        with self.video_lock:
+            vproc, vmeta = self.video_proc, dict(self.video_meta)
+        if (VIDEO_MAX_DURATION_SEC > 0 and vproc and vproc.poll() is None
+                and vmeta.get("started_ts")
+                and now - vmeta["started_ts"] >= VIDEO_MAX_DURATION_SEC):
+            self._stop_video_stream(f"达到最长推流时长 {VIDEO_MAX_DURATION_SEC}s")
+            self._event("alarm", "info", "video", "video_timeout",
+                        f"推流达到最长时长 {VIDEO_MAX_DURATION_SEC}s，已自动停止",
+                        {"room_number": vmeta.get("room_number"),
+                         "max_duration_sec": VIDEO_MAX_DURATION_SEC,
+                         "started_at": vmeta.get("started_at")})
+
+        with self.audio_lock:
+            aproc, ameta = self.audio_proc, dict(self.audio_meta)
+        if (PHONE_AUDIO_MAX_DURATION_SEC > 0 and aproc and aproc.poll() is None
+                and ameta.get("started_ts")
+                and now - ameta["started_ts"] >= PHONE_AUDIO_MAX_DURATION_SEC):
+            self._stop_phone_audio(f"达到最长播放时长 {PHONE_AUDIO_MAX_DURATION_SEC}s")
+            self._event("alarm", "info", "audio", "phone_audio_timeout",
+                        f"手机音频达到最长时长 {PHONE_AUDIO_MAX_DURATION_SEC}s，已自动停止",
+                        {"room_number": ameta.get("room_number"),
+                         "max_duration_sec": PHONE_AUDIO_MAX_DURATION_SEC,
+                         "started_at": ameta.get("started_at")})
+
+        if (MQTT_DISCONNECT_STOP_SEC > 0 and self.disconnected_at
+                and now - self.disconnected_at >= MQTT_DISCONNECT_STOP_SEC):
+            stopped_video = self._stop_video_stream("MQTT 断连超时")
+            stopped_audio = self._stop_phone_audio("MQTT 断连超时")
+            if stopped_video or stopped_audio:
+                logging.warning("MQTT 已断连 %.0fs，已停止推流/手机音频",
+                                now - self.disconnected_at)
+            self.disconnected_at = None
+
     def monitor_loop(self):
         # CPU 百分比首次打点
         with self.sample_lock:
@@ -2927,6 +2977,12 @@ class RpiMonitor:
                 self.check_usb()
             except Exception:
                 logging.exception("USB 扫描异常")
+
+            # 3) 推流/手机音频的租约与断连回收
+            try:
+                self._enforce_stream_leases()
+            except Exception:
+                logging.exception("流租约检查异常")
 
     # ---------- 启动 ----------
 

@@ -10,7 +10,7 @@
 用法（由 main.py 以子进程方式拉起）：
     python3 whep_audio_player.py --url 'https://host/rtc/v1/whep/?app=live&stream=xxx_audio'
 
-退出码：0 正常停止；3 缺依赖；4 首帧超时；5 WHEP 协商失败；6 声卡打开失败。
+退出码：0 正常停止；3 缺依赖；4 首帧超时；5 WHEP 协商失败；6 声卡打开失败；7 无音频帧超时。
 """
 import argparse
 import asyncio
@@ -59,11 +59,12 @@ def http_sdp(url, sdp, timeout=10):
 
 
 class Player:
-    def __init__(self, url, device, latency, first_frame_timeout):
+    def __init__(self, url, device, latency, first_frame_timeout, idle_timeout=30.0):
         self.url = url
         self.device = device or None
         self.latency = latency
         self.first_frame_timeout = first_frame_timeout
+        self.idle_timeout = idle_timeout
         self.stop = threading.Event()   # 用 threading.Event：信号处理器里 set 是安全的
         self.frames = queue.Queue(maxsize=6)   # 最多积 6 × 20ms ≈ 120ms，超了就丢最旧的
         self.writer = None
@@ -161,6 +162,7 @@ class Player:
         self._feed(first)
         self.play_started = True
         log(f"开始播放音频（{rate}Hz {channels}ch）")
+        last_frame_at = time.monotonic()
 
         while not self.stop.is_set():
             if self.writer_error is not None:
@@ -173,10 +175,16 @@ class Player:
                 if pc.connectionState in ("failed", "closed"):
                     log(f"WebRTC 连接已{'失败' if pc.connectionState == 'failed' else '关闭'}")
                     break
+                if (self.idle_timeout > 0 and last_frame_at
+                        and time.monotonic() - last_frame_at > self.idle_timeout):
+                    log(f"超过 {self.idle_timeout:g}s 没有收到音频帧，自动退出")
+                    await pc.close()
+                    return 7
                 continue
             except Exception as e:  # noqa: BLE001
                 log(f"拉流结束：{e}")
                 break
+            last_frame_at = time.monotonic()
             self._feed(frame)
 
         # 通知写线程退出（队列满时先清空，避免 put 永久阻塞）
@@ -199,11 +207,14 @@ def main():
     ap.add_argument("--device", default="", help="输出设备名/序号（留空=系统默认）")
     ap.add_argument("--latency", default="low", help="PortAudio latency 档位：low/high 或秒数")
     ap.add_argument("--first-frame-timeout", type=float, default=8.0)
+    ap.add_argument("--idle-timeout", type=float, default=30.0,
+                    help="超过该秒数没有音频帧则退出（退出码 7），0=关闭")
     args = ap.parse_args()
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    player = Player(args.url, args.device, args.latency, args.first_frame_timeout)
+    player = Player(args.url, args.device, args.latency,
+                    args.first_frame_timeout, args.idle_timeout)
 
     def on_signal(*_):
         player.stop.set()

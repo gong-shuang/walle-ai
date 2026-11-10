@@ -29,11 +29,11 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
-| P1 上线前应修 | 18 | 10 | 8 |
+| P1 上线前应修 | 18 | 11 | 7 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **23** | **32** |
+| **合计** | **55** | **24** | **31** |
 
-> linux-demo 已开始按本清单整改（当前 23/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 24/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -205,11 +205,10 @@
   - 验收：连续两次 `capability` 只调用一次 `list_cameras()`；手动失效后重新探测；USB 变化后缓存为 None；`camera_nodes()` 返回当前节点；失败结果包含 `cameras` 列表（真实插拔待实机验证）
   - 证据：`main.py` L431-L432、L1943-L1964、L1971、L1828-L1830、L2260-L2271；`README.md` 常见问题
 
-- [ ] 🔴 **P1-3.5 推流/播放缺少租约与空闲回收**
-  - 现状：`video/start` 与 `phone/audio/send` 没有过期时间；App 崩溃/断网后设备会一直推流或播放；MQTT 断连不会停止流；WHEP 播放器在 track 停滞时只持续 0.5s 超时循环，不会自行退出
-  - 动作：增加最大时长与空闲超时（如 `VIDEO_MAX_DURATION_SEC`、`PHONE_AUDIO_IDLE_TIMEOUT_SEC`），到期自动停止并发布事件；可选在 MQTT 断开超过 N 秒后停止所有流；播放器增加无帧超时退出
-  - 验收：启动推流后不续约会自动停止；App 被杀后摄像头/麦克风在设定时间内释放；无残留子进程
-  - 证据：`main.py` L1424-L1431、L1925-L2026、L2188-L2286、L1457-L1458；`whep_audio_player.py` L165-L180
+- [x] ✅ **P1-3.5 推流/播放缺少租约与空闲回收**
+  - 处理：新增 `VIDEO_MAX_DURATION_SEC`（默认 1800）、`PHONE_AUDIO_MAX_DURATION_SEC`（默认 1800）、`PHONE_AUDIO_IDLE_TIMEOUT`（默认 30s，`whep_audio_player.py` 无帧超时退出码 7）、`MQTT_DISCONNECT_STOP_SEC`（默认 60s）；`monitor_loop` 每周期调用 `_enforce_stream_leases()`，到期停止并发 `video_timeout` / `phone_audio_timeout`（`level=info`，不视为故障）；MQTT 断连超时后停止推流与手机音频；配置模板补充四项说明
+  - 验收：mock 过期 `started_ts` 时同时停止推流/播放并发出两个 timeout 事件；`disconnected_at` 超过 60s 后停止两路流并复位；播放器 `--idle-timeout` 生效（退出码 7）。真机到期自动停止与 App 被杀场景待验证
+  - 证据：`main.py` L173、L456、L488-L489、L2892-L2925；`whep_audio_player.py` L62-L67、L178-L181、L210-L211；`walle-ai.conf.example` L49-L56；`doc/MQTT_protocol_convention.md` §4.7
 
 ### P1-4 日志与可观测性
 
@@ -470,6 +469,9 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：推流/手机音频增加租约（默认 30 分钟）与无帧超时（30s，退出码 7），
+  MQTT 断连 60s 后自动释放外设；到期停止发 `video_timeout` / `phone_audio_timeout`
+  （P1-3.5）。
 - 2026-11-10：摄像头能力增加 10s 缓存，USB 插拔立即失效；`video/start` 失败时回传
   当前 `cameras` 节点列表，便于 App 重新选择（P1-3.4）。
 - 2026-11-10：启动增加音频会话探测 `audio_session_hint()`，pactl 连不上时给出
