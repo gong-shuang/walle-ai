@@ -484,6 +484,13 @@ PHONE_AUDIO_STARTUP_GRACE = 2.0          # 启动宽限：播放进程活过这�
 PHONE_AUDIO_STREAM_SUFFIX = "_audio"     # 音频流名后缀：与视频房间号错开，避免抢同一路 stream
 PHONE_AUDIO_PLAYER_SCRIPT = os.path.join(  # WHEP 播放器脚本（与被监控脚本同目录）
     os.path.dirname(os.path.abspath(__file__)), "whep_audio_player.py")
+# 播放器退出码 → 可读原因（与 whep_audio_player.py 顶部说明一致）
+PHONE_AUDIO_EXIT_REASONS = {
+    3: "缺少依赖（aiortc / sounddevice / libportaudio2）",
+    4: "首帧超时（手机未推流或网络不通）",
+    5: "WHEP 协商失败（拉流地址、token 或服务端异常）",
+    6: "声卡打开失败（检查 libportaudio2 与音频会话）",
+}
 
 
 # ============================== 工具函数 ==============================
@@ -1622,10 +1629,14 @@ class RpiMonitor:
         self.video_proc = None
         self.video_lock = threading.Lock()
         self.video_meta = {}
+        # 最近一次非主动停止的推流信息；重新推流成功后发 recover 并清空
+        self.video_lost = None
         # 反向音频：手机麦上行后在本地播放的 ffmpeg 进程（与视频互不影响）
         self.audio_proc = None
         self.audio_lock = threading.Lock()
         self.audio_meta = {}
+        # 最近一次非主动停止的手机音频播放；重新开始播放后发 recover 并清空
+        self.audio_lost = None
         # 上一次应答 discovery 的时间（单调时钟），用于限频
         self._last_discovery_at = 0.0
         self.startup_ready = False   # 首次连上 Broker 并订阅后置位，用于 STARTUP READY
@@ -2060,23 +2071,63 @@ class RpiMonitor:
             sink.close()
 
     def _video_watch(self, proc, room_number, sink):
-        """推流进程看护：退出后清理状态并记录原因"""
-        try:
-            code = proc.wait()
-        finally:
-            tail = sink.tail()
-            sink.close()
-            with self.video_lock:
-                if self.video_proc is proc:
-                    self.video_proc = None
-                    self.video_meta = {}
+        """推流进程看护：退出后清理状态；非主动退出时向 App 上报 video_lost。"""
+        code = proc.wait()
+        tail = sink.tail()
+        sink.close()
+        with self.video_lock:
+            # 看护线程可能晚于新推流启动：只有仍是当前进程才算「中断」，
+            # 否则是参数切换/重启时被主动替换的旧进程。
+            was_active = self.video_proc is proc
+            if was_active:
+                self.video_proc = None
+                self.video_meta = {}
         if getattr(proc, "_intentional_stop", False):
             logging.info("推流已按要求停止（room=%s, exit=%s）", room_number, code)
-        elif code == 0:
-            logging.info("推流进程已退出（room=%s, exit=0）", room_number)
-        else:
-            logging.warning("推流进程异常退出（room=%s, exit=%s）%s",
-                            room_number, code, f"，stderr: {tail}" if tail else "")
+            return
+        logging.info("推流进程已退出（room=%s, exit=%s）", room_number, code)
+        if was_active:
+            self._report_video_lost(room_number, code, tail, sink.path)
+
+    def _report_video_lost(self, room_number, exit_code, tail, log_path):
+        """非主动退出：记录并向 App 发布 video_lost 告警（App 据此提示用户重试）。"""
+        lost = {
+            "room_number": room_number,
+            "exit_code": exit_code,
+            "log_file": log_path,
+            "lost_at": now_str(),
+        }
+        with self.video_lock:
+            self.video_lost = lost
+        self._event(
+            "alarm", "warning", "video", "video_lost",
+            f"推流中断（room={room_number}，exit={exit_code}），"
+            f"请检查摄像头/网络后重新推流",
+            {
+                "room_number": room_number,
+                "exit_code": exit_code,
+                "log_file": log_path,
+                "tail": (tail or "")[-500:],
+            },
+        )
+
+    def _clear_video_lost(self, room_number, video_device):
+        """重新推流成功：清除上一次中断记录并发 recover，避免告警一直挂着。"""
+        with self.video_lock:
+            lost = self.video_lost
+            self.video_lost = None
+        if not lost:
+            return
+        self._event(
+            "recover", "info", "video", "video_lost",
+            f"推流已恢复（room={room_number}）",
+            {
+                "room_number": room_number,
+                "video_device": video_device,
+                "previous_exit_code": lost.get("exit_code"),
+                "lost_at": lost.get("lost_at"),
+            },
+        )
 
     def _start_video_stream(self, video_device, room_number, audio=None):
         """
@@ -2250,6 +2301,7 @@ class RpiMonitor:
         extra["started_at"] = self.video_meta.get("started_at")
         extra["startup_grace_sec"] = VIDEO_STARTUP_GRACE
         self._publish_video_result(req, 0, "ok", extra)
+        self._clear_video_lost(room_number, video_device)
 
     # ---------- video/stop/send 停止推流 ----------
 
@@ -2397,23 +2449,62 @@ class RpiMonitor:
         return cmd
 
     def _phone_audio_watch(self, proc, room_number, sink):
-        """播放进程看护：退出后清理状态并记录原因"""
-        try:
-            code = proc.wait()
-        finally:
-            tail = sink.tail()
-            sink.close()
-            with self.audio_lock:
-                if self.audio_proc is proc:
-                    self.audio_proc = None
-                    self.audio_meta = {}
+        """播放进程看护：退出后清理状态；非主动退出时向 App 上报 phone_audio_lost。"""
+        code = proc.wait()
+        tail = sink.tail()
+        sink.close()
+        with self.audio_lock:
+            was_active = self.audio_proc is proc
+            if was_active:
+                self.audio_proc = None
+                self.audio_meta = {}
         if getattr(proc, "_intentional_stop", False):
             logging.info("手机音频播放已按要求停止（room=%s, exit=%s）", room_number, code)
-        elif code == 0:
-            logging.info("手机音频播放结束（room=%s）", room_number)
-        else:
-            logging.warning("手机音频播放异常退出（room=%s, exit=%s）%s",
-                            room_number, code, f"，stderr: {tail}" if tail else "")
+            return
+        logging.info("手机音频播放结束（room=%s, exit=%s）", room_number, code)
+        if was_active:
+            self._report_phone_audio_lost(room_number, code, tail, sink.path)
+
+    def _report_phone_audio_lost(self, room_number, exit_code, tail, log_path):
+        """播放进程非主动退出：按退出码给出可读原因，并向 App 发布告警。"""
+        reason = PHONE_AUDIO_EXIT_REASONS.get(exit_code, "播放器异常退出")
+        lost = {
+            "room_number": room_number,
+            "exit_code": exit_code,
+            "reason": reason,
+            "log_file": log_path,
+            "lost_at": now_str(),
+        }
+        with self.audio_lock:
+            self.audio_lost = lost
+        self._event(
+            "alarm", "warning", "audio", "phone_audio_lost",
+            f"手机音频中断（room={room_number}，exit={exit_code}）：{reason}",
+            {
+                "room_number": room_number,
+                "exit_code": exit_code,
+                "reason": reason,
+                "log_file": log_path,
+                "tail": (tail or "")[-500:],
+            },
+        )
+
+    def _clear_phone_audio_lost(self, room_number):
+        """重新开始播放：清除中断记录并发 recover。"""
+        with self.audio_lock:
+            lost = self.audio_lost
+            self.audio_lost = None
+        if not lost:
+            return
+        self._event(
+            "recover", "info", "audio", "phone_audio_lost",
+            f"手机音频已恢复（room={room_number}）",
+            {
+                "room_number": room_number,
+                "previous_exit_code": lost.get("exit_code"),
+                "lost_at": lost.get("lost_at"),
+            },
+        )
 
     def _start_phone_audio(self, room_number):
         url = self._phone_audio_url(room_number)
@@ -2453,8 +2544,8 @@ class RpiMonitor:
             time.sleep(0.2)
             tail = sink.error_line()
             msg = f"播放器退出码 {code}（日志: {sink.path}）"
-            if code == 3:
-                msg += "；缺依赖：pip install aiortc sounddevice + apt install libportaudio2"
+            if code in PHONE_AUDIO_EXIT_REASONS:
+                msg += f"；{PHONE_AUDIO_EXIT_REASONS[code]}"
             sink.close()
             return None, msg + (f": {tail}" if tail else "")
 
@@ -2520,6 +2611,7 @@ class RpiMonitor:
             {"action": "started", "room_number": room_number,
              "whep_url": self._phone_audio_url(room_number),
              "pid": proc.pid, "output": f"sounddevice/{PHONE_AUDIO_DEVICE or 'default'}"})
+        self._clear_phone_audio_lost(room_number)
 
     def handle_phone_audio_stop(self, payload):
         ok, data = self.verify_uuid(payload, REQ_PHONE_AUDIO_STOP)

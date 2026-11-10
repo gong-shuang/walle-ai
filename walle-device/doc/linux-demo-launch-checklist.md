@@ -29,11 +29,11 @@
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
-| P1 上线前应修 | 18 | 6 | 12 |
+| P1 上线前应修 | 18 | 8 | 10 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **19** | **36** |
+| **合计** | **55** | **21** | **34** |
 
-> linux-demo 已开始按本清单整改（当前 19/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 21/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -185,17 +185,15 @@
 
 ### P1-3 外设断连与降级
 
-- [ ] 🔴 **P1-3.1 推流进程异常退出的上报与恢复**
-  - 现状：`_video_watch()` 仅在本地日志记录退出码，不向 App 发布事件；App 仍认为推流中，画面黑屏无感知；不自动重试
-  - 动作：异常退出时发布 `alarm`（新增 `video_lost`）或主动 `video/stop/result` 事件，携带 room、device、exit code、日志尾部；可选有限次自动重启；恢复成功后清除告警
-  - 验收：拔掉摄像头后 5s 内 App 收到告警；插回后可重新 `video/start` 成功；日志可按 request_id 关联
-  - 证据：`main.py` L1841-L1858、L1534-L1552
+- [x] ✅ **P1-3.1 推流进程异常退出的上报与恢复**
+  - 处理：`_video_watch()` 区分主动停止、被新推流替换、非主动退出三种情况；非主动退出且仍是当前推流时发布 `alarm`（`metric=video`、`alarm_type=video_lost`），`detail` 携带 `room_number`、`exit_code`、`log_file`、`tail`（≤500 字符）；记录 `video_lost`，重新推流成功后 `_clear_video_lost()` 发同类型 `recover`；未做自动重启，由 App 重新发起 `video/start`
+  - 验收：mock 异常退出发布 `video_lost` 且 detail 正确；主动 stop 与被新推流替换均不告警；成功后发出 `recover`。拔摄像头 5s 内告警、插回后可重新推流待实机验证
+  - 证据：`main.py` L2064-L2121、L2293-L2295；`doc/MQTT_protocol_convention.md` §4.7
 
-- [ ] 🔴 **P1-3.2 手机音频播放异常退出的上报**
-  - 现状：`_phone_audio_watch()` 只写日志；`whep_audio_player.py` 已定义退出码 3（缺依赖）/4（首帧超时）/5（WHEP 失败）/6（声卡失败），但设备端未上报给 App
-  - 动作：异常退出时发布 `alarm` 或动作结果事件，按退出码给出可读原因与处理建议；正常停止不告警
-  - 验收：停止 PulseAudio / 拔声卡 / 手机停止推流后 App 能收到对应告警；重新 `phone/audio/send` 可恢复
-  - 证据：`main.py` L2169-L2186；`whep_audio_player.py` L13、L143-L153、L165-L180
+- [x] ✅ **P1-3.2 手机音频播放异常退出的上报**
+  - 处理：`_phone_audio_watch()` 与推流看护一致，区分主动停止/被替换/非主动退出；非主动退出发布 `alarm`（`metric=audio`、`alarm_type=phone_audio_lost`），按退出码映射可读原因（3 缺依赖 / 4 首帧超时 / 5 WHEP 协商失败 / 6 声卡失败）写入 `detail.reason`；启动宽限期内的失败也在动作结果错误信息中附带原因；重新 `phone/audio/send` 成功后 `_clear_phone_audio_lost()` 发 `recover`
+  - 验收：mock exit=6 发布 `phone_audio_lost`，`detail.reason` 为声卡失败；`recover` 正常发出；主动停止不告警。停 PulseAudio / 拔声卡 / 手机停止推流的真机告警待验证
+  - 证据：`main.py` L487-L493、L2451-L2507、L2546-L2549、L2614；`doc/MQTT_protocol_convention.md` §4.7
 
 - [ ] 🔴 **P1-3.3 PulseAudio 会话依赖与 systemd 运行方式**
   - 现状：linux-demo 作为系统级服务运行时默认没有用户音频会话；`pactl`、`ffmpeg -f pulse`、`sounddevice` 可能全部失败。`detect_microphone()` 会降级为纯视频，用户无感知；手机音频则直接失败
@@ -474,6 +472,9 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：推流/手机音频看护线程区分主动停止、被新流替换与非主动退出；非主动退出发
+  `alarm`（`video_lost` / `phone_audio_lost`），重新启动成功发 `recover`；协议文档 §4.7
+  已同步补充 metric=`video`/`audio` 与 detail 字段（P1-3.1 / P1-3.2）。
 - 2026-11-10：`_publish_one` 检查发布返回码并记录「消息未送达」；退出时 offline 报文
   `wait_for_publish(2s)` 后再断开；重连后 retained online 覆盖旧值（P1-2.2）。
 - 2026-11-10：启动改为 `connect_async` + `loop_start`，Broker 不可达时持续重试不退出；

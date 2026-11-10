@@ -385,7 +385,7 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 
 ### 4.7 alarm —— 告警（主动上报）
 
-**作用**：阈值越限/恢复、USB 插拔的实时通知，驱动 App 告警中心（落 SQLite，200 条滚动淘汰）。
+**作用**：阈值越限/恢复、USB 插拔、推流/手机音频中断的实时通知，驱动 App 告警中心（落 SQLite，200 条滚动淘汰）。
 
 - 主题：`walle/{t}/{d}/v1/alarm`（非 retained，QoS1，App 侧 2 秒签名去重）
 
@@ -395,15 +395,20 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 |---|---|---|
 | `event` | `alarm` / `recover` / `usb_connect` / `usb_disconnect` | 事件类型 |
 | `level` | `critical` / `warning` / `info` | 级别（阈值告警=warning，恢复=info，USB 拔出=warning，USB 接入=info） |
-| `metric` | `cpu` / `memory` / `disk` / `network` / `temperature` / `usb` | 指标 |
-| `alarm_type` | 稳定代码如 `cpu_high` | 分类用 |
+| `metric` | `cpu` / `memory` / `disk` / `network` / `temperature` / `usb` / `video` / `audio` | 指标 |
+| `alarm_type` | 稳定代码如 `cpu_high` / `video_lost` / `phone_audio_lost` | 分类用 |
 | `message` | 中文可读描述 | 直接可展示 |
-| `detail` | 阈值类：`{value, unit, threshold}`；USB：`{device{...}, current_count}` | 结构化细节 |
+| `detail` | 阈值类：`{value, unit, threshold}`；USB：`{device{...}, current_count}`；视频中断：`{room_number, exit_code, log_file, tail}`；手机音频中断：`{room_number, exit_code, reason, log_file, tail}` | 结构化细节 |
 | `device_id`、`uuid`、`hostname`、`ip`、`timestamp`、`datetime` | 公共字段 | |
 
 **回滞防抖**：越限（≥阈值）告警后，要降到 **阈值 × 0.9** 以下才发 `recover`，防止边界
 抖动反复报警。阈值均可用环境变量覆盖（`THRESH_CPU`/`THRESH_MEM`/`THRESH_DISK`/
 `THRESH_TEMP`/`THRESH_NET_MIB`），监控周期 `MONITOR_INTERVAL`（默认 5s）。
+
+**媒体中断告警**：`video_lost`（`metric=video`）在 ffmpeg 推流进程非主动退出时上报；
+`phone_audio_lost`（`metric=audio`）在 WHEP 播放器非主动退出时上报。两者 `event=alarm`、
+`level=warning`，`detail` 带 `room_number`、`exit_code`、`log_file` 与 `tail`（日志尾部，
+≤500 字符）用于定位；重新启动成功后发同 `alarm_type` 的 `event=recover`，主动 stop 不发告警。
 
 ### 4.8 手机麦克风上行 phone/audio/send|stop（控制面）＋ WebRTC WHIP/WHEP（媒体面）
 
