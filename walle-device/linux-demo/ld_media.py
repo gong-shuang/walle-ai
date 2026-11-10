@@ -162,9 +162,19 @@ def whep_token(stream, expires):
 
 
 def video_log_path():
-    """解析 ffmpeg 日志文件路径：支持 {time} 占位符，相对路径按当前工作目录解析"""
+    """解析 ffmpeg 日志文件路径。
+
+    - 绝对路径原样使用；
+    - 相对路径以 WALLE_LOG_DIR 为基准；未配置时以 main.py 所在目录为基准，
+      因此 systemd 与手动从任意工作目录启动都会写到同一位置。
+    """
     name = VIDEO_LOG_FILE.replace("{time}", time.strftime("%Y%m%d_%H%M%S"))
-    return os.path.abspath(os.path.expanduser(name))
+    path = os.path.expanduser(name)
+    if not os.path.isabs(path):
+        base = os.environ.get("WALLE_LOG_DIR", "").strip()
+        base = os.path.expanduser(base) if base else os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(base, path)
+    return os.path.abspath(path)
 
 
 class _LogSink:

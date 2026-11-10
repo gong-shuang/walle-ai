@@ -65,6 +65,9 @@ PHONE_AUDIO_WHEP_SECRET=
 # MQTT_DISCONNECT_STOP_SEC=60
 
 # ---- 可选：推流日志保留（每次新建日志前清理最旧文件；0=不限制）----
+# 日志目录：留空 = main.py 所在目录；相对路径以此为基准，绝对路径原样使用
+# 注意：若指向安装目录之外，systemd 模板的 ReadWritePaths 需要同步追加该目录
+# WALLE_LOG_DIR=/var/log/walle-ai
 # VIDEO_LOG_KEEP_DAYS=7
 # VIDEO_LOG_KEEP_FILES=10
 # VIDEO_LOG_MAX_TOTAL_MB=100

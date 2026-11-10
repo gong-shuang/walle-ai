@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 13 | 9 |
-| **合计** | **55** | **40** | **15** |
+| P2 后续优化 | 22 | 14 | 8 |
+| **合计** | **55** | **41** | **14** |
 
-> linux-demo 已开始按本清单整改（当前 40/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 41/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -322,11 +322,10 @@
   - 验收：新增 `test/test_video_encoder.py` 6 项（auto 优先/回退、显式不可用、未知值、探测失败、参数差异）；全套 46 项通过；Pi 5 无硬件编码器时回退 libx264，带 V4L2 M2M 设备待实机验证
   - 证据：`ld_config.py`、`ld_media.py`、`ld_monitor_video.py`；`test/test_video_encoder.py`；`walle-ai.conf.example`
 
-- [ ] 🔴 **P2-3.3 视频日志路径固定**
-  - 现状：`VIDEO_LOG_FILE` 默认相对路径 `log/ffmpeg_{time}.log`，按进程工作目录解析；手动从其他目录启动会把日志写到意外位置
-  - 动作：默认解析到脚本目录或 `WALLE_LOG_DIR`；systemd 与手动运行行为一致
-  - 验收：任意工作目录启动，日志都写到同一预期目录；目录不可写时回退临时文件并告警
-  - 证据：`main.py` L387-L389、L1269-L1272、L1379-L1390
+- [x] ✅ **P2-3.3 视频日志路径固定**
+  - 处理：`video_log_path()` 对相对路径改为「`WALLE_LOG_DIR` → main.py 所在目录」为基准，不再依赖进程工作目录；绝对路径保持原样；配置模板与 README 说明 `WALLE_LOG_DIR` 与 `ReadWritePaths` 的联动
+  - 验收：从任意 cwd 调用 `video_log_path()` 都落在安装目录下；设置 `WALLE_LOG_DIR` 后落在其 `log/` 子目录；新增 2 项用例，全套 48 项通过；目录不可写时仍沿用原有临时文件回退与告警
+  - 证据：`ld_media.py`、`README.md`「状态与日志」、`walle-ai.conf.example`；`test/test_config_parse.py`
 
 - [ ] 🔴 **P2-3.4 retained `online` 报文最小化**
   - 现状：`online` retained 报文复用 `build_device_info()`，包含 MAC、序列号、IP、磁盘总量、启动时间等；任何订阅该租户主题的客户端都能长期读取
@@ -458,6 +457,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：推流日志路径改为以 `WALLE_LOG_DIR` 或 main.py 目录为基准，不再受启动
+  工作目录影响；README/配置模板说明与 ReadWritePaths 的联动（P2-3.3）。
 - 2026-11-10：编码器支持 auto/libx264/h264_v4l2m2m，不可用时回退并记录原因；
   preset/tune 可配置，推流结果返回实际 `encoder`，新增 6 项用例（P2-3.2）。
 - 2026-11-10：推流分辨率按摄像头能力自动降级，`VIDEO_VIDEO_SIZE`/帧率/码率/GOP 可配置；

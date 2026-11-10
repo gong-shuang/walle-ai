@@ -51,5 +51,24 @@ class FfmpegCmdTest(unittest.TestCase):
         self.assertEqual(cmd[-1], "rtmp://h/live/room1")
 
 
+class LogPathTest(unittest.TestCase):
+    def test_relative_path_ignores_cwd(self):
+        old = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                os.chdir(tmp)
+                path = media.video_log_path()
+            finally:
+                os.chdir(old)
+        base = os.path.dirname(os.path.abspath(media.__file__))
+        self.assertTrue(path.startswith(base), path)
+
+    def test_walle_log_dir_override(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.dict(os.environ, {"WALLE_LOG_DIR": tmp}):
+            path = media.video_log_path()
+            self.assertEqual(os.path.dirname(path), os.path.join(os.path.abspath(tmp), "log"))
+
+
 if __name__ == "__main__":
     unittest.main()
