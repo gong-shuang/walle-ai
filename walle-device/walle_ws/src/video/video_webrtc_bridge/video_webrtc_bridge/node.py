@@ -32,6 +32,11 @@ from interfaces.srv import VideoStreamControl
 
 DEFAULT_ROOM_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 
+# H.264 编码器（P2-1.3）：auto 优先硬件 V4L2 M2M，不可用时回退软件 libx264
+HW_H264_ENCODER = "h264_v4l2m2m"
+SOFTWARE_H264_ENCODER = "libx264"
+ENCODER_CHOICES = ("auto", SOFTWARE_H264_ENCODER, HW_H264_ENCODER)
+
 
 def valid_room_number(room, pattern=DEFAULT_ROOM_PATTERN):
     """校验视频房间号：默认只允许 1-64 位字母/数字/下划线/短横线。
@@ -40,6 +45,61 @@ def valid_room_number(room, pattern=DEFAULT_ROOM_PATTERN):
     忘了加锚点，也不会放过 ``room/../x`` 这类前缀匹配。
     """
     return re.fullmatch(pattern, room or "") is not None
+
+
+def select_encoder(preference, hw_available):
+    """按配置与硬件探测结果选择 H.264 编码器。
+
+    preference:
+      auto           有可用硬件编码器就用 h264_v4l2m2m，否则 libx264
+      libx264        强制软件编码
+      h264_v4l2m2m   强制硬件，但硬件不可用时仍回退 libx264（避免推流直接失败）
+    """
+    pref = (preference or "auto").strip().lower()
+    if pref == SOFTWARE_H264_ENCODER:
+        return SOFTWARE_H264_ENCODER
+    if hw_available and pref in ("auto", HW_H264_ENCODER):
+        return HW_H264_ENCODER
+    return SOFTWARE_H264_ENCODER
+
+
+def probe_hw_h264_encoder(timeout=8.0):
+    """用一次 320x240、0.5s 的试编码判断 h264_v4l2m2m 是否真的可用。
+
+    只有存在 V4L2 M2M 编码设备时才会成功。Raspberry Pi 5 只有 ISP（pispbe）
+    和 HEVC/H.264 解码（rpivid）节点，没有编码器，ffmpeg 会报
+    “Could not find a valid device”。返回 (可用, 原因)。
+    """
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30",
+        "-t", "0.5", "-c:v", HW_H264_ENCODER, "-f", "null", "-",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            timeout=timeout,
+        )
+    except FileNotFoundError:
+        return False, "未安装 ffmpeg"
+    except subprocess.TimeoutExpired:
+        return False, "硬件编码试编码超时（>%.1fs）" % timeout
+    except Exception as exc:  # noqa: BLE001
+        return False, "硬件编码试编码失败: %s" % exc
+    if proc.returncode == 0:
+        return True, None
+    lines = [ln.strip() for ln in
+             (proc.stdout or b"").decode("utf-8", "replace").splitlines()
+             if ln.strip()]
+    detail = lines[-1][:200] if lines else "退出码 %s" % proc.returncode
+    for line in lines:
+        low = line.lower()
+        if ("could not find" in low or "unknown encoder" in low
+                or "error while opening" in low or "can't configure" in low):
+            detail = line[:200]
+            break
+    return False, detail
 
 
 def _load_env_file(path):
@@ -182,6 +242,9 @@ class VideoWebrtcBridge(Node):
         self.video_bitrate = self.declare_parameter("video_bitrate", "1000k").value
         self.video_gop = int(self.declare_parameter("video_gop", 60).value)
         self.video_preset = self.declare_parameter("video_preset", "ultrafast").value
+        # auto / libx264 / h264_v4l2m2m；auto 时启动探测硬件编码器，未知值按 auto
+        self.video_encoder = self.declare_parameter("video_encoder", "auto").value
+        self._encoder = None
 
         self.audio_enable = bool(self.declare_parameter("audio_enable", True).value)
         self.audio_device = self.declare_parameter("audio_device", "default").value
@@ -255,6 +318,8 @@ class VideoWebrtcBridge(Node):
             callback_group=self._service_group)
         self.create_timer(1.0, self._publish_status)
         self.create_timer(0.5, self._check_heartbeat)
+        # P2-1.3：启动时探测一次编码器（auto 优先硬件），结果缓存到本次运行
+        self._select_encoder()
 
         self.get_logger().info(
             "video_webrtc_bridge 启动：image=%s camera=%s "
@@ -577,6 +642,28 @@ class VideoWebrtcBridge(Node):
         return response
 
     # ------------------------------------------------------------------ 推流进程
+    def _select_encoder(self):
+        """选择 H.264 编码器并缓存（P2-1.3：auto 优先硬件，失败回退 libx264）。"""
+        if self._encoder is not None:
+            return self._encoder
+        pref = (self.video_encoder or "auto").strip().lower()
+        if pref not in ENCODER_CHOICES:
+            self.get_logger().warning(
+                "未知 video_encoder=%s，按 auto 处理" % self.video_encoder)
+            pref = "auto"
+        hw_ok, reason = False, "未探测"
+        if pref in ("auto", HW_H264_ENCODER):
+            hw_ok, reason = probe_hw_h264_encoder()
+        encoder = select_encoder(pref, hw_ok)
+        if encoder == HW_H264_ENCODER:
+            self.get_logger().info("视频编码器: h264_v4l2m2m（V4L2 M2M 硬件编码）")
+        else:
+            self.get_logger().info(
+                "视频编码器: libx264（软件编码；硬件 M2M 不可用：%s）"
+                % (reason or "未启用"))
+        self._encoder = encoder
+        return encoder
+
     def _build_ffmpeg_cmd(self, width, height, url, audio):
         fps = int(round(self.framerate))
         cmd = [
@@ -595,10 +682,12 @@ class VideoWebrtcBridge(Node):
                 "-fragment_size", str(self.audio_fragment_size),
                 "-i", audio.get("device") or self.audio_device,
             ]
+        encoder = self._select_encoder()
+        cmd += ["-c:v", encoder]
+        if encoder == SOFTWARE_H264_ENCODER:
+            # v4l2m2m 不支持 preset/tune，仅软件编码带这两个参数
+            cmd += ["-preset", self.video_preset, "-tune", "zerolatency"]
         cmd += [
-            "-c:v", "libx264",
-            "-preset", self.video_preset,
-            "-tune", "zerolatency",
             "-pix_fmt", "yuv420p",
             "-g", str(self.video_gop),
             "-b:v", self.video_bitrate,

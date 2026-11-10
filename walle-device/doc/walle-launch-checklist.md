@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 4 | 17 |
-| **合计** | **58** | **37** | **21** |
+| P2 后续优化 | 21 | 5 | 16 |
+| **合计** | **58** | **38** | **20** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -222,10 +222,10 @@
   - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py`（`refresh_capability` / `capability_snapshot` / `_capability_loop` / `handle_capability_query`）
   - 验收：`test/test_capability_cache.py` 覆盖只读缓存、cache-only 立即返回 pending、后台探测写入缓存、探测失败保留旧缓存；请求线程不再执行 v4l2/pactl
 
-- [ ] 🔴 **P2-1.3 视频硬件编码**
-  - 证据：`walle_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py` L602-L633 逐帧写 pipe，软编码 640x480@30
-  - 动作：评估 `v4l2h264enc`/`h264_v4l2m2m`/GStreamer，降低 CPU 与延迟
-  - 验收：同等画质下 CPU 占用明显下降，端到端延迟不升高
+- [x] ✅ **P2-1.3 视频硬件编码**
+  - 处理：评估结论——本机 Pi 5（kernel 6.8）只有 `pispbe` ISP 与 `rpivid` 解码节点，无 V4L2 M2M 编码器；ffmpeg 的 `h264_v4l2m2m` / `hevc_v4l2m2m` 试编码均报 `Could not find a valid device`，GStreamer 也没有 `v4l2h264enc`。已实现 `video_encoder=auto|libx264|h264_v4l2m2m`：启动时用 0.5s 试编码探测，硬件可用则启用，否则自动回退 libx264 并打印原因
+  - 证据：`walle_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py`（`probe_hw_h264_encoder` / `select_encoder` / `_select_encoder` / `_build_ffmpeg_cmd`）
+  - 验收：本机探测 0.2s 后正确回退 libx264（Pi 5 无硬件编码器，CPU 不下降属硬件限制）；带 V4L2 M2M 编码器的设备上 `auto` 会自动切到 `h264_v4l2m2m`
 
 - [ ] 🔴 **P2-1.4 MQTT 消息处理与监控解耦**
   - 动作：命令线程池与采样线程分离；限制并发与队列长度
@@ -420,12 +420,19 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P1-5.4 | 未提交 | 新增 GitHub Actions `ci.yml`（lint + build-test）；本地按 CI 命令干净构建 15 包、63 项单测通过；分支保护待 GitHub 设置 | 待确认 |
 | 2026-11-10 | P2-1.1 | 未提交 | `build_status` 复用 monitor_loop 快照；单测断言 `state/query` < 100ms 且不现场采样 | 待确认 |
 | 2026-11-10 | P2-1.2 | 未提交 | 后台能力缓存 + TTL + cache-only；单测覆盖只读缓存/首次等待/pending/探测失败保留旧缓存 | 待确认 |
+| 2026-11-10 | P2-1.3 | 未提交 | Pi 5 实测无 V4L2 M2M 编码器（h264/hevc_v4l2m2m 均报无设备）；实现 auto 探测与 libx264 回退，新增编码器选择/命令构造单测 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-1.3 评估结论——Raspberry Pi 5（kernel 6.8）没有 V4L2 M2M 编码器：
+  `/sys/class/video4linux` 只有 `pispbe-*`（ISP）与 `rpivid`（解码），
+  `ffmpeg -c:v h264_v4l2m2m` / `hevc_v4l2m2m` 试编码均报
+  `Could not find a valid device`，GStreamer 也无 `v4l2h264enc`。已加
+  `video_encoder` 参数（默认 auto）：启动时试编码探测，硬件可用才启用
+  `h264_v4l2m2m`，否则回退 `libx264` 并打印原因；本机探测约 0.2s。
 - 2026-11-10：P2-1.1 `state/query` 改为复用 `monitor_loop` 最近一次采样
   （CPU/网络）与 `check_usb` 维护的 USB 列表，查询路径不再阻塞 1s；应答新增
   `sample_age_sec`。连接 broker 前先补采一次、监控首轮采样提前到 1s，仅首份

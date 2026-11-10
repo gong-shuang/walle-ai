@@ -17,6 +17,9 @@ video_webrtc_bridge:
     video_bitrate: "1000k"
     video_gop: 60
     video_preset: "ultrafast"
+    # H.264 编码器：auto=优先 V4L2 M2M 硬件（h264_v4l2m2m），不可用自动回退 libx264；
+    # 也可强制 libx264 / h264_v4l2m2m。Raspberry Pi 5 无硬件编码器，会走 libx264。
+    video_encoder: "auto"
 
     # 麦克风混入：有可用录音源时自动带上音频
     audio_enable: true
