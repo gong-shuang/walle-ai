@@ -253,6 +253,14 @@ def validate_config():
         errors.append("MQTT_TLS=off 仅允许在 WALLE_RUNTIME_ENV=debug 下使用")
     if MQTT_CA_FILE and not (os.path.isfile(MQTT_CA_FILE) and os.access(MQTT_CA_FILE, os.R_OK)):
         errors.append(f"MQTT_CA_FILE 不存在或不可读: {MQTT_CA_FILE}")
+    if VIDEO_ENABLE and VIDEO_RTMP_URL_TEMPLATE:
+        if "{room}" not in VIDEO_RTMP_URL_TEMPLATE:
+            errors.append("VIDEO_RTMP_URL_TEMPLATE 缺少 {room} 占位符")
+        elif "{secret}" in VIDEO_RTMP_URL_TEMPLATE and not WHIP_SECRET:
+            errors.append("VIDEO_RTMP_URL_TEMPLATE 含 {secret} 但 WHIP_SECRET 未配置")
+    if (PHONE_AUDIO_ENABLE and PHONE_AUDIO_WHEP_URL_TEMPLATE
+            and "{stream}" not in PHONE_AUDIO_WHEP_URL_TEMPLATE):
+        errors.append("PHONE_AUDIO_WHEP_URL_TEMPLATE 缺少 {stream} 占位符")
     return errors
 
 
@@ -409,9 +417,8 @@ CAM_ENABLE = _env_flag("CAM_ENABLE", True)   # 不需要摄像头能力查询时
 # ---- 视频推流（video/start，ffmpeg -> RTMP）----
 VIDEO_ENABLE = _env_flag("VIDEO_ENABLE", True)  # 不需要推流能力时置 False
 VIDEO_FFMPEG_BIN = "ffmpeg"              # ffmpeg 可执行文件（不在 PATH 就写绝对路径）
-VIDEO_RTMP_URL_TEMPLATE = os.environ.get(  # 推流地址模板：{room}=房间号，{secret}=Oryx 推流 secret
-    "VIDEO_RTMP_URL_TEMPLATE",
-    "rtmp://www.baidong.xyz:1935/live/{room}?secret={secret}")
+# 推流地址模板，必须显式配置：{room}=房间号，{secret}=Oryx 推流 secret
+VIDEO_RTMP_URL_TEMPLATE = os.environ.get("VIDEO_RTMP_URL_TEMPLATE", "").strip()
 # Oryx 部署后会生成一个推流 secret（每台服务器都不同，在控制台「推流鉴权」可查看/重置），
 # 重置后所有旧客户端立即失效。禁止写死在源码里：用 WHIP_SECRET 环境变量
 # （/etc/walle-ai.conf）注入；不配置则视频推流会被服务端拒绝。
@@ -442,9 +449,8 @@ VIDEO_AUDIO_FRAGMENT_SIZE = 1024         # pulse 采集分片（字节）：越�
 
 # ---- 反向音频（phone/audio/*：手机麦 → WebRTC(WHIP→WHEP) → 本机扬声器）----
 PHONE_AUDIO_ENABLE = _env_flag("PHONE_AUDIO_ENABLE", True)  # 不需要时置 False
-PHONE_AUDIO_WHEP_URL_TEMPLATE = os.environ.get(    # 拉流地址模板，{stream} 会被替换成流名
-    "PHONE_AUDIO_WHEP_URL_TEMPLATE",
-    "https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream={stream}")
+# 拉流地址模板，必须显式配置：{stream} 会被替换成流名
+PHONE_AUDIO_WHEP_URL_TEMPLATE = os.environ.get("PHONE_AUDIO_WHEP_URL_TEMPLATE", "").strip()
 PHONE_AUDIO_DEVICE = os.environ.get("PHONE_AUDIO_DEVICE", "")   # sounddevice 输出设备名，空=系统默认
 PHONE_AUDIO_LATENCY = os.environ.get("PHONE_AUDIO_LATENCY", "low")  # PortAudio 延迟档位：low/high
 PHONE_AUDIO_FIRST_FRAME_TIMEOUT = 8.0     # 首帧超时：超时即判定手机端没在推流
@@ -1293,9 +1299,38 @@ def build_rtmp_url(room_number):
     return VIDEO_RTMP_URL_TEMPLATE.format(room=room_number, secret=WHIP_SECRET)
 
 
-def rtmp_secret_ready():
-    """模板里还留着 {secret} 占位符时，必须配置了 WHIP_SECRET 才能推流。"""
-    return "{secret}" not in VIDEO_RTMP_URL_TEMPLATE or bool(WHIP_SECRET)
+def rtmp_url_ready():
+    """推流地址模板与 secret 是否就绪；返回 (ok, reason)。"""
+    if not VIDEO_RTMP_URL_TEMPLATE:
+        return False, "未配置 VIDEO_RTMP_URL_TEMPLATE（推流地址模板）"
+    if "{room}" not in VIDEO_RTMP_URL_TEMPLATE:
+        return False, "VIDEO_RTMP_URL_TEMPLATE 缺少 {room} 占位符"
+    if "{secret}" in VIDEO_RTMP_URL_TEMPLATE and not WHIP_SECRET:
+        return False, "未配置 Oryx 推流 secret（请在 /etc/walle-ai.conf 设置 WHIP_SECRET）"
+    return True, None
+
+
+def whep_url_ready():
+    """手机音频拉流地址模板是否就绪；返回 (ok, reason)。"""
+    if not PHONE_AUDIO_WHEP_URL_TEMPLATE:
+        return False, "未配置 PHONE_AUDIO_WHEP_URL_TEMPLATE（手机音频拉流地址模板）"
+    if "{stream}" not in PHONE_AUDIO_WHEP_URL_TEMPLATE:
+        return False, "PHONE_AUDIO_WHEP_URL_TEMPLATE 缺少 {stream} 占位符"
+    return True, None
+
+
+def media_config_warnings():
+    """音视频模板未配置时的告警；不阻塞仅使用监控功能的设备启动。"""
+    warnings = []
+    if VIDEO_ENABLE:
+        ok, reason = rtmp_url_ready()
+        if not ok:
+            warnings.append(reason + "；视频推流请求将返回 -2")
+    if PHONE_AUDIO_ENABLE:
+        ok, reason = whep_url_ready()
+        if not ok:
+            warnings.append(reason + "；手机音频请求将返回 -2")
+    return warnings
 
 
 def video_log_path():
@@ -1986,10 +2021,9 @@ class RpiMonitor:
 
         # 2.1) Oryx 推流 secret：每台服务器不同，部署时用 WHIP_SECRET 注入。
         #      没配置时不提前拦下，ffmpeg 会因为鉴权失败一直重连，看起来像“推流成功但黑屏”。
-        if not rtmp_secret_ready():
-            self._publish_video_result(
-                req, -2, "命令执行失败",
-                {"error": "未配置 Oryx 推流 secret（请在 /etc/walle-ai.conf 设置 WHIP_SECRET）"})
+        ok_url, url_error = rtmp_url_ready()
+        if not ok_url:
+            self._publish_video_result(req, -2, "命令执行失败", {"error": url_error})
             return
 
         # 3) 已有推流时：video_device 和 room_number 都一样 → 不处理（不重连、不重启）
@@ -2291,6 +2325,11 @@ class RpiMonitor:
             self._publish_phone_audio_result(
                 RES_PHONE_AUDIO_SEND_RESULT, req, -2, "命令执行失败",
                 {"error": "room_number 不合法（只允许 1-64 位字母/数字/下划线/短横线）"})
+            return
+        ok_url, url_error = whep_url_ready()
+        if not ok_url:
+            self._publish_phone_audio_result(
+                RES_PHONE_AUDIO_SEND_RESULT, req, -2, "命令执行失败", {"error": url_error})
             return
 
         with self.audio_lock:
@@ -2677,6 +2716,8 @@ def print_config_check():
     print(f"  用户名   : {MQTT_USER or '(未配置)'}")
     print(f"  密码     : {'********' if MQTT_PASSWORD else '(未配置)'}")
     print(f"  Oryx secret: {'已配置' if WHIP_SECRET else '未配置（视频推流会被服务端拒绝）'}")
+    print(f"  推流模板 : {'已配置' if VIDEO_RTMP_URL_TEMPLATE else '未配置（视频推流不可用）'}")
+    print(f"  手机音频 : {'已配置' if PHONE_AUDIO_WHEP_URL_TEMPLATE else '未配置（手机音频不可用）'}")
     print(f"  租户     : {tenant}")
     print(f"  设备号   : {DEVICE_ID}")
     if DEVICE_ID_SOURCE:
@@ -2699,6 +2740,12 @@ def print_config_check():
             print(f"  - {err}")
     else:
         print("\n== 配置检查通过 ==")
+    warnings = [w for w in media_config_warnings()
+                if not any(err in w for err in errors)]
+    if warnings:
+        print("\n== 配置警告 ==")
+        for warn in warnings:
+            print(f"  - {warn}")
     return errors
 
 
@@ -2720,6 +2767,9 @@ def main():
             logging.error("配置错误: %s", err)
         logging.error("拒绝启动：请通过环境变量或环境文件补齐上述必填项")
         return 2
+
+    for warning in media_config_warnings():
+        logging.warning("配置警告: %s", warning)
 
     logging.info("配置来源: %s", ENV_SOURCE or "环境变量")
     monitor = RpiMonitor()

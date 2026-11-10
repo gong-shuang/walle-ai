@@ -26,12 +26,16 @@ MQTT_TLS=on
 # 自签 CA 路径；留空使用系统 CA
 MQTT_CA_FILE=
 
-# ---- WebRTC / 推流（视频启用时必填）----
+# ---- WebRTC / 推流（VIDEO_ENABLE / PHONE_AUDIO_ENABLE 默认 true，对应模板必填）----
 WHIP_SECRET=
-# 推流地址模板；{room}/{secret} 由设备填充
-# VIDEO_RTMP_URL_TEMPLATE=rtmp://your-server:1935/live/{room}?secret={secret}
+# 视频推流地址模板；{room}/{secret} 由设备填充
+VIDEO_RTMP_URL_TEMPLATE=rtmp://your-server:1935/live/{room}?secret={secret}
 # 手机麦上行 WHEP 地址模板；{stream} 会被替换成 room_audio
-# PHONE_AUDIO_WHEP_URL_TEMPLATE=https://your-server/rtc/v1/whep/?app=live&stream={stream}
+PHONE_AUDIO_WHEP_URL_TEMPLATE=https://your-server/rtc/v1/whep/?app=live&stream={stream}
+
+# 可选能力开关：不需要对应能力时置 false，可免配置上面的模板
+# VIDEO_ENABLE=true
+# PHONE_AUDIO_ENABLE=true
 
 # ---- 可选：监控阈值 ----
 # MONITOR_INTERVAL=5

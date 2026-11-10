@@ -28,12 +28,12 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 15 | 6 | 9 |
+| P0 上线阻断 | 15 | 8 | 7 |
 | P1 上线前应修 | 18 | 0 | 18 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **7** | **48** |
+| **合计** | **55** | **9** | **46** |
 
-> linux-demo 已开始按本清单整改（当前 7/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 9/55）；每次勾选后请同步更新本表数字。
 
 ## 与 ROS2 清单的适用性对照
 
@@ -101,17 +101,15 @@
   - 验收：`git ls-files` 无真实配置/服务文件；`git check-ignore` 四类文件均命中；开发环境自动读取脚本同级 `walle-ai.conf`（实测通过）；不可读配置且无环境变量时提示改用 systemd 注入；普通用户读取 `/etc/walle-ai.conf` 被拒绝；systemd 缺配置时的启动失败待实机验证
   - 证据：`main.py` L76-L129、`walle-ai.conf.example`、`linux-demo/.gitignore`、`walle-ai.service.example` L11、`README.md`
 
-- [ ] 🟡 **P0-2.4 启动前配置校验**
-  - 现状：必填项、端口范围、运行环境、TLS 模式、端口 1883、CA 可读性校验已完成；`{secret}` 模板与 `WHIP_SECRET` 匹配关系尚未校验
-  - 动作：在 `validate_config()` 中补充模板校验（随 P0-2.5 完成）；错误以非 0 退出并打印缺失/非法项
-  - 验收：逐一删除任一必填项，`--check` 均返回非 0 并指出该项（已完成）；`MQTT_PORT=abc` 返回友好错误（已完成）；CA 路径错误已拒绝（已完成）；模板缺 secret 时同样拒绝启动（待完成）
-  - 证据：`main.py` L221-L246、L2689-L2694
+- [x] ✅ **P0-2.4 启动前配置校验**
+  - 处理：`validate_config()` 已校验必填项、端口范围、运行环境、TLS 模式、生产端口 1883、CA 可读性；模板非空时校验 `{room}`/`{stream}` 占位符及 `{secret}`/`WHIP_SECRET` 匹配；空模板不阻塞仅监控用途的启动，但 `--check` 与启动日志输出警告，动作入口返回 -2
+  - 验收：删除任一必填项、非法端口、坏 CA、模板缺占位符或 secret 时 `--check` 返回非 0；空模板仅告警；正式启动同样先校验 MQTT 配置
+  - 证据：`main.py` L221-L264、L1294-L1325、L2737-L2748、L2763-L2771
 
-- [ ] 🔴 **P0-2.5 推流/拉流地址去硬编码**
-  - 现状：`VIDEO_RTMP_URL_TEMPLATE` 默认 `rtmp://www.baidong.xyz:1935/live/{room}?secret={secret}`；`PHONE_AUDIO_WHEP_URL_TEMPLATE` 默认 `https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream={stream}`
-  - 动作：模板改为必填配置（或在启用对应功能时必填），不保留生产域名默认值；未配置时 video/phone audio 请求返回 `-2` 并给出缺失项，不回退到默认域名
-  - 验收：不配置模板时视频与手机音频请求均返回明确失败原因；`grep -R "baidong" walle-device/linux-demo` 无匹配
-  - 证据：`main.py` L380-L382、L413-L415、L1957-L1961、L2255-L2262
+- [x] ✅ **P0-2.5 推流/拉流地址去硬编码**
+  - 处理：删除 `VIDEO_RTMP_URL_TEMPLATE` / `PHONE_AUDIO_WHEP_URL_TEMPLATE` 的生产域名默认值；新增 `rtmp_url_ready()` / `whep_url_ready()`，video/phone audio 动作入口校验模板、占位符与 `WHIP_SECRET`，未就绪返回 -2；`walle-ai.conf.example` 提供模板占位符与能力开关
+  - 验收：`grep -R "baidong" walle-device/linux-demo` 无匹配；空模板时两个动作均返回 -2 并给出明确原因（mock 冒烟通过）；完整模板时 `build_rtmp_url` 正常生成；`--check` 显示模板状态与告警
+  - 证据：`main.py` L409-L445、L1294-L1325、L2022-L2027、L2324-L2333；`walle-ai.conf.example`
 
 ### P0-3 密钥与历史泄露
 
@@ -471,12 +469,17 @@ python3 walle-device/linux-demo/main.py --check
 | 2026-11-10 | P0-2.2 | 待提交 | 默认 TLS=on/8883；prod 下 TLS=off、端口 1883、auto、坏 CA 均退出 1；debug 下 TLS=off 通过 | 待确认 |
 | 2026-11-10 | P0-2.3 | 待提交 | 配置统一为 `/etc/walle-ai.conf`；本地模板与 .gitignore 生效；开发配置自动加载；不可读配置提示 systemd 注入 | 待确认 |
 | 2026-11-10 | P2-5.3 | 待提交 | README 手动运行命令改为 `venv/bin/python`，并补充先停 systemd 服务 | 待确认 |
+| 2026-11-10 | P0-2.4 | 待提交 | 必填项/端口/TLS/CA/模板校验通过；空模板仅告警；非法模板 `--check` 退出 1 | 待确认 |
+| 2026-11-10 | P0-2.5 | 待提交 | 源码无 `baidong`；空模板 video/phone audio 返回 -2；完整模板 `build_rtmp_url` 正常 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：linux-demo 删除推流/拉流地址中的生产域名默认值，模板改为显式配置；
+  空模板时仅告警并在 video/phone audio 动作入口返回 -2，完整模板时校验占位符与
+  `WHIP_SECRET`（P0-2.4 / P0-2.5）。
 - 2026-11-10：linux-demo 配置统一为 `/etc/walle-ai.conf`（生产）与脚本同级 `walle-ai.conf`（开发），
   新增 `walle-ai.conf.example` 与 `linux-demo/.gitignore`；systemd 改为
   `EnvironmentFile=/etc/walle-ai.conf`，缺配置时启动失败；配置不可读但环境变量已注入时只打印 info。

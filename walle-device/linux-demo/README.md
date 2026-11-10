@@ -12,6 +12,7 @@ venv 与 Python 依赖的配置参考 [../doc/README.md](../doc/README.md)。
    cp walle-ai.conf.example walle-ai.conf
    vi walle-ai.conf
    ```
+   必填 MQTT 配置与 `WHIP_SECRET`；视频/手机音频模板默认必填，不需要对应能力时把 `VIDEO_ENABLE` / `PHONE_AUDIO_ENABLE` 置为 `false`。
 2. 开发环境直接运行 `main.py`，会自动读取脚本同级的 `walle-ai.conf`。
 3. 生产环境安装为 `/etc/walle-ai.conf`，权限固定 `root:root 600`：
    ```bash
