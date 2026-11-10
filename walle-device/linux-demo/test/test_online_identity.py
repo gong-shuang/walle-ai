@@ -31,16 +31,20 @@ class OnlineIdentityTest(unittest.TestCase):
             cost = time.time() - t0
         self.assertLess(cost, 0.3)
         self.assertEqual(calls, [], "online 报文不应触发 disk_mounts")
-        self.assertIsNone(payload["disk_total_bytes"])
+        self.assertNotIn("disk_total_bytes", payload)
+        self.assertNotIn("mac", payload)
+        self.assertIn("ip", payload)
         self.assertTrue(payload["online"])
 
     def test_refresh_identity_cache_is_reused(self):
         with mock.patch.object(identity_mod, "disk_mounts",
                                lambda: [{"total_bytes": 1000}]):
             self.mon.refresh_identity_cache()
+        cached_info = self.mon._online_info()
+        self.assertEqual(cached_info["disk_total_bytes"], 1000)
+        self.assertEqual(cached_info["disk_total_human"], main.human_size(1000))
         payload = self.mon.build_online_payload(True)
-        self.assertEqual(payload["disk_total_bytes"], 1000)
-        self.assertEqual(payload["disk_total_human"], main.human_size(1000))
+        self.assertNotIn("disk_total_bytes", payload)
 
 
 if __name__ == "__main__":

@@ -106,18 +106,26 @@ class MonitorIdentityMixin:
         }
 
     def build_online_payload(self, online=True):
-        """
-        online 报文：内容与 identity 保持一致（同一份 build_device_info），
-        只额外加一个 online 布尔字段区分上线/下线。使用身份缓存，避免磁盘扫描。
+        """online（retained/LWT）只发最小身份：设备号、版本、型号、主机名、IP、运行时长。
+
+        完整身份（MAC/序列号/磁盘/系统详情）只通过 discovery/query 返回，避免订阅该
+        租户主题的客户端长期读取敏感信息。使用身份缓存，避免磁盘扫描。
         """
         info = self._online_info()
-        payload = {
+        return {
             "device_id": info["device_id"],
             "uuid": info["uuid"],
             "online": bool(online),
+            "version_code": info.get("version_code"),
+            "version_name": info.get("version_name"),
+            "device_type": info.get("device_type"),
+            "model": info.get("model"),
+            "hostname": info.get("hostname"),
+            "ip": info.get("ip"),
+            "uptime_seconds": info.get("uptime_seconds"),
+            "timestamp": now_ts(),
+            "datetime": now_str(),
         }
-        payload.update({k: v for k, v in info.items() if k not in ("device_id", "uuid")})
-        return payload
 
     def handle_device_query(self, payload):
         rid = self._rid(self._safe_json(payload))

@@ -189,35 +189,36 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 ### 4.1 online —— 上线/下线（主动上报）
 
-**作用**：App 设备列表的唯一数据源。上线 retained 报文含完整身份，订阅即回放。
+**作用**：App 设备列表的唯一数据源。上线 retained 报文只含基本身份，订阅即回放。
 
 - 主题：`walle/{t}/{d}/v1/online`，**retained**
-- 上线：设备连上 broker 后立即发布 `online: true` + 完整身份（同 §4.2 的身份字段全集）
+- 上线：设备连上 broker 后立即发布 `online: true` + 基本身份（见下表）
 - 下线：broker 通过 **LWT 遗嘱**发布 `online: false`（设备端注册 will，异常掉线也能通知）
 
-关键字段（其余同 `build_device_info`）：
+字段（最小集；完整身份见 §4.2 `discovery/result`）：
 
 | 字段 | 说明 |
 |---|---|
 | `online` | bool，true=上线 / false=下线 |
 | `device_id` / `uuid` / `hostname` | 归并与展示用标识 |
 | `version_code` / `version_name` | 设备端软件版本：版本号（整数，如 `1`）、版本名（如 `0.1.1.1`） |
-| `device_type` / `vendor` / `model` / `serial` | 设备类型、厂商、型号（如 Raspberry Pi 5）、序列号 |
-| `ip` / `mac` | 网络身份 |
-| `os{name,kernel,kernel_build,arch,python}` | 系统与内核版本 |
-| `cpu{model,cores_logical,cores_physical,frequency_mhz,temperature_c}` | CPU 概览 |
-| `memory_total_bytes/human`、`disk_total_bytes/human` | 总量 |
-| `uptime_seconds` / `uptime_human` / `boot_time` | 运行时长 |
-| `uuid_source{mac,ip,note}` | uuid 生成依据（提示重启会变，用 discovery 拿最新） |
+| `device_type` / `model` | 设备类型、型号（如 Raspberry Pi 5） |
+| `ip` | 设备当前 IP，展示与排障用 |
+| `uptime_seconds` | 运行时长（秒） |
+| `timestamp` / `datetime` | 报文时间戳 |
+
+> 2026-11-10 起，retained `online` **不再包含** `mac`、`serial`、`os`、`cpu`、内存/磁盘
+> 总量、`boot_time`、`uuid_source` 等身份细节；这些字段只在 `discovery/result` 返回。
 
 **注意**：`online: false` 的遗嘱只由 broker 代发；设备端正常关机也应主动发一次。
 App 侧重复 online 不去重（幂等）。
 
-**归并顺序（`DeviceRegistry.applyOnline`）**：`device_id` → `uuid` → **MAC** → `hostname`。
-最后这层 MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id 的
+**归并顺序（`DeviceRegistry.applyOnline`）**：`device_id` → `uuid` → **MAC（若存在）** → `hostname`。
+MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id 的
 `online:false` + 新 id 的 `online:true`）会合成一张卡片；若旧报文按 MAC 命中已有设备、
 却是下线且 `timestamp` 更旧，则整条丢弃，避免把在线设备刷成离线。
-真实的同一启动周期遗嘱（`device_id` 相同、时间戳相同）不受影响。
+新版设备端 online 不含 MAC，App 需容忍该字段缺失，退化为按 `device_id`/`uuid`/`hostname`
+归并；真实的同一启动周期遗嘱（`device_id` 相同、时间戳相同）不受影响。
 
 ### 4.2 设备发现 discovery/query → discovery/result
 
@@ -590,3 +591,20 @@ python3 walle-device/linux-demo/selftest_topics.py       # 设备端契约自检
 - 设备启动日志中的 MQTT 订阅清单不再包含 `cmd/exec`。
 - 使用 MQTT 客户端向 `walle/{t}/{d}/v1/cmd/exec` 发布消息，设备应无任何响应。
 - 打开 `test/car_ctl_by_mqtt.html`，页面不再出现「远程指令」卡片。
+
+## 待办
+
+> 记录已确认、但尚未在仓库内闭环的事项；完成后从本清单移除并写入对应章节或变更记录。
+> 设备端整改进度以 `walle-device/doc/linux-demo-launch-checklist.md` 为准。
+
+1. **EMQX ACL 与审计落地**：按 `doc/service_deploy.md` §10 配置每设备账号、
+   `walle/+/${clientid}/#`、`{deny, all}.` 与审计规则，并完成跨设备验证（P0-1.3 / P0-1.4）。
+2. **凭据轮换**：App 测试账号 `home` 与设备账号改密，同步 App 与设备 `/etc/walle-ai.conf`
+   （P0-3.1）。
+3. **WHEP 鉴权实测**：Nginx 8443 `/whep-audio/` + `secure_link` 验证无 token 403、
+   过期 410、正确 token 502（P0-4.1）。
+4. **App 适配 online 最小字段**：新版 retained `online` 不再含 `mac`/`serial`/`os`/`cpu`/
+   磁盘等字段，设备归并退化为 `device_id`/`uuid`/`hostname`；完整身份改用 `discovery/query`。
+5. **linux-demo 实机验证**：`kill -9` 子进程清理、断网恢复、摄像头插拔、声卡不可用与
+   24h soak（P1-5.3）；CI 接入 `.github/workflows/ci.yml`（P1-5.4，暂缓）。
+6. **linux-demo 剩余 P2**：兼容性与功能优化项，见上线清单 P2-3/P2-4/P2-5。

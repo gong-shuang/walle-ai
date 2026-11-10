@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 14 | 8 |
-| **合计** | **55** | **41** | **14** |
+| P2 后续优化 | 22 | 15 | 7 |
+| **合计** | **55** | **42** | **13** |
 
-> linux-demo 已开始按本清单整改（当前 41/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 42/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -327,11 +327,10 @@
   - 验收：从任意 cwd 调用 `video_log_path()` 都落在安装目录下；设置 `WALLE_LOG_DIR` 后落在其 `log/` 子目录；新增 2 项用例，全套 48 项通过；目录不可写时仍沿用原有临时文件回退与告警
   - 证据：`ld_media.py`、`README.md`「状态与日志」、`walle-ai.conf.example`；`test/test_config_parse.py`
 
-- [ ] 🔴 **P2-3.4 retained `online` 报文最小化**
-  - 现状：`online` retained 报文复用 `build_device_info()`，包含 MAC、序列号、IP、磁盘总量、启动时间等；任何订阅该租户主题的客户端都能长期读取
-  - 动作：retained `online` 只保留 `device_id` / `uuid` / `online` / 版本等最小字段；完整身份信息仅通过 `discovery/query` 应答返回
-  - 验收：retained online 不含 MAC/序列号/磁盘明细；App 仍能正常显示在线与基本型号
-  - 证据：`main.py` L1654-L1666、L1449
+- [x] ✅ **P2-3.4 retained `online` 报文最小化**
+  - 处理：`build_online_payload()` 只保留 `device_id` / `uuid` / `online` / `version_code` / `version_name` / `device_type` / `model` / `hostname` / `ip` / `uptime_seconds` / `timestamp` / `datetime`；移除 `mac`、`serial`、`os`、`cpu`、内存/磁盘总量、`boot_time`、`uuid_source`；完整身份仍由 `discovery/result` 返回；协议文档 §4.1 同步更新字段表与 App 归并说明，文末新增「待办」章节
+  - 验收：online 报文不含 `mac` / `disk_total_bytes` 等字段且含 `ip`；`discovery/result` 仍返回完整身份；全套 48 项通过、`--check` 退出 0
+  - 证据：`ld_monitor_identity.py`、`doc/MQTT_protocol_convention.md` §4.1 与「待办」；`test/test_online_identity.py`
 
 - [ ] 🔴 **P2-3.5 动作成功判定与实际可用性对齐**
   - 现状：视频推流以「进程活过 3s」判成功，手机音频以「播放器活过 2s」判成功；而手机音频首帧超时是 8s，可能出现「返回成功但实际无声」；推流鉴权失败也可能在宽限期后才退出
@@ -457,6 +456,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：retained online 最小化（保留 device_id/uuid/版本/型号/主机名/IP/运行时长），
+  MAC/序列号/系统与磁盘明细只走 discovery；协议 §4.1 与「待办」同步更新（P2-3.4）。
 - 2026-11-10：推流日志路径改为以 `WALLE_LOG_DIR` 或 main.py 目录为基准，不再受启动
   工作目录影响；README/配置模板说明与 ReadWritePaths 的联动（P2-3.3）。
 - 2026-11-10：编码器支持 auto/libx264/h264_v4l2m2m，不可用时回退并记录原因；
