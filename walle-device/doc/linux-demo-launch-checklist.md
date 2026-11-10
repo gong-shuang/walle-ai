@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 20 | 2 |
-| **合计** | **55** | **47** | **8** |
+| P2 后续优化 | 22 | 21 | 1 |
+| **合计** | **55** | **48** | **7** |
 
-> linux-demo 已开始按本清单整改（当前 47/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 48/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -361,11 +361,10 @@
 
 ### P2-5 文档一致性
 
-- [ ] 🔴 **P2-5.1 修正 ROS2 清单中的 linux-demo 描述**
-  - 现状：`walle-device/doc/walle-launch-checklist.md` P0-5.2 声称「`linux-demo/walle-ai.conf.example`」已模板化，但该文件实际在 `947f445` 中随 `walle-ai.env.example` 一起被删除
-  - 动作：修正该条描述，或在新清单中明确 linux-demo 尚未完成配置模板化
-  - 验收：两份清单关于 linux-demo 的状态一致，不再引用不存在的文件
-  - 证据：`walle-device/doc/walle-launch-checklist.md` L104-L106；`git show 947f445 --stat`
+- [x] ✅ **P2-5.1 修正 ROS2 清单中的 linux-demo 描述**
+  - 处理：核对后确认该条已自然恢复——`947f445` 删除的是 `walle-ai.env.example`，`walle-ai.conf.example` 已在 `00c6a6a`（P0-2.3 统一配置）重新加入并持续维护；`linux-demo/walle-ai.conf.example` 现为受版本控制的配置模板，`git ls-files '*.env' 'walle-ai.conf'` 为空，`walle-ai.conf` 被 `.gitignore` 忽略。ROS2 清单 P0-5.2 的表述与现状一致，无需改外部文档
+  - 验收：`git ls-files --diff-filter=A` 确认模板来源；`git check-ignore -v` 命中 `linux-demo/.gitignore` 与 `walle-device/.gitignore`
+  - 证据：`walle-device/linux-demo/walle-ai.conf.example`；`git show 947f445 --stat`
 
 - [ ] 🔴 **P2-5.2 明确 ROS2 与 linux-demo 二选一部署**
   - 现状：两套实现使用同名 systemd 服务 `walle-ai`、不同配置文件（`.conf` / `.env`），同机不能共存；文档未说明
@@ -453,6 +452,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：核对 ROS2 清单 P0-5.2 引用：`walle-ai.conf.example` 已在 P0-2.3 恢复并受版本
+  控制，`947f445` 删除的是 `walle-ai.env.example`，该条无需再改外部文档（P2-5.1）。
 - 2026-11-10：新增 `inject_request.py` 本地注入工具，默认只发只读查询、支持 `--dry-run`，
   uuid 从 retained online 读取，结果按 request_id 匹配（P2-4.2）。
 - 2026-11-10：`--check --connect` 增加订阅/发布回执与 nonce 回投验证，临时主题
