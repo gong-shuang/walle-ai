@@ -45,6 +45,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 命令行：
     python3 main.py                         前台运行（自动读 /etc/walle-ai.conf）
     python3 main.py --check                 只打印解析后的配置与订阅主题，不连 broker
+    python3 main.py --check --connect       配置检查 + Broker 登录/订阅/发布回环验证
     python3 main.py --env-file PATH         使用指定配置文件
     python3 main.py --help                  查看本说明
 

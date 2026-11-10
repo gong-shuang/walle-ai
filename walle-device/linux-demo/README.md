@@ -90,9 +90,12 @@ aiortc、sounddevice），缺失只告警、不阻塞启动。
 ~/venv/bin/python main.py --check --connect
 ```
 
-依次检查 DNS、TCP、TLS 与 MQTT 登录（CONNACK），**不订阅、不发布**；使用
-`<device_id>-check` 临时 clientId，不会把正在运行的服务踢下线。订阅权限仍由 Broker ACL
-决定，需在服务端单独验证。
+依次检查 DNS、TCP、TLS、MQTT 登录（CONNACK）、订阅回执（SUBACK）、发布回执（PUBACK），
+并向临时主题 `walle/{租户}/{device_id}-check/v1/selfcheck` 发布一次性 nonce，确认能收到回投；
+回投成功即说明「账号 + ACL（发布/订阅）+ Broker 转发」整条链路可用。使用
+`<device_id>-check` 临时 clientId，不会把正在运行的服务踢下线；主题按该 clientId 生成，
+与 `doc/service_deploy.md` §10 的 `walle/+/${clientid}/#` ACL 规则一致。若未收到回投，
+通常是设备账号 ACL 未生效或授权源顺序不对（EMQX `deny_action=ignore` 时 SUBACK 仍可能显示成功）。
 
 摄像头单独确认（推流前还会自动 preflight）：
 

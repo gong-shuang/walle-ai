@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 18 | 4 |
-| **合计** | **55** | **45** | **10** |
+| P2 后续优化 | 22 | 19 | 3 |
+| **合计** | **55** | **46** | **9** |
 
-> linux-demo 已开始按本清单整改（当前 45/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 46/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -349,10 +349,10 @@
 
 ### P2-4 调试工具
 
-- [ ] 🔴 **P2-4.1 `--check` 增加连接诊断**
-  - 动作：可选 `--check --connect`：DNS 解析、TCP 连接、TLS 握手/证书、MQTT 登录、订阅回执、发布一条测试消息到独立主题
-  - 验收：现场可一条命令定位「配置错 / 证书错 / 账号错 / ACL 错」
-  - 证据：`main.py` L2746-L2793
+- [x] ✅ **P2-4.1 `--check` 增加连接诊断**
+  - 处理：`check_connect()` 在原有 DNS/TCP/TLS/CONNACK 基础上增加订阅回执（SUBACK）与发布回执（PUBACK），并向临时主题 `walle/{tenant}/{device_id}-check/v1/selfcheck` 发布一次性 nonce，收到 Broker 回投才判成功；临时 clientId `<device_id>-check` 不踢线上服务，主题按该 clientId 生成以匹配 `walle/+/${clientid}/#` ACL；失败提示区分登录失败/订阅被拒/发布被拒/回投未收到（提示 EMQX `deny_action=ignore` 的影响）
+  - 验收：新增 3 项用例（回投成功、回投缺失、订阅被拒），全套 56 项通过；`--check --connect` 本机无 Broker 时 DNS 失败返回 1；真实 EMQX 账号/ACL 待现场验证
+  - 证据：`ld_selfcheck.py`、`main.py`、`README.md`「4. 自检」；`test/test_selfcheck.py`
 
 - [ ] 🔴 **P2-4.2 本地请求注入脚本**
   - 动作：提供命令行小工具，模拟 App 发送 `state/query`、`capability/query`、`video/start`、`video/stop`、`phone/audio/*`，支持 `--dry-run` 只打印主题与报文
@@ -453,6 +453,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：`--check --connect` 增加订阅/发布回执与 nonce 回投验证，临时主题
+  `walle/{tenant}/{device_id}-check/v1/selfcheck`，可一条命令区分登录/ACL 问题（P2-4.1）。
 - 2026-11-10：手机音频首帧超时与启动宽限改为环境变量（默认 8s / 2s），主进程等待
   `首帧超时 + 启动宽限`，弱网可延长首帧超时（P2-3.7）。
 - 2026-11-10：设备标识默认放 `/var/lib/walle-ai/device-id`，deploy.sh 创建目录并迁移旧
