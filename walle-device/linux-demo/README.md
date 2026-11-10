@@ -24,7 +24,7 @@
 ## 二、协议
 
 设备与 App 的全部 MQTT 通信约定（主题命名、请求/应答配对、报文格式、ACL、修改协议的流程）
-唯一定义在 **[doc/MQTT_protocol_convention.md](../doc/MQTT_protocol_convention.md)**，本文不复述，避免两处维护同一套规则产生偏差。
+唯一定义在 **[doc/MQTT_protocol_convention.md](../../doc/MQTT_protocol_convention.md)**，本文不复述，避免两处维护同一套规则产生偏差。
 
 设备侧只需记住两点：
 
@@ -42,14 +42,14 @@
 | 系统 | Raspberry Pi OS（Bookworm 及以上），已联网 |
 | 用户 | 有 sudo 权限的普通用户（服务会以该用户跑） |
 | 依赖 | 手动安装：`python3-venv`、`v4l-utils`（摄像头）、`ffmpeg`（推流）、`libportaudio2`（手机麦上行出声） |
-| 服务器端 | 必须部署了EMQX和Oyxl服务，具体部署请参考[doc/service_deploy.md](../doc/service_deploy.md) |
+| 服务器端 | 必须部署了EMQX和Oyxl服务，具体部署请参考[doc/service_deploy.md](../../doc/service_deploy.md) |
 
 ### 3.2 首次配置环境
 
-在 Mac/PC 上把 `linux/` 目录整体拷到树莓派，假设树莓派的用户名是 `gs`，项目的目录是 `~/walle_linux`，则：
+在 Mac/PC 上把 `linux-demo/` 目录整体拷到树莓派，假设树莓派的用户名是 `gs`，项目的目录是 `~/walle_linux`，则：
 
 ```bash
-scp -r linux gs@<树莓派IP>:~/walle_linux
+scp -r walle-device/linux-demo gs@<树莓派IP>:~/walle_linux
 ssh gs@<树莓派IP> && cd ~/walle_linux
 ```
 
@@ -264,7 +264,7 @@ mosquitto_pub -h www.baidong.xyz -p 8883 -u home -P '<口令>' -r -n \
 ## 七、目录结构
 
 ```
-linux/
+linux-demo/
 ├── main.py                     # 主程序（单文件）
 ├── whep_audio_player.py        # 手机麦上行播放端（WHEP 拉流 + PortAudio 出声）
 ├── requirements.txt            # paho-mqtt / psutil / aiortc / sounddevice

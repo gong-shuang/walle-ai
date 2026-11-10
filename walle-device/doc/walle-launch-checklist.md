@@ -102,7 +102,7 @@
   - 验收：`agent.py` 中无默认 MQTT 凭据；无 env 文件时节点拒绝启动
 
 - [x] ✅ **P0-5.2 env 文件模板化并加入 gitignore**
-  - 处理：env 模板统一为 `*.example`（`scripts/walle-ai.conf.example`、`linux/walle-ai.conf.example`）；仓库根与 `walle-device/.gitignore` 忽略 `*.env`、`walle-ai.conf`；`start.sh` / `deploy.sh` 在缺少配置时提示从模板复制；部署文档与 `agent.py` 报错提示同步改为模板路径
+  - 处理：env 模板统一为 `*.example`（`scripts/walle-ai.conf.example`、`linux-demo/walle-ai.conf.example`）；仓库根与 `walle-device/.gitignore` 忽略 `*.env`、`walle-ai.conf`；`start.sh` / `deploy.sh` 在缺少配置时提示从模板复制；部署文档与 `agent.py` 报错提示同步改为模板路径
   - 验收：`git ls-files '*.env' 'walle-ai.conf'` 为空；新建 `scripts/walle-ai.conf` 后 `git check-ignore -v` 命中忽略规则，`git status` 不跟踪
 
 - [x] ✅ **P0-5.3 扫描历史并轮换已暴露密钥**
@@ -561,7 +561,7 @@ cd walle-device/scripts && ./start.sh
   注入并直接 `source env_walle.sh` 启动；`start.sh` 仅用于开发环境。
   `WatchdogSec` 暂未启用（节点未实现 sd_notify，见 P1-1.2）。
 - 2026-11-09：P0-5.2 已把 env 模板统一为 `*.example`
-  （`scripts/walle-ai.conf.example`、`linux/walle-ai.conf.example`），仓库根与
+  （`scripts/walle-ai.conf.example`、`linux-demo/walle-ai.conf.example`），仓库根与
   `walle-device/.gitignore` 忽略 `*.env`、`walle-ai.conf`；开发时先
   `cp walle-ai.conf.example walle-ai.conf`，生产由 `deploy.sh` 安装。
 - 2026-11-09：P0-5.3 对 88 个提交做全历史扫描，仅发现占位符（`sk-你的新key`、`xxx`），

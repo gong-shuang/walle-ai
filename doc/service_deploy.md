@@ -2,7 +2,7 @@
 
 1.本文档描述 walle 服务端的完整搭建流程：**云服务器 → 域名 → 备案 → 证书 → Oryx（媒体）→ EMQX（MQTT）→ 用户 / SSL / ACL**，即完成服务器的配置。
 
-2.服务器的部署是先决条件，完成后，再安装和配置android app（文档见 [quick\_start.md](quick_start.md) ）， 之后，在linux设备上（比如树莓派设备）部署 rpi\_monitor 服务（文档见 [README.md](../linux/README.md) ）。
+2.服务器的部署是先决条件，完成后，再安装和配置android app（文档见 [quick\_start.md](quick_start.md) ）， 之后，在linux设备上（比如树莓派设备）部署 rpi\_monitor 服务（文档见 [README.md](../walle-device/linux-demo/README.md) ）。
 
 > 已验证环境（本文命令均按此版本核对）
 >
@@ -470,8 +470,8 @@ mosquitto_sub -h www.example.com -p 8883 --tls-use-os-certs -u RaspPi5 -P '设�
 | `WHIP_AUDIO_URL_TEMPLATE`       | `walle-android/app/build.gradle`（由 ORYX\_SECRET 自动拼装）     | `https://www.example.com:443/rtc/v1/whip/?app=live&stream={room}_audio&secret=<secret>` |
 | `WHEP_URL_TEMPLATE`             | `walle-android/app/build.gradle`                          | `https://www.example.com:443/rtc/v1/whep/?app=live&stream={room}`                       |
 | `WHIP_SECRET`（设备端）              | `/etc/walle-ai.conf`                      | 与 App 用同一个 secret（§6.1）                                                                 |
-| `VIDEO_RTMP_URL_TEMPLATE`       | `linux/main.py`（由 ORYX\_SECRET 自动拼装） | `rtmp://www.example.com:1935/live/{room}?secret=<secret>`                               |
-| `PHONE_AUDIO_WHEP_URL_TEMPLATE` | `linux/main.py` / 环境变量               | `https://www.example.com:443/rtc/v1/whep/?app=live&stream={stream}`                     |
+| `VIDEO_RTMP_URL_TEMPLATE`       | `walle-device/linux-demo/main.py`（由 ORYX\_SECRET 自动拼装） | `rtmp://www.example.com:1935/live/{room}?secret=<secret>`                               |
+| `PHONE_AUDIO_WHEP_URL_TEMPLATE` | `walle-device/linux-demo/main.py` / 环境变量               | `https://www.example.com:443/rtc/v1/whep/?app=live&stream={stream}`                     |
 | `MQTT_HOST` / `MQTT_PORT`       | `/etc/walle-ai.conf`                      | `www.example.com` / `8883`                                                              |
 | MQTT 主机 / 端口                    | App 内 MQTT 配置页                              | `www.example.com` / `8883`（TLS 开）                                                       |
 

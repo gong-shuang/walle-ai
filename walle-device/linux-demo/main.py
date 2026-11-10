@@ -49,7 +49,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     python3 main.py --env-file PATH         使用指定配置文件
     python3 main.py --help                  查看本说明
 
-部署：见 linux/README.md「首次部署」（systemd 单元为 walle-ai.service）
+部署：见 linux-demo/README.md「首次部署」（systemd 单元为 walle-ai.service）
 """
 
 import hashlib
@@ -2167,7 +2167,7 @@ class RpiMonitor:
         except FileNotFoundError:
             sink.close()
             return None, (f"未找到播放器脚本 {PHONE_AUDIO_PLAYER_SCRIPT}"
-                          "（请把 linux/whep_audio_player.py 一起部署到同目录）")
+                          "（请把 linux-demo/whep_audio_player.py 一起部署到同目录）")
         except Exception as e:  # noqa: BLE001
             sink.close()
             return None, f"启动 WHEP 播放器失败: {e}"

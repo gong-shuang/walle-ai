@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=gs
-# 模板：部署时把用户 / 安装目录替换成实际值（命令见 linux/README.md 3.3）
+# 模板：部署时把用户 / 安装目录替换成实际值（命令见 linux-demo/README.md 3.3）
 WorkingDirectory=/home/gs/walle_linux
 EnvironmentFile=-/etc/walle-ai.env
 ExecStart=/home/gs/walle_linux/.venv/bin/python /home/gs/walle_linux/main.py

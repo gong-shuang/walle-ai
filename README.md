@@ -85,7 +85,7 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 
 推流成功后在 App 侧按 `room_number` 拼接 WHEP 地址拉流（`BuildConfig.WHEP_URL_TEMPLATE`）。
 
-> 设备端实现与部署见 [`linux/README.md`](linux/README.md)。
+> 设备端实现与部署见 [`walle-device/linux-demo/README.md`](walle-device/linux-demo/README.md)。
 
 ---
 
@@ -95,7 +95,7 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 |---|---|
 | [doc/service_deploy.md](doc/service_deploy.md) | 如何部署服务器、配置证书，权限介绍|
 | [doc/quick_start.md](doc/quick_start.md) | 如何编译app，连接服务器，如何使用|
-| [linux/README.md](linux/README.md) | 如何部署linux设备端代码，如何使用和调试设备端代码。|
+| [walle-device/linux-demo/README.md](walle-device/linux-demo/README.md) | 如何部署linux设备端代码，如何使用和调试设备端代码。|
 
 
 ## 快速验证demo
@@ -147,7 +147,7 @@ adb install walle-android-0.1.1.apk
 
 - [快速上手指南](doc/quick_start.md) — 环境要求、构建、Broker 配置、证书与权限
 - [MQTT 协议约定（协议 v1）](doc/MQTT_protocol_convention.md) — 全部报文字段定义、设计原则与修改流程（改协议前必读）
-- [设备端部署说明](linux/README.md) — 树莓派一键安装脚本、配置项与排障
+- [设备端部署说明](walle-device/linux-demo/README.md) — 树莓派一键安装脚本、配置项与排障
 
 ## 许可
 

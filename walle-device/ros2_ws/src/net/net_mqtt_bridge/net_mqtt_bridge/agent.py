@@ -49,7 +49,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     python3 main.py --env-file PATH         使用指定配置文件
     python3 main.py --help                  查看本说明
 
-部署：见 linux/README.md「首次部署」（systemd 单元为 walle-ai.service）
+部署：见 linux-demo/README.md「首次部署」（systemd 单元为 walle-ai.service）
 
 模块拆分（P2-2.1）：
     config.py       环境文件、MQTT 配置、主题与运行期常量

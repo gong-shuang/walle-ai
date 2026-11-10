@@ -3,7 +3,7 @@
 """net_mqtt_bridge
 
 MQTT 协议入口（唯一 MQTT 客户端）：
-  - 保留原 linux/main.py 的 online/LWT、discovery、state、cmd、capability、alarm、
+  - 保留原 linux-demo/main.py 的 online/LWT、discovery、state、cmd、capability、alarm、
     phone/audio 全部逻辑；
   - video/start|stop 不再直接起 ffmpeg，而是通过 ROS2 service 调
     video_webrtc_bridge；
