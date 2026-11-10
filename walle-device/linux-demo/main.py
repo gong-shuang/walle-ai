@@ -51,6 +51,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 部署：见 linux-demo/README.md「首次部署」（systemd 单元为 walle-ai.service）
 """
 
+import base64
 import hashlib
 import json
 import logging
@@ -258,9 +259,10 @@ def validate_config():
             errors.append("VIDEO_RTMP_URL_TEMPLATE 缺少 {room} 占位符")
         elif "{secret}" in VIDEO_RTMP_URL_TEMPLATE and not WHIP_SECRET:
             errors.append("VIDEO_RTMP_URL_TEMPLATE 含 {secret} 但 WHIP_SECRET 未配置")
-    if (PHONE_AUDIO_ENABLE and PHONE_AUDIO_WHEP_URL_TEMPLATE
-            and "{stream}" not in PHONE_AUDIO_WHEP_URL_TEMPLATE):
-        errors.append("PHONE_AUDIO_WHEP_URL_TEMPLATE 缺少 {stream} 占位符")
+    if PHONE_AUDIO_ENABLE and PHONE_AUDIO_WHEP_URL_TEMPLATE:
+        ok, reason = whep_url_ready()
+        if not ok:
+            errors.append(reason)
     return errors
 
 
@@ -449,8 +451,15 @@ VIDEO_AUDIO_FRAGMENT_SIZE = 1024         # pulse 采集分片（字节）：越�
 
 # ---- 反向音频（phone/audio/*：手机麦 → WebRTC(WHIP→WHEP) → 本机扬声器）----
 PHONE_AUDIO_ENABLE = _env_flag("PHONE_AUDIO_ENABLE", True)  # 不需要时置 False
-# 拉流地址模板，必须显式配置：{stream} 会被替换成流名
+# 拉流地址模板，必须显式配置：{stream}/{expires}/{token} 由设备填充
 PHONE_AUDIO_WHEP_URL_TEMPLATE = os.environ.get("PHONE_AUDIO_WHEP_URL_TEMPLATE", "").strip()
+# WHEP 拉流鉴权：与 Nginx secure_link 的 secret 一致（见 doc/service_deploy.md §6.2）
+PHONE_AUDIO_WHEP_SECRET = os.environ.get("PHONE_AUDIO_WHEP_SECRET", "").strip()
+PHONE_AUDIO_WHEP_PATH = os.environ.get("PHONE_AUDIO_WHEP_PATH", "/whep-audio/").strip()
+try:
+    PHONE_AUDIO_WHEP_TOKEN_TTL = int(os.environ.get("PHONE_AUDIO_WHEP_TOKEN_TTL", "300"))
+except ValueError:
+    PHONE_AUDIO_WHEP_TOKEN_TTL = 0
 PHONE_AUDIO_DEVICE = os.environ.get("PHONE_AUDIO_DEVICE", "")   # sounddevice 输出设备名，空=系统默认
 PHONE_AUDIO_LATENCY = os.environ.get("PHONE_AUDIO_LATENCY", "low")  # PortAudio 延迟档位：low/high
 PHONE_AUDIO_FIRST_FRAME_TIMEOUT = 8.0     # 首帧超时：超时即判定手机端没在推流
@@ -1311,12 +1320,24 @@ def rtmp_url_ready():
 
 
 def whep_url_ready():
-    """手机音频拉流地址模板是否就绪；返回 (ok, reason)。"""
+    """手机音频 WHEP 地址模板与鉴权参数是否就绪；返回 (ok, reason)。"""
     if not PHONE_AUDIO_WHEP_URL_TEMPLATE:
         return False, "未配置 PHONE_AUDIO_WHEP_URL_TEMPLATE（手机音频拉流地址模板）"
-    if "{stream}" not in PHONE_AUDIO_WHEP_URL_TEMPLATE:
-        return False, "PHONE_AUDIO_WHEP_URL_TEMPLATE 缺少 {stream} 占位符"
+    for placeholder in ("{stream}", "{expires}", "{token}"):
+        if placeholder not in PHONE_AUDIO_WHEP_URL_TEMPLATE:
+            return False, f"PHONE_AUDIO_WHEP_URL_TEMPLATE 缺少 {placeholder} 占位符"
+    if not PHONE_AUDIO_WHEP_SECRET:
+        return False, "未配置 PHONE_AUDIO_WHEP_SECRET（WHEP 鉴权密钥）"
+    if PHONE_AUDIO_WHEP_TOKEN_TTL <= 0:
+        return False, "PHONE_AUDIO_WHEP_TOKEN_TTL 必须大于 0"
     return True, None
+
+
+def whep_token(stream, expires):
+    """按 Nginx secure_link_md5 规则生成 token：base64url(md5(expires+path+stream secret))。"""
+    raw = f"{expires}{PHONE_AUDIO_WHEP_PATH}{stream} {PHONE_AUDIO_WHEP_SECRET}"
+    digest = hashlib.md5(raw.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
 def media_config_warnings():
@@ -1458,8 +1479,8 @@ def make_log_sink(header=b""):
 
 
 def mask_rtmp_url(url):
-    """日志/报文里隐藏 secret 参数，避免密钥外泄到日志"""
-    return re.sub(r"(secret=)[^&]+", r"\1***", url)
+    """日志/报文里隐藏 secret/token 参数，避免密钥外泄到日志"""
+    return re.sub(r"((?:secret|token)=)[^&]+", r"\1***", url)
 
 
 # ============================== 主类 ==============================
@@ -2166,9 +2187,13 @@ class RpiMonitor:
 
         媒体面走 WebRTC：App 用 WHIP 推、本机用 WHEP 拉。相比 RTMP 拉流，RTC 走 UDP、
         按最新帧转发，端到端延迟约 200ms（RTMP+ffmpeg 实测会被各级缓冲拖到数秒）。
+        拉流地址带短期 token，由 Nginx secure_link 校验（见 doc/service_deploy.md §6.2）。
         """
+        stream = room_number + PHONE_AUDIO_STREAM_SUFFIX
+        expires = int(time.time()) + PHONE_AUDIO_WHEP_TOKEN_TTL
+        token = whep_token(stream, expires)
         return PHONE_AUDIO_WHEP_URL_TEMPLATE.format(
-            stream=room_number + PHONE_AUDIO_STREAM_SUFFIX)
+            stream=stream, expires=expires, token=token)
 
     def _publish_phone_audio_result(self, resource, req, result_code, cause, extra=None):
         """手机音频动作的结果报文（result 语义与 video 一致：0 成功 / -1 无流 / -2 失败）"""
@@ -2217,7 +2242,7 @@ class RpiMonitor:
                      f"：{reason}" if reason else "", meta.get("room_number"), meta.get("pid"))
         return True
 
-    def _build_phone_audio_cmd(self, room_number):
+    def _build_phone_audio_cmd(self, room_number, url=None):
         """WHEP 拉 WebRTC 音频 → 本机声卡（独立进程 whep_audio_player.py）。
 
         为什么不用 ffmpeg 拉 RTMP：RTMP 走 TCP，且服务端/解码器/声卡各级缓冲会把
@@ -2225,7 +2250,7 @@ class RpiMonitor:
         端到端约 200ms，与视频方向（WHEP）同级。
         """
         cmd = [sys.executable, PHONE_AUDIO_PLAYER_SCRIPT,
-               "--url", self._phone_audio_url(room_number),
+               "--url", url or self._phone_audio_url(room_number),
                "--latency", PHONE_AUDIO_LATENCY,
                "--first-frame-timeout", str(PHONE_AUDIO_FIRST_FRAME_TIMEOUT)]
         if PHONE_AUDIO_DEVICE:
@@ -2252,8 +2277,8 @@ class RpiMonitor:
                             room_number, code, f"，stderr: {tail}" if tail else "")
 
     def _start_phone_audio(self, room_number):
-        cmd = self._build_phone_audio_cmd(room_number)
         url = self._phone_audio_url(room_number)
+        cmd = self._build_phone_audio_cmd(room_number, url)
         header = (
             f"\n===== {now_str()} 启动手机音频播放 room={room_number} =====\n"
             f"$ {' '.join(cmd).replace(url, mask_rtmp_url(url))}\n"

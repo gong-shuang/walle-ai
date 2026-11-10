@@ -21,19 +21,19 @@
 1. ✅ 已修复：`cmd/exec` 远程命令能力已整体删除（2026-11-10，P0-1.1 / P0-1.2 / P0-1.5）。
 2. ✅ 已修复：默认 Broker、账号与口令已删除，缺失配置拒绝启动；生产强制 TLS 8883（2026-11-10，P0-2.1 / P0-2.2）。
 3. 部分修复：配置模板与 README 已恢复/更新，`requirements.txt` 与 `selftest_topics.py` 仍缺失（P1-1.1 / P2-2.5）。
-4. 手机麦克风上行 WHEP 拉流地址不含任何鉴权参数，同租户客户端可直连拉取手机音频。
+4. ✅ 已修复：手机麦上行 WHEP 改为 Nginx `secure_link` + 设备短期 token（2026-11-10，P0-4.1）。
 5. 推流/播放子进程使用 `start_new_session=True`，主进程被 `kill -9` 或崩溃后 ffmpeg/播放器仍会继续运行（摄像头/麦克风持续工作）。
 
 ## 进度总览
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 15 | 8 | 7 |
+| P0 上线阻断 | 15 | 9 | 6 |
 | P1 上线前应修 | 18 | 0 | 18 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **9** | **46** |
+| **合计** | **55** | **10** | **45** |
 
-> linux-demo 已开始按本清单整改（当前 9/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 10/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`，待服务端实施验证。
 
 ## 与 ROS2 清单的适用性对照
@@ -122,11 +122,10 @@
 
 ### P0-4 音视频流鉴权与隐私
 
-- [ ] 🔴 **P0-4.1 手机麦克风上行 WHEP 拉流鉴权**
-  - 现状：`PHONE_AUDIO_WHEP_URL_TEMPLATE` 不含 token/secret；流名为 `room_number + "_audio"`，房间号由 MQTT 请求下发且可猜测；`whep_audio_player.py` 的 `http_sdp()` 也未携带任何鉴权头。同租户客户端可直接构造 WHEP 地址拉取手机麦克风音频
-  - 动作：WHEP URL 增加短期 token/secret（与 Oryx/SRS 鉴权策略一致），由 App 下发或服务端签发；播放器支持 `Authorization` 头或 URL token；流名至少加入不可预测随机段；设备侧校验 token 有效期
-  - 验收：不带 token 的 WHEP 请求返回 401/403；仅凭 `room_number` 拼接旧 URL 无法拉流；token 过期后拉流失败
-  - 证据：`main.py` L413-L415、L2098-L2105、L2250-L2262；`whep_audio_player.py` L47-L58、L196-L206
+- [x] ✅ **P0-4.1 手机麦克风上行 WHEP 拉流鉴权**
+  - 处理：新增 Nginx 8443 `/whep-audio/` 入口与 `secure_link` 校验（`doc/service_deploy.md` §6.2）；设备端新增 `PHONE_AUDIO_WHEP_SECRET` / `PHONE_AUDIO_WHEP_PATH` / `PHONE_AUDIO_WHEP_TOKEN_TTL`，`_phone_audio_url()` 生成 `expires` + `token`（base64url(md5(expires+path+stream+secret))），`whep_url_ready()` 校验模板/secret/TTL；日志对 `token=` 脱敏
+  - 验收：无 token 403、过期 410、正确 token 502（Nginx 服务端实测待执行）；设备端 token 与独立 MD5 计算一致（mock 验证通过）；缺少 `{expires}` / `{token}` 或 secret 时 `--check` 返回 1
+  - 证据：`main.py` L451-L461、L1321-L1339、L2185-L2196；`walle-ai.conf.example`；`doc/service_deploy.md` §6.2、§11 第 13 项
 
 - [ ] 🔴 **P0-4.2 摄像头设备白名单与 preflight**
   - 现状：`handle_video_request()` 仅校验 `/dev/video\d+` 存在，任意 video 节点（包括 ISP、解码、元数据节点）都可作为 ffmpeg 输入；未校验是否为 USB 采集设备、是否支持配置的分辨率/格式
@@ -473,12 +472,16 @@ python3 walle-device/linux-demo/main.py --check
 | 2026-11-10 | P0-2.4 | 待提交 | 必填项/端口/TLS/CA/模板校验通过；空模板仅告警；非法模板 `--check` 退出 1 | 待确认 |
 | 2026-11-10 | P0-2.5 | 待提交 | 源码无 `baidong`；空模板 video/phone audio 返回 -2；完整模板 `build_rtmp_url` 正常 | 待确认 |
 | 2026-11-10 | P0-1.3 / P0-1.4 | 待提交 | `doc/service_deploy.md` §10 已补每设备 ACL、deny-all 与规则引擎审计；待 EMQX 实测 | 待确认 |
+| 2026-11-10 | P0-4.1 | 待提交 | 设备端 token 与独立 MD5 一致；缺 secret/占位符 `--check` 退出 1；Nginx 403/410/502 待实测 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：`doc/service_deploy.md` §6.2 新增 Nginx 8443 `/whep-audio/` + `secure_link`
+  鉴权，设备端生成 5 分钟 token（`PHONE_AUDIO_WHEP_SECRET` / `PHONE_AUDIO_WHEP_PATH` /
+  `PHONE_AUDIO_WHEP_TOKEN_TTL`）；无 token 403、过期 410。P0-4.1 待服务端实测。
 - 2026-11-10：`doc/service_deploy.md` §10 已补每设备 MQTT ACL
   （`walle/+/${clientid}/#`、discovery、`{deny, all}.`）与动作审计
   （EMQX 规则引擎 → `walle/audit/...`）；P0-1.3 / P0-1.4 待服务端落地验证。

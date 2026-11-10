@@ -40,8 +40,10 @@
 | 1935  | 1935  | TCP     | **RTMP**：设备（ffmpeg）推视频流                                   | **必须对外**      |
 | 8000  | 8000  | **UDP** | **WebRTC 媒体**（ICE 候选 / DTLS-SRTP）。WHIP 上行音频、WHEP 下行视频都走这里 | **必须对外（UDP）** |
 | 10080 | 10080 | UDP     | SRT 推流（本项目未使用）                                            | 可不映射          |
+| 8443  | -     | TCP     | **Nginx WHEP 音频鉴权入口**（非 Oryx 容器）：手机麦上行拉流，`secure_link` 校验 | 对外（设备拉流）       |
 
 > 这组映射来自 Oryx 官方 Docker 命令：`-p 80:2022 -p 443:2443 -p 1935:1935 -p 8000:8000/udp -p 10080:10080/udp`。
+> `8443` 是本项目新增的 Nginx 入口，用于保护手机麦上行 WHEP（§6.2）；Oryx 本身仍监听 443。
 > 常见故障：只放行了 TCP 8000 而没放行 **UDP 8000**，表现为「信令成功、但没画面/没声音」。
 
 ### 0.2 EMQX（MQTT）
@@ -69,7 +71,7 @@
 
 1. 选 2 核 2G 起步（Oryx 在 1 路 640×480\@30 + 1 路 Opus 下很轻，2C2G 足够；转码/多路再升）。
 2. 系统选 **Ubuntu 24.04**。
-3. 在云厂商控制台的**安全组**里按 §0 放行：`80/tcp、443/tcp、1935/tcp、8000/udp、8883/tcp`；`18083/tcp` 建议加 IP 白名单。
+3. 在云厂商控制台的**安全组**里按 §0 放行：`80/tcp、443/tcp、1935/tcp、8000/udp、8443/tcp、8883/tcp`；`18083/tcp` 建议加 IP 白名单。
 
 验证（本机终端）：
 
@@ -230,7 +232,8 @@ openssl s_client -connect www.example.com:443 -servername www.example.com </dev/
 WHEP/WHIP 端点（本项目使用的固定路径）：
 
 ```
-拉流（WHEP，无需 secret）：https://www.example.com/rtc/v1/whep/?app=live&stream={room}
+拉设备摄像头（WHEP，App 使用，保持现状）：https://www.example.com/rtc/v1/whep/?app=live&stream={room}
+拉手机麦音频（WHEP，设备使用，必须带短期 token）：https://www.example.com:8443/whep-audio/?app=live&stream={room}_audio&expires=<expires>&token=<token>
 推音频（WHIP，必须带 secret）：https://www.example.com/rtc/v1/whip/?app=live&stream={room}_audio&secret=<推流token>
 推视频（RTMP，必须带 secret）：rtmp://www.example.com:1935/live/{room}?secret=<推流token>
 ```
@@ -250,7 +253,7 @@ Oryx 部署完成后会生成一个 **32 位十六进制的推流 secret**（例
 
 - 每台服务器各自生成；重装 Oryx、或控制台里「重置」后，**旧 secret 立即失效**；
 - 所有**推流**动作都要带它：设备推视频（RTMP）、手机推音频（WHIP）；
-- **拉流（WHEP）不需要** secret。
+- 拉设备摄像头的 WHEP（443）不需要 secret；手机麦上行的 WHEP 音频（8443）使用独立的 `PHONE_AUDIO_WHEP_SECRET` + 短期 token（§6.2）。
 
 > 因此代码里**不写死** secret：App 在构建期注入、设备端在运行时从环境变量读取，部署到新服务器只改配置、不改代码。
 
@@ -282,7 +285,91 @@ Oryx 部署完成后会生成一个 **32 位十六进制的推流 secret**（例
 adb logcat -s WhipAudio:V WhepDemo:I
 ```
 
-**安全提示**：secret 泄露（截图、日志、仓库）后，在 Oryx 控制台重置，然后同步更新 App 构建参数与设备端 `WHIP_SECRET` 并重启服务；日志里的推流地址已由 `mask_rtmp_url()` 做 `secret=***` 脱敏。
+**安全提示**：secret 泄露（截图、日志、仓库）后，在 Oryx 控制台重置，然后同步更新 App 构建参数与设备端 `WHIP_SECRET` 并重启服务；日志里的推流地址已由 `mask_rtmp_url()` 做 `secret=***` / `token=***` 脱敏。
+
+### 6.2 手机麦上行 WHEP 拉流鉴权（Nginx secure_link）
+
+Oryx 的 WHEP 拉流本身不带鉴权；知道房间号的人可以直接拉取手机麦克风音频。为避免该问题，
+在 Oryx 前增加一个 Nginx 入口（8443），**只保护手机麦上行路径**；App 拉设备摄像头的 443 WHEP 保持不变。
+
+**1) 生成独立 secret**
+
+```bash
+openssl rand -hex 32
+```
+
+写入 Nginx 配置与设备 `/etc/walle-ai.conf` 的 `PHONE_AUDIO_WHEP_SECRET`；**不要复用 `WHIP_SECRET`**。
+
+**2) Nginx 配置（宿主机）**
+
+```nginx
+server {
+    listen 8443 ssl;
+    server_name www.example.com;
+    ssl_certificate     /etc/letsencrypt/live/www.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/www.example.com/privkey.pem;
+
+    location /whep-audio/ {
+        # token = base64url(md5(expires + path + stream + " " + secret))
+        secure_link $arg_token,$arg_expires;
+        secure_link_md5 "$secure_link_expires$uri$arg_stream <PHONE_AUDIO_WHEP_SECRET>";
+        if ($secure_link = "") { return 403; }
+        if ($secure_link = "0") { return 410; }
+
+        proxy_pass https://127.0.0.1:443/rtc/v1/whep/;
+        proxy_ssl_server_name on;
+        proxy_ssl_verify off;
+        proxy_set_header Host www.example.com;
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_request_buffering off;
+    }
+}
+```
+
+- `$uri` 是 `/whep-audio/`，必须与设备 `PHONE_AUDIO_WHEP_PATH` 完全一致；改路径要同时改 Nginx 与设备。
+- `proxy_pass` 指向 Oryx 的 443 WHEP；证书路径按实际替换，也可以复用 Oryx 的证书。
+- 防火墙/安全组放行 **8443/tcp**。
+
+**3) 设备配置**
+
+```ini
+PHONE_AUDIO_WHEP_URL_TEMPLATE=https://www.example.com:8443/whep-audio/?app=live&stream={stream}&expires={expires}&token={token}
+PHONE_AUDIO_WHEP_SECRET=<上一步的 secret>
+PHONE_AUDIO_WHEP_PATH=/whep-audio/
+# PHONE_AUDIO_WHEP_TOKEN_TTL=300
+```
+
+设备每次 `phone/audio/send` 都会生成新的 `expires` 与 `token`，默认 5 分钟有效；
+`--check` 会显示模板与 secret 是否已配置（不打印明文）。
+
+**4) 验证**
+
+```bash
+# 不带 token：403
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  -H 'Content-Type: application/sdp' --data 'v=0' \
+  'https://www.example.com:8443/whep-audio/?app=live&stream=test_audio'
+
+# 正确 token + 非法 SDP：502（说明已通过 Nginx 到达 Oryx，Oryx 因 SDP 非法返回 502）
+python3 - <<'PY'
+import base64, hashlib, time
+path = "/whep-audio/"
+stream = "test_audio"
+secret = "<PHONE_AUDIO_WHEP_SECRET>"
+expires = int(time.time()) + 300
+raw = f"{expires}{path}{stream} {secret}".encode()
+token = base64.urlsafe_b64encode(hashlib.md5(raw).digest()).decode().rstrip("=")
+print(f"https://www.example.com:8443{path}?app=live&stream={stream}&expires={expires}&token={token}")
+PY
+# 用上面打印的 URL 执行同样的 curl POST，期望 502（不是 403/410）
+```
+
+- 过期 token 返回 **410**；无 token 或 token 不匹配返回 **403**。
+- 生产验证用真实 `room_audio` 流，确认设备扬声器出声；设备日志可按 `request_id` 关联结果。
+
+> 该方案只保护手机麦克风上行路径；设备摄像头视频的 WHEP（443）仍按原方式开放。
+> 若后续也要保护视频，需要 App 同步支持 token（另行评估）。
 
 ***
 
@@ -508,6 +595,7 @@ journalctl -u walle-ai | grep '<request_id>'
 | 10 | ACL        | §10.1 的四条验证                                                                 | 允许通过、跨设备被拒                     |
 | 11 | 动作审计      | 订阅 `walle/audit/#` 后触发一次视频/音频动作                                             | 收到来源账号、request_id、topic、时间     |
 | 12 | 推流 secret  | 设备 `--check` 显示「Oryx secret: 已配置」；App 构建时已带 `-PoryxSecret`                  | 两端与 Oryx 控制台的值一致（§6.1）        |
+| 13 | WHEP 音频鉴权 | §6.2 的无 token 403 / 过期 410 / 正确 token 502 验证                                | 403 / 410 / 502 符合预期           |
 
 服务端就绪后，把下面这些值填到两端：
 
@@ -518,7 +606,9 @@ journalctl -u walle-ai | grep '<request_id>'
 | `WHEP_URL_TEMPLATE`             | `walle-android/app/build.gradle`                          | `https://www.example.com:443/rtc/v1/whep/?app=live&stream={room}`                       |
 | `WHIP_SECRET`（设备端）              | `/etc/walle-ai.conf`                      | 与 App 用同一个 secret（§6.1）                                                                 |
 | `VIDEO_RTMP_URL_TEMPLATE`       | `/etc/walle-ai.conf`                      | `rtmp://www.example.com:1935/live/{room}?secret=<secret>`                               |
-| `PHONE_AUDIO_WHEP_URL_TEMPLATE` | `/etc/walle-ai.conf`                      | `https://www.example.com:443/rtc/v1/whep/?app=live&stream={stream}`                     |
+| `PHONE_AUDIO_WHEP_URL_TEMPLATE` | `/etc/walle-ai.conf`                      | `https://www.example.com:8443/whep-audio/?app=live&stream={stream}&expires={expires}&token={token}` |
+| `PHONE_AUDIO_WHEP_SECRET`       | `/etc/walle-ai.conf`                      | 与 Nginx `secure_link` 一致，独立于 `WHIP_SECRET`                                            |
+| `PHONE_AUDIO_WHEP_PATH`         | `/etc/walle-ai.conf`                      | `/whep-audio/`（与 Nginx location 一致）                                                     |
 | `MQTT_HOST` / `MQTT_PORT`       | `/etc/walle-ai.conf`                      | `www.example.com` / `8883`                                                              |
 | MQTT 主机 / 端口                    | App 内 MQTT 配置页                              | `www.example.com` / `8883`（TLS 开）                                                       |
 
@@ -540,5 +630,7 @@ journalctl -u walle-ai | grep '<request_id>'
 | 设备能连但发布被拒                              | ACL 正则与账号不符，或 `clientid` 不等于 `device_id`   | §10                                        |
 | 设备 A 能订阅/发布到设备 B 的主题                    | ACL 未生效、File 授权源顺序不对，或未加 `{deny, all}.`     | §10.1                                      |
 | `walle/audit/#` 没有审计消息                   | 规则未启用、SQL 主题不匹配、动作未配置                     | §10.2                                      |
+| 手机音频 WHEP 返回 403                       | 未带 token / token 计算不匹配                      | 检查 `PHONE_AUDIO_WHEP_SECRET`、`PHONE_AUDIO_WHEP_PATH` 与 Nginx `secure_link_md5` |
+| 手机音频 WHEP 返回 410                       | token 过期                                  | 检查设备与服务器时间、`PHONE_AUDIO_WHEP_TOKEN_TTL`     |
 | 手机说话延迟大                                | 音频走了旧 RTMP 路径，或声卡是高延迟设备                    | 升级到 WHIP/WHEP 版本，检查 `PHONE_AUDIO_DEVICE`   |
 
