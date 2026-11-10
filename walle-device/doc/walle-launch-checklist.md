@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 12 | 9 |
-| **合计** | **58** | **45** | **13** |
+| P2 后续优化 | 21 | 13 | 8 |
+| **合计** | **58** | **46** | **12** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -264,10 +264,10 @@
   - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`get_pwm_servo_state`）
   - 验收：mock 冒烟返回同一 `response` 对象（`success=True`、`state` 含 1 项，position/offset 正确）；实车可再执行 `ros2 service call /ros_robot_controller/pwm_servo/get_state ros_robot_controller_msgs/srv/GetPWMServoState "{cmd: [{id: 1, get_position: 1, get_offset: 1}]}"` 复核
 
-- [ ] 🔴 **P2-2.7 修正 IMU 数据语义**
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L326-L341 orientation 恒 0 但 covariance 非 0
-  - 动作：无姿态解算时把协方差首项设为 -1（REP-145），或融合出真实姿态
-  - 验收：下游不会把零四元数当有效姿态
+- [x] ✅ **P2-2.7 修正 IMU 数据语义**
+  - 处理：`pub_imu_data` 中 `orientation_covariance[0]` 改为 `-1`（REP-145：本消息不提供姿态），零四元数仅作占位；角速度/加速度协方差保持不变。本版本小车没有 IMU 传感器，保留该发布逻辑用于兼容有 IMU 的底盘
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`pub_imu_data`）
+  - 验收：mock 冒烟 `pub_imu_data` 发布成功且 `orientation_covariance[0] == -1.0`；因无 IMU 硬件，未做实车验证，下游（robot_localization/Nav2）会按 REP-145 忽略姿态
 
 - [ ] 🔴 **P2-2.8 补 URDF/TF**
   - 动作：至少提供 `base_link → imu_link → camera_link`，扩展导航时再补 `map→odom→base_link`
@@ -429,12 +429,15 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-2.4 | 未提交 | 上报开关改用 `_reception_enabled`，`enable_reception()` 保持方法；冒烟验证重复调用不抛 TypeError | 待确认 |
 | 2026-11-10 | P2-2.5 | 未提交 | 两个控制器节点移除构造函数内的 `rclpy.init()`，统一放到 main；colcon build 后单进程双节点组合验证通过 | 待确认 |
 | 2026-11-10 | P2-2.6 | 未提交 | `get_pwm_servo_state` 改为 `(request, response)` 并填充/返回 response；mock 冒烟通过 | 待确认 |
+| 2026-11-10 | P2-2.7 | 未提交 | IMU `orientation_covariance[0] = -1`（REP-145）；mock 冒烟通过；本版本无 IMU，保留兼容代码 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-2.7 IMU 的 `orientation_covariance[0]` 设为 -1（REP-145），零四元数
+  仅作占位；本版本小车无 IMU 传感器，代码保留用于兼容有 IMU 的底盘，不做实车验证。
 - 2026-11-10：P2-2.6 `get_pwm_servo_state` 改为标准 `(request, response)` 回调，
   结果写入 `response.state` / `response.success` 后返回 `response`，修复服务调用
   返回 list 导致的类型错误；mock 冒烟通过，实车建议再跑一次 `ros2 service call`。

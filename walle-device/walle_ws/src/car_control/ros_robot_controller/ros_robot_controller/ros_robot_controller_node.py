@@ -396,7 +396,10 @@ class RosRobotController(Node):
         msg.angular_velocity.y = math.radians(gy)
         msg.angular_velocity.z = math.radians(gz)
 
-        msg.orientation_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]
+        # 本版本小车没有 IMU 姿态解算，零四元数只是占位，不能当作有效姿态。
+        # REP-145：orientation_covariance[0] = -1 表示「本消息不提供姿态」，
+        # 下游（robot_localization / Nav2 等）会据此忽略 orientation。
+        msg.orientation_covariance = [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         msg.angular_velocity_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]
         msg.linear_acceleration_covariance = [0.0004, 0.0, 0.0, 0.0, 0.0004, 0.0, 0.0, 0.0, 0.004]
         pub.publish(msg)
