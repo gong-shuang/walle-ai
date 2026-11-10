@@ -2072,9 +2072,17 @@ class RpiMonitor:
                          now - last, rid or "-")
             return
         self._last_discovery_at = now
-        # 抖动：N 台设备同时收到广播时错开回包，避免瞬间灌满 App 与 broker
-        if DISCOVERY_JITTER_SEC > 0:
-            time.sleep(random.uniform(0, DISCOVERY_JITTER_SEC))
+        # 抖动：N 台设备同时收到广播时错开回包，避免瞬间灌满 App 与 broker。
+        # 用 Timer 延迟发布，处理函数立即返回，不占用查询线程。
+        delay = random.uniform(0, DISCOVERY_JITTER_SEC) if DISCOVERY_JITTER_SEC > 0 else 0
+        if delay > 0:
+            timer = threading.Timer(delay, self._publish_discovery_result, args=(rid,))
+            timer.daemon = True
+            timer.start()
+            return
+        self._publish_discovery_result(rid)
+
+    def _publish_discovery_result(self, rid):
         try:
             info = self.build_device_info()
             info["request_id"] = rid

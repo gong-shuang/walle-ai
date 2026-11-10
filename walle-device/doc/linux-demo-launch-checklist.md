@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 4 | 18 |
-| **合计** | **55** | **31** | **24** |
+| P2 后续优化 | 22 | 5 | 17 |
+| **合计** | **55** | **32** | **23** |
 
-> linux-demo 已开始按本清单整改（当前 31/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 32/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -273,11 +273,10 @@
   - 验收：动作槽占满时第二个动作被丢弃且 `dropped_counts["action"]=1`，同时查询请求仍立即执行（`dropped_counts["query"]=0`）；新增 `test/test_request_pools.py`，全套 23 项通过
   - 证据：`main.py` L393-L394、L414-L417、L1718-L1727、L1886-L1922、L3224-L3233、L3312-L3313；`test/test_request_pools.py`；`walle-ai.conf.example` L63-L70
 
-- [ ] 🔴 **P2-1.4 discovery 抖动不占用工作线程**
-  - 现状：`handle_device_query()` 在池线程内 `time.sleep(random.uniform(0, 0.8))`，多台设备同时刷新时会占用查询线程
-  - 动作：改为 `threading.Timer` / 调度队列延迟发布，处理函数立即返回
-  - 验收：discovery 洪峰下查询池不被抖动 sleep 占满
-  - 证据：`main.py` L1668-L1692
+- [x] ✅ **P2-1.4 discovery 抖动不占用工作线程**
+  - 处理：`handle_device_query()` 不再在查询线程内 `sleep`，改为 `threading.Timer` 延迟调用 `_publish_discovery_result()`，处理函数立即返回；限频（2s 内只应答一次）逻辑保留；Timer 设为 daemon，不阻塞退出
+  - 验收：新增 `test/test_discovery_jitter.py`：抖动 0.2s 时处理函数 <0.05s 返回且尚未发布，随后由 Timer 发出；全套 24 项通过
+  - 证据：`main.py` L2062-L2094；`test/test_discovery_jitter.py`
 
 - [ ] 🔴 **P2-1.5 在线/遗嘱报文避免慢采集**
   - 现状：`build_device_info()` 会调用 `disk_mounts()` 等可能阻塞的系统调用；`_will_message()` 在启动连接前构造遗嘱，若存在卡死的网络挂载，可能拖住启动；retained online 报文也包含完整身份信息
@@ -466,6 +465,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：discovery 抖动改为 Timer 延迟发布，处理函数立即返回，不再占用查询线程
+  （P2-1.4）。
 - 2026-11-10：请求线程池拆分为 query/action 两池，并用 BoundedSemaphore 限制排队总量，
   超限丢弃计数、每周期汇总日志（P2-1.3）。
 - 2026-11-10：capability 改为后台探测 + 120s 缓存，查询只读缓存并返回 `cache`
