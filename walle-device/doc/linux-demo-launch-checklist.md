@@ -19,7 +19,7 @@
 审查结论摘要（最严重的五项）：
 
 1. ✅ 已修复：`cmd/exec` 远程命令能力已整体删除（2026-11-10，P0-1.1 / P0-1.2 / P0-1.5）。
-2. ✅ 已修复：代码内默认 Broker、账号与口令已删除，缺失配置拒绝启动（2026-11-10，P0-2.1）。
+2. ✅ 已修复：默认 Broker、账号与口令已删除，缺失配置拒绝启动；生产强制 TLS 8883（2026-11-10，P0-2.1 / P0-2.2）。
 3. 迁移提交 `947f445` 删除了 `requirements.txt`、`walle-ai.env.example`、`selftest_topics.py`，README 被压缩到 34 行，部署文档与模板缺失。
 4. 手机麦克风上行 WHEP 拉流地址不含任何鉴权参数，同租户客户端可直连拉取手机音频。
 5. 推流/播放子进程使用 `start_new_session=True`，主进程被 `kill -9` 或崩溃后 ffmpeg/播放器仍会继续运行（摄像头/麦克风持续工作）。
@@ -28,12 +28,12 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 15 | 4 | 11 |
+| P0 上线阻断 | 15 | 5 | 10 |
 | P1 上线前应修 | 18 | 0 | 18 |
 | P2 后续优化 | 22 | 0 | 22 |
-| **合计** | **55** | **4** | **51** |
+| **合计** | **55** | **5** | **50** |
 
-> linux-demo 已开始按本清单整改（当前 4/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 5/55）；每次勾选后请同步更新本表数字。
 
 ## 与 ROS2 清单的适用性对照
 
@@ -88,14 +88,13 @@
 
 - [x] ✅ **P0-2.1 删除代码内默认 Broker 与默认凭据**
   - 处理：`MQTT_HOST` / `MQTT_USERNAME` / `MQTT_PASSWORD` / `MQTT_TENANT` 改为空默认值；`MQTT_PORT` 不再默认 1883，空值或非整数记为 `None`；新增 `validate_config()` 校验五项必填与端口范围；`main()` 正式启动前校验并以退出码 2 拒绝启动，`--check` 返回 1 并列出缺失项
-  - 验收：无配置时 `--check` 退出 1 并列出 5 个缺失项，`python3 main.py` 退出 2；合法配置 `--check` 退出 0；`MQTT_PORT=abc` 返回友好错误而非 traceback；源码无 `RaspPi5` / `123456` / MQTT 默认域名
-  - 证据：`main.py` L140-L154、L206-L232、L2566-L2579、L2630-L2697
+  - 验收：无配置时 `--check` 退出 1 并列出 4 个缺失项（端口在 P0-2.2 后默认 8883），`python3 main.py` 退出 2；合法配置 `--check` 退出 0；`MQTT_PORT=abc` 返回友好错误而非 traceback；源码无 `RaspPi5` / `123456` / MQTT 默认域名
+  - 证据：`main.py` L140-L158、L206-L246、L2566-L2579、L2630-L2697
 
-- [ ] 🔴 **P0-2.2 强制 TLS 8883，禁止明文回退**
-  - 现状：`MQTT_TLS` 默认 `auto`，端口 1883 即按明文连接；`MQTT_TLS=off` 被允许，仅在日志打印一条 warning
-  - 动作：默认 `MQTT_PORT=8883` + `MQTT_TLS=on`；删除 `auto`/`off` 明文分支，仅允许在显式调试开关（如 `WALLE_RUNTIME_ENV=debug` 且单独确认）下临时启用；`MQTT_CA_FILE` 指定但不可读时拒绝启动
-  - 验收：端口改为 1883 或 `MQTT_TLS=off` 时启动失败；抓包无明文 MQTT 报文；CA 路径错误时启动失败并打印路径
-  - 证据：`main.py` L149-L151、L2713-L2725
+- [x] ✅ **P0-2.2 强制 TLS 8883，禁止明文回退**
+  - 处理：`MQTT_PORT` 默认 8883；`MQTT_TLS` 默认 `on`，仅接受 `on/off`；生产环境（`WALLE_RUNTIME_ENV=prod`）拒绝 `MQTT_TLS=off` 与端口 1883；仅 `WALLE_RUNTIME_ENV=debug` 允许显式关闭 TLS；`MQTT_CA_FILE` 不存在/不可读时拒绝启动；`run()` 加载 CA 失败时以明确错误退出
+  - 验收：默认配置 `TLS=on`、端口 8883；`MQTT_TLS=off` 在 prod 下退出 1、debug 下通过；`MQTT_TLS=auto` 退出 1；`MQTT_PORT=1883` 在 prod 下退出 1；`MQTT_CA_FILE=/no/such` 退出 1；可读 CA 通过
+  - 证据：`main.py` L140-L158、L221-L246、L2611-L2626、L2658-L2666
 
 - [ ] 🔴 **P0-2.3 配置文件名、权限、模板与 gitignore 统一**
   - 现状：linux-demo 读取 `/etc/walle-ai.env` / `./walle-ai.env`，ROS2 使用 `/etc/walle-ai.conf`；`walle-ai.env.example` 已在迁移提交 `947f445` 中被删除；`walle-device/.gitignore` 只忽略 `scripts/walle-ai.conf`，`linux-demo/walle-ai.env`、`walle-ai.service`、`.device-id` 均未忽略；systemd 使用 `EnvironmentFile=-/etc/walle-ai.env`，`-` 使文件缺失时仍按默认值启动；`_load_env_file()` 在 Permission denied 时建议 `chown $(whoami)`，与 600 root:root 要求冲突
@@ -104,10 +103,10 @@
   - 证据：`main.py` L42-L44、L84-L137、L117-L119；`walle-ai.service.example` L11；`walle-device/.gitignore` L9；`git show 947f445 -- walle-device/linux-demo/walle-ai.env.example`
 
 - [ ] 🟡 **P0-2.4 启动前配置校验**
-  - 现状：必填项与端口范围校验已完成；TLS 配置、`MQTT_CA_FILE` 可读性、`{secret}` 模板与 `WHIP_SECRET` 匹配关系尚未校验
-  - 动作：在 `validate_config()` 中补充 TLS/CA/模板校验（随 P0-2.2、P0-2.5 完成）；错误以非 0 退出并打印缺失/非法项
-  - 验收：逐一删除任一必填项，`--check` 均返回非 0 并指出该项（已完成）；`MQTT_PORT=abc` 返回友好错误（已完成）；CA 路径错误、模板缺 secret 时同样拒绝启动（待完成）
-  - 证据：`main.py` L217-L232、L2689-L2694
+  - 现状：必填项、端口范围、运行环境、TLS 模式、端口 1883、CA 可读性校验已完成；`{secret}` 模板与 `WHIP_SECRET` 匹配关系尚未校验
+  - 动作：在 `validate_config()` 中补充模板校验（随 P0-2.5 完成）；错误以非 0 退出并打印缺失/非法项
+  - 验收：逐一删除任一必填项，`--check` 均返回非 0 并指出该项（已完成）；`MQTT_PORT=abc` 返回友好错误（已完成）；CA 路径错误已拒绝（已完成）；模板缺 secret 时同样拒绝启动（待完成）
+  - 证据：`main.py` L221-L246、L2689-L2694
 
 - [ ] 🔴 **P0-2.5 推流/拉流地址去硬编码**
   - 现状：`VIDEO_RTMP_URL_TEMPLATE` 默认 `rtmp://www.baidong.xyz:1935/live/{room}?secret={secret}`；`PHONE_AUDIO_WHEP_URL_TEMPLATE` 默认 `https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream={stream}`
@@ -470,13 +469,17 @@ python3 walle-device/linux-demo/main.py --check
 | 日期 | 任务编号 | 提交/PR | 验证方式 | 验证人 |
 | --- | --- | --- | --- | --- |
 | 2026-11-10 | P0-1.1 / P0-1.2 / P0-1.5 | 15ca54b | 源码无 `cmd/exec`、`remote_cmd`、`shell=True`；`subscriptions()` 7 项；`py_compile` 与 `--check` 通过 | 待确认 |
-| 2026-11-10 | P0-2.1 | 待提交 | 无配置 `--check` 退出 1 并列出 5 项缺失；正式启动退出 2；合法配置退出 0；`py_compile`/flake8 通过 | 待确认 |
+| 2026-11-10 | P0-2.1 | f525ec8 | 无配置 `--check` 退出 1 并列出 5 项缺失；正式启动退出 2；合法配置退出 0；`py_compile`/flake8 通过 | 待确认 |
+| 2026-11-10 | P0-2.2 | 待提交 | 默认 TLS=on/8883；prod 下 TLS=off、端口 1883、auto、坏 CA 均退出 1；debug 下 TLS=off 通过 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：linux-demo 生产环境强制 MQTT TLS（默认 8883 + `MQTT_TLS=on`），仅
+  `WALLE_RUNTIME_ENV=debug` 允许 `MQTT_TLS=off`；生产环境端口 1883 被拒绝（P0-2.2）。
+  端口改为默认 8883 后，P0-2.1 的缺失项由 5 个调整为 4 个。
 - 2026-11-10：已删除 linux-demo 的 MQTT 默认 Broker / 账号 / 口令（P0-2.1）；
   `MQTT_HOST` / `MQTT_PORT` / `MQTT_USERNAME` / `MQTT_PASSWORD` / `MQTT_TENANT` 改为必填，
   缺失时 `--check` 返回 1、正式启动返回 2。

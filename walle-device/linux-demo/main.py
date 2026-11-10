@@ -137,20 +137,24 @@ ENV_SOURCE = _init_env()
 
 # ============================== 配置区 ==============================
 
+# ---- 运行环境（prod/debug）----
+# 生产环境强制 TLS；仅 debug 允许显式关闭 TLS 做本地联调
+WALLE_RUNTIME_ENV = os.environ.get("WALLE_RUNTIME_ENV", "prod").strip().lower()
+
 # ---- MQTT ----
 # 必填项，不提供默认值：缺失或非法时拒绝启动（--check 会列出缺失项）
 MQTT_HOST = os.environ.get("MQTT_HOST", "").strip()
 _MQTT_PORT_RAW = os.environ.get("MQTT_PORT", "").strip()
 try:
-    MQTT_PORT = int(_MQTT_PORT_RAW)
+    MQTT_PORT = int(_MQTT_PORT_RAW) if _MQTT_PORT_RAW else 8883
 except ValueError:
     MQTT_PORT = None
 MQTT_USER = os.environ.get("MQTT_USERNAME", "").strip()
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "")
 MQTT_KEEPALIVE = 60
 MQTT_QOS = 1
-# TLS：8883 走 ssl://，1883 走明文（与 App 的端口/TLS 开关对应）
-MQTT_TLS = os.environ.get("MQTT_TLS", "auto").strip().lower()  # auto | on | off
+# TLS：生产强制开启；仅 WALLE_RUNTIME_ENV=debug 且显式 MQTT_TLS=off 才允许明文
+MQTT_TLS = os.environ.get("MQTT_TLS", "on").strip().lower()  # on | off（off 仅 debug）
 MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE", "").strip()      # 留空则用系统 CA
 
 # ---- 主题命名约定（完整主题 = walle/{tenant}/{device}/v1/{资源}）----
@@ -217,18 +221,28 @@ PROTOCOL_VERSION = "v1"
 def validate_config():
     """校验 MQTT 必填配置，返回错误列表；空列表表示通过。"""
     errors = []
+    if WALLE_RUNTIME_ENV not in ("prod", "debug"):
+        errors.append("WALLE_RUNTIME_ENV 只能是 prod/debug")
     if not MQTT_HOST:
         errors.append("MQTT_HOST 未配置")
     if MQTT_PORT is None:
         errors.append("MQTT_PORT 未配置或非法（应为 1-65535 的整数）")
     elif not (1 <= MQTT_PORT <= 65535):
         errors.append(f"MQTT_PORT 超出范围（{MQTT_PORT}，应为 1-65535）")
+    elif MQTT_PORT == 1883 and WALLE_RUNTIME_ENV == "prod":
+        errors.append("生产环境禁止使用明文端口 1883（TLS 请使用 8883）")
     if not MQTT_USER:
         errors.append("MQTT_USERNAME 未配置")
     if not MQTT_PASSWORD:
         errors.append("MQTT_PASSWORD 未配置")
     if not MQTT_TENANT:
         errors.append("MQTT_TENANT 未配置")
+    if MQTT_TLS not in ("on", "off"):
+        errors.append("MQTT_TLS 只能是 on/off（auto 已移除）")
+    elif MQTT_TLS == "off" and WALLE_RUNTIME_ENV != "debug":
+        errors.append("MQTT_TLS=off 仅允许在 WALLE_RUNTIME_ENV=debug 下使用")
+    if MQTT_CA_FILE and not (os.path.isfile(MQTT_CA_FILE) and os.access(MQTT_CA_FILE, os.R_OK)):
+        errors.append(f"MQTT_CA_FILE 不存在或不可读: {MQTT_CA_FILE}")
     return errors
 
 
@@ -2594,19 +2608,22 @@ class RpiMonitor:
         self.client.on_disconnect = self.on_disconnect
         self.client.on_message = self.on_message
         self.client.reconnect_delay_set(min_delay=3, max_delay=30)
-        # TLS：MQTT_TLS=auto 时，8883/8084 视为 TLS 端口
-        tls_on = MQTT_TLS == "on" or (MQTT_TLS == "auto" and MQTT_PORT in (8883, 8084))
-        if tls_on:
+        # TLS：生产环境强制开启，validate_config 已拒绝明文配置
+        if MQTT_TLS == "on":
             import ssl
-            if MQTT_CA_FILE:
-                ctx = ssl.create_default_context(cafile=MQTT_CA_FILE)
-            else:
-                ctx = ssl.create_default_context()
+            try:
+                if MQTT_CA_FILE:
+                    ctx = ssl.create_default_context(cafile=MQTT_CA_FILE)
+                else:
+                    ctx = ssl.create_default_context()
+            except OSError as exc:
+                raise SystemExit(f"加载 MQTT_CA_FILE 失败: {exc}")
             self.client.tls_set_context(ctx)
             logging.info("启用 TLS 连接 %s:%s（CA=%s）",
                          MQTT_HOST, MQTT_PORT, MQTT_CA_FILE or "system")
         else:
-            logging.warning("使用明文连接 %s:%s（建议改用 8883 + TLS）", MQTT_HOST, MQTT_PORT)
+            logging.warning("调试模式：使用明文 MQTT 连接 %s:%s（WALLE_RUNTIME_ENV=%s）",
+                            MQTT_HOST, MQTT_PORT, WALLE_RUNTIME_ENV)
         self.client.connect(MQTT_HOST, MQTT_PORT, MQTT_KEEPALIVE)
         self.client.loop_start()
 
@@ -2639,12 +2656,13 @@ def print_config_check():
         DEVICE_ID = f"<无法计算: {exc}>"
         DEVICE_ID_SOURCE = "计算失败"
     errors = validate_config()
-    tls_on = MQTT_TLS == "on" or (MQTT_TLS == "auto" and MQTT_PORT in (8883, 8084))
+    tls_on = MQTT_TLS == "on"
     host = MQTT_HOST or "(未配置)"
     port = MQTT_PORT if MQTT_PORT is not None else "(未配置)"
     tenant = sanitize_segment(MQTT_TENANT) if MQTT_TENANT else "(未配置)"
     print("== 生效配置 ==")
     print(f"  环境文件 : {ENV_SOURCE or '未加载（使用环境变量）'}")
+    print(f"  运行环境 : {WALLE_RUNTIME_ENV}")
     print(f"  Broker   : {host}:{port}   TLS={'on' if tls_on else 'off'} (MQTT_TLS={MQTT_TLS})")
     print(f"  用户名   : {MQTT_USER or '(未配置)'}")
     print(f"  密码     : {'********' if MQTT_PASSWORD else '(未配置)'}")
