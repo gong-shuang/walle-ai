@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 21 | 1 |
-| **合计** | **55** | **48** | **7** |
+| P2 后续优化 | 22 | 22 | 0 |
+| **合计** | **55** | **49** | **6** |
 
-> linux-demo 已开始按本清单整改（当前 48/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 49/55，P2 已清零）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -366,11 +366,11 @@
   - 验收：`git ls-files --diff-filter=A` 确认模板来源；`git check-ignore -v` 命中 `linux-demo/.gitignore` 与 `walle-device/.gitignore`
   - 证据：`walle-device/linux-demo/walle-ai.conf.example`；`git show 947f445 --stat`
 
-- [ ] 🔴 **P2-5.2 明确 ROS2 与 linux-demo 二选一部署**
-  - 现状：两套实现使用同名 systemd 服务 `walle-ai`、不同配置文件（`.conf` / `.env`），同机不能共存；文档未说明
-  - 动作：在 `walle-device/doc/README.md` 与 `linux-demo/README.md` 增加选择说明、冲突提示与迁移步骤
-  - 验收：新用户能明确选择部署形态，不会互相覆盖配置或服务
-  - 证据：`walle-ai.service.example`；`walle-device/scripts/walle-ai.service.in`；`walle-device/doc/README.md`
+- [x] ✅ **P2-5.2 明确 ROS2 与 linux-demo 二选一部署**
+  - 现状修正：两套实现现已都使用 `/etc/walle-ai.conf`（键集合不同）和同名服务 `walle-ai.service`，比原描述的 `.conf` / `.env` 更易互相覆盖
+  - 处理：`walle-device/doc/README.md` 新增「部署形态选择（ROS2 版 / linux-demo 二选一）」章节，含适用场景/代码目录/服务名/配置路径对照表、冲突说明与四步迁移步骤（停旧服务、备份 device-id、重建配置、校验 `ExecStart`）；`linux-demo/README.md` 顶部增加二选一提示并链接该章节
+  - 验收：两份 README 对服务名、配置路径、迁移保留 `device-id` 的表述一致；明确「后部署覆盖前一套、不要交替执行 deploy.sh」
+  - 证据：`walle-device/doc/README.md` L165-L193、`linux-demo/README.md` 顶部提示
 
 - [x] ✅ **P2-5.3 README 手动运行命令修正**
   - 处理：`/home/ubuntu/venv/python3 main.py` 改为 `/home/ubuntu/venv/bin/python main.py`，并补充「先停 systemd 服务，避免同一 clientId 互相踢下线」
@@ -452,6 +452,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：ROS2 版与 linux-demo 版同用 `walle-ai.service` 与 `/etc/walle-ai.conf`，
+  两份 README 已明确二选一、覆盖风险与迁移步骤（P2-5.2）。
 - 2026-11-10：核对 ROS2 清单 P0-5.2 引用：`walle-ai.conf.example` 已在 P0-2.3 恢复并受版本
   控制，`947f445` 删除的是 `walle-ai.env.example`，该条无需再改外部文档（P2-5.1）。
 - 2026-11-10：新增 `inject_request.py` 本地注入工具，默认只发只读查询、支持 `--dry-run`，

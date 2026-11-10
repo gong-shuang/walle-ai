@@ -162,6 +162,36 @@ sudo ./create_udev_rules.sh
 > 规则会创建 `/dev/rrc`（`ttyAMA0`，`dialout` 0660）和 `/dev/walle-camera`（USB 摄像头，按 idVendor/idProduct 匹配）；确保运行用户在 `dialout` 与 `video` 组。
 > 换摄像头后需更新 `99-walle-camera.rules` 的 USB id 与两个 yaml 中的设备路径。
 
+## 部署形态选择（ROS2 版 / linux-demo 二选一）
+
+本仓库提供两套设备端实现，**同一台设备只能部署其中一套**：
+
+| | ROS2 版（本文档） | linux-demo 版（[README](../linux-demo/README.md)） |
+| --- | --- | --- |
+| 适用场景 | 需要底盘、舵机、声呐、语音/大模型等 ROS2 能力 | 仅做系统监控、摄像头推流与手机麦上行，不依赖 ROS2 |
+| 代码目录 | `ros2_ws/` + `scripts/` | `linux-demo/` |
+| systemd 服务 | `walle-ai.service` | `walle-ai.service`（同名） |
+| 配置文件 | `/etc/walle-ai.conf` | `/etc/walle-ai.conf`（同名，键集合不同） |
+| 部署脚本 | `scripts/deploy.sh` | `linux-demo/deploy.sh` |
+
+两套实现的单元名与配置路径相同，后部署的会覆盖前一套的 unit 与配置，导致
+`systemctl cat walle-ai` 的 `ExecStart` 指向另一套程序、启动参数不匹配。不要在同一台设备上
+同时安装，也不要交替执行两个 `deploy.sh`。
+
+### 从另一套实现迁移
+
+1. 停用旧服务：`sudo systemctl disable --now walle-ai`；
+2. 备份旧配置与设备标识（标识文件位置随实现不同）：
+   - ROS2 版默认 `~/.config/walle-ai/device-id`（或 `DEVICE_ID_FILE` / yaml 中
+     `device_id_file` 指向的文件）；
+   - linux-demo 版默认 `/var/lib/walle-ai/device-id`（或 `DEVICE_ID_FILE`）；
+3. 在目标实现的目录准备自己的 `walle-ai.conf`（两套的键集合不同，不要直接复用旧文件），
+   必要时把旧标识文件的路径写入 `DEVICE_ID_FILE`，再执行对应的 `deploy.sh`；
+4. 用 `systemctl cat walle-ai` 确认 `ExecStart` 指向目标实现，
+   `journalctl -u walle-ai -n 50` 确认启动日志与版本横幅正常。
+
+> 保留原 `device-id` 可避免换设备号后旧主题上的 retained `online` 变成幽灵卡片。
+
 ## 部署 Walle AI
 
 ### 前置条件

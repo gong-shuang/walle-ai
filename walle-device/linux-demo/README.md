@@ -3,6 +3,11 @@
 在树莓派等 Linux 设备上运行的 Walle 设备端：MQTT 接入 App、系统监控、USB 摄像头 RTMP 推流、
 手机麦克风上行 WHEP 拉流播放。不依赖 ROS2。
 
+> **与 ROS2 版二选一**：本目录与 `walle-device/ros2_ws` 使用同名 systemd 服务 `walle-ai`
+> 和同名 `/etc/walle-ai.conf`，同一台设备只能部署一套，后部署的会覆盖前一套。选型与迁移
+> 步骤见 [`../doc/README.md`](../doc/README.md)「部署形态选择」；迁移前先
+> `sudo systemctl disable --now walle-ai`，并保留原 `device-id`。
+
 ## 目录说明
 
 | 文件 | 说明 |
