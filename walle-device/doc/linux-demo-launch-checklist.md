@@ -28,12 +28,12 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 15 | 9 | 6 |
+| P0 上线阻断 | 15 | 10 | 5 |
 | P1 上线前应修 | 18 | 0 | 18 |
 | P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **10** | **45** |
+| **合计** | **55** | **11** | **44** |
 
-> linux-demo 已开始按本清单整改（当前 10/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 11/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`，待服务端实施验证。
 
 ## 与 ROS2 清单的适用性对照
@@ -127,11 +127,10 @@
   - 验收：无 token 403、过期 410、正确 token 502（Nginx 服务端实测待执行）；设备端 token 与独立 MD5 计算一致（mock 验证通过）；缺少 `{expires}` / `{token}` 或 secret 时 `--check` 返回 1
   - 证据：`main.py` L451-L461、L1321-L1339、L2185-L2196；`walle-ai.conf.example`；`doc/service_deploy.md` §6.2、§11 第 13 项
 
-- [ ] 🔴 **P0-4.2 摄像头设备白名单与 preflight**
-  - 现状：`handle_video_request()` 仅校验 `/dev/video\d+` 存在，任意 video 节点（包括 ISP、解码、元数据节点）都可作为 ffmpeg 输入；未校验是否为 USB 采集设备、是否支持配置的分辨率/格式
-  - 动作：限定 `CAMERA_DEVICE` 配置或 udev 固定路径（参考 ROS2 `/dev/walle-camera`）；启动推流前校验 sysfs 路径含 `usb`、`v4l2-ctl` 支持 MJPG 与 `VIDEO_VIDEO_SIZE`，失败返回明确原因
-  - 验收：`/dev/video19`（rpivid）等非采集节点请求被拒绝并返回原因；合法 USB 摄像头正常推流；换设备后可通过能力查询拿到新节点
-  - 证据：`main.py` L1925-L1946、L926-L986；`walle-device/doc/walle-launch-checklist.md` P2-4.2
+- [x] ✅ **P0-4.2 摄像头设备白名单与 preflight**
+  - 处理：新增 `CAMERA_DEVICE`（可选固定设备，支持 udev 符号链接）；`camera_preflight()` 校验 realpath 为 `/dev/videoN`、sysfs 路径含 `usb`、`v4l2-ctl` 支持 `VIDEO_VIDEO_SIZE`（不强制 MJPG，ffmpeg 使用默认格式）；`handle_video_request` 在启动 ffmpeg 前调用，失败返回 -1；`--check` 校验 `CAMERA_DEVICE` 是否存在
+  - 验收：ISP/解码/元数据节点（如 `/dev/video19`）被拒；不支持 640x480 的摄像头被拒；未安装 v4l2-ctl 返回明确原因；合法 USB 摄像头通过；`CAMERA_DEVICE` 不存在时 `--check` 退出 1
+  - 证据：`main.py` L419-L423、L257-L258、L977-L1008、L2067-L2077；`walle-ai.conf.example`
 
 ### P0-5 子进程与退出安全
 
@@ -473,12 +472,16 @@ python3 walle-device/linux-demo/main.py --check
 | 2026-11-10 | P0-2.5 | 待提交 | 源码无 `baidong`；空模板 video/phone audio 返回 -2；完整模板 `build_rtmp_url` 正常 | 待确认 |
 | 2026-11-10 | P0-1.3 / P0-1.4 | 待提交 | `doc/service_deploy.md` §10 已补每设备 ACL、deny-all 与规则引擎审计；待 EMQX 实测 | 待确认 |
 | 2026-11-10 | P0-4.1 | 待提交 | 设备端 token 与独立 MD5 一致；缺 secret/占位符 `--check` 退出 1；Nginx 403/410/502 待实测 | 待确认 |
+| 2026-11-10 | P0-4.2 | 待提交 | ISP/非 USB 节点、错误分辨率、缺 v4l2-ctl 均被拒；合法 USB 节点通过；坏 `CAMERA_DEVICE` `--check` 退出 1 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：linux-demo 推流前增加摄像头 preflight：`CAMERA_DEVICE` 可选固定设备，
+  realpath 必须是 `/dev/videoN`、sysfs 含 `usb`、`v4l2-ctl` 支持 `VIDEO_VIDEO_SIZE`；
+  非采集节点（ISP/解码/元数据）与不支持的分辨率在启动 ffmpeg 前返回 -1（P0-4.2）。
 - 2026-11-10：`doc/service_deploy.md` §6.2 新增 Nginx 8443 `/whep-audio/` + `secure_link`
   鉴权，设备端生成 5 分钟 token（`PHONE_AUDIO_WHEP_SECRET` / `PHONE_AUDIO_WHEP_PATH` /
   `PHONE_AUDIO_WHEP_TOKEN_TTL`）；无 token 403、过期 410。P0-4.1 待服务端实测。
@@ -526,3 +529,20 @@ python3 walle-device/linux-demo/main.py --check
   配置错误时可能先以默认值连上 Broker 再暴露问题，见 P0-2.1、P0-2.4。
 - 2026-11-10：本清单行号基于 `947f445` 版本；代码变更后请同步核对，验收以行为为准，不以行号为准。
 - 静态审查无法替代实机验证：P0-4、P0-5、P1-3、P1-5.3 必须在上线设备上逐项复测。
+
+---
+
+## 需要你在服务端执行的事项
+
+> 以下事项无法在代码仓库内完成，需要在 EMQX / Nginx / 云服务器上落地；完成后把对应清单项改为 ✅。
+
+| # | 对应清单项 | 操作 | 验收 |
+| --- | --- | --- | --- |
+| S1 | P0-1.3 / P0-1.4 | EMQX 创建每台设备独立账号 `dev_<device_id>`；按 `doc/service_deploy.md` §10 配置 ACL、`{deny, all}.`，并启用 §10.2 审计规则 | §10.1 四条命令：App 允许、设备 A 跨设备订阅/发布被拒；`walle/audit/#` 能收到动作来源与时间 |
+| S2 | P0-1.4 | 把 EMQX 审计动作接到日志系统（Republish 或 Webhook） | 触发一次 video/phone audio 动作后可按 `request_id` 追溯 |
+| S3 | P0-3.1 | 确认历史中的 `RaspPi5` / `123456` 是否为真实 Broker 账号；若是，在 EMQX 改密并同步 `/etc/walle-ai.conf` 与 App | 旧口令无法登录；`git log --all -p --text` 扫描报告留档 |
+| S4 | P0-4.1 | 在 8443 配置 Nginx `secure_link`（`doc/service_deploy.md` §6.2）；生成 `PHONE_AUDIO_WHEP_SECRET`；安全组放行 8443/tcp；设备配置写入 WHEP 模板/secret/path | 无 token 403、过期 410、正确 token 502；设备手机音频可出声 |
+| S5 | P0-2.3 / P1-1.2 | 安装 `/etc/walle-ai.conf`（root:root 600），按 README 部署 systemd 服务 | 普通用户不可读配置；`systemctl stop walle-ai` 5s 内退出；重启后自动上线 |
+| S6 | P0-4.2 / P0-5.1 / P0-5.2 | 按对应项整改完成后，在真实设备上验证摄像头 preflight、`kill -9` 子进程清理、systemd 停止耗时 | 非 USB 节点被拒；`kill -9` 后无 ffmpeg/播放器残留；stop 5s 内完成 |
+
+> 服务端事项完成前，即使代码侧清单已勾选，也不要把设备接入非受控网络。

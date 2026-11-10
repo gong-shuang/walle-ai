@@ -254,6 +254,8 @@ def validate_config():
         errors.append("MQTT_TLS=off 仅允许在 WALLE_RUNTIME_ENV=debug 下使用")
     if MQTT_CA_FILE and not (os.path.isfile(MQTT_CA_FILE) and os.access(MQTT_CA_FILE, os.R_OK)):
         errors.append(f"MQTT_CA_FILE 不存在或不可读: {MQTT_CA_FILE}")
+    if CAMERA_DEVICE and not os.path.exists(CAMERA_DEVICE):
+        errors.append(f"CAMERA_DEVICE 不存在: {CAMERA_DEVICE}")
     if VIDEO_ENABLE and VIDEO_RTMP_URL_TEMPLATE:
         if "{room}" not in VIDEO_RTMP_URL_TEMPLATE:
             errors.append("VIDEO_RTMP_URL_TEMPLATE 缺少 {room} 占位符")
@@ -418,6 +420,8 @@ CAM_ENABLE = _env_flag("CAM_ENABLE", True)   # 不需要摄像头能力查询时
 
 # ---- 视频推流（video/start，ffmpeg -> RTMP）----
 VIDEO_ENABLE = _env_flag("VIDEO_ENABLE", True)  # 不需要推流能力时置 False
+# 可选：固定摄像头设备（如 udev 符号链接 /dev/walle-camera）；留空接受任意 /dev/videoN
+CAMERA_DEVICE = os.environ.get("CAMERA_DEVICE", "").strip()
 VIDEO_FFMPEG_BIN = "ffmpeg"              # ffmpeg 可执行文件（不在 PATH 就写绝对路径）
 # 推流地址模板，必须显式配置：{room}=房间号，{secret}=Oryx 推流 secret
 VIDEO_RTMP_URL_TEMPLATE = os.environ.get("VIDEO_RTMP_URL_TEMPLATE", "").strip()
@@ -968,6 +972,40 @@ def _parse_formats(stdout):
         for r in f["resolutions"]:
             r["fps"].sort()
     return formats
+
+
+def _video_sysfs_device(device):
+    """返回 /sys/class/video4linux/videoN/device，用于判断是否为 USB 采集节点。"""
+    node = os.path.basename(os.path.realpath(device))
+    return Path("/sys/class/video4linux") / node / "device"
+
+
+def camera_preflight(device):
+    """推流前校验摄像头节点：USB 采集设备且支持配置的分辨率。返回 (ok, reason)。"""
+    real = os.path.realpath(device)
+    if CAMERA_DEVICE and os.path.realpath(CAMERA_DEVICE) != real:
+        return False, f"只允许使用 CAMERA_DEVICE={CAMERA_DEVICE}"
+    if not re.fullmatch(r"/dev/video\d+", real):
+        return False, f"不是 /dev/videoN 设备: {device}"
+    try:
+        sysfs = str(_video_sysfs_device(real).resolve())
+    except OSError:
+        return False, "无法解析摄像头 sysfs 路径"
+    if "usb" not in sysfs.lower():
+        return False, "不是 USB 摄像头节点（可能是 ISP/解码/元数据节点）"
+    try:
+        proc = _v4l2(["-d", real, "--list-formats-ext"])
+    except FileNotFoundError:
+        return False, "未安装 v4l2-ctl（sudo apt install -y v4l-utils）"
+    except subprocess.TimeoutExpired:
+        return False, "v4l2-ctl 探测超时"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"v4l2-ctl 探测失败: {exc}"
+    if proc.returncode != 0:
+        return False, f"v4l2-ctl 返回 {proc.returncode}"
+    if f"Size: Discrete {VIDEO_VIDEO_SIZE}" not in (proc.stdout or ""):
+        return False, f"摄像头不支持 {VIDEO_VIDEO_SIZE}"
+    return True, None
 
 
 def list_cameras():
@@ -2026,11 +2064,16 @@ class RpiMonitor:
                                        {"error": "推流能力已关闭（VIDEO_ENABLE=False）"})
             return
 
-        # 1) 摄像头设备是否存在
-        if not re.match(r"^/dev/video\d+$", video_device) or not os.path.exists(video_device):
+        # 1) 摄像头设备是否存在 + USB 采集节点/分辨率 preflight
+        if not video_device or not os.path.exists(video_device):
             self._publish_video_result(
                 req, -1, "没有此摄像头设备",
                 {"error": f"设备节点不存在: {video_device or '<空>'}"})
+            return
+        ok_cam, cam_error = camera_preflight(video_device)
+        if not ok_cam:
+            self._publish_video_result(
+                req, -1, "没有此摄像头设备", {"error": cam_error})
             return
 
         # 2) 房间号白名单（要拼进 RTMP URL，必须严格校验）
@@ -2743,6 +2786,7 @@ def print_config_check():
     print(f"  Oryx secret: {'已配置' if WHIP_SECRET else '未配置（视频推流会被服务端拒绝）'}")
     print(f"  推流模板 : {'已配置' if VIDEO_RTMP_URL_TEMPLATE else '未配置（视频推流不可用）'}")
     print(f"  手机音频 : {'已配置' if PHONE_AUDIO_WHEP_URL_TEMPLATE else '未配置（手机音频不可用）'}")
+    print(f"  摄像头   : {CAMERA_DEVICE or '任意 /dev/videoN（推流前 preflight）'}")
     print(f"  租户     : {tenant}")
     print(f"  设备号   : {DEVICE_ID}")
     if DEVICE_ID_SOURCE:
