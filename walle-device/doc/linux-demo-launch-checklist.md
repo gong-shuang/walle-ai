@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 3 | 19 |
-| **合计** | **55** | **30** | **25** |
+| P2 后续优化 | 22 | 4 | 18 |
+| **合计** | **55** | **31** | **24** |
 
-> linux-demo 已开始按本清单整改（当前 30/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 31/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -268,11 +268,10 @@
   - 验收：新增 `test/test_capability_cache.py`（3 项）+ 现有用例共 22 项通过；cache-only 时 pending 返回 <0.5s；注入 5s 前缓存返回 `source=cache, age_sec>=5`；摄像头探测失败后仍保留旧 `cameras`；USB 变化置位 `capability_refresh`
   - 证据：`main.py` L436-L439、L1752-L1756、L1930-L1933、L2071-L2150、L3198-L3199；`test/test_capability_cache.py`；`doc/MQTT_protocol_convention.md` §4.4
 
-- [ ] 🔴 **P2-1.3 查询/动作请求分池与有界队列**
-  - 现状：所有请求共用 `ThreadPoolExecutor(max_workers=4)`；推流启动（宽限 3s）、能力探测、整改前的长命令会占满线程，查询请求排队
-  - 动作：查询（state/capability/discovery）与动作（video/phone audio）分池；用 `BoundedSemaphore` 限制「执行中 + 排队」总量；超限丢弃并周期性汇总告警
-  - 验收：动作池占满时 state/query 仍能响应；洪峰下丢弃有日志、有计数
-  - 证据：`main.py` L1405、L1510-L1532
+- [x] ✅ **P2-1.3 查询/动作请求分池与有界队列**
+  - 处理：线程池拆分为 `query_pool`（discovery/state/capability）与 `action_pool`（video/phone audio），默认各 2 个 worker；每个池用 `BoundedSemaphore` 限制「执行中 + 排队」总量（默认 query 16 / action 4），超限时 `_submit_request()` 直接丢弃并计数；`monitor_loop` 每周期输出最近一次丢弃汇总；worker 数、队列上限均可通过环境变量调整
+  - 验收：动作槽占满时第二个动作被丢弃且 `dropped_counts["action"]=1`，同时查询请求仍立即执行（`dropped_counts["query"]=0`）；新增 `test/test_request_pools.py`，全套 23 项通过
+  - 证据：`main.py` L393-L394、L414-L417、L1718-L1727、L1886-L1922、L3224-L3233、L3312-L3313；`test/test_request_pools.py`；`walle-ai.conf.example` L63-L70
 
 - [ ] 🔴 **P2-1.4 discovery 抖动不占用工作线程**
   - 现状：`handle_device_query()` 在池线程内 `time.sleep(random.uniform(0, 0.8))`，多台设备同时刷新时会占用查询线程
@@ -467,6 +466,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：请求线程池拆分为 query/action 两池，并用 BoundedSemaphore 限制排队总量，
+  超限丢弃计数、每周期汇总日志（P2-1.3）。
 - 2026-11-10：capability 改为后台探测 + 120s 缓存，查询只读缓存并返回 `cache`
   字段；首次未就绪等待 3s 或返回 `probe.pending`；摄像头探测失败沿用旧缓存（P2-1.2）。
 - 2026-11-10：`state/query` 复用监控循环快照（含 `sample_age_sec`），USB 复用

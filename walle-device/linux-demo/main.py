@@ -390,6 +390,10 @@ REQUEST_HANDLERS = {
 }
 
 
+# 查询类资源走 query_pool，其余动作类走 action_pool；discovery 单独判断
+QUERY_RESOURCES = {REQ_STATE, REQ_CAPABILITY}
+
+
 def subscriptions():
     """本设备要订阅的主题（只有请求类 + 租户内发现广播）。
 
@@ -409,6 +413,12 @@ def subscriptions():
 
 # ---- 监控阈值（均可用环境变量覆盖，写进 /etc/walle-ai.conf 即可）----
 MONITOR_INTERVAL = int(os.environ.get("MONITOR_INTERVAL", "5"))          # 采样周期（秒）
+# 查询（state/capability/discovery）与动作（video/phone audio）分池，避免动作占满查询线程；
+# 每个池限制「执行中 + 排队」总量，超限丢弃并计数
+QUERY_WORKERS = int(os.environ.get("QUERY_WORKERS", "2"))
+ACTION_WORKERS = int(os.environ.get("ACTION_WORKERS", "2"))
+QUERY_QUEUE_LIMIT = int(os.environ.get("QUERY_QUEUE_LIMIT", "16"))
+ACTION_QUEUE_LIMIT = int(os.environ.get("ACTION_QUEUE_LIMIT", "4"))
 THRESH_CPU = float(os.environ.get("THRESH_CPU", "90.0"))                 # CPU 使用率 %
 THRESH_MEM = float(os.environ.get("THRESH_MEM", "90.0"))                 # 内存使用率 %
 THRESH_DISK = float(os.environ.get("THRESH_DISK", "90.0"))               # 磁盘使用率 %
@@ -1709,8 +1719,16 @@ class RpiMonitor:
     def __init__(self):
         self.client = None
         self.stop_event = threading.Event()
-        # 命令/查询单独走线程池，避免长命令阻塞 MQTT 收发线程
-        self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mqtt-worker")
+        # 查询与动作分池：推流启动/停止不再挤占 state/capability 查询
+        self.query_pool = ThreadPoolExecutor(max_workers=QUERY_WORKERS,
+                                             thread_name_prefix="query")
+        self.action_pool = ThreadPoolExecutor(max_workers=ACTION_WORKERS,
+                                              thread_name_prefix="action")
+        self.query_slots = threading.BoundedSemaphore(QUERY_QUEUE_LIMIT)
+        self.action_slots = threading.BoundedSemaphore(ACTION_QUEUE_LIMIT)
+        self.dropped_counts = {"query": 0, "action": 0}
+        self._dropped_reported = {"query": 0, "action": 0}
+        self.dropped_lock = threading.Lock()
         # psutil 的 CPU 采样在进程内共享上一次时间点，多线程采样需加锁
         self.sample_lock = threading.Lock()
         self.active_alarms = set()
@@ -1866,7 +1884,7 @@ class RpiMonitor:
         resource="query"，匹配不到处理函数而被静默忽略 —— 设备永远不会应答发现。
         """
         if topic == tenant_topic(REQ_DISCOVERY):
-            self.pool.submit(self.handle_device_query, payload)
+            self._submit_request("query", self.handle_device_query, payload)
             return
 
         parts = topic.split("/", 4)
@@ -1876,9 +1894,32 @@ class RpiMonitor:
         resource = parts[4]
         handler_name = REQUEST_HANDLERS.get(resource)
         if handler_name:
-            self.pool.submit(getattr(self, handler_name), payload)
+            kind = "query" if resource in QUERY_RESOURCES else "action"
+            self._submit_request(kind, getattr(self, handler_name), payload)
         else:
             logging.debug("忽略非请求类主题: %s", topic)
+
+    def _submit_request(self, kind, func, payload):
+        """把请求投递到对应线程池；超过「执行中 + 排队」上限时丢弃并计数。"""
+        pool, slots = ((self.query_pool, self.query_slots) if kind == "query"
+                       else (self.action_pool, self.action_slots))
+        if not slots.acquire(blocking=False):
+            with self.dropped_lock:
+                self.dropped_counts[kind] += 1
+                total = self.dropped_counts[kind]
+            logging.warning("请求队列已满，丢弃 %s 请求（累计 %d）", kind, total)
+            return False
+
+        def _run():
+            try:
+                func(payload)
+            except Exception:
+                logging.exception("%s 请求处理异常", kind)
+            finally:
+                slots.release()
+
+        pool.submit(_run)
+        return True
 
     def _event(self, event, level, metric, alarm_type, message, detail=None):
         """统一告警报文封装"""
@@ -3180,6 +3221,17 @@ class RpiMonitor:
             except Exception:
                 logging.exception("流租约检查异常")
 
+            # 4) 最近一个周期丢弃的请求汇总
+            with self.dropped_lock:
+                recent = {k: self.dropped_counts[k] - self._dropped_reported[k]
+                          for k in self.dropped_counts}
+                totals = dict(self.dropped_counts)
+                self._dropped_reported = dict(self.dropped_counts)
+            if recent["query"] or recent["action"]:
+                logging.warning(
+                    "最近一个周期丢弃请求：query %d、action %d（累计 query %d、action %d）",
+                    recent["query"], recent["action"], totals["query"], totals["action"])
+
     # ---------- 启动 ----------
 
     def run(self):
@@ -3257,7 +3309,8 @@ class RpiMonitor:
                                   retain=True, wait_timeout=2.0)
             except Exception:
                 pass
-            self.pool.shutdown(wait=False, cancel_futures=True)
+            self.query_pool.shutdown(wait=False, cancel_futures=True)
+            self.action_pool.shutdown(wait=False, cancel_futures=True)
             self.client.loop_stop()
             self.client.disconnect()
 
