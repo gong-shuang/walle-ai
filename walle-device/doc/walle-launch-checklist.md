@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 16 | 5 |
-| **合计** | **58** | **49** | **9** |
+| P2 后续优化 | 21 | 17 | 4 |
+| **合计** | **58** | **50** | **8** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -290,9 +290,10 @@
   - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py`（`SONAR_TIMEOUT_SEC` / `distance_callback` / `_distance_stale` / `_handle_sonar_timeout` / `process`）
   - 验收：mock 冒烟模拟断流后 `process()` 最后一帧 `cmd_vel.linear.x == 0`、动作被清空、日志出现「声呐数据超过 0.4s 未更新」；0.4s 超时 + 0.05s 轮询可保证 0.5s 内停车
 
-- [ ] 🔴 **P2-3.4 从生产 launch 移除或加开关**
-  - 动作：`walle_ws/src/ai/large_models/launch/start.launch.py` 不默认启动实验性 AI 节点；或加 `enable_ai` 参数默认 false
-  - 验收：生产启动不包含未验收的自动驾驶逻辑
+- [x] ✅ **P2-3.4 从生产 launch 移除或加开关**
+  - 处理：核查生产启动链路，`bringup.launch.py` → `large_models/start.launch.py` 只启动 `vocal_detect`（唤醒/ASR）、`agent_process`（LLM 服务）、`tts_node`（TTS），均不发布 `/cmd_vel`；`vllm_obstacle_avoidance`、`llm_control_move`、`llm_visual_patrol`、`llm_color_track`、`vllm_with_camera`、`vllm_smart_housekeeper` 等实验节点各自独立 launch，生产 bringup 不引用，需手动启动
+  - 证据：`walle_ws/src/ai/large_models/launch/start.launch.py`、`walle_ws/src/bringup/launch/bringup.launch.py`；`grep -nE "vllm_obstacle_avoidance|llm_control_move|llm_visual_patrol" walle_ws/src/ai/large_models/launch/start.launch.py` 无匹配
+  - 验收：生产启动只含语音交互节点，不含任何直接发布 `/cmd_vel` 的实验 AI 节点；实验节点必须显式 `ros2 launch large_models <xxx>.launch.py` 才会运行。后续若将其接入 bringup，必须增加 `enable_ai` 参数且默认 false
 
 ### P2-4 摄像头与兼容性
 
@@ -433,12 +434,17 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-3.1 | 未提交 | `process()` 增加 0.05s 固定周期休眠，消除忙等；mock 冒烟验证每轮 sleep | 待确认 |
 | 2026-11-10 | P2-3.2 | 未提交 | 定时动作改为非阻塞状态机，删除 0.6s 阻塞 sleep；mock 冒烟验证立即返回与到点推进 | 待确认 |
 | 2026-11-10 | P2-3.3 | 未提交 | 声呐记录时间戳，0.4s 断流/无效值即停车并终止动作；mock 冒烟验证 | 待确认 |
+| 2026-11-10 | P2-3.4 | 未提交 | 核查生产 launch：仅 vocal_detect/agent_process/tts_node；实验驾驶节点均为独立 launch，未被 bringup 引用 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-3.4 核查结论——生产 `bringup` → `large_models/start.launch.py` 只启动
+  `vocal_detect` / `agent_process` / `tts_node`，均不发布 `/cmd_vel`；`vllm_obstacle_avoidance`
+  等实验驾驶节点均为独立 launch 文件，生产 bringup 不引用，需手动启动。因此无需再删
+  代码或加开关；后续若将它们接入 bringup，必须增加 `enable_ai` 参数且默认 false。
 - 2026-11-10：P2-3.3 声呐回调记录时间戳；`move_forward` 前检查 0.4s 断流或 `-1`
   无效值，命中即停车、清空当前动作并告警一次，0.4s + 0.05s 轮询保证 0.5s 内停车。
 - 2026-11-10：P2-3.2 `vllm_obstacle_avoidance` 的 0.6s 定时动作改为非阻塞状态机，
