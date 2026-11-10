@@ -2252,7 +2252,14 @@ class RpiMonitor:
         capabilities = ["system_status"]
         if cameras:
             capabilities.append("camera_video_capture")
-        if VIDEO_ENABLE and ffmpeg_ok:
+        rtmp_ok, rtmp_reason = rtmp_url_ready() if VIDEO_ENABLE else (False, "视频推流已关闭")
+        video_error = None
+        if VIDEO_ENABLE:
+            if not ffmpeg_ok:
+                video_error = "未找到 ffmpeg"
+            elif not rtmp_ok:
+                video_error = rtmp_reason
+        if VIDEO_ENABLE and ffmpeg_ok and rtmp_ok:
             capabilities.append("rtmp_push")
         if capture["available"]:
             capabilities.append("audio_capture")
@@ -2285,6 +2292,7 @@ class RpiMonitor:
                 "error": cam_error,          # None 表示摄像头探测正常
                 "audio_error": capture["reason"] or playback["reason"],
                 "missing_dependencies": missing_deps,
+                "video_error": video_error,  # 非 None 表示推流能力不可用及原因
             },
             "timestamp": now_ts(),
             "datetime": now_str(),

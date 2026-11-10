@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 6 | 16 |
-| **合计** | **55** | **33** | **22** |
+| P2 后续优化 | 22 | 7 | 15 |
+| **合计** | **55** | **34** | **21** |
 
-> linux-demo 已开始按本清单整改（当前 33/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 34/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -297,11 +297,10 @@
   - 验收：`flake8` 通过；日志/注释术语一致；同一推流只构造一次 RTMP URL
   - 证据：`main.py` L98-L120、L1253-L1262、L1868-L1874、L2006-L2013、L2428-L2458
 
-- [ ] 🔴 **P2-2.3 capability 按实际配置上报**
-  - 现状：`capabilities` 无条件包含 `remote_cmd`；即使 `rtmp_secret_ready()` 为假、视频实际不可用，也仍按 `VIDEO_ENABLE` 上报 `rtmp_push`
-  - 动作：`remote_cmd` 随 P0-1.1 删除；`rtmp_push` 需同时满足 `VIDEO_ENABLE` 与模板/secret 就绪；音频能力与实际检测结果一致
-  - 验收：未配置 `WHIP_SECRET` 时 `capabilities` 不含 `rtmp_push`，或附带明确不可用原因；App 不再显示必失败入口
-  - 证据：`main.py` L1696-L1748、L1264-L1266
+- [x] ✅ **P2-2.3 capability 按实际配置上报**
+  - 处理：`remote_cmd` 已随 P0-1.1 删除；`rtmp_push` 改为仅在 `VIDEO_ENABLE`、ffmpeg 可用、`rtmp_url_ready()`（模板占位符与 `WHIP_SECRET` 就绪）同时满足时上报；不可用时在 `probe.video_error` 给出明确原因；音频能力继续按实际探测结果
+  - 验收：`WHIP_SECRET` 未配置时 `capabilities` 不含 `rtmp_push` 且 `video_error="WHIP_SECRET 未配置"`；配置就绪时包含且 `video_error=null`；新增 2 项用例，全套 28 项通过
+  - 证据：`main.py` L2248-L2263、L2290-L2296；`test/test_capability_cache.py`
 
 - [ ] 🔴 **P2-2.4 `--check` 扩展为完整自检**
   - 动作：增加配置校验、依赖检查（python 包/ffmpeg/v4l2-ctl/pactl/播放器脚本）、设备节点、配置模板占位符、版本号、主题配对；可选 `--check --connect` 做 DNS/TLS/登录/订阅验证
@@ -464,6 +463,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：`rtmp_push` 仅在 VIDEO_ENABLE + ffmpeg + 推流模板/secret 均就绪时上报，
+  否则在 `probe.video_error` 说明原因（P2-2.3）。
 - 2026-11-10：online/LWT 改用身份缓存（监控线程每 60s 刷新完整信息），首次上线只做
   轻量采集，不扫描磁盘/网络挂载（P2-1.5）。
 - 2026-11-10：discovery 抖动改为 Timer 延迟发布，处理函数立即返回，不再占用查询线程

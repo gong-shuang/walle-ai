@@ -62,6 +62,30 @@ class CapabilityCacheTest(unittest.TestCase):
         self.assertEqual(cached["camera_count"], 1)
         self.assertIn("camera_video_capture", cached["capabilities"])
 
+    def _probe_with(self, rtmp_ready):
+        capture = {"available": False, "device": None, "sources": [], "reason": "无麦克风"}
+        playback = {"available": False, "device": None, "volume_percent": None,
+                    "muted": None, "sinks": [], "reason": "无扬声器"}
+        with mock.patch.object(self.mon, "cameras_cached", return_value=([], None)), \
+                mock.patch.object(main, "probe_audio_capture", return_value=capture), \
+                mock.patch.object(main, "probe_audio_playback", return_value=playback), \
+                mock.patch.object(main, "VIDEO_ENABLE", True), \
+                mock.patch.object(main, "dependency_status", return_value=[
+                    {"name": "ffmpeg", "path": "/usr/bin/ffmpeg", "ok": True,
+                     "impact": ""}]), \
+                mock.patch.object(main, "rtmp_url_ready", return_value=rtmp_ready):
+            return self.mon._probe_capability()
+
+    def test_rtmp_push_hidden_when_url_not_ready(self):
+        payload = self._probe_with((False, "WHIP_SECRET 未配置"))
+        self.assertNotIn("rtmp_push", payload["capabilities"])
+        self.assertEqual(payload["probe"]["video_error"], "WHIP_SECRET 未配置")
+
+    def test_rtmp_push_visible_when_ready(self):
+        payload = self._probe_with((True, None))
+        self.assertIn("rtmp_push", payload["capabilities"])
+        self.assertIsNone(payload["probe"]["video_error"])
+
 
 if __name__ == "__main__":
     unittest.main()
