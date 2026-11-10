@@ -91,6 +91,9 @@ Output: {
 '''
 
 class VLLMTrack(Node):
+    # 空闲轮询周期：20Hz，兼顾 cmd_vel 保活（10Hz 重发）与 CPU 占用
+    PROCESS_PERIOD_SEC = 0.05
+
     def __init__(self, name):
         rclpy.init()
         super().__init__(name)
@@ -234,6 +237,8 @@ class VLLMTrack(Node):
 
     def process(self):
         while self.running:
+            # 固定周期轮询，避免空闲时忙等占满 CPU（P2-3.1）
+            time.sleep(self.PROCESS_PERIOD_SEC)
             self.keepalive_cmd_vel()
             # 只有有action指令时才会执行
             if self.vllm_result and self.actions:

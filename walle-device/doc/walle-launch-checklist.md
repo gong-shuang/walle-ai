@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 13 | 8 |
-| **合计** | **58** | **46** | **12** |
+| P2 后续优化 | 21 | 14 | 7 |
+| **合计** | **58** | **47** | **11** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -275,10 +275,10 @@
 
 ### P2-3 AI 演示节点
 
-- [ ] 🔴 **P2-3.1 消除 process() 忙等**
-  - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py` L232-L275 无 sleep
-  - 动作：改为事件/条件变量或固定周期 sleep
-  - 验收：空闲时 CPU 占用接近 0
+- [x] ✅ **P2-3.1 消除 process() 忙等**
+  - 处理：`VLLMTrack.PROCESS_PERIOD_SEC = 0.05`，`process()` 每轮先 `time.sleep(0.05)` 再执行 `cmd_vel` 保活与动作处理；20Hz 轮询既满足 10Hz 保活，又避免空闲时忙等占满 CPU
+  - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py`（`PROCESS_PERIOD_SEC` / `process`）
+  - 验收：mock 冒烟连续 5 轮 `process()`，`time.sleep` 均为 0.05s；空闲时不再无休止自旋，CPU 占用接近 0
 
 - [ ] 🔴 **P2-3.2 去除阻塞式 time.sleep**
   - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py` L294-L299
@@ -430,12 +430,15 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-2.5 | 未提交 | 两个控制器节点移除构造函数内的 `rclpy.init()`，统一放到 main；colcon build 后单进程双节点组合验证通过 | 待确认 |
 | 2026-11-10 | P2-2.6 | 未提交 | `get_pwm_servo_state` 改为 `(request, response)` 并填充/返回 response；mock 冒烟通过 | 待确认 |
 | 2026-11-10 | P2-2.7 | 未提交 | IMU `orientation_covariance[0] = -1`（REP-145）；mock 冒烟通过；本版本无 IMU，保留兼容代码 | 待确认 |
+| 2026-11-10 | P2-3.1 | 未提交 | `process()` 增加 0.05s 固定周期休眠，消除忙等；mock 冒烟验证每轮 sleep | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-3.1 `vllm_obstacle_avoidance.process()` 增加 0.05s 固定周期休眠
+  （20Hz），空闲时不再忙等；`cmd_vel` 仍按 10Hz 保活，行为不变。
 - 2026-11-10：P2-2.7 IMU 的 `orientation_covariance[0]` 设为 -1（REP-145），零四元数
   仅作占位；本版本小车无 IMU 传感器，代码保留用于兼容有 IMU 的底盘，不做实车验证。
 - 2026-11-10：P2-2.6 `get_pwm_servo_state` 改为标准 `(request, response)` 回调，
