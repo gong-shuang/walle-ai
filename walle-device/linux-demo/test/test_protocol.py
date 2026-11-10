@@ -11,6 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import ld_config as config  # noqa: E402
 import main  # noqa: E402
 
 CONFIG_BASE = dict(
@@ -39,7 +40,7 @@ class TopicTest(unittest.TestCase):
         self.assertEqual(len(long_seg), 49)
 
     def test_device_topic_and_subscriptions(self):
-        with mock.patch.multiple(main, MQTT_TENANT="t.1", DEVICE_ID="dev-1"):
+        with mock.patch.multiple(config, MQTT_TENANT="t.1", DEVICE_ID="dev-1"):
             self.assertEqual(main.device_topic("state/query"),
                              "walle/t_1/dev-1/v1/state/query")
             self.assertEqual(main.tenant_topic("discovery/query"),
@@ -59,7 +60,7 @@ class TopicTest(unittest.TestCase):
 
 class RequestValidationTest(unittest.TestCase):
     def test_verify_uuid(self):
-        with mock.patch.object(main, "DEVICE_UUID", "uuid-1"):
+        with mock.patch.object(config, "DEVICE_UUID", "uuid-1"):
             ok, data = main.RpiMonitor.verify_uuid(
                 json.dumps({"uuid": "uuid-1", "request_id": "r1"}), "topic")
             self.assertTrue(ok)
@@ -102,7 +103,7 @@ class DeviceIdTest(unittest.TestCase):
     def test_persist_and_reuse(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / ".device-id"
-            with mock.patch.object(main, "DEVICE_ID_FILE", str(path)):
+            with mock.patch.object(config, "DEVICE_ID_FILE", str(path)):
                 first, _ = main.resolve_device_id("aa:bb:cc", 4, 8 * 1024 ** 3)
                 self.assertTrue(path.exists())
                 second, source = main.resolve_device_id("aa:bb:cc", 4, 8 * 1024 ** 3)
@@ -116,22 +117,22 @@ class DeviceIdTest(unittest.TestCase):
 
 class ValidateConfigTest(unittest.TestCase):
     def test_valid(self):
-        with mock.patch.multiple(main, **CONFIG_BASE):
+        with mock.patch.multiple(config, **CONFIG_BASE):
             self.assertEqual(main.validate_config(), [])
 
     def test_prod_plaintext_port_rejected(self):
-        with mock.patch.multiple(main, **{**CONFIG_BASE, "MQTT_PORT": 1883}):
+        with mock.patch.multiple(config, **{**CONFIG_BASE, "MQTT_PORT": 1883}):
             self.assertTrue(any("1883" in err for err in main.validate_config()))
 
     def test_tls_off_only_in_debug(self):
-        with mock.patch.multiple(main, **{**CONFIG_BASE, "MQTT_TLS": "off"}):
+        with mock.patch.multiple(config, **{**CONFIG_BASE, "MQTT_TLS": "off"}):
             self.assertTrue(any("MQTT_TLS=off" in err for err in main.validate_config()))
         with mock.patch.multiple(
-                main, **{**CONFIG_BASE, "MQTT_TLS": "off", "WALLE_RUNTIME_ENV": "debug"}):
+                config, **{**CONFIG_BASE, "MQTT_TLS": "off", "WALLE_RUNTIME_ENV": "debug"}):
             self.assertEqual(main.validate_config(), [])
 
     def test_missing_required(self):
-        with mock.patch.multiple(main, **{
+        with mock.patch.multiple(config, **{
                 **CONFIG_BASE, "MQTT_HOST": "", "MQTT_USER": "",
                 "MQTT_PASSWORD": "", "MQTT_TENANT": ""}):
             self.assertEqual(len(main.validate_config()), 4)

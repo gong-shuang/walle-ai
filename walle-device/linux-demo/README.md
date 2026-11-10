@@ -13,6 +13,7 @@
 | `walle-ai.conf.example` | 配置模板 |
 | `walle-ai.service.example` | systemd 单元模板（由 `deploy.sh` 渲染） |
 | `deploy.sh` | 部署脚本：配置检查、安装配置与服务 |
+| `ld_*.py` | 按职责拆分的配置/协议/媒体/监控模块（`main.py` 仅入口与组合） |
 | `test/` | 单元测试（unittest / pytest） |
 
 ## 首次部署

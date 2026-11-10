@@ -9,6 +9,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import ld_config as config  # noqa: E402
+import ld_monitor_capability as cap_mod  # noqa: E402
 import main  # noqa: E402
 
 
@@ -30,7 +32,7 @@ class CapabilityCacheTest(unittest.TestCase):
         self.mon = main.RpiMonitor()
 
     def test_pending_when_cache_only(self):
-        with mock.patch.object(main, "CAPABILITY_CACHE_ONLY", True):
+        with mock.patch.object(cap_mod, "CAPABILITY_CACHE_ONLY", True):
             t0 = time.time()
             payload = self.mon.build_capability()
             cost = time.time() - t0
@@ -46,7 +48,7 @@ class CapabilityCacheTest(unittest.TestCase):
         payload = self.mon.build_capability()
         self.assertEqual(payload["cache"]["source"], "cache")
         self.assertGreaterEqual(payload["cache"]["age_sec"], 5)
-        self.assertEqual(payload["cache"]["ttl_sec"], main.CAPABILITY_CACHE_TTL)
+        self.assertEqual(payload["cache"]["ttl_sec"], config.CAPABILITY_CACHE_TTL)
         self.assertEqual(payload["camera_count"], 1)
 
     def test_probe_failure_keeps_cameras(self):
@@ -67,13 +69,13 @@ class CapabilityCacheTest(unittest.TestCase):
         playback = {"available": False, "device": None, "volume_percent": None,
                     "muted": None, "sinks": [], "reason": "无扬声器"}
         with mock.patch.object(self.mon, "cameras_cached", return_value=([], None)), \
-                mock.patch.object(main, "probe_audio_capture", return_value=capture), \
-                mock.patch.object(main, "probe_audio_playback", return_value=playback), \
-                mock.patch.object(main, "VIDEO_ENABLE", True), \
-                mock.patch.object(main, "dependency_status", return_value=[
+                mock.patch.object(cap_mod, "probe_audio_capture", return_value=capture), \
+                mock.patch.object(cap_mod, "probe_audio_playback", return_value=playback), \
+                mock.patch.object(cap_mod, "VIDEO_ENABLE", True), \
+                mock.patch.object(cap_mod, "dependency_status", return_value=[
                     {"name": "ffmpeg", "path": "/usr/bin/ffmpeg", "ok": True,
                      "impact": ""}]), \
-                mock.patch.object(main, "rtmp_url_ready", return_value=rtmp_ready):
+                mock.patch.object(cap_mod, "rtmp_url_ready", return_value=rtmp_ready):
             return self.mon._probe_capability()
 
     def test_rtmp_push_hidden_when_url_not_ready(self):

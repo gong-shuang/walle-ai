@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 8 | 14 |
-| **合计** | **55** | **35** | **20** |
+| P2 后续优化 | 22 | 9 | 13 |
+| **合计** | **55** | **36** | **19** |
 
-> linux-demo 已开始按本清单整改（当前 35/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 36/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -285,11 +285,10 @@
 
 ### P2-2 代码质量
 
-- [ ] 🔴 **P2-2.1 按职责拆分 main.py**
-  - 现状：单文件 2807 行，配置、身份、MQTT 协议、监控、能力探测、推流、手机音频、命令行全部混在一起
-  - 动作：参考 ROS2 `net_mqtt_bridge`，拆为 `config` / `identity` / `monitor` / `protocol` / `capability` / `video` / `phone_audio` / `audio` / `cmdline` 等模块，单文件 < 500 行；`main.py` 只保留入口与组合逻辑，保持 CLI、环境变量、MQTT 主题与报文完全兼容
-  - 验收：各模块可独立导入；全部 `.py` < 500 行；拆分前后 `--check`、主题订阅清单、报文结构一致
-  - 证据：`main.py` 全文件；`walle-device/doc/walle-launch-checklist.md` P2-2.1
+- [x] ✅ **P2-2.1 按职责拆分 main.py**
+  - 处理：`main.py` 从 3467 行降至 180 行，仅保留 CLI、`--check`、入口与模块组合；拆为 `ld_config`（环境/配置/校验/版本/依赖）、`ld_protocol`（主题与订阅）、`ld_utils`（通用工具与设备标识）、`ld_camera`、`ld_audio`、`ld_media`（ffmpeg/URL/日志/脱敏）、`ld_monitor_base`（初始化/MQTT/分发）、`ld_monitor_identity`、`ld_monitor_capability`、`ld_monitor_video`、`ld_monitor_phone`、`ld_monitor_status`（状态/监控循环/生命周期），`ld_monitor.py` 组合 mixin；可变全局（`DEVICE_ID`/`DEVICE_UUID`/`MQTT_TENANT`/`DEVICE_ID_FILE`）统一由 `ld_config` 维护，其余模块动态读取
+  - 验收：全部 `.py` 均 <500 行（最大 `ld_utils.py` 452 行）；`python3 -m unittest discover -s test -t .` 28 项通过；`--help` 输出与原 docstring 一致；`--check` 退出 0 且订阅仍为 7 条；Broker 不可达短跑无 traceback，能力后台探测与退出清理正常
+  - 证据：`linux-demo/main.py`、`ld_config.py`、`ld_protocol.py`、`ld_utils.py`、`ld_camera.py`、`ld_audio.py`、`ld_media.py`、`ld_monitor_*.py`、`ld_monitor.py`
 
 - [ ] 🔴 **P2-2.2 清理重复实现与遗留注释**
   - 现状：`_video_status()` 注释仍写 `state/result`，但段落标题是 `device/detail/result`；`import ssl` 在 `run()` 内局部导入；`build_rtmp_url()` 被重复调用并在多处拼接/脱敏；`_load_env_file()` 不处理行内注释
@@ -462,6 +461,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：`main.py` 按职责拆分为 12 个模块（`ld_*`），主文件 180 行，全部 <500 行；
+  可变全局统一放 `ld_config`，测试改为 patch 对应模块；28 项测试、`--check`、短跑通过（P2-2.1）。
 - 2026-11-10：协议自检并入 `test/test_protocol.py`（主题配对/命名/清洗与 Android 一致），
   不再单独恢复 `selftest_topics.py`（P2-2.5）。
 - 2026-11-10：`rtmp_push` 仅在 VIDEO_ENABLE + ffmpeg + 推流模板/secret 均就绪时上报，

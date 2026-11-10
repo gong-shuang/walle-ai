@@ -26,10 +26,10 @@ class RemoteCmdRemovedTest(unittest.TestCase):
         self.assertNotIn("remote_cmd", inspect.getsource(main.RpiMonitor.build_capability))
 
     def test_sources_have_no_command_execution(self):
-        for name in ("main.py", "whep_audio_player.py"):
-            text = (LINUX_DEMO / name).read_text(encoding="utf-8")
+        for path in sorted(LINUX_DEMO.glob("*.py")):
+            text = path.read_text(encoding="utf-8")
             for token in ("cmd/exec", "cmd/result", "remote_cmd", "handle_cmd_exec", "shell=True"):
-                self.assertNotIn(token, text, f"{name} 仍包含 {token}")
+                self.assertNotIn(token, text, f"{path.name} 仍包含 {token}")
 
 
 if __name__ == "__main__":

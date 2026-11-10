@@ -54,7 +54,8 @@ class VersionPriorityTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self.tmp.name)
-        shutil.copy2(MAIN_PY, self.dir / "main.py")
+        for module in HERE.glob("*.py"):
+            shutil.copy2(module, self.dir / module.name)
 
     def tearDown(self):
         self.tmp.cleanup()

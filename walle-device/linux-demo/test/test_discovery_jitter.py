@@ -11,6 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import ld_monitor_identity as identity_mod  # noqa: E402
 import main  # noqa: E402
 
 
@@ -22,7 +23,7 @@ class DiscoveryJitterTest(unittest.TestCase):
         published = threading.Event()
         mon.publish_json = lambda *_a, **_k: published.set()
 
-        with mock.patch.object(main, "DISCOVERY_JITTER_SEC", 0.2):
+        with mock.patch.object(identity_mod, "DISCOVERY_JITTER_SEC", 0.2):
             t0 = time.time()
             mon.handle_device_query(json.dumps({"request_id": "r1"}))
             cost = time.time() - t0

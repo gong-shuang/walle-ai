@@ -9,6 +9,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import ld_monitor_identity as identity_mod  # noqa: E402
 import main  # noqa: E402
 
 
@@ -24,7 +25,7 @@ class OnlineIdentityTest(unittest.TestCase):
             time.sleep(2)
             return []
 
-        with mock.patch.object(main, "disk_mounts", slow_disk):
+        with mock.patch.object(identity_mod, "disk_mounts", slow_disk):
             t0 = time.time()
             payload = self.mon.build_online_payload(True)
             cost = time.time() - t0
@@ -34,7 +35,7 @@ class OnlineIdentityTest(unittest.TestCase):
         self.assertTrue(payload["online"])
 
     def test_refresh_identity_cache_is_reused(self):
-        with mock.patch.object(main, "disk_mounts",
+        with mock.patch.object(identity_mod, "disk_mounts",
                                lambda: [{"total_bytes": 1000}]):
             self.mon.refresh_identity_cache()
         payload = self.mon.build_online_payload(True)
