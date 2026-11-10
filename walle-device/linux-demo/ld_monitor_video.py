@@ -149,16 +149,17 @@ class MonitorVideoMixin:
             },
         )
 
-    def _start_video_stream(self, video_device, room_number, audio=None):
+    def _start_video_stream(self, video_device, room_number, audio=None, rtmp_url=None):
         """
         启动 ffmpeg 推流。返回 (proc, error)：
           - proc 不为 None：启动宽限期内未退出，视为推流成功
           - proc 为 None：error 为失败原因
 
         audio: detect_microphone() 的结果，决定是否混入音频（见 build_ffmpeg_cmd）。
+        rtmp_url: 已构造好的推流地址，避免重复构造。
         """
-        cmd = build_ffmpeg_cmd(video_device, room_number, audio)
-        rtmp = build_rtmp_url(room_number)
+        rtmp = rtmp_url or build_rtmp_url(room_number)
+        cmd = build_ffmpeg_cmd(video_device, room_number, audio, rtmp_url=rtmp)
         # 日志文件开头写一段分隔头，记录这次推流的时间/房间号/设备/实际命令
         header = (
             f"\n===== {now_str()} 启动推流 room={room_number} device={video_device} =====\n"
@@ -208,7 +209,7 @@ class MonitorVideoMixin:
                 "pid": proc.pid,
                 "started_at": now_str(),
                 "started_ts": time.time(),
-                "rtmp_url": mask_rtmp_url(build_rtmp_url(room_number)),
+                "rtmp_url": mask_rtmp_url(rtmp),
                 "audio": audio or {"available": False, "reason": None},
             }
         threading.Thread(target=self._video_watch, args=(proc, room_number, sink),
@@ -258,6 +259,8 @@ class MonitorVideoMixin:
         if not ok_url:
             self._publish_video_result(req, -2, "命令执行失败", {"error": url_error})
             return
+        rtmp_url = build_rtmp_url(room_number)
+        masked_rtmp = mask_rtmp_url(rtmp_url)
 
         # 3) 已有推流时：video_device 和 room_number 都一样 → 不处理（不重连、不重启）
         #    任一不同 → 停掉旧的，用新参数重新推流
@@ -278,7 +281,7 @@ class MonitorVideoMixin:
                 "note": "相同 video_device 和 room_number 已在推流，本次不做处理",
                 "video_device": video_device,
                 "room_number": room_number,
-                "rtmp_url": mask_rtmp_url(build_rtmp_url(room_number)),
+                "rtmp_url": masked_rtmp,
                 "pid": cur_meta.get("pid"),
                 "started_at": cur_meta.get("started_at"),
                 "audio": cur_meta.get("audio") or {"available": False, "reason": None},
@@ -302,11 +305,12 @@ class MonitorVideoMixin:
             logging.info("未启用音频推流：%s", audio["reason"] or "未检测到麦克风")
 
         # 5) 启动 ffmpeg 推流
-        proc, err = self._start_video_stream(video_device, room_number, audio)
+        proc, err = self._start_video_stream(video_device, room_number, audio, rtmp_url)
         extra = {
-            "rtmp_url": mask_rtmp_url(build_rtmp_url(room_number)),
-            "command": " ".join(build_ffmpeg_cmd(video_device, room_number, audio)).replace(
-                build_rtmp_url(room_number), mask_rtmp_url(build_rtmp_url(room_number))),
+            "rtmp_url": masked_rtmp,
+            "command": " ".join(build_ffmpeg_cmd(
+                video_device, room_number, audio, rtmp_url=rtmp_url)).replace(
+                    rtmp_url, masked_rtmp),
             "pid": proc.pid if proc else None,
             "audio": audio,
         }

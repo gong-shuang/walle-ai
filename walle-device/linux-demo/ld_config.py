@@ -3,6 +3,7 @@
 """环境文件加载、配置常量、配置校验与运行期依赖检查。"""
 import logging
 import os
+import re
 import shutil
 import socket
 import sys
@@ -49,7 +50,20 @@ def _load_env_file(path):
                     continue
                 key, _, value = line.partition("=")
                 key = key.strip()
-                value = value.strip().strip('"').strip("'")
+                value = value.strip()
+                if value and value[0] in "\"'":
+                    # 引号内的内容原样保留（可含 #），只取到未转义的配对引号为止
+                    quote = value[0]
+                    end = -1
+                    for idx in range(1, len(value)):
+                        if value[idx] == quote and value[idx - 1] != "\\":
+                            end = idx
+                            break
+                    if end != -1:
+                        value = value[1:end].replace(f"\\{quote}", quote)
+                else:
+                    # 未加引号：仅当 # 前面有空白时视为行内注释
+                    value = re.split(r"\s+#", value, maxsplit=1)[0].strip()
                 if key and key not in os.environ:
                     os.environ[key] = value
         return True

@@ -4,6 +4,7 @@
 import logging
 import os
 import platform
+import ssl
 import threading
 import time
 
@@ -17,7 +18,7 @@ from ld_utils import *
 
 class MonitorStatusMixin:
     """状态采集、state/query、监控循环与进程生命周期。"""
-    # ---------- device/detail/result 状态采集 ----------
+    # ---------- state/query 状态采集 ----------
 
     def sample_once(self, interval=1.0):
         """做一次 interval 秒的实时采样，返回 (各核CPU%, 网络快照, 每网卡速率, 总rx, 总tx)"""
@@ -385,7 +386,6 @@ class MonitorStatusMixin:
         self.client.reconnect_delay_set(min_delay=3, max_delay=30)
         # TLS：生产环境强制开启，validate_config 已拒绝明文配置
         if MQTT_TLS == "on":
-            import ssl
             try:
                 if MQTT_CA_FILE:
                     ctx = ssl.create_default_context(cafile=MQTT_CA_FILE)

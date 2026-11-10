@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 9 | 13 |
-| **合计** | **55** | **36** | **19** |
+| P2 后续优化 | 22 | 10 | 12 |
+| **合计** | **55** | **37** | **18** |
 
-> linux-demo 已开始按本清单整改（当前 36/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 37/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -290,11 +290,10 @@
   - 验收：全部 `.py` 均 <500 行（最大 `ld_utils.py` 452 行）；`python3 -m unittest discover -s test -t .` 28 项通过；`--help` 输出与原 docstring 一致；`--check` 退出 0 且订阅仍为 7 条；Broker 不可达短跑无 traceback，能力后台探测与退出清理正常
   - 证据：`linux-demo/main.py`、`ld_config.py`、`ld_protocol.py`、`ld_utils.py`、`ld_camera.py`、`ld_audio.py`、`ld_media.py`、`ld_monitor_*.py`、`ld_monitor.py`
 
-- [ ] 🔴 **P2-2.2 清理重复实现与遗留注释**
-  - 现状：`_video_status()` 注释仍写 `state/result`，但段落标题是 `device/detail/result`；`import ssl` 在 `run()` 内局部导入；`build_rtmp_url()` 被重复调用并在多处拼接/脱敏；`_load_env_file()` 不处理行内注释
-  - 动作：统一术语与导入；缓存 URL 构造结果；解析配置时支持行内注释与转义
-  - 验收：`flake8` 通过；日志/注释术语一致；同一推流只构造一次 RTMP URL
-  - 证据：`main.py` L98-L120、L1253-L1262、L1868-L1874、L2006-L2013、L2428-L2458
+- [x] ✅ **P2-2.2 清理重复实现与遗留注释**
+  - 处理：状态采集段标题统一为 `state/query`；`import ssl` 移到 `ld_monitor_status` 顶部；新增 `build_ffmpeg_cmd(..., rtmp_url=)`，`_start_video_stream` 与 `handle_video_request` 每次推流只构造一次 RTMP URL 并复用（含 `rtmp_url`/`command`/日志脱敏）；`_load_env_file()` 支持行内注释（未加引号时 `#` 前需空白）与引号内 `\#`、`\"` 转义
+  - 验收：`build_ffmpeg_cmd` 传入地址时直接复用、不传时才构造；环境文件样例 `A=plain`、`B=value # c`、`C="quoted # kept"`、`F="esc \" quote"` 解析正确；`py_compile`、31 项测试与 `--check` 通过
+  - 证据：`ld_monitor_status.py`、`ld_monitor_video.py`、`ld_media.py`、`ld_config.py`；`test/test_config_parse.py`
 
 - [x] ✅ **P2-2.3 capability 按实际配置上报**
   - 处理：`remote_cmd` 已随 P0-1.1 删除；`rtmp_push` 改为仅在 `VIDEO_ENABLE`、ffmpeg 可用、`rtmp_url_ready()`（模板占位符与 `WHIP_SECRET` 就绪）同时满足时上报；不可用时在 `probe.video_error` 给出明确原因；音频能力继续按实际探测结果
@@ -461,6 +460,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：清理重复实现（P2-2.2）：统一 state 段术语、ssl 顶部导入、每次推流只构造
+  一次 RTMP URL；配置解析支持行内注释与引号转义，新增 3 项解析用例。
 - 2026-11-10：`main.py` 按职责拆分为 12 个模块（`ld_*`），主文件 180 行，全部 <500 行；
   可变全局统一放 `ld_config`，测试改为 patch 对应模块；28 项测试、`--check`、短跑通过（P2-2.1）。
 - 2026-11-10：协议自检并入 `test/test_protocol.py`（主题配对/命名/清洗与 Android 一致），
