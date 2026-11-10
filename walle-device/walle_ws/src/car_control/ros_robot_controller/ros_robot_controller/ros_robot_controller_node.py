@@ -25,7 +25,6 @@ class RosRobotController(Node):
     gravity = 9.80665
 
     def __init__(self, name):
-        rclpy.init()
         super().__init__(name)
         self.board = Board()
         self.board.enable_reception()
@@ -402,6 +401,7 @@ class RosRobotController(Node):
         return True
 
 def main():
+    rclpy.init()
     node = RosRobotController('ros_robot_controller')
 
     def handle_signal(signum, _frame):

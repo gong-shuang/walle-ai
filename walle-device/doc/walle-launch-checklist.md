@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 10 | 11 |
-| **合计** | **58** | **43** | **15** |
+| P2 后续优化 | 21 | 11 | 10 |
+| **合计** | **58** | **44** | **14** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -254,10 +254,10 @@
   - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`__init__` / `pub_callback` / `enable_reception`）
   - 验收：本地以 `object.__new__` 冒烟连续调用两次 `enable_reception()`（False→True）不抛 `TypeError`，Board 收到 `[False, True]`；订阅回调引用仍为方法本身
 
-- [ ] 🔴 **P2-2.5 移除节点构造函数内的 rclpy.init()**
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L26、`walle_ws/src/car_control/sonar_controller/sonar_controller/sonar_controller_node.py` L24
-  - 动作：只保留 main 中的 `rclpy.init`，构造函数不初始化上下文
-  - 验收：节点可被测试/组合复用，不出现重复初始化
+- [x] ✅ **P2-2.5 移除节点构造函数内的 rclpy.init()**
+  - 处理：`RosRobotController`（ros_robot_controller）与 `SonarController`（sonar_controller）的构造函数不再调用 `rclpy.init()`；两个 `main()` 在创建节点前各调用一次，节点可被测试或其他进程组合复用
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`main`）、`walle_ws/src/car_control/sonar_controller/sonar_controller/sonar_controller_node.py`（`main`）
+  - 验收：AST 检查两个文件均为「类内 `rclpy.init` 0 次、`main` 内 1 次」；`py_compile` 通过；`colcon build` 后单节点启动正常，单进程同时构造 controller + sonar 运行 3s 未出现 `Context.init() must only be called once`
 
 - [ ] 🔴 **P2-2.6 修复 PWM 舵机状态服务**
   - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L163-L176 返回 list 而非 response，服务签名也不符
@@ -427,12 +427,16 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-2.2 | 未提交 | 删除 net 侧旧 ffmpeg 推流实现与专用常量；新增“仅 video_webrtc_bridge 推流”回归测试；39 项 pytest 通过 | 待确认 |
 | 2026-11-10 | P2-2.3 | 未提交 | config.py 改为读 walle_ws/VERSION（env 优先）；新增版本解析与一致性单测；43 项 pytest 通过 | 待确认 |
 | 2026-11-10 | P2-2.4 | 未提交 | 上报开关改用 `_reception_enabled`，`enable_reception()` 保持方法；冒烟验证重复调用不抛 TypeError | 待确认 |
+| 2026-11-10 | P2-2.5 | 未提交 | 两个控制器节点移除构造函数内的 `rclpy.init()`，统一放到 main；colcon build 后单进程双节点组合验证通过 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-2.5 `ros_robot_controller` 与 `sonar_controller` 的构造函数不再
+  调用 `rclpy.init()`，改由各自 `main()` 在创建节点前初始化一次；`colcon build`
+  后单节点启动与单进程双节点组合均验证通过，无重复初始化。
 - 2026-11-10：P2-2.4 `ros_robot_controller` 的上报开关改用 `_reception_enabled`，
   避免 Bool 回调把 `enable_reception` 方法名覆盖成 bool；连续调用回调不再抛
   `TypeError`，Board 仍同步收到开关值。

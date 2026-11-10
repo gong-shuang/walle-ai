@@ -21,7 +21,6 @@ from ros_robot_controller_msgs.msg import RGBStates
 class SonarController(Node):
 
     def __init__(self, name):
-        rclpy.init()
         super().__init__(name)
         self.sonar = Sonar()
         self.running = True
@@ -77,6 +76,7 @@ class SonarController(Node):
 
 
 def main():
+    rclpy.init()
     node = SonarController('sonar_controller')
     try:
         rclpy.spin(node)
