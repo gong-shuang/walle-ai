@@ -24,7 +24,7 @@ fi
 
 # 已加载其它环境则终止，避免两个工作空间的同名包互相覆盖
 if [[ -n "${TURBOPI_ENV_LOADED:-}" ]]; then
-    echo -e "\033[31m[错误] 当前终端已加载 TurboPi 环境(ros2_ws)，不能混用 Walle 环境(walle_ws)。\033[0m" >&2
+    echo -e "\033[31m[错误] 当前终端已加载 TurboPi 环境，不能混用 Walle 环境(walle-device/ros2_ws)。\033[0m" >&2
     echo -e "\033[31m       请新开一个干净终端后再 source env_walle.sh。\033[0m" >&2
     return 1
 fi
@@ -38,9 +38,9 @@ fi
 
 export WALLE_ENV_LOADED=1
 
-# 版本号唯一来源：ROS2 工作空间 walle_ws/VERSION
+# 版本号唯一来源：ROS2 工作空间 ros2_ws/VERSION
 # （WALLE_VERSION_NUM / WALLE_VERSION_NAME / WALLE_VERSION_DATE）
-source "$walle_home/walle_ws/VERSION"
+source "$walle_home/ros2_ws/VERSION"
 export VERSION="|V${WALLE_VERSION_NAME}|${WALLE_VERSION_DATE}|"
 
 # 注释下面，就是生产环境
@@ -73,7 +73,7 @@ if [[ ! -f "$venv_path/bin/activate" ]]; then
 fi
 source "$venv_path/bin/activate"
 source /opt/ros/jazzy/setup.bash
-source "$walle_home/walle_ws/install/setup.bash"
+source "$walle_home/ros2_ws/install/setup.bash"
 # source "$current_dir/third_party_ros2/third_party_ws/install/setup.bash"
 
 # ROS 节点入口脚本 shebang 固定为 /usr/bin/python3，仅 activate venv 节点看不到其中的包，
@@ -83,7 +83,7 @@ export PYTHONPATH="$PYTHONPATH:$venv_site"
 
 # colcon_cd：在任意目录下用 colcon_cd <包名> 直达对应源码目录
 if [ -f /usr/share/colcon_cd/function/colcon_cd.sh ]; then
-    export _colcon_cd_root="$walle_home/walle_ws"
+    export _colcon_cd_root="$walle_home/ros2_ws"
     source /usr/share/colcon_cd/function/colcon_cd.sh
 fi
 
@@ -104,7 +104,7 @@ echo -e "ROS2:    \033[32m${ros_distro^}\033[0m"
 echo -e "ROS_DOMAIN_ID: \033[32m$ROS_DOMAIN_ID\033[0m"
 echo -e "ROS_DISCOVERY: \033[32m$ROS_AUTOMATIC_DISCOVERY_RANGE\033[0m"
 echo -e "ASR_LANGUAGE: \033[32m$ASR_LANGUAGE\033[0m"
-echo -e "WORKSPACE: \033[32m$walle_home/walle_ws\033[0m"
+echo -e "WORKSPACE: \033[32m$walle_home/ros2_ws\033[0m"
 echo -e "VENV:    \033[32m$venv_path\033[0m"
 echo -e "VERSION: \033[32m$VERSION\033[0m"
 echo -e "\033[32m----------------------------------------------\033[0m"

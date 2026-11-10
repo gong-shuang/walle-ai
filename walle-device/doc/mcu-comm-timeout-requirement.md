@@ -23,7 +23,7 @@
 - `CRC8` 覆盖 `FUNC` 到 `DATA` 的全部字节
 
 上位机实现参考：
-`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_sdk.py`
+`ros2_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_sdk.py`
 
 ---
 

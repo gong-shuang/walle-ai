@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 SDK_ROOT = (Path(__file__).resolve().parents[1]
-            / 'walle_ws/src/car_control/ros_robot_controller')
+            / 'ros2_ws/src/car_control/ros_robot_controller')
 sys.path.insert(0, str(SDK_ROOT))
 
 from ros_robot_controller.ros_robot_controller_sdk import Board  # noqa: E402

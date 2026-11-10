@@ -12,12 +12,12 @@
 
 ### 结构设计
 
-- `walle_ws/src/car_control`：底盘、STM32 控制器、声呐
-- `walle_ws/src/video`：摄像头与 WebRTC 推流
-- `walle_ws/src/net`：MQTT 桥、rosbridge
-- `walle_ws/src/audio`、`walle_ws/src/ai`：语音交互与大模型
-- `walle_ws/src/protocol`：自定义 ROS 消息与服务
-- `walle_ws/src/bringup`：统一启动、启动自检、版本横幅
+- `ros2_ws/src/car_control`：底盘、STM32 控制器、声呐
+- `ros2_ws/src/video`：摄像头与 WebRTC 推流
+- `ros2_ws/src/net`：MQTT 桥、rosbridge
+- `ros2_ws/src/audio`、`ros2_ws/src/ai`：语音交互与大模型
+- `ros2_ws/src/protocol`：自定义 ROS 消息与服务
+- `ros2_ws/src/bringup`：统一启动、启动自检、版本横幅
 - `scripts`：`deploy.sh`、`start.sh`、`env_walle.sh` 与配置/服务模板
 - `doc`：部署文档、依赖清单与上线检查清单
 
@@ -127,7 +127,7 @@ ros2 run demo_nodes_py listener
 # 关键：--system-site-packages 让 venv 继承 ROS 2 的系统包
 python3 -m venv ~/venv --system-site-packages
 
-# 阻止 colcon 扫描 venv 目录（venv 不在 walle_ws 内时可省略）
+# 阻止 colcon 扫描 venv 目录（venv 不在 ros2_ws 内时可省略）
 touch ~/venv/COLCON_IGNORE
 
 # 激活 venv 环境
@@ -147,7 +147,7 @@ pip install -r ~/walle-device/doc/requirements.txt
 ### 编译工作空间
 
 ```bash
-cd ~/walle-device/walle_ws
+cd ~/walle-device/ros2_ws
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 ```
@@ -155,7 +155,7 @@ colcon build --symlink-install
 ### 安装 udev 规则（底盘串口）
 
 ```bash
-cd ~/walle-device/walle_ws/src/car_control/ros_robot_controller/scripts
+cd ~/walle-device/ros2_ws/src/car_control/ros_robot_controller/scripts
 sudo ./create_udev_rules.sh
 ```
 
