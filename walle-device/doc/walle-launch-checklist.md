@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 18 | 3 |
-| **合计** | **58** | **51** | **7** |
+| P2 后续优化 | 21 | 19 | 2 |
+| **合计** | **58** | **52** | **6** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -302,10 +302,10 @@
   - 证据：`walle_ws/src/video/walle_video/config/usb_cam_param.yaml`（已知告警说明）、`walle_ws/src/video/walle_video/launch/usb_cam.launch.py`（`v4l2-ctl` 预设置）
   - 验收：`/image_raw` 正常 30 FPS；`white_balance_automatic=1`、`auto_exposure=3` 已由 v4l2-ctl 设置；启动日志仍有 3 条 usb_cam 0.8.1 的 `unknown control` 告警，属上游已知问题、非致命，已在本项与配置文件中明确记录
 
-- [ ] 🔴 **P2-4.2 多 video 节点环境固定设备**
-  - 证据：本机存在 `/dev/video0`–`/dev/video33`
-  - 动作：按 by-id/udev 固定；启动前校验设备能力（分辨率/格式）
-  - 验收：不会误开 ISP/编解码节点
+- [x] ✅ **P2-4.2 多 video 节点环境固定设备**
+  - 处理：`99-walle-camera.rules` 已按 `idVendor=0bc8` / `idProduct=5880` + `index=0` 固定 `/dev/walle-camera`；`usb_cam.launch.py` 增加启动前 `_preflight()`：校验设备存在、sysfs 路径含 `usb`（排除 `pispbe` ISP / `rpivid` 解码节点）、`v4l2-ctl` 支持 `MJPG` 与 `640x480`，失败时跳过启动并打印原因
+  - 证据：`walle_ws/src/car_control/ros_robot_controller/scripts/99-walle-camera.rules`、`walle_ws/src/video/walle_video/launch/usb_cam.launch.py`（`_is_usb_camera` / `_preflight`）
+  - 验收：`_preflight('/dev/walle-camera')` 返回 True；`/dev/video19`（rpivid）与 `/dev/video20`（pispbe）均返回 False；启动后 `/image_raw` 约 28–30 FPS，无前置检查失败日志
 
 - [ ] 🔴 **P2-4.3 修复测试页缺失服务**
   - 证据：`web/car_ctl_by_bridge.html`（仓库根目录）L323 调用 `/avoidance_node/enter`，当前代码库无此服务
@@ -436,12 +436,16 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-3.3 | 未提交 | 声呐记录时间戳，0.4s 断流/无效值即停车并终止动作；mock 冒烟验证 | 待确认 |
 | 2026-11-10 | P2-3.4 | 未提交 | 核查生产 launch：仅 vocal_detect/agent_process/tts_node；实验驾驶节点均为独立 launch，未被 bringup 引用 | 待确认 |
 | 2026-11-10 | P2-4.1 | 未提交 | usb_cam 0.8.1 旧控制名告警记录为已知问题；launch 中用 v4l2-ctl 按新名称设置自动模式；实测 30FPS | 待确认 |
+| 2026-11-10 | P2-4.2 | 未提交 | udev 已按 USB VID/PID 固定设备；launch 增加 USB/格式/分辨率前置校验，实测不会误开 ISP/解码节点 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-4.2 摄像头设备由 `99-walle-camera.rules`（USB VID/PID + index=0）
+  固定为 `/dev/walle-camera`；`usb_cam.launch.py` 启动前校验目标必须是 USB video
+  节点且支持 MJPG 640x480，失败则跳过启动，避免误开 `pispbe`/`rpivid` 节点。
 - 2026-11-10：P2-4.1 usb_cam 0.8.1 的控制名仍为 `white_balance_temperature_auto` /
   `exposure_auto` / `focus_auto`，与 kernel 6.8 的 UVC 新名称不匹配；参数无法跳过，
   仓库内也无更新版本。按本项兜底方式记录为已知告警，并在 `usb_cam.launch.py`
