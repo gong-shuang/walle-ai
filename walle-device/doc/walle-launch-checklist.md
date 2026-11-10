@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 15 | 6 |
-| **合计** | **58** | **48** | **10** |
+| P2 后续优化 | 21 | 16 | 5 |
+| **合计** | **58** | **49** | **9** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -285,10 +285,10 @@
   - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py`（`_begin_timed_action` / `_tick_timed_action` / `_advance_action` / `process`）
   - 验收：mock 冒烟 `_begin_timed_action` 0.3ms 返回（不再阻塞 0.6s），deadline 正确设置；`_tick_timed_action` 能重发速度并到点推进到下一动作；源码中已无 `execute_action_for_one_second`
 
-- [ ] 🔴 **P2-3.3 声呐超时保护**
-  - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py` L116-L117 只保存最后一次距离，断流后可能继续前进
-  - 动作：记录时间戳，超时即停车并上报
-  - 验收：断开声呐后 0.5s 内停车
+- [x] ✅ **P2-3.3 声呐超时保护**
+  - 处理：`distance_callback` 记录 `distance_ts`；新增 `SONAR_TIMEOUT_SEC = 0.4` 与 `_distance_stale()`，`move_forward` 执行前检查断流或 `-1` 无效值，命中后 `_handle_sonar_timeout()` 立即停车、清空当前动作并只告警一次（数据恢复后重置告警标志）
+  - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py`（`SONAR_TIMEOUT_SEC` / `distance_callback` / `_distance_stale` / `_handle_sonar_timeout` / `process`）
+  - 验收：mock 冒烟模拟断流后 `process()` 最后一帧 `cmd_vel.linear.x == 0`、动作被清空、日志出现「声呐数据超过 0.4s 未更新」；0.4s 超时 + 0.05s 轮询可保证 0.5s 内停车
 
 - [ ] 🔴 **P2-3.4 从生产 launch 移除或加开关**
   - 动作：`walle_ws/src/ai/large_models/launch/start.launch.py` 不默认启动实验性 AI 节点；或加 `enable_ai` 参数默认 false
@@ -432,12 +432,15 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-2.7 | 未提交 | IMU `orientation_covariance[0] = -1`（REP-145）；mock 冒烟通过；本版本无 IMU，保留兼容代码 | 待确认 |
 | 2026-11-10 | P2-3.1 | 未提交 | `process()` 增加 0.05s 固定周期休眠，消除忙等；mock 冒烟验证每轮 sleep | 待确认 |
 | 2026-11-10 | P2-3.2 | 未提交 | 定时动作改为非阻塞状态机，删除 0.6s 阻塞 sleep；mock 冒烟验证立即返回与到点推进 | 待确认 |
+| 2026-11-10 | P2-3.3 | 未提交 | 声呐记录时间戳，0.4s 断流/无效值即停车并终止动作；mock 冒烟验证 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-3.3 声呐回调记录时间戳；`move_forward` 前检查 0.4s 断流或 `-1`
+  无效值，命中即停车、清空当前动作并告警一次，0.4s + 0.05s 轮询保证 0.5s 内停车。
 - 2026-11-10：P2-3.2 `vllm_obstacle_avoidance` 的 0.6s 定时动作改为非阻塞状态机，
   `process()` 每 50ms 推进、10Hz 重发速度，动作期间线程不再被 `sleep` 占住；
   `/agent_process/result` 等 ROS 回调不受影响。

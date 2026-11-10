@@ -96,6 +96,9 @@ class VLLMTrack(Node):
     # 定时动作（转向/平移等）持续时间与重发周期
     ACTION_DURATION_SEC = 0.6
     ACTION_REPUBLISH_SEC = 0.1
+    # 声呐断流判定：超过该时间没有新数据就视为失效并停车（P2-3.3）
+    # 取 0.4s，叠加 0.05s 轮询周期后仍能在 0.5s 内停车
+    SONAR_TIMEOUT_SEC = 0.4
 
     def __init__(self, name):
         rclpy.init()
@@ -120,6 +123,8 @@ class VLLMTrack(Node):
         self.set_prompt_client.wait_for_service()
 
         self.distance = 0
+        self.distance_ts = None          # 最近一次有效声呐数据的时间（monotonic）
+        self._sonar_timeout_reported = False
         self.distance_subscription = self.create_subscription(Int32,'sonar_controller/get_distance',self.distance_callback,1)
 
         self.timer = self.create_timer(0.0, self.init_process, callback_group=timer_cb_group)
@@ -271,6 +276,10 @@ class VLLMTrack(Node):
                 continue
 
             if current_action == "move_forward()":
+                # 声呐无效/断流：立即停车并终止当前动作序列（P2-3.3）
+                if self.distance < 0 or self._distance_stale():
+                    self._handle_sonar_timeout()
+                    continue
                 if not self.is_moving_forward:
                     self.start_moving_forward()
                     self.is_moving_forward = True
@@ -317,6 +326,26 @@ class VLLMTrack(Node):
         if self.action_index >= len(self.actions):
             self.all_actions_completed = True
             self.all_actions_completed_callback()
+
+    def _distance_stale(self):
+        """声呐数据是否已超时（从未收到数据也视为失效）。"""
+        if self.distance_ts is None:
+            return True
+        return (time.monotonic() - self.distance_ts) > self.SONAR_TIMEOUT_SEC
+
+    def _handle_sonar_timeout(self):
+        """声呐断流/无效：停车、清空当前动作，只上报一次告警。"""
+        self.stop_motion()
+        self.actions = []
+        self.distances = []
+        self.vllm_result = ''
+        self.action_index = 0
+        self.is_moving_forward = False
+        if not self._sonar_timeout_reported:
+            self._sonar_timeout_reported = True
+            self.get_logger().warn(
+                f"声呐数据超过 {self.SONAR_TIMEOUT_SEC}s 未更新或无效"
+                f"（当前 {self.distance}），已停车并终止当前动作")
 
     def all_actions_completed_callback(self):
         """所有动作完成后执行的回调函数."""
@@ -407,6 +436,9 @@ class VLLMTrack(Node):
 
     def distance_callback(self, msg):
         self.distance = msg.data
+        self.distance_ts = time.monotonic()
+        if msg.data >= 0:
+            self._sonar_timeout_reported = False
         # self.get_logger().info(f"当前距离: {self.distance} mm")
 
 def main():
