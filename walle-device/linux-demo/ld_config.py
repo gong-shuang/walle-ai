@@ -336,10 +336,10 @@ VIDEO_LOG_KEEP_FILES = int(os.environ.get("VIDEO_LOG_KEEP_FILES", "10"))
 VIDEO_LOG_MAX_TOTAL_MB = int(os.environ.get("VIDEO_LOG_MAX_TOTAL_MB", "100"))
 # 推流最长时长（秒）；到期自动停止并告警，0 = 不限制（App 崩溃/断网时避免一直占用摄像头）
 VIDEO_MAX_DURATION_SEC = int(os.environ.get("VIDEO_MAX_DURATION_SEC", "1800"))
-VIDEO_VIDEO_SIZE = "640x480"             # 采集分辨率
-VIDEO_FRAMERATE = 30                     # 采集帧率
-VIDEO_BITRATE = "1000k"                  # 视频码率
-VIDEO_GOP = 60                           # 关键帧间隔
+VIDEO_VIDEO_SIZE = os.environ.get("VIDEO_VIDEO_SIZE", "640x480").strip()  # 采集分辨率
+VIDEO_FRAMERATE = int(os.environ.get("VIDEO_FRAMERATE", "30"))           # 采集帧率
+VIDEO_BITRATE = os.environ.get("VIDEO_BITRATE", "1000k")                 # 视频码率
+VIDEO_GOP = int(os.environ.get("VIDEO_GOP", "60"))                       # 关键帧间隔
 VIDEO_STARTUP_GRACE = 3.0                # 启动宽限：ffmpeg 活过这段时间即视为推流成功（秒）
 VIDEO_ROOM_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"  # 房间号白名单，防注入/防拼错
 

@@ -81,8 +81,11 @@ def _video_sysfs_device(device):
     return Path("/sys/class/video4linux") / node / "device"
 
 
-def camera_preflight(device):
-    """推流前校验摄像头节点：USB 采集设备且支持配置的分辨率。返回 (ok, reason)。"""
+def camera_preflight(device, size=None):
+    """推流前校验摄像头节点（USB 采集节点）；size 非空时同时校验分辨率。
+
+    返回 (ok, reason)；size=None 时只校验节点，分辨率由 pick_video_size() 选择。
+    """
     real = os.path.realpath(device)
     if CAMERA_DEVICE and os.path.realpath(CAMERA_DEVICE) != real:
         return False, f"只允许使用 CAMERA_DEVICE={CAMERA_DEVICE}"
@@ -94,19 +97,61 @@ def camera_preflight(device):
         return False, "无法解析摄像头 sysfs 路径"
     if "usb" not in sysfs.lower():
         return False, "不是 USB 摄像头节点（可能是 ISP/解码/元数据节点）"
+    if size is None:
+        return True, None
+    sizes, error = camera_sizes(real)
+    if error:
+        return False, error
+    if size not in sizes:
+        return False, f"摄像头不支持 {size}（可用: {', '.join(sizes) or '未知'}）"
+    return True, None
+
+
+def camera_sizes(device):
+    """返回 (["640x480", ...], error)；按 v4l2-ctl 输出顺序去重。"""
+    real = os.path.realpath(device)
     try:
         proc = _v4l2(["-d", real, "--list-formats-ext"])
     except FileNotFoundError:
-        return False, "未安装 v4l2-ctl（sudo apt install -y v4l-utils）"
+        return [], "未安装 v4l2-ctl（sudo apt install -y v4l-utils）"
     except subprocess.TimeoutExpired:
-        return False, "v4l2-ctl 探测超时"
+        return [], "v4l2-ctl 探测超时"
     except Exception as exc:  # noqa: BLE001
-        return False, f"v4l2-ctl 探测失败: {exc}"
+        return [], f"v4l2-ctl 探测失败: {exc}"
     if proc.returncode != 0:
-        return False, f"v4l2-ctl 返回 {proc.returncode}"
-    if f"Size: Discrete {VIDEO_VIDEO_SIZE}" not in (proc.stdout or ""):
-        return False, f"摄像头不支持 {VIDEO_VIDEO_SIZE}"
-    return True, None
+        return [], f"v4l2-ctl 返回 {proc.returncode}"
+    sizes = []
+    for width, height in re.findall(r"Size: Discrete (\d+)x(\d+)", proc.stdout or ""):
+        key = f"{width}x{height}"
+        if key not in sizes:
+            sizes.append(key)
+    return sizes, None
+
+
+def pick_video_size(device, preferred=None):
+    """选择推流分辨率：优先 preferred，其次不超过它的最大可用值，最后取最小。
+
+    返回 (size, note)：size 为 None 表示探测失败；note 非空表示发生了降级/回退。
+    """
+    preferred = preferred or VIDEO_VIDEO_SIZE
+    sizes, error = camera_sizes(device)
+    if error:
+        return None, error
+    if not sizes:
+        return None, "摄像头未报告任何可用分辨率"
+    if preferred in sizes:
+        return preferred, None
+
+    def area(res):
+        width, height = res.split("x")
+        return int(width) * int(height)
+
+    usable = sorted(sizes, key=area)
+    preferred_area = area(preferred)
+    candidates = [s for s in usable if area(s) <= preferred_area]
+    chosen = candidates[-1] if candidates else usable[0]
+    return chosen, (f"摄像头不支持 {preferred}，已自动改用 {chosen}"
+                    f"（可用: {', '.join(sizes)}）")
 
 
 def list_cameras():

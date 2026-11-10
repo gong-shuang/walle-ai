@@ -17,7 +17,8 @@ import time
 from ld_config import *
 from ld_utils import *
 
-def build_ffmpeg_cmd(video_device, room_number, audio=None, rtmp_url=None):
+def build_ffmpeg_cmd(video_device, room_number, audio=None, rtmp_url=None,
+                     video_size=None, framerate=None):
     """
     按收到的请求动态拼 ffmpeg 参数（视频设备、房间号都不写死）。
     用参数列表而不是 shell 字符串，避免命令注入。
@@ -25,15 +26,18 @@ def build_ffmpeg_cmd(video_device, room_number, audio=None, rtmp_url=None):
     audio: detect_microphone() 的返回值；available=True 时追加 PulseAudio 默认
     录音源（-f pulse -i default）并编码为 AAC，否则保持 -an 纯视频。
     rtmp_url: 已构造好的推流地址；不传则按 room_number 现构造。
+    video_size / framerate: 本次推流参数；不传则用配置默认值。
     """
+    size = video_size or VIDEO_VIDEO_SIZE
+    fps = framerate or VIDEO_FRAMERATE
     cmd = [
         VIDEO_FFMPEG_BIN,
         # 不加 -hide_banner：日志里保留 ffmpeg 版本/编译选项/流信息，便于排查
         "-loglevel", VIDEO_LOG_LEVEL,
         "-f", "v4l2",
         "-thread_queue_size", "8192",
-        "-video_size", VIDEO_VIDEO_SIZE,
-        "-framerate", str(VIDEO_FRAMERATE),
+        "-video_size", size,
+        "-framerate", str(fps),
         "-i", video_device,
     ]
 

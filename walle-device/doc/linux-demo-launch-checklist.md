@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 11 | 11 |
-| **合计** | **55** | **38** | **17** |
+| P2 后续优化 | 22 | 12 | 10 |
+| **合计** | **55** | **39** | **16** |
 
-> linux-demo 已开始按本清单整改（当前 38/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 39/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -312,11 +312,10 @@
 
 ### P2-3 兼容性与功能
 
-- [ ] 🔴 **P2-3.1 推流参数与设备 preflight**
-  - 现状：`VIDEO_VIDEO_SIZE` 固定 `640x480`、30fps、`libx264`；不检查摄像头是否支持该分辨率/格式，失败只能等 ffmpeg 退出
-  - 动作：推流前用 `v4l2-ctl` 校验格式/分辨率；不支持时自动降级或返回可用组合；参数支持环境变量覆盖
-  - 验收：不支持 640x480 的摄像头返回明确原因或自动选择支持的分辨率；正常摄像头推流成功
-  - 证据：`main.py` L393-L399、L1192-L1257
+- [x] ✅ **P2-3.1 推流参数与设备 preflight**
+  - 处理：`VIDEO_VIDEO_SIZE` / `VIDEO_FRAMERATE` / `VIDEO_BITRATE` / `VIDEO_GOP` 改为环境变量可覆盖；`camera_preflight()` 只校验 USB 采集节点，新增 `camera_sizes()` 与 `pick_video_size()`：优先配置分辨率，不支持时自动选择不超过它的最大可用分辨率（否则最小），并返回降级说明；`build_ffmpeg_cmd()` / `_start_video_stream()` 支持传入本次分辨率；`video/start/result` 增加 `video_size` / `framerate`
+  - 验收：新增 `test/test_video_size.py` 6 项（解析、优先命中、向下/向上回退、探测失败、ffmpeg 参数）；全套 40 项通过；真实摄像头降级与推流成功待实机验证
+  - 证据：`ld_camera.py`、`ld_media.py`、`ld_monitor_video.py`、`ld_config.py`；`test/test_video_size.py`；`walle-ai.conf.example`
 
 - [ ] 🔴 **P2-3.2 推流编码器与参数可配置**
   - 现状：`libx264` / `ultrafast` / `zerolatency` / 码率 / GOP 均硬编码；无法按设备性能调整
@@ -460,6 +459,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：推流分辨率按摄像头能力自动降级，`VIDEO_VIDEO_SIZE`/帧率/码率/GOP 可配置；
+  推流结果新增 `video_size`/`framerate`，新增 6 项分辨率用例（P2-3.1）。
 - 2026-11-10：`--check` 增加 Python 包与协议配对检查，并支持 `--check --connect`
   做 DNS/TCP/TLS/CONNACK 验证（不订阅/不发布），新增 3 项自检用例（P2-2.4）。
 - 2026-11-10：清理重复实现（P2-2.2）：统一 state 段术语、ssl 顶部导入、每次推流只构造
