@@ -8,6 +8,7 @@ import time
 import pytest
 
 import net_mqtt_bridge.agent as agent
+import net_mqtt_bridge.config as config
 from net_mqtt_bridge.agent import RpiMonitor
 
 FIXED_UUID = "0f8fad5b-d9cb-469f-a165-70867728950e"
@@ -57,7 +58,7 @@ def _capability_payload(camera_count=1):
 
 @pytest.fixture
 def fixed_uuid(monkeypatch):
-    monkeypatch.setattr(agent, "DEVICE_UUID", FIXED_UUID)
+    monkeypatch.setattr(config, "DEVICE_UUID", FIXED_UUID)
     return FIXED_UUID
 
 
@@ -65,7 +66,7 @@ def test_capability_query_serves_cache_without_probing(fixed_uuid, monkeypatch):
     monitor = _bare_monitor()
     monitor.capability_result = _capability_payload(camera_count=2)
     monitor.capability_at = time.monotonic()
-    monkeypatch.setattr(agent, "CAPABILITY_CACHE_ONLY", False)
+    monkeypatch.setattr(config, "CAPABILITY_CACHE_ONLY", False)
     called = []
 
     def _build():
@@ -93,8 +94,8 @@ def test_capability_query_serves_cache_without_probing(fixed_uuid, monkeypatch):
 
 def test_capability_cache_only_returns_pending(fixed_uuid, monkeypatch):
     monitor = _bare_monitor()
-    monkeypatch.setattr(agent, "CAPABILITY_CACHE_ONLY", True)
-    monkeypatch.setattr(agent, "CAPABILITY_FIRST_WAIT", 5.0)
+    monkeypatch.setattr(config, "CAPABILITY_CACHE_ONLY", True)
+    monkeypatch.setattr(config, "CAPABILITY_FIRST_WAIT", 5.0)
     published = []
     monitor.publish_json = lambda resource, data, retain=False: published.append(
         (resource, data))
@@ -112,8 +113,8 @@ def test_capability_cache_only_returns_pending(fixed_uuid, monkeypatch):
 
 def test_first_query_waits_for_background_probe(fixed_uuid, monkeypatch):
     monitor = _bare_monitor()
-    monkeypatch.setattr(agent, "CAPABILITY_CACHE_ONLY", False)
-    monkeypatch.setattr(agent, "CAPABILITY_FIRST_WAIT", 2.0)
+    monkeypatch.setattr(config, "CAPABILITY_CACHE_ONLY", False)
+    monkeypatch.setattr(config, "CAPABILITY_FIRST_WAIT", 2.0)
     published = []
     monitor.publish_json = lambda resource, data, retain=False: published.append(
         (resource, data))

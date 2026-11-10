@@ -12,8 +12,8 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 18 | 15 | 3 |
 | P1 上线前应修 | 19 | 18 | 1 |
-| P2 后续优化 | 21 | 6 | 15 |
-| **合计** | **58** | **39** | **19** |
+| P2 后续优化 | 21 | 7 | 14 |
+| **合计** | **58** | **40** | **18** |
 
 > 每次勾选后请同步更新本表数字。
 
@@ -191,7 +191,7 @@
 ### P1-5 测试与 CI
 
 - [x] ✅ **P1-5.1 远程命令移除回归测试**
-  - 处理：新增 `test/test_remote_cmd_removed.py`，断言 `subscriptions()` 不含 `cmd/exec`、`REQUEST_HANDLERS` 不含 `handle_cmd_exec`，且 `agent.py` 源码不含 `remote_cmd` / `cmd/exec` / `handle_cmd_exec`
+  - 处理：新增 `test/test_remote_cmd_removed.py`，断言 `subscriptions()` 不含 `cmd/exec`、`REQUEST_HANDLERS` 不含 `handle_cmd_exec`，且 `net_mqtt_bridge` 包内源码不含 `remote_cmd` / `cmd/exec` / `handle_cmd_exec`
   - 验收：本地 `pytest` 3 项通过；CI（P1-5.4）接入后任何重新引入都会失败
 
 - [x] ✅ **P1-5.2 运动学与协议单测**
@@ -214,12 +214,12 @@
 
 - [x] ✅ **P2-1.1 state/query 使用缓存快照**
   - 处理：`monitor_loop` 每轮采样后写入 `status_sample`（各核 CPU、各网卡速率、采样间隔与时刻），USB 列表复用 `check_usb` 维护的 `usb_state`，`build_status()` 直接复用；连接 broker 前先补采一次，监控首轮采样提前到 1s（`STATUS_PRIME_INTERVAL`）；仅首份快照未建立时现场补采 0.2s 兜底。应答新增顶层 `sample_age_sec`
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py`（`_status_sample` / `_update_status_sample` / `build_status` / `monitor_loop`）
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/monitor.py`（`_status_sample` / `_update_status_sample` / `build_status` / `monitor_loop`）
   - 验收：`test/test_status_cache.py` 断言 `handle_query_status` 全程 < 100ms 且命中缓存时不调用 `sample_once`
 
 - [x] ✅ **P2-1.2 capability 探测异步/按需**
   - 处理：新增后台线程 `_capability_loop`，启动即探测并按 `CAPABILITY_CACHE_TTL`（默认 120s）刷新；`handle_capability_query` 只读缓存，首次查询最多等待 `CAPABILITY_FIRST_WAIT`（默认 3s），超时或 `CAPABILITY_CACHE_ONLY=True` 时立即返回 `probe.pending` 占位；探测失败保留旧缓存。应答新增 `cache {source, age_sec, ttl_sec}`
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py`（`refresh_capability` / `capability_snapshot` / `_capability_loop` / `handle_capability_query`）
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/capability.py`（`refresh_capability` / `capability_snapshot` / `_capability_loop` / `handle_capability_query`）
   - 验收：`test/test_capability_cache.py` 覆盖只读缓存、cache-only 立即返回 pending、后台探测写入缓存、探测失败保留旧缓存；请求线程不再执行 v4l2/pactl
 
 - [x] ✅ **P2-1.3 视频硬件编码**
@@ -229,23 +229,23 @@
 
 - [x] ✅ **P2-1.4 MQTT 消息处理与监控解耦**
   - 处理：请求按「查询（state/capability/discovery）/动作（video、phone audio）」分两个线程池，慢动作不再占用查询线程；每池用 `BoundedSemaphore` 限制「执行中 + 排队」总量（默认查询 2+16、动作 2+8），洪峰时丢弃并每 5s 汇总告警；监控采样仍在独立线程 `monitor_loop`，与请求池完全解耦
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py`（`ACTION_REQUESTS` / `query_pool` / `action_pool` / `_submit` / `_note_dropped`）
+  - 证据：`config.py`（`ACTION_REQUESTS` / 并发与队列上限）、`agent.py`（`query_pool` / `action_pool`）、`protocol.py`（`_submit` / `_note_dropped`）
   - 验收：`test/test_request_queue.py` 验证队列超限丢弃、动作池占满时查询仍可执行、请求洪峰下采样快照持续更新；可用 `MQTT_*_WORKERS` / `MQTT_MAX_*_BACKLOG` 调整
 
 ### P2-2 代码质量
 
-- [ ] 🔴 **P2-2.1 拆分 agent.py**
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py` 2687 行，混合设备发现、系统监控、推流、音频、协议处理
-  - 动作：按职责拆为 config、identity、monitor、protocol、media 模块
-  - 验收：单文件 < 500 行，模块可独立测试
+- [x] ✅ **P2-2.1 拆分 agent.py**
+  - 处理：按职责拆为 `config` / `identity` / `monitor` / `protocol` / `capability` / `media` / `audio` / `video` / `phone_audio` 九个模块；`agent.py` 只保留 `RpiMonitor` 组合、启动流程、`--check` 与公共名 re-export（`__getattr__` 兼容 `DEVICE_ID` 等运行期配置读取）。最大文件 `monitor.py` 408 行，原 2935 行的 `agent.py` 降至 321 行
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/` 下 `config.py`（环境/主题）、`identity.py`（身份/格式化）、`monitor.py`（采样与 state 快照）、`protocol.py`（MQTT 回调/查询）、`capability.py`（能力缓存）、`media.py`（摄像头/ffmpeg/日志）、`audio.py`（音频探测）、`video.py`、`phone_audio.py`
+  - 验收：`test/test_modules.py` 逐一导入各模块并断言所有 `.py` < 500 行；`net_mqtt_bridge` 36 项 pytest 通过；`node.py` 仅改为从 `config` 读写 `DEVICE_ID_FILE`/`DEVICE_ID`，其余接口不变
 
 - [ ] 🔴 **P2-2.2 删除被 node 覆盖的旧视频实现**
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/node.py` L113-L116 覆盖 `handle_video_request` 等方法，`agent.py` 内仍保留整套 ffmpeg 代码
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/node.py` L113-L116 覆盖 `handle_video_request` 等方法，`video.py` 内仍保留整套 ffmpeg 代码
   - 动作：删除死代码，避免两套逻辑分叉
   - 验收：全仓库只有一套推流实现
 
 - [ ] 🔴 **P2-2.3 版本号单一来源**
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/agent.py` L221-L222 的 `VERSION_CODE/VERSION_NAME` 与 `scripts/env_walle.sh` 的 `VERSION`
+  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/config.py` 的 `VERSION_CODE` / `VERSION_NAME` 与 `scripts/env_walle.sh` 的 `VERSION`
   - 动作：统一由构建注入或读取同一个文件
   - 验收：发版只改一处
 
@@ -423,12 +423,18 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-1.2 | 未提交 | 后台能力缓存 + TTL + cache-only；单测覆盖只读缓存/首次等待/pending/探测失败保留旧缓存 | 待确认 |
 | 2026-11-10 | P2-1.3 | 未提交 | Pi 5 实测无 V4L2 M2M 编码器（h264/hevc_v4l2m2m 均报无设备）；实现 auto 探测与 libx264 回退，新增编码器选择/命令构造单测 | 待确认 |
 | 2026-11-10 | P2-1.4 | 未提交 | 查询/动作分池 + 有界队列 + 丢弃告警；新增队列限流、动作不阻塞查询、洪峰下采样不中断单测 | 待确认 |
+| 2026-11-10 | P2-2.1 | 未提交 | agent.py 拆为 9 个职责模块；新增模块导入与 <500 行约束测试；36 项 pytest 通过 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：P2-2.1 `agent.py` 按职责拆为 `config` / `identity` / `monitor` /
+  `protocol` / `capability` / `media` / `audio` / `video` / `phone_audio`；
+  `agent.py` 保留 `RpiMonitor` 组合、启动流程、`--check` 与公共名 re-export，
+  `node.py` 改为从 `config` 读写 `DEVICE_ID_FILE` / `DEVICE_ID`。各文件均 < 500 行，
+  新增 `test/test_modules.py` 固化模块导入与文件大小约束。
 - 2026-11-10：P2-1.3 评估结论——Raspberry Pi 5（kernel 6.8）没有 V4L2 M2M 编码器：
   `/sys/class/video4linux` 只有 `pispbe-*`（ISP）与 `rpivid`（解码），
   `ffmpeg -c:v h264_v4l2m2m` / `hevc_v4l2m2m` 试编码均报

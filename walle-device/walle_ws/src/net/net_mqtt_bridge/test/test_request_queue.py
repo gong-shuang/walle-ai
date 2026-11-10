@@ -6,6 +6,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import net_mqtt_bridge.agent as agent
+import net_mqtt_bridge.config as config
+import net_mqtt_bridge.monitor as monitor_mod
 from net_mqtt_bridge.agent import RpiMonitor
 
 
@@ -85,13 +87,13 @@ def test_monitor_sampling_continues_under_request_flood(monkeypatch):
     monitor.active_alarms = set()
     monitor.usb_state = {}
 
-    monkeypatch.setattr(agent, "MONITOR_INTERVAL", 0.02)
-    monkeypatch.setattr(agent, "STATUS_PRIME_INTERVAL", 0.02)
-    monkeypatch.setattr(agent, "net_snapshot", lambda: {})
+    monkeypatch.setattr(config, "MONITOR_INTERVAL", 0.02)
+    monkeypatch.setattr(config, "STATUS_PRIME_INTERVAL", 0.02)
+    monkeypatch.setattr(monitor_mod, "net_snapshot", lambda: {})
     monkeypatch.setattr(
-        agent, "calc_net_rates", lambda prev, elapsed: ({}, {}, 0.0, 0.0))
-    monkeypatch.setattr(agent, "disk_mounts", lambda: [])
-    monkeypatch.setattr(agent, "get_cpu_temp", lambda: None)
+        monitor_mod, "calc_net_rates", lambda prev, elapsed: ({}, {}, 0.0, 0.0))
+    monkeypatch.setattr(monitor_mod, "disk_mounts", lambda: [])
+    monkeypatch.setattr(monitor_mod, "get_cpu_temp", lambda: None)
     monkeypatch.setattr(agent.psutil, "cpu_percent", lambda percpu=False: [1.0])
     monitor.check_threshold = lambda *a, **k: None
     monitor.check_usb = lambda: {}

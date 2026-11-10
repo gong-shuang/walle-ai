@@ -56,6 +56,7 @@ class NetMqttBridge(Node):
         # 导入 agent 时它会加载 env_file，DEVICE_ID_FILE 可能来自环境文件。
         # 参数优先级最高；都没有时再回退到旧安装目录 / 用户配置目录。
         import net_mqtt_bridge.agent as agent
+        import net_mqtt_bridge.config as config
 
         # P0-1.4：MQTT 必填项缺失 / 明文配置时直接拒绝启动，避免带病上线
         problems = agent.validate_mqtt_config()
@@ -67,8 +68,8 @@ class NetMqttBridge(Node):
 
         if device_id_param:
             device_id_file = device_id_param
-        elif agent.DEVICE_ID_FILE:
-            device_id_file = agent.DEVICE_ID_FILE
+        elif config.DEVICE_ID_FILE:
+            device_id_file = config.DEVICE_ID_FILE
         else:
             legacy = os.path.expanduser('~/walle_linux/.device-id')
             if os.path.isfile(legacy):
@@ -79,7 +80,7 @@ class NetMqttBridge(Node):
                 device_id_file = os.path.expanduser(
                     '~/.config/walle-ai/device-id')
         os.environ['DEVICE_ID_FILE'] = device_id_file
-        agent.DEVICE_ID_FILE = device_id_file
+        config.DEVICE_ID_FILE = device_id_file
 
         self._agent_mod = agent
         self.agent = agent.RpiMonitor()
@@ -117,7 +118,7 @@ class NetMqttBridge(Node):
 
         self.get_logger().info(
             'net_mqtt_bridge 启动：device_id=%s tenant=%s video_service=%s'
-            % (agent.DEVICE_ID, agent.sanitize_segment(agent.MQTT_TENANT),
+            % (config.DEVICE_ID, agent.sanitize_segment(config.MQTT_TENANT),
                self.get_parameter('video_service').value))
 
     # ------------------------------------------------------------------ 生命周期
