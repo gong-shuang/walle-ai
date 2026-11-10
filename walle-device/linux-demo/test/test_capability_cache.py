@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""capability 缓存测试：查询只读缓存、pending 占位、探测失败保留旧摄像头列表。"""
+import sys
+import time
+import unittest
+from pathlib import Path
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import main  # noqa: E402
+
+
+def _payload(cameras, error=None):
+    return {
+        "device_id": "dev",
+        "capabilities": ["system_status"] + (["camera_video_capture"] if cameras else []),
+        "camera_count": len(cameras),
+        "cameras": cameras,
+        "summary": {"total_cameras": len(cameras), "total_formats": 0,
+                    "total_resolutions": 0, "audio_sources": 0, "audio_sinks": 0,
+                    "probe_cost_ms": 1},
+        "probe": {"tool": "v4l2-ctl + pactl", "error": error, "audio_error": None},
+    }
+
+
+class CapabilityCacheTest(unittest.TestCase):
+    def setUp(self):
+        self.mon = main.RpiMonitor()
+
+    def test_pending_when_cache_only(self):
+        with mock.patch.object(main, "CAPABILITY_CACHE_ONLY", True):
+            t0 = time.time()
+            payload = self.mon.build_capability()
+            cost = time.time() - t0
+        self.assertLess(cost, 0.5)
+        self.assertTrue(payload["probe"]["pending"])
+        self.assertEqual(payload["cache"]["source"], "pending")
+        self.assertEqual(payload["capabilities"], ["system_status"])
+
+    def test_cache_hit(self):
+        self.mon.capability_cache = {"probed_at": time.time() - 5,
+                                     "payload": _payload([{"node": "/dev/video0"}])}
+        self.mon.capability_ready.set()
+        payload = self.mon.build_capability()
+        self.assertEqual(payload["cache"]["source"], "cache")
+        self.assertGreaterEqual(payload["cache"]["age_sec"], 5)
+        self.assertEqual(payload["cache"]["ttl_sec"], main.CAPABILITY_CACHE_TTL)
+        self.assertEqual(payload["camera_count"], 1)
+
+    def test_probe_failure_keeps_cameras(self):
+        cam = {"node": "/dev/video0", "name": "cam0", "format_count": 1,
+               "resolution_count": 1, "max_resolution": "640x480", "formats": []}
+        self.mon.capability_cache = {"probed_at": time.time(),
+                                     "payload": _payload([cam])}
+        failed = _payload([], error="v4l2-ctl --list-devices 执行超时")
+        with mock.patch.object(self.mon, "_probe_capability", return_value=failed):
+            self.mon._refresh_capability_cache()
+        cached = self.mon.capability_cache["payload"]
+        self.assertEqual(cached["cameras"], [cam])
+        self.assertEqual(cached["camera_count"], 1)
+        self.assertIn("camera_video_capture", cached["capabilities"])
+
+
+if __name__ == "__main__":
+    unittest.main()

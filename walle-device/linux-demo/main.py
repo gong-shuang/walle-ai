@@ -433,6 +433,10 @@ SKIP_FSTYPE = {"tmpfs", "devtmpfs", "squashfs", "iso9660", "overlay", "aufs", "f
 CAM_CMD_TIMEOUT = 8                      # 单条 v4l2-ctl 命令超时（秒）
 CAMERA_CACHE_TTL = 10.0                  # 摄像头能力缓存（秒）；USB 插拔时立即失效
 CAM_ENABLE = _env_flag("CAM_ENABLE", True)   # 不需要摄像头能力查询时置 False
+# 设备能力（capability）后台探测：启动即探测，按 TTL 刷新；查询只读缓存
+CAPABILITY_CACHE_TTL = float(os.environ.get("CAPABILITY_CACHE_TTL", "120"))
+CAPABILITY_FIRST_WAIT = float(os.environ.get("CAPABILITY_FIRST_WAIT", "3"))
+CAPABILITY_CACHE_ONLY = _env_flag("CAPABILITY_CACHE_ONLY", False)
 
 # ---- 视频推流（video/start，ffmpeg -> RTMP）----
 VIDEO_ENABLE = _env_flag("VIDEO_ENABLE", True)  # 不需要推流能力时置 False
@@ -1745,6 +1749,11 @@ class RpiMonitor:
         # 监控循环产出的最新采样快照，state/query 直接复用（避免请求线程再等 1s）
         self.status_snapshot = None
         self.snapshot_lock = threading.Lock()
+        # 设备能力后台探测缓存：查询只读缓存，首次未就绪时等待 CAPABILITY_FIRST_WAIT
+        self.capability_cache = None
+        self.capability_lock = threading.Lock()
+        self.capability_ready = threading.Event()
+        self.capability_refresh = threading.Event()
         self.startup_ready = False   # 首次连上 Broker 并订阅后置位，用于 STARTUP READY
         self.disconnected_at = None  # 断连起始时间；用于长时间断连后回收推流/播放
 
@@ -1921,6 +1930,7 @@ class RpiMonitor:
         if added or removed:
             # 摄像头节点编号可能随插拔变化，立即失效缓存，下一次 capability 重新探测
             self.invalidate_camera_cache("USB 设备变化")
+            self.capability_refresh.set()
         for key in added:
             self._event("usb_connect", "info", "usb", "usb_connect",
                         f"USB 设备接入：{current[key].get('product') or key}",
@@ -2059,8 +2069,89 @@ class RpiMonitor:
         cameras, _ = self.cameras_cached()
         return [{"node": c["node"], "name": c["name"]} for c in cameras]
 
+    def _capability_refresh_loop(self):
+        """后台能力探测：启动即探测，之后按 TTL 或 USB 变化事件刷新。"""
+        while not self.stop_event.is_set():
+            self._refresh_capability_cache()
+            deadline = time.time() + CAPABILITY_CACHE_TTL
+            while not self.stop_event.is_set():
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    break
+                if self.capability_refresh.wait(min(remaining, 1.0)):
+                    self.capability_refresh.clear()
+                    break
+
+    def _refresh_capability_cache(self):
+        try:
+            payload = self._probe_capability()
+        except Exception:
+            logging.exception("设备能力探测失败，保留上一次缓存")
+            return
+        if not self.capability_ready.is_set():
+            logging.info("设备能力首次探测完成（耗时 %dms）",
+                         payload.get("summary", {}).get("probe_cost_ms", 0))
+        with self.capability_lock:
+            old = (self.capability_cache or {}).get("payload")
+            cam_error = payload.get("probe", {}).get("error")
+            if (not payload.get("cameras") and cam_error and old and old.get("cameras")):
+                # 探测失败（v4l2 超时/异常）不要把已知摄像头能力清空
+                logging.warning("摄像头探测失败（%s），沿用上一次缓存", cam_error)
+                old_cams = old["cameras"]
+                payload["cameras"] = old_cams
+                payload["camera_count"] = len(old_cams)
+                payload["summary"]["total_cameras"] = len(old_cams)
+                payload["summary"]["total_formats"] = old["summary"].get("total_formats", 0)
+                payload["summary"]["total_resolutions"] = old["summary"].get("total_resolutions", 0)
+                if "camera_video_capture" not in payload["capabilities"]:
+                    payload["capabilities"].append("camera_video_capture")
+            self.capability_cache = {"probed_at": time.time(), "payload": payload}
+        self.capability_ready.set()
+
     def build_capability(self):
-        """采集本机外设能力（摄像头 + 麦克风 + 音响），生成 capability/result 报文"""
+        """只读缓存；首次探测未完成时最多等待 CAPABILITY_FIRST_WAIT，超时返回 pending 占位。"""
+        if not self.capability_ready.is_set() and not CAPABILITY_CACHE_ONLY:
+            self.capability_ready.wait(CAPABILITY_FIRST_WAIT)
+        with self.capability_lock:
+            cache = self.capability_cache
+            if cache:
+                payload = json.loads(json.dumps(cache["payload"]))   # 深拷贝，避免调用方改缓存
+                age = max(0.0, time.time() - cache["probed_at"])
+                payload["cache"] = {"source": "cache", "age_sec": round(age, 1),
+                                    "ttl_sec": CAPABILITY_CACHE_TTL}
+                payload["timestamp"] = now_ts()
+                payload["datetime"] = now_str()
+                return payload
+        return self._pending_capability()
+
+    def _pending_capability(self):
+        reason = "能力探测尚未完成，请稍后重新查询"
+        return {
+            "device_id": DEVICE_ID,
+            "uuid": DEVICE_UUID,
+            "hostname": HOSTNAME,
+            "ip": self.lan_ip,
+            "capability": "device",
+            "capabilities": ["system_status"],
+            "camera_count": 0,
+            "cameras": [],
+            "audio": {
+                "capture": {"available": False, "device": None,
+                            "sources": [], "reason": reason},
+                "playback": {"available": False, "device": None, "volume_percent": None,
+                             "muted": None, "sinks": [], "reason": reason},
+            },
+            "summary": {"total_cameras": 0, "total_formats": 0, "total_resolutions": 0,
+                        "audio_sources": 0, "audio_sinks": 0, "probe_cost_ms": 0},
+            "probe": {"tool": "v4l2-ctl + pactl", "error": None,
+                      "audio_error": None, "pending": True},
+            "cache": {"source": "pending", "age_sec": 0, "ttl_sec": CAPABILITY_CACHE_TTL},
+            "timestamp": now_ts(),
+            "datetime": now_str(),
+        }
+
+    def _probe_capability(self):
+        """实际执行 v4l2-ctl / pactl 探测，生成 capability/result 内容（仅后台线程调用）。"""
         t0 = time.time()
         cameras, cam_error = ([], "摄像头能力探测已关闭（CAM_ENABLE=False）")
         if CAM_ENABLE:
@@ -3104,6 +3195,8 @@ class RpiMonitor:
         hint = audio_session_hint()
         if hint:
             logging.warning("%s", hint)
+        threading.Thread(target=self._capability_refresh_loop, daemon=True,
+                         name="capability-probe").start()
         if sanitize_segment(MQTT_TENANT) == sanitize_segment(MQTT_USER):
             logging.warning(
                 "租户与 MQTT 用户名相同（%s）。如果手机 App 用的是另一个账号登录，"

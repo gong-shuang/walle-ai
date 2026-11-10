@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 2 | 20 |
-| **合计** | **55** | **29** | **26** |
+| P2 后续优化 | 22 | 3 | 19 |
+| **合计** | **55** | **30** | **25** |
 
-> linux-demo 已开始按本清单整改（当前 29/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 30/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -263,11 +263,10 @@
   - 验收：无快照时 `build_status()` 约 0.21s 返回、`sample_age_sec=0`；注入 1.5s 前的快照后查询 3.5ms 返回、`sample_age_sec=1.5`、`sample_interval_sec=5.0`；连续查询不再触发 1s 采样
   - 证据：`main.py` L1745-L1747、L2798-L2813、L2829-L2830、L2842、L3041-L3050
 
-- [ ] 🔴 **P2-1.2 capability 探测异步化与缓存**
-  - 现状：`build_capability()` 每次请求都同步执行 `v4l2-ctl`（每节点最多 8s）与 `pactl`（3s），最坏可达数十秒，阻塞请求线程
-  - 动作：后台线程启动即探测并按 TTL（默认 120s）刷新；查询只读缓存；首次未就绪最多等待 3s 或立即返回 `probe.pending`；应答新增 `cache {source, age_sec, ttl_sec}`（与协议 2026-11-10 变更一致）；探测失败保留旧缓存
-  - 验收：`capability/query` 只读缓存；热插拔后 TTL 内不刷新、过期后刷新；探测失败不会把已有能力清空
-  - 证据：`main.py` L1696-L1748、L926-L986
+- [x] ✅ **P2-1.2 capability 探测异步化与缓存**
+  - 处理：新增 `CAPABILITY_CACHE_TTL`（默认 120s）、`CAPABILITY_FIRST_WAIT`（默认 3s）、`CAPABILITY_CACHE_ONLY`；实际探测移到 `_probe_capability()`，由 `_capability_refresh_loop()` 后台线程启动即探测、按 TTL 或 USB 变化事件刷新；`build_capability()` 只读缓存并返回 `cache {source, age_sec, ttl_sec}`，首次未就绪最多等待 3s，超时或 cache-only 返回 `probe.pending=true` 占位（`capabilities` 仅 `system_status`）；探测异常或摄像头探测失败时沿用上一次摄像头列表，不清空已有能力
+  - 验收：新增 `test/test_capability_cache.py`（3 项）+ 现有用例共 22 项通过；cache-only 时 pending 返回 <0.5s；注入 5s 前缓存返回 `source=cache, age_sec>=5`；摄像头探测失败后仍保留旧 `cameras`；USB 变化置位 `capability_refresh`
+  - 证据：`main.py` L436-L439、L1752-L1756、L1930-L1933、L2071-L2150、L3198-L3199；`test/test_capability_cache.py`；`doc/MQTT_protocol_convention.md` §4.4
 
 - [ ] 🔴 **P2-1.3 查询/动作请求分池与有界队列**
   - 现状：所有请求共用 `ThreadPoolExecutor(max_workers=4)`；推流启动（宽限 3s）、能力探测、整改前的长命令会占满线程，查询请求排队
@@ -468,6 +467,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：capability 改为后台探测 + 120s 缓存，查询只读缓存并返回 `cache`
+  字段；首次未就绪等待 3s 或返回 `probe.pending`；摄像头探测失败沿用旧缓存（P2-1.2）。
 - 2026-11-10：`state/query` 复用监控循环快照（含 `sample_age_sec`），USB 复用
   `check_usb()` 结果；首份快照未建立时补采 0.2s，实测热查询 3.5ms（P2-1.1）。
 - 2026-11-10：经确认 P1-5.3（故障注入/24h soak）暂缓至实机阶段，P1-5.4（CI 接入）暂缓，
