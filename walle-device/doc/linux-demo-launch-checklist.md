@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 7 | 15 |
-| **合计** | **55** | **34** | **21** |
+| P2 后续优化 | 22 | 8 | 14 |
+| **合计** | **55** | **35** | **20** |
 
-> linux-demo 已开始按本清单整改（当前 34/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 35/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -307,11 +307,10 @@
   - 验收：部署前一条命令即可发现缺失依赖与配置错误；不产生任何 MQTT 副作用
   - 证据：`main.py` L2746-L2793
 
-- [ ] 🔴 **P2-2.5 恢复协议自检脚本**
-  - 现状：`selftest_topics.py` 在迁移提交中被删除，当前没有主题/报文配对自检工具
-  - 动作：恢复并改造为 pytest 用例，校验 `REQUEST_TO_RESULT` 配对、订阅主题格式、与 Android `TopicNames` 一致性
-  - 验收：`pytest` 可执行；主题改名/漏配对应答时失败
-  - 证据：`git show 947f445^:walle-device/linux-demo/selftest_topics.py`；`main.py` L300-L340
+- [x] ✅ **P2-2.5 恢复协议自检脚本**
+  - 处理：不再单独恢复 `selftest_topics.py`，其能力并入 `test/test_protocol.py` 的 `TopicTest`：校验 `REQUEST_TO_RESULT` 请求/应答命名配对、`REQUEST_HANDLERS` 覆盖、`subscriptions()` 7 个主题与 discovery 广播、`sanitize_segment` 与 Android `TopicNames` 一致（含长段短哈希）；pytest/unittest 均可执行
+  - 验收：主题改名或漏配应答时 `test_request_result_pairs` 失败；全套 28 项通过
+  - 证据：`linux-demo/test/test_protocol.py`；`main.py` L333-L408
 
 ### P2-3 兼容性与功能
 
@@ -463,6 +462,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：协议自检并入 `test/test_protocol.py`（主题配对/命名/清洗与 Android 一致），
+  不再单独恢复 `selftest_topics.py`（P2-2.5）。
 - 2026-11-10：`rtmp_push` 仅在 VIDEO_ENABLE + ffmpeg + 推流模板/secret 均就绪时上报，
   否则在 `probe.video_error` 说明原因（P2-2.3）。
 - 2026-11-10：online/LWT 改用身份缓存（监控线程每 60s 刷新完整信息），首次上线只做
