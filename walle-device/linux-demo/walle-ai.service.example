@@ -8,7 +8,7 @@ Type=simple
 User=gs
 # 模板：部署时把用户 / 安装目录替换成实际值（命令见 linux-demo/README.md 3.3）
 WorkingDirectory=$WALLE_PATH/walle-ai/walle-device/linux-demo
-EnvironmentFile=-/etc/walle-ai.env
+EnvironmentFile=/etc/walle-ai.conf
 ExecStart=$VENV_PATH/venv/bin/python $WALLE_PATH/walle-ai/walle-device/linux-demo/main.py
 Restart=always
 RestartSec=5

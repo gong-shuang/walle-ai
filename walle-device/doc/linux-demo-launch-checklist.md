@@ -20,7 +20,7 @@
 
 1. ✅ 已修复：`cmd/exec` 远程命令能力已整体删除（2026-11-10，P0-1.1 / P0-1.2 / P0-1.5）。
 2. ✅ 已修复：默认 Broker、账号与口令已删除，缺失配置拒绝启动；生产强制 TLS 8883（2026-11-10，P0-2.1 / P0-2.2）。
-3. 迁移提交 `947f445` 删除了 `requirements.txt`、`walle-ai.env.example`、`selftest_topics.py`，README 被压缩到 34 行，部署文档与模板缺失。
+3. 部分修复：配置模板与 README 已恢复/更新，`requirements.txt` 与 `selftest_topics.py` 仍缺失（P1-1.1 / P2-2.5）。
 4. 手机麦克风上行 WHEP 拉流地址不含任何鉴权参数，同租户客户端可直连拉取手机音频。
 5. 推流/播放子进程使用 `start_new_session=True`，主进程被 `kill -9` 或崩溃后 ffmpeg/播放器仍会继续运行（摄像头/麦克风持续工作）。
 
@@ -28,12 +28,12 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 15 | 5 | 10 |
+| P0 上线阻断 | 15 | 6 | 9 |
 | P1 上线前应修 | 18 | 0 | 18 |
-| P2 后续优化 | 22 | 0 | 22 |
-| **合计** | **55** | **5** | **50** |
+| P2 后续优化 | 22 | 1 | 21 |
+| **合计** | **55** | **7** | **48** |
 
-> linux-demo 已开始按本清单整改（当前 5/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 7/55）；每次勾选后请同步更新本表数字。
 
 ## 与 ROS2 清单的适用性对照
 
@@ -96,11 +96,10 @@
   - 验收：默认配置 `TLS=on`、端口 8883；`MQTT_TLS=off` 在 prod 下退出 1、debug 下通过；`MQTT_TLS=auto` 退出 1；`MQTT_PORT=1883` 在 prod 下退出 1；`MQTT_CA_FILE=/no/such` 退出 1；可读 CA 通过
   - 证据：`main.py` L140-L158、L221-L246、L2611-L2626、L2658-L2666
 
-- [ ] 🔴 **P0-2.3 配置文件名、权限、模板与 gitignore 统一**
-  - 现状：linux-demo 读取 `/etc/walle-ai.env` / `./walle-ai.env`，ROS2 使用 `/etc/walle-ai.conf`；`walle-ai.env.example` 已在迁移提交 `947f445` 中被删除；`walle-device/.gitignore` 只忽略 `scripts/walle-ai.conf`，`linux-demo/walle-ai.env`、`walle-ai.service`、`.device-id` 均未忽略；systemd 使用 `EnvironmentFile=-/etc/walle-ai.env`，`-` 使文件缺失时仍按默认值启动；`_load_env_file()` 在 Permission denied 时建议 `chown $(whoami)`，与 600 root:root 要求冲突
-  - 动作：统一配置文件名为 `/etc/walle-ai.conf`（或反向统一为 `.env`，但必须全仓一致）；更新 `ENV_CANDIDATES`、README、systemd 模板；恢复 `walle-ai.conf.example`；把 `linux-demo/walle-ai.conf`、`linux-demo/walle-ai.env`、`linux-demo/walle-ai.service`、`linux-demo/.device-id` 加入 `.gitignore`；systemd 去掉 `EnvironmentFile` 前的 `-`；开发模式读取脚本同级配置；权限错误提示改为「由 systemd EnvironmentFile 注入 / 使用 sudo」，不再建议放宽权限
-  - 验收：`git ls-files 'walle-device/linux-demo/*.env' 'walle-device/linux-demo/walle-ai.conf' 'walle-device/linux-demo/walle-ai.service'` 为空；`git check-ignore -v walle-device/linux-demo/walle-ai.env` 命中；无配置时 service 启动失败且 journal 明确提示缺失项；普通用户 `cat /etc/walle-ai.conf` 返回 Permission denied；systemd 正常注入时不再出现 Permission denied 警告
-  - 证据：`main.py` L42-L44、L84-L137、L117-L119；`walle-ai.service.example` L11；`walle-device/.gitignore` L9；`git show 947f445 -- walle-device/linux-demo/walle-ai.env.example`
+- [x] ✅ **P0-2.3 配置文件名、权限、模板与 gitignore 统一**
+  - 处理：配置统一为 `/etc/walle-ai.conf` + 脚本同级 `walle-ai.conf`（`ENV_CANDIDATES`、docstring 同步）；新增 `walle-ai.conf.example`；新增 `linux-demo/.gitignore` 忽略 `walle-ai.conf` / `walle-ai.env` / `walle-ai.service` / `.device-id` / `log/`；systemd 改为 `EnvironmentFile=/etc/walle-ai.conf`（去掉 `-`）；`_load_env_file()` 在配置不可读且必需变量已注入时只打印 info，不再建议 `chown`；README 补充 600 root:root 安装方式
+  - 验收：`git ls-files` 无真实配置/服务文件；`git check-ignore` 四类文件均命中；开发环境自动读取脚本同级 `walle-ai.conf`（实测通过）；不可读配置且无环境变量时提示改用 systemd 注入；普通用户读取 `/etc/walle-ai.conf` 被拒绝；systemd 缺配置时的启动失败待实机验证
+  - 证据：`main.py` L76-L129、`walle-ai.conf.example`、`linux-demo/.gitignore`、`walle-ai.service.example` L11、`README.md`
 
 - [ ] 🟡 **P0-2.4 启动前配置校验**
   - 现状：必填项、端口范围、运行环境、TLS 模式、端口 1883、CA 可读性校验已完成；`{secret}` 模板与 `WHIP_SECRET` 匹配关系尚未校验
@@ -405,11 +404,10 @@
   - 验收：新用户能明确选择部署形态，不会互相覆盖配置或服务
   - 证据：`walle-ai.service.example`；`walle-device/scripts/walle-ai.service.in`；`walle-device/doc/README.md`
 
-- [ ] 🔴 **P2-5.3 README 手动运行命令修正**
-  - 现状：`README.md` 写 `/home/ubuntu/venv/python3 main.py`，venv 的 Python 实际在 `venv/bin/python`
-  - 动作：改为 `<venv>/bin/python main.py`，并补充「先停 systemd 服务，避免同一 clientId 被踢下线」
-  - 验收：按 README 命令可直接运行
-  - 证据：`README.md` L27-L31
+- [x] ✅ **P2-5.3 README 手动运行命令修正**
+  - 处理：`/home/ubuntu/venv/python3 main.py` 改为 `/home/ubuntu/venv/bin/python main.py`，并补充「先停 systemd 服务，避免同一 clientId 互相踢下线」
+  - 验收：命令路径与 venv 布局一致
+  - 证据：`README.md` 手动运行章节
 
 ---
 
@@ -471,12 +469,18 @@ python3 walle-device/linux-demo/main.py --check
 | 2026-11-10 | P0-1.1 / P0-1.2 / P0-1.5 | 15ca54b | 源码无 `cmd/exec`、`remote_cmd`、`shell=True`；`subscriptions()` 7 项；`py_compile` 与 `--check` 通过 | 待确认 |
 | 2026-11-10 | P0-2.1 | f525ec8 | 无配置 `--check` 退出 1 并列出 5 项缺失；正式启动退出 2；合法配置退出 0；`py_compile`/flake8 通过 | 待确认 |
 | 2026-11-10 | P0-2.2 | 待提交 | 默认 TLS=on/8883；prod 下 TLS=off、端口 1883、auto、坏 CA 均退出 1；debug 下 TLS=off 通过 | 待确认 |
+| 2026-11-10 | P0-2.3 | 待提交 | 配置统一为 `/etc/walle-ai.conf`；本地模板与 .gitignore 生效；开发配置自动加载；不可读配置提示 systemd 注入 | 待确认 |
+| 2026-11-10 | P2-5.3 | 待提交 | README 手动运行命令改为 `venv/bin/python`，并补充先停 systemd 服务 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：linux-demo 配置统一为 `/etc/walle-ai.conf`（生产）与脚本同级 `walle-ai.conf`（开发），
+  新增 `walle-ai.conf.example` 与 `linux-demo/.gitignore`；systemd 改为
+  `EnvironmentFile=/etc/walle-ai.conf`，缺配置时启动失败；配置不可读但环境变量已注入时只打印 info。
+  同时修正 README 手动运行命令为 `venv/bin/python`（P0-2.3 / P2-5.3）。
 - 2026-11-10：linux-demo 生产环境强制 MQTT TLS（默认 8883 + `MQTT_TLS=on`），仅
   `WALLE_RUNTIME_ENV=debug` 允许 `MQTT_TLS=off`；生产环境端口 1883 被拒绝（P0-2.2）。
   端口改为默认 8883 后，P0-2.1 的缺失项由 5 个调整为 4 个。

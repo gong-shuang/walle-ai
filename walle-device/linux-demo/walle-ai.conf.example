@@ -1,0 +1,45 @@
+# linux-demo 设备端配置模板
+#
+# 开发环境：
+#   cp walle-ai.conf.example walle-ai.conf
+#   vi walle-ai.conf
+#   python3 main.py            # 自动读取脚本同级的 walle-ai.conf
+#
+# 生产环境：
+#   sudo install -m 600 -o root -g root walle-ai.conf /etc/walle-ai.conf
+#   systemd 通过 EnvironmentFile=/etc/walle-ai.conf 注入
+#
+# 真实配置已被 .gitignore 忽略，不要提交到仓库。
+
+# ---- 运行环境（prod/debug）----
+# prod：强制 MQTT TLS；debug：允许 MQTT_TLS=off，仅用于本地联调
+WALLE_RUNTIME_ENV=prod
+
+# ---- MQTT（必填）----
+MQTT_HOST=
+MQTT_PORT=8883
+MQTT_USERNAME=
+MQTT_PASSWORD=
+MQTT_TENANT=
+# 生产环境只接受 on；off 仅在 WALLE_RUNTIME_ENV=debug 下允许
+MQTT_TLS=on
+# 自签 CA 路径；留空使用系统 CA
+MQTT_CA_FILE=
+
+# ---- WebRTC / 推流（视频启用时必填）----
+WHIP_SECRET=
+# 推流地址模板；{room}/{secret} 由设备填充
+# VIDEO_RTMP_URL_TEMPLATE=rtmp://your-server:1935/live/{room}?secret={secret}
+# 手机麦上行 WHEP 地址模板；{stream} 会被替换成 room_audio
+# PHONE_AUDIO_WHEP_URL_TEMPLATE=https://your-server/rtc/v1/whep/?app=live&stream={stream}
+
+# ---- 可选：监控阈值 ----
+# MONITOR_INTERVAL=5
+# THRESH_CPU=90.0
+# THRESH_MEM=90.0
+# THRESH_DISK=90.0
+# THRESH_TEMP=80.0
+# THRESH_NET_MIB=10
+
+# ---- 可选：设备标识文件 ----
+# DEVICE_ID_FILE=/var/lib/walle-ai/device-id
