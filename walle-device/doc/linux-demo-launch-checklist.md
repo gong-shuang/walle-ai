@@ -19,7 +19,7 @@
 审查结论摘要（最严重的五项）：
 
 1. ✅ 已修复：`cmd/exec` 远程命令能力已整体删除（2026-11-10，P0-1.1 / P0-1.2 / P0-1.5）。
-2. 代码内保留默认 Broker、默认账号口令与明文 1883 回退；缺失配置不会拒绝启动。
+2. ✅ 已修复：代码内默认 Broker、账号与口令已删除，缺失配置拒绝启动（2026-11-10，P0-2.1）。
 3. 迁移提交 `947f445` 删除了 `requirements.txt`、`walle-ai.env.example`、`selftest_topics.py`，README 被压缩到 34 行，部署文档与模板缺失。
 4. 手机麦克风上行 WHEP 拉流地址不含任何鉴权参数，同租户客户端可直连拉取手机音频。
 5. 推流/播放子进程使用 `start_new_session=True`，主进程被 `kill -9` 或崩溃后 ffmpeg/播放器仍会继续运行（摄像头/麦克风持续工作）。
@@ -28,12 +28,12 @@
 
 | 优先级 | 任务数 | 已完成 | 剩余 |
 | --- | ---: | ---: | ---: |
-| P0 上线阻断 | 15 | 3 | 12 |
+| P0 上线阻断 | 15 | 4 | 11 |
 | P1 上线前应修 | 18 | 0 | 18 |
 | P2 后续优化 | 22 | 0 | 22 |
-| **合计** | **55** | **3** | **52** |
+| **合计** | **55** | **4** | **51** |
 
-> linux-demo 已开始按本清单整改（当前 3/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 4/55）；每次勾选后请同步更新本表数字。
 
 ## 与 ROS2 清单的适用性对照
 
@@ -86,11 +86,10 @@
 
 ### P0-2 MQTT 连接与配置安全
 
-- [ ] 🔴 **P0-2.1 删除代码内默认 Broker 与默认凭据**
-  - 现状：`MQTT_HOST` 默认 `www.baidong.xyz`、`MQTT_PORT` 默认 `1883`、`MQTT_USERNAME` 默认 `RaspPi5`、`MQTT_PASSWORD` 默认 `123456`；`MQTT_TENANT` 缺省回退为 MQTT 用户名
-  - 动作：删除全部默认值；`MQTT_HOST` / `MQTT_PORT` / `MQTT_USERNAME` / `MQTT_PASSWORD` / `MQTT_TENANT` 列为必填，缺失时拒绝启动并打印缺失项；`MQTT_TENANT` 必须显式配置
-  - 验收：无配置文件时 `python3 main.py` 与 `--check` 均以非 0 退出并列出缺失项；源码中无 `www.baidong.xyz`、`RaspPi5`、`123456`
-  - 证据：`main.py` L141-L151、L209
+- [x] ✅ **P0-2.1 删除代码内默认 Broker 与默认凭据**
+  - 处理：`MQTT_HOST` / `MQTT_USERNAME` / `MQTT_PASSWORD` / `MQTT_TENANT` 改为空默认值；`MQTT_PORT` 不再默认 1883，空值或非整数记为 `None`；新增 `validate_config()` 校验五项必填与端口范围；`main()` 正式启动前校验并以退出码 2 拒绝启动，`--check` 返回 1 并列出缺失项
+  - 验收：无配置时 `--check` 退出 1 并列出 5 个缺失项，`python3 main.py` 退出 2；合法配置 `--check` 退出 0；`MQTT_PORT=abc` 返回友好错误而非 traceback；源码无 `RaspPi5` / `123456` / MQTT 默认域名
+  - 证据：`main.py` L140-L154、L206-L232、L2566-L2579、L2630-L2697
 
 - [ ] 🔴 **P0-2.2 强制 TLS 8883，禁止明文回退**
   - 现状：`MQTT_TLS` 默认 `auto`，端口 1883 即按明文连接；`MQTT_TLS=off` 被允许，仅在日志打印一条 warning
@@ -104,11 +103,11 @@
   - 验收：`git ls-files 'walle-device/linux-demo/*.env' 'walle-device/linux-demo/walle-ai.conf' 'walle-device/linux-demo/walle-ai.service'` 为空；`git check-ignore -v walle-device/linux-demo/walle-ai.env` 命中；无配置时 service 启动失败且 journal 明确提示缺失项；普通用户 `cat /etc/walle-ai.conf` 返回 Permission denied；systemd 正常注入时不再出现 Permission denied 警告
   - 证据：`main.py` L42-L44、L84-L137、L117-L119；`walle-ai.service.example` L11；`walle-device/.gitignore` L9；`git show 947f445 -- walle-device/linux-demo/walle-ai.env.example`
 
-- [ ] 🔴 **P0-2.4 启动前配置校验**
-  - 现状：`--check` 只打印配置，不做校验；`MQTT_PORT` 直接 `int()`，非法值抛未捕获异常；配置缺失时仍按默认值继续连接 Broker
-  - 动作：新增 `validate_config()`，在正式启动与 `--check` 中统一调用；校验必填项、端口范围、TLS 配置、CA 可读性、模板占位符（`{secret}`）与 `WHIP_SECRET` 的匹配关系；错误以非 0 退出并打印缺失/非法项
-  - 验收：逐一删除任一必填项，`--check` 均返回非 0 并指出该项；`MQTT_PORT=abc` 返回友好错误而非 traceback；正式启动同样先校验
-  - 证据：`main.py` L123-L151、L2746-L2793
+- [ ] 🟡 **P0-2.4 启动前配置校验**
+  - 现状：必填项与端口范围校验已完成；TLS 配置、`MQTT_CA_FILE` 可读性、`{secret}` 模板与 `WHIP_SECRET` 匹配关系尚未校验
+  - 动作：在 `validate_config()` 中补充 TLS/CA/模板校验（随 P0-2.2、P0-2.5 完成）；错误以非 0 退出并打印缺失/非法项
+  - 验收：逐一删除任一必填项，`--check` 均返回非 0 并指出该项（已完成）；`MQTT_PORT=abc` 返回友好错误（已完成）；CA 路径错误、模板缺 secret 时同样拒绝启动（待完成）
+  - 证据：`main.py` L217-L232、L2689-L2694
 
 - [ ] 🔴 **P0-2.5 推流/拉流地址去硬编码**
   - 现状：`VIDEO_RTMP_URL_TEMPLATE` 默认 `rtmp://www.baidong.xyz:1935/live/{room}?secret={secret}`；`PHONE_AUDIO_WHEP_URL_TEMPLATE` 默认 `https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream={stream}`
@@ -470,13 +469,17 @@ python3 walle-device/linux-demo/main.py --check
 
 | 日期 | 任务编号 | 提交/PR | 验证方式 | 验证人 |
 | --- | --- | --- | --- | --- |
-| 2026-11-10 | P0-1.1 / P0-1.2 / P0-1.5 | 待提交 | 源码无 `cmd/exec`、`remote_cmd`、`shell=True`；`subscriptions()` 7 项；`py_compile` 与 `--check` 通过 | 待确认 |
+| 2026-11-10 | P0-1.1 / P0-1.2 / P0-1.5 | 15ca54b | 源码无 `cmd/exec`、`remote_cmd`、`shell=True`；`subscriptions()` 7 项；`py_compile` 与 `--check` 通过 | 待确认 |
+| 2026-11-10 | P0-2.1 | 待提交 | 无配置 `--check` 退出 1 并列出 5 项缺失；正式启动退出 2；合法配置退出 0；`py_compile`/flake8 通过 | 待确认 |
 |  |  |  |  |  |
 
 ---
 
 ## 备注
 
+- 2026-11-10：已删除 linux-demo 的 MQTT 默认 Broker / 账号 / 口令（P0-2.1）；
+  `MQTT_HOST` / `MQTT_PORT` / `MQTT_USERNAME` / `MQTT_PASSWORD` / `MQTT_TENANT` 改为必填，
+  缺失时 `--check` 返回 1、正式启动返回 2。
 - 2026-11-10：已删除 linux-demo 的 `cmd/exec` / `cmd/result` 远程命令能力（P0-1.1 / P0-1.2 / P0-1.5）；
   `capability/result` 不再上报 `remote_cmd`，订阅主题由 8 个减为 7 个，与协议 §8 对齐。
 - 2026-11-10：本清单为新生成清单，审查对象为 `walle-device/linux-demo` 当前 HEAD（`947f445`）。
