@@ -30,10 +30,10 @@
 | --- | ---: | ---: | ---: |
 | P0 上线阻断 | 15 | 12 | 3 |
 | P1 上线前应修 | 18 | 15 | 3 |
-| P2 后续优化 | 22 | 1 | 21 |
-| **合计** | **55** | **28** | **27** |
+| P2 后续优化 | 22 | 2 | 20 |
+| **合计** | **55** | **29** | **26** |
 
-> linux-demo 已开始按本清单整改（当前 28/55）；每次勾选后请同步更新本表数字。
+> linux-demo 已开始按本清单整改（当前 29/55）；每次勾选后请同步更新本表数字。
 > P0-1.3 / P0-1.4 / P0-3.1 进行中：ACL 与审计规则已写入 `doc/service_deploy.md`；历史扫描已完成，待服务端改密与清理外部明文。
 
 ## 与 ROS2 清单的适用性对照
@@ -258,11 +258,10 @@
 
 ### P2-1 性能
 
-- [ ] 🔴 **P2-1.1 state/query 复用监控采样快照**
-  - 现状：`build_status()` 在请求线程内调用 `sample_once(1.0)`，固定阻塞 1 秒；4 个工作线程容易被状态查询占满
-  - 动作：`monitor_loop` 每轮采样后写入快照，`build_status()` 直接复用；USB 列表复用 `check_usb()` 结果；应答新增 `sample_age_sec`（与 `doc/MQTT_protocol_convention.md` 2026-11-10 变更一致）；首份快照未建立时才兜底采样
-  - 验收：`state/query` 处理 < 100ms；连续查询不触发重复 1s 采样
-  - 证据：`main.py` L2317-L2330、L2630-L2681
+- [x] ✅ **P2-1.1 state/query 复用监控采样快照**
+  - 处理：`monitor_loop` 每轮把 CPU/网络采样写入 `status_snapshot`（含采样时刻），`build_status()` 直接复用并按 `time.time() - sampled_at` 计算 `sample_age_sec`；USB 列表复用 `check_usb()` 维护的 `usb_state`；仅首份快照未建立时现场补采 0.2s（原为 1.0s）
+  - 验收：无快照时 `build_status()` 约 0.21s 返回、`sample_age_sec=0`；注入 1.5s 前的快照后查询 3.5ms 返回、`sample_age_sec=1.5`、`sample_interval_sec=5.0`；连续查询不再触发 1s 采样
+  - 证据：`main.py` L1745-L1747、L2798-L2813、L2829-L2830、L2842、L3041-L3050
 
 - [ ] 🔴 **P2-1.2 capability 探测异步化与缓存**
   - 现状：`build_capability()` 每次请求都同步执行 `v4l2-ctl`（每节点最多 8s）与 `pactl`（3s），最坏可达数十秒，阻塞请求线程
@@ -469,6 +468,8 @@ python3 walle-device/linux-demo/main.py --check
 
 ## 备注
 
+- 2026-11-10：`state/query` 复用监控循环快照（含 `sample_age_sec`），USB 复用
+  `check_usb()` 结果；首份快照未建立时补采 0.2s，实测热查询 3.5ms（P2-1.1）。
 - 2026-11-10：经确认 P1-5.3（故障注入/24h soak）暂缓至实机阶段，P1-5.4（CI 接入）暂缓，
   本次不修改 `.github/workflows/ci.yml`；本地测试已就绪（19 项 unittest）。
 - 2026-11-10：新增 `linux-demo/test/`：远程命令移除回归（3 项）+ 协议/配置用例（15 项）

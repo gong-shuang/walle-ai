@@ -1742,6 +1742,9 @@ class RpiMonitor:
         self._camera_cache_lock = threading.Lock()
         # 上一次应答 discovery 的时间（单调时钟），用于限频
         self._last_discovery_at = 0.0
+        # 监控循环产出的最新采样快照，state/query 直接复用（避免请求线程再等 1s）
+        self.status_snapshot = None
+        self.snapshot_lock = threading.Lock()
         self.startup_ready = False   # 首次连上 Broker 并订阅后置位，用于 STARTUP READY
         self.disconnected_at = None  # 断连起始时间；用于长时间断连后回收推流/播放
 
@@ -2793,7 +2796,21 @@ class RpiMonitor:
         return cores, per_iface, total_rx, total_tx, elapsed
 
     def build_status(self):
-        cores, per_iface, total_rx, total_tx, interval = self.sample_once(1.0)
+        snapshot = None
+        with self.snapshot_lock:
+            if self.status_snapshot:
+                snapshot = dict(self.status_snapshot)
+        if snapshot:
+            cores = snapshot["cores"]
+            per_iface = snapshot["per_iface"]
+            total_rx = snapshot["total_rx"]
+            total_tx = snapshot["total_tx"]
+            interval = snapshot["interval"]
+            sample_age = max(0.0, time.time() - snapshot["sampled_at"])
+        else:
+            # 监控循环还没产出第一份快照（刚启动）：现场补采一次，尽量短
+            cores, per_iface, total_rx, total_tx, interval = self.sample_once(0.2)
+            sample_age = 0.0
 
         vm = psutil.virtual_memory()
         sw = None
@@ -2809,7 +2826,8 @@ class RpiMonitor:
             freq = psutil.cpu_freq()
         except (OSError, RuntimeError, SystemError):
             freq = None
-        usb = scan_usb_devices()
+        with self.snapshot_lock:
+            usb = dict(self.usb_state)   # 复用 check_usb() 的结果，避免请求线程再扫一遍
 
         return {
             "device_id": DEVICE_ID,
@@ -2821,6 +2839,7 @@ class RpiMonitor:
             "timestamp": now_ts(),
             "datetime": now_str(),
             "uptime_seconds": int(time.time() - psutil.boot_time()),
+            "sample_age_sec": round(sample_age, 2),
             "system": {
                 "os": platform.system(),
                 "kernel": platform.release(),
@@ -3021,7 +3040,16 @@ class RpiMonitor:
             mem = psutil.virtual_memory()
             mounts = disk_mounts()
             temp = get_cpu_temp()
-            prev_net, _ifaces, rx_rate, tx_rate = calc_net_rates(prev_net, elapsed)
+            prev_net, per_iface, rx_rate, tx_rate = calc_net_rates(prev_net, elapsed)
+            with self.snapshot_lock:
+                self.status_snapshot = {
+                    "sampled_at": now,
+                    "cores": cores,
+                    "per_iface": per_iface,
+                    "total_rx": rx_rate,
+                    "total_tx": tx_rate,
+                    "interval": elapsed,
+                }
             prev_t = now
 
             # 1) 阈值类告警
