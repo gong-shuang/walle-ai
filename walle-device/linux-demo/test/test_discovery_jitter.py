@@ -18,8 +18,9 @@ import main  # noqa: E402
 class DiscoveryJitterTest(unittest.TestCase):
     def test_handler_returns_before_publish(self):
         mon = main.RpiMonitor()
-        mon.build_device_info = lambda: {"device_id": "d", "uuid": "u",
-                                         "model": "m", "serial": "s", "hostname": "h"}
+        mon.build_online_payload = lambda online=True: {
+            "device_id": "d", "uuid": "u", "online": online,
+            "model": "m", "hostname": "h"}
         published = threading.Event()
         mon.publish_json = lambda *_a, **_k: published.set()
 
@@ -30,6 +31,15 @@ class DiscoveryJitterTest(unittest.TestCase):
             self.assertLess(cost, 0.05)          # 不再 sleep 在查询线程里
             self.assertFalse(published.is_set())  # 尚未到抖动时间
             self.assertTrue(published.wait(1))    # 定时器随后发布
+
+    def test_result_payload_matches_online(self):
+        mon = main.RpiMonitor()
+        mon.build_online_payload = lambda online=True: {"device_id": "d", "online": online}
+        captured = {}
+        mon.publish_json = lambda topic, payload, **kwargs: captured.update(
+            topic=topic, payload=payload)
+        mon._publish_discovery_result("r1")
+        self.assertEqual(captured["payload"], {"device_id": "d", "online": True})
 
 
 if __name__ == "__main__":

@@ -158,6 +158,8 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 1. App 每发一个请求生成新 `request_id`（8 位 hex），并把它放进请求报文。
 2. 设备端应答必须原样回显；没收到匹配 `request_id` 的应答前，UI 处于等待态。
+   例外：`discovery/result` 自 2026-11-11 起与 `online` 完全一致，不再回显 `request_id`
+   （App 不依赖它配对，扫描状态按超时结束）。
 3. 旧请求迟到应答会被丢弃（App 只认「当前这次」的 rid）。
 
 ### 3.3 主题段清洗（sanitize）
@@ -209,7 +211,8 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 | `timestamp` / `datetime` | 报文时间戳 |
 
 > 2026-11-10 起，retained `online` **不再包含** `mac`、`serial`、`os`、`cpu`、内存/磁盘
-> 总量、`boot_time`、`uuid_source` 等身份细节；这些字段只在 `discovery/result` 返回。
+> 总量、`boot_time`、`uuid_source` 等身份细节；这些字段不再通过 MQTT 下发，
+> 设备详情请使用 `state/query`（§4.3）。
 
 **注意**：`online: false` 的遗嘱只由 broker 代发；设备端正常关机也应主动发一次。
 App 侧重复 online 不去重（幂等）。
@@ -223,8 +226,9 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 
 ### 4.2 设备发现 discovery/query → discovery/result
 
-**作用**：按需拉取设备身份详情。日常列表不靠它（靠 retained online），仅用于手动
-「重新扫描」和「连上后零回放」的自动兜底。
+**作用**：设备列表页的按需刷新。应答内容与 §4.1 的 `online` **完全一致**（同一份
+`build_online_payload`），只含最小身份字段，`online` 固定为 `true`，不再返回完整身份。
+设备详情请使用 §4.3 `state/query`。
 
 - 请求：`walle/{t}/v1/discovery/query`（租户级，没有 device 段）
 - 应答：`walle/{t}/{d}/v1/discovery/result`
@@ -233,7 +237,7 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `request_id` | 是 | 配对用，应答原样回显 |
+| `request_id` | 否 | App 会携带，仅用于日志排查；应答不回显 |
 
 
 设备端保护机制（防止广播风暴）：
@@ -242,6 +246,10 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 |---|---|---|
 | 限频 | `DISCOVERY_MIN_INTERVAL_SEC = 2.0` | 每台设备 2 秒内只应答一次，重复查询丢弃 |
 | 抖动 | `DISCOVERY_JITTER_SEC = 0.8` | 应答前随机延迟 0~0.8s，N 台设备错开回包 |
+
+> 2026-11-11 起 discovery/result 与 online 统一为最小身份（此前返回 `mac`/`serial`/
+> `os`/`cpu`/磁盘等完整身份并回显 `request_id`）。后续 App 改为
+> `UNSUBSCRIBE/SUBSCRIBE online` 触发 retained 回放后，可删除 discovery 主题。
 
 > 坑位提醒：这个主题没有 device 段（第 3 段是 `v1` 版本段），解析时不能切成
 > `device="v1", resource="discovery/query"`——两端（`TopicNames.parse`、`main._handle_request`）
@@ -604,8 +612,13 @@ python3 walle-device/linux-demo/selftest_topics.py       # 设备端契约自检
    （P0-3.1）。
 3. **WHEP 鉴权实测**：Nginx 8443 `/whep-audio/` + `secure_link` 验证无 token 403、
    过期 410、正确 token 502（P0-4.1）。
-4. **App 适配 online 最小字段**：新版 retained `online` 不再含 `mac`/`serial`/`os`/`cpu`/
-   磁盘等字段，设备归并退化为 `device_id`/`uuid`/`hostname`；完整身份改用 `discovery/query`。
-5. **linux-demo 实机验证**：`kill -9` 子进程清理、断网恢复、摄像头插拔、声卡不可用与
+4. **App 适配最小身份报文**：`online` 与 `discovery/result` 均只含最小身份（`device_id`/
+   `uuid`/`version`/`os_description`/`device_type`/`model`/`hostname`/`ip`/`uptime`/
+   `timestamp`），列表页只展示基本信息，详情页统一走 `state/query`；Android 侧
+   `DeviceInfo.from` 仍在解析 `mac`/`serial`/`os`/`cpu`/磁盘等字段，需后续清理。
+5. **手机端刷新方式实测**：改用 `UNSUBSCRIBE` + `SUBSCRIBE` `walle/{t}/+/v1/online`
+   触发 retained 回放，替代 `discovery/query`；验证通过后可删除 discovery 主题、
+   处理逻辑与 `DISCOVERY_MIN_INTERVAL_SEC` / `DISCOVERY_JITTER_SEC`。
+6. **linux-demo 实机验证**：`kill -9` 子进程清理、断网恢复、摄像头插拔、声卡不可用与
    24h soak（P1-5.3）；CI 接入 `.github/workflows/ci.yml`（P1-5.4，暂缓）。
-6. **linux-demo 剩余 P2**：兼容性与功能优化项，见上线清单 P2-3/P2-4/P2-5。
+7. **linux-demo 剩余 P2**：兼容性与功能优化项，见上线清单 P2-3/P2-4/P2-5。
