@@ -1,6 +1,5 @@
 # 本地真实配置与服务文件（只提交 *.example 模板）
 walle-ai.conf
-walle-ai.env
 walle-ai.service
 .device-id
 log/
