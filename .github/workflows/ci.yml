@@ -36,9 +36,9 @@ jobs:
         run: >
           flake8 --select=E,F,W --max-line-length=99
           walle-device/scripts
-          walle-device/walle_ws/src/car_control/controller/test
-          walle-device/walle_ws/src/net/net_mqtt_bridge/test
-          walle-device/walle_ws/src/video/video_webrtc_bridge/test
+          walle-device/ros2_ws/src/car_control/controller/test
+          walle-device/ros2_ws/src/net/net_mqtt_bridge/test
+          walle-device/ros2_ws/src/video/video_webrtc_bridge/test
 
   build-test:
     name: build-test
@@ -65,18 +65,18 @@ jobs:
         shell: bash
         run: |
           source /opt/ros/jazzy/setup.bash
-          cd walle-device/walle_ws
+          cd walle-device/ros2_ws
           colcon build --event-handlers console_cohesion+
 
       - name: Unit tests
         shell: bash
         run: |
           source /opt/ros/jazzy/setup.bash
-          source walle-device/walle_ws/install/setup.bash
+          source walle-device/ros2_ws/install/setup.bash
 
-          (cd walle-device/walle_ws/src/car_control/controller \
+          (cd walle-device/ros2_ws/src/car_control/controller \
             && python3 -m pytest -q test/test_mecanum.py)
-          (cd walle-device/walle_ws/src/net/net_mqtt_bridge \
+          (cd walle-device/ros2_ws/src/net/net_mqtt_bridge \
             && python3 -m pytest -q test)
-          (cd walle-device/walle_ws/src/video/video_webrtc_bridge \
+          (cd walle-device/ros2_ws/src/video/video_webrtc_bridge \
             && python3 -m pytest -q test)

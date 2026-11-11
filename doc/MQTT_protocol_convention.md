@@ -1,13 +1,13 @@
 # MQTT 协议约定（协议 v1 · 多租户主题）
 
-> 本文是 App（Android）与设备端（`linux/main.py`）之间 MQTT 报文契约的**唯一权威文档**。
+> 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
 > - 协议版本：**v1**（多租户主题）。旧版全局主题（如 `device/online`）已彻底删除，无兼容层。
 > - 传输：MQTT 3.1.1，报文一律 **JSON（UTF-8）**，**QoS 1**，Keep Alive 60s。
 > - App 端实现：`app/src/main/java/www/walle/ai/net/`（TopicNames / MessageRouter / MqttManager）
-> - 设备端实现：`linux/main.py`
-> - 契约交叉验证：`app` 单测（TopicNamesTest / MessageRouterTest / …）+ `linux/selftest_topics.py`
+> - 设备端实现：`walle-device/linux-demo/main.py`
+> - 契约交叉验证：`app` 单测（TopicNamesTest / MessageRouterTest / …）+ `walle-device/linux-demo/selftest_topics.py`
 
 > **2026-11-08 安全变更**：`walle/{t}/{d}/v1/cmd/exec` 与 `walle/{t}/{d}/v1/cmd/result`
 > 已从协议中移除，原因、影响与验证方式见文末「§8 变更记录」。旧版 App 调用将不会收到应答。
@@ -100,7 +100,7 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 | `…/stop` | 手机侧发起「停止上行」的新后缀（无 room 也可发，用于退出兜底） | `phone/audio/stop` |
 | 无后缀 | 主动上报，只有 `online` 和 `alarm` 两个 | — |
 
-这套约定由 `linux/selftest_topics.py` 第 4 节强制检查：每个 `REQ_*` 必须在
+这套约定由 `walle-device/linux-demo/selftest_topics.py` 第 4 节强制检查：每个 `REQ_*` 必须在
 `REQUEST_TO_RESULT` 里登记对应的 `RES_*`，不允许存在「没人请求的 /result 主题」。
 
 ### 2.4 请求-应答严格配对：request_id + uuid 双校验
@@ -189,35 +189,37 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 ### 4.1 online —— 上线/下线（主动上报）
 
-**作用**：App 设备列表的唯一数据源。上线 retained 报文含完整身份，订阅即回放。
+**作用**：App 设备列表的唯一数据源。上线 retained 报文只含基本身份，订阅即回放。
 
 - 主题：`walle/{t}/{d}/v1/online`，**retained**
-- 上线：设备连上 broker 后立即发布 `online: true` + 完整身份（同 §4.2 的身份字段全集）
+- 上线：设备连上 broker 后立即发布 `online: true` + 基本身份（见下表）
 - 下线：broker 通过 **LWT 遗嘱**发布 `online: false`（设备端注册 will，异常掉线也能通知）
 
-关键字段（其余同 `build_device_info`）：
+字段（最小集；完整身份见 §4.2 `discovery/result`）：
 
 | 字段 | 说明 |
 |---|---|
 | `online` | bool，true=上线 / false=下线 |
 | `device_id` / `uuid` / `hostname` | 归并与展示用标识 |
 | `version_code` / `version_name` | 设备端软件版本：版本号（整数，如 `1`）、版本名（如 `0.1.1.1`） |
-| `device_type` / `vendor` / `model` / `serial` | 设备类型、厂商、型号（如 Raspberry Pi 5）、序列号 |
-| `ip` / `mac` | 网络身份 |
-| `os{name,kernel,kernel_build,arch,python}` | 系统与内核版本 |
-| `cpu{model,cores_logical,cores_physical,frequency_mhz,temperature_c}` | CPU 概览 |
-| `memory_total_bytes/human`、`disk_total_bytes/human` | 总量 |
-| `uptime_seconds` / `uptime_human` / `boot_time` | 运行时长 |
-| `uuid_source{mac,ip,note}` | uuid 生成依据（提示重启会变，用 discovery 拿最新） |
+| `os_description` | 操作系统描述，取 os-release 的 `PRETTY_NAME`（如 `Ubuntu 24.04.5 LTS`）；无 PRETTY_NAME 时回退 `NAME` + `VERSION`，文件缺失时回退内核信息 |
+| `device_type` / `model` | 设备类型、型号（如 Raspberry Pi 5） |
+| `ip` | 设备当前 IP，展示与排障用 |
+| `uptime_seconds` | 运行时长（秒） |
+| `timestamp` / `datetime` | 报文时间戳 |
+
+> 2026-11-10 起，retained `online` **不再包含** `mac`、`serial`、`os`、`cpu`、内存/磁盘
+> 总量、`boot_time`、`uuid_source` 等身份细节；这些字段只在 `discovery/result` 返回。
 
 **注意**：`online: false` 的遗嘱只由 broker 代发；设备端正常关机也应主动发一次。
 App 侧重复 online 不去重（幂等）。
 
-**归并顺序（`DeviceRegistry.applyOnline`）**：`device_id` → `uuid` → **MAC** → `hostname`。
-最后这层 MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id 的
+**归并顺序（`DeviceRegistry.applyOnline`）**：`device_id` → `uuid` → **MAC（若存在）** → `hostname`。
+MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id 的
 `online:false` + 新 id 的 `online:true`）会合成一张卡片；若旧报文按 MAC 命中已有设备、
 却是下线且 `timestamp` 更旧，则整条丢弃，避免把在线设备刷成离线。
-真实的同一启动周期遗嘱（`device_id` 相同、时间戳相同）不受影响。
+新版设备端 online 不含 MAC，App 需容忍该字段缺失，退化为按 `device_id`/`uuid`/`hostname`
+归并；真实的同一启动周期遗嘱（`device_id` 相同、时间戳相同）不受影响。
 
 ### 4.2 设备发现 discovery/query → discovery/result
 
@@ -385,7 +387,7 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 
 ### 4.7 alarm —— 告警（主动上报）
 
-**作用**：阈值越限/恢复、USB 插拔的实时通知，驱动 App 告警中心（落 SQLite，200 条滚动淘汰）。
+**作用**：阈值越限/恢复、USB 插拔、推流/手机音频中断的实时通知，驱动 App 告警中心（落 SQLite，200 条滚动淘汰）。
 
 - 主题：`walle/{t}/{d}/v1/alarm`（非 retained，QoS1，App 侧 2 秒签名去重）
 
@@ -395,15 +397,22 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 |---|---|---|
 | `event` | `alarm` / `recover` / `usb_connect` / `usb_disconnect` | 事件类型 |
 | `level` | `critical` / `warning` / `info` | 级别（阈值告警=warning，恢复=info，USB 拔出=warning，USB 接入=info） |
-| `metric` | `cpu` / `memory` / `disk` / `network` / `temperature` / `usb` | 指标 |
-| `alarm_type` | 稳定代码如 `cpu_high` | 分类用 |
+| `metric` | `cpu` / `memory` / `disk` / `network` / `temperature` / `usb` / `video` / `audio` | 指标 |
+| `alarm_type` | 稳定代码如 `cpu_high` / `video_lost` / `phone_audio_lost` | 分类用 |
 | `message` | 中文可读描述 | 直接可展示 |
-| `detail` | 阈值类：`{value, unit, threshold}`；USB：`{device{...}, current_count}` | 结构化细节 |
+| `detail` | 阈值类：`{value, unit, threshold}`；USB：`{device{...}, current_count}`；视频中断：`{room_number, exit_code, log_file, tail}`；手机音频中断：`{room_number, exit_code, reason, log_file, tail}` | 结构化细节 |
 | `device_id`、`uuid`、`hostname`、`ip`、`timestamp`、`datetime` | 公共字段 | |
 
 **回滞防抖**：越限（≥阈值）告警后，要降到 **阈值 × 0.9** 以下才发 `recover`，防止边界
 抖动反复报警。阈值均可用环境变量覆盖（`THRESH_CPU`/`THRESH_MEM`/`THRESH_DISK`/
 `THRESH_TEMP`/`THRESH_NET_MIB`），监控周期 `MONITOR_INTERVAL`（默认 5s）。
+
+**媒体中断告警**：`video_lost`（`metric=video`）在 ffmpeg 推流进程非主动退出时上报；
+`phone_audio_lost`（`metric=audio`）在 WHEP 播放器非主动退出时上报。两者 `event=alarm`、
+`level=warning`，`detail` 带 `room_number`、`exit_code`、`log_file` 与 `tail`（日志尾部，
+≤500 字符）用于定位；重新启动成功后发同 `alarm_type` 的 `event=recover`，主动 stop 不发告警。
+达到最长时长自动停止时改发 `video_timeout` / `phone_audio_timeout`（`event=alarm`、`level=info`，
+`detail` 带 `room_number`、`max_duration_sec`、`started_at`），不视为故障。
 
 ### 4.8 手机麦克风上行 phone/audio/send|stop（控制面）＋ WebRTC WHIP/WHEP（媒体面）
 
@@ -416,7 +425,7 @@ MQTT 只负责「开 / 关」控制。
 > 秒级延迟（实测手机说话到出声约 10s）。WebRTC 走 UDP，晚到的包直接丢弃，实测端到端约 200ms。
 > 另：服务端 WHIP 端点**必须带 `secret`**，不带会直接 502。这个 secret 由 Oryx 部署时生成、
 > 每台服务器不同，因此**不写死在代码里**：App 构建期注入（`-PoryxSecret` / `gradle.properties`
-> 的 `oryxSecret` / 环境变量 `WHIP_SECRET`），设备端读 `/etc/walle-ai.conf` 的 `WHIP_SECRET`。
+> 的 `oryxSecret` / 环境变量 `WHIP_SECRET`），设备端读 `/etc/walle-ai.conf` 的 `MEDIA_SERVER_SECRET`。
 
 - 开启请求：`walle/{t}/{d}/v1/phone/audio/send` → 应答 `.../send/result`
 - 关闭请求：`walle/{t}/{d}/v1/phone/audio/stop` → 应答 `.../stop/result`
@@ -438,7 +447,7 @@ MQTT 只负责「开 / 关」控制。
 
 **关键约定**：
 
-- **流名 = `{room}_audio`**（设备端 `PHONE_AUDIO_WHEP_URL_TEMPLATE` 拼 `{stream}`，可用
+- **流名 = `{room}_audio`**（设备端按 `MEDIA_SERVER_HOST` 拼 `https://{host}/rtc/v1/whep/?app=live&stream={stream}`，可用
   `PHONE_AUDIO_STREAM_SUFFIX` 覆盖）。与设备自己推的视频流 `live/{room}` 错开，
   避免两端抢同一路 stream。
 - **先连上再通知**：App 必须等 WHIP 的 PeerConnection 进入 `CONNECTED`（媒体面已通）才发
@@ -474,12 +483,12 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 3. 同步更新测试，**缺一不可**：
    - App：`TopicNamesTest`（主题命名/清洗）、`MessageRouterTest`（路由/去重）、
      以及对应模型的解析测试（`StatusSnapshotTest` 等）
-   - 设备端：`linux/selftest_topics.py`（清洗对照、订阅清单、命名成对、request_id 回显）
+   - 设备端：`walle-device/linux-demo/selftest_topics.py`（清洗对照、订阅清单、命名成对、request_id 回显）
 4. 本地验证通过后提交（CI 工作流已移除，提交前务必本地跑通以下检查）：
 
 ```bash
 ./gradlew :app:testDebugUnitTest        # App 契约测试
-python3 linux/selftest_topics.py       # 设备端契约自检
+python3 walle-device/linux-demo/selftest_topics.py       # 设备端契约自检
 ```
 
 **三条铁律**：
@@ -490,7 +499,7 @@ python3 linux/selftest_topics.py       # 设备端契约自检
 
 ## 6. 两端代码对照表
 
-| 职责 | App（`app/src/main/java/www/walle/ai/net/`） | 设备端（`linux/main.py`） |
+| 职责 | App（`app/src/main/java/www/walle/ai/net/`） | 设备端（`walle-device/linux-demo/main.py`） |
 |---|---|---|
 | 主题拼装/解析/清洗 | `TopicNames.java` | `sanitize_segment` / `device_topic` / `_handle_request` |
 | 报文路由 + QoS1 去重 | `MessageRouter.java` | `_handle_request` + `REQUEST_HANDLERS` |
@@ -507,7 +516,7 @@ python3 linux/selftest_topics.py       # 设备端契约自检
 
 ## 7. 相关文档
 
-- [设备端部署说明](../linux/README.md) — main.py 安装与配置
+- [设备端部署说明](../walle-device/linux-demo/README.md) — main.py 安装与配置
 
 ---
 
@@ -583,3 +592,20 @@ python3 linux/selftest_topics.py       # 设备端契约自检
 - 设备启动日志中的 MQTT 订阅清单不再包含 `cmd/exec`。
 - 使用 MQTT 客户端向 `walle/{t}/{d}/v1/cmd/exec` 发布消息，设备应无任何响应。
 - 打开 `test/car_ctl_by_mqtt.html`，页面不再出现「远程指令」卡片。
+
+## 待办
+
+> 记录已确认、但尚未在仓库内闭环的事项；完成后从本清单移除并写入对应章节或变更记录。
+> 设备端整改进度以 `walle-device/doc/linux-demo-launch-checklist.md` 为准。
+
+1. **EMQX ACL 与审计落地**：按 `doc/service_deploy.md` §10 配置每设备账号、
+   `walle/+/${clientid}/#`、`{deny, all}.` 与审计规则，并完成跨设备验证（P0-1.3 / P0-1.4）。
+2. **凭据轮换**：App 测试账号 `home` 与设备账号改密，同步 App 与设备 `/etc/walle-ai.conf`
+   （P0-3.1）。
+3. **WHEP 鉴权实测**：Nginx 8443 `/whep-audio/` + `secure_link` 验证无 token 403、
+   过期 410、正确 token 502（P0-4.1）。
+4. **App 适配 online 最小字段**：新版 retained `online` 不再含 `mac`/`serial`/`os`/`cpu`/
+   磁盘等字段，设备归并退化为 `device_id`/`uuid`/`hostname`；完整身份改用 `discovery/query`。
+5. **linux-demo 实机验证**：`kill -9` 子进程清理、断网恢复、摄像头插拔、声卡不可用与
+   24h soak（P1-5.3）；CI 接入 `.github/workflows/ci.yml`（P1-5.4，暂缓）。
+6. **linux-demo 剩余 P2**：兼容性与功能优化项，见上线清单 P2-3/P2-4/P2-5。

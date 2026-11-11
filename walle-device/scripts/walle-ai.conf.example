@@ -17,8 +17,10 @@ MQTT_PASSWORD=xxxx
 MQTT_TENANT=home
 
 # ================= （3）必填（ WebRtc 配置）=================
+# 媒体服务器地址（IP 或域名），视频推流与手机音频拉流共用
+MEDIA_SERVER_HOST=www.baidong.xyz
 # Oryx 推流鉴权 secret（Oryx 控制台「推流鉴权」生成，每台服务器不同；重置后需同步更新 App 与设备）
-WHIP_SECRET=xxxxx
+MEDIA_SERVER_SECRET=xxxxx
 
 # ================= 可选 =================
 # TLS：on=强制（默认）；auto 仅在 8883/8084 自动启用；off/明文会被拒绝启动

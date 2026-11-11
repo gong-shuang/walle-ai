@@ -81,7 +81,7 @@
 
 - [x] ✅ **P0-3.5 禁止绕过底盘节点直接控制电机**
   - 处理：低层接口移入内部命名空间——`ros_robot_controller` 改为订阅 `~/internal/set_motor_speeds`、`~/internal/enable_reception`，`mecanum.py` / `hardware_test.py` 同步改发布名；`walle_net/launch/net.launch.py` 为 rosbridge 增加 `topics_glob` 话题白名单，只放行调试页实际使用的 `/cmd_vel`、电池/声呐与灯光、蜂鸣器、OLED、舵机话题，其余话题（含内部直控接口）的 publish / subscribe / advertise 一律拒绝
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L52-L53
+  - 证据：`ros2_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py` L52-L53
   - 验收：rosbridge 向 `/ros_robot_controller/internal/set_motor_speeds` 或 `/ros_robot_controller/internal/enable_reception` 发布时被拒绝（服务端日志 `No match found for topic`）且不生效；调试页 `/cmd_vel` 遥控不受影响
 
 ### P0-4 多车同域串控
@@ -102,7 +102,7 @@
   - 验收：`agent.py` 中无默认 MQTT 凭据；无 env 文件时节点拒绝启动
 
 - [x] ✅ **P0-5.2 env 文件模板化并加入 gitignore**
-  - 处理：env 模板统一为 `*.example`（`scripts/walle-ai.conf.example`、`linux/walle-ai.conf.example`）；仓库根与 `walle-device/.gitignore` 忽略 `*.env`、`walle-ai.conf`；`start.sh` / `deploy.sh` 在缺少配置时提示从模板复制；部署文档与 `agent.py` 报错提示同步改为模板路径
+  - 处理：env 模板统一为 `*.example`（`scripts/walle-ai.conf.example`、`linux-demo/walle-ai.conf.example`）；仓库根与 `walle-device/.gitignore` 忽略 `*.env`、`walle-ai.conf`；`start.sh` / `deploy.sh` 在缺少配置时提示从模板复制；部署文档与 `agent.py` 报错提示同步改为模板路径
   - 验收：`git ls-files '*.env' 'walle-ai.conf'` 为空；新建 `scripts/walle-ai.conf` 后 `git check-ignore -v` 命中忽略规则，`git status` 不跟踪
 
 - [x] ✅ **P0-5.3 扫描历史并轮换已暴露密钥**
@@ -214,17 +214,17 @@
 
 - [x] ✅ **P2-1.1 state/query 使用缓存快照**
   - 处理：`monitor_loop` 每轮采样后写入 `status_sample`（各核 CPU、各网卡速率、采样间隔与时刻），USB 列表复用 `check_usb` 维护的 `usb_state`，`build_status()` 直接复用；连接 broker 前先补采一次，监控首轮采样提前到 1s（`STATUS_PRIME_INTERVAL`）；仅首份快照未建立时现场补采 0.2s 兜底。应答新增顶层 `sample_age_sec`
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/monitor.py`（`_status_sample` / `_update_status_sample` / `build_status` / `monitor_loop`）
+  - 证据：`ros2_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/monitor.py`（`_status_sample` / `_update_status_sample` / `build_status` / `monitor_loop`）
   - 验收：`test/test_status_cache.py` 断言 `handle_query_status` 全程 < 100ms 且命中缓存时不调用 `sample_once`
 
 - [x] ✅ **P2-1.2 capability 探测异步/按需**
   - 处理：新增后台线程 `_capability_loop`，启动即探测并按 `CAPABILITY_CACHE_TTL`（默认 120s）刷新；`handle_capability_query` 只读缓存，首次查询最多等待 `CAPABILITY_FIRST_WAIT`（默认 3s），超时或 `CAPABILITY_CACHE_ONLY=True` 时立即返回 `probe.pending` 占位；探测失败保留旧缓存。应答新增 `cache {source, age_sec, ttl_sec}`
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/capability.py`（`refresh_capability` / `capability_snapshot` / `_capability_loop` / `handle_capability_query`）
+  - 证据：`ros2_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/capability.py`（`refresh_capability` / `capability_snapshot` / `_capability_loop` / `handle_capability_query`）
   - 验收：`test/test_capability_cache.py` 覆盖只读缓存、cache-only 立即返回 pending、后台探测写入缓存、探测失败保留旧缓存；请求线程不再执行 v4l2/pactl
 
 - [x] ✅ **P2-1.3 视频硬件编码**
   - 处理：评估结论——本机 Pi 5（kernel 6.8）只有 `pispbe` ISP 与 `rpivid` 解码节点，无 V4L2 M2M 编码器；ffmpeg 的 `h264_v4l2m2m` / `hevc_v4l2m2m` 试编码均报 `Could not find a valid device`，GStreamer 也没有 `v4l2h264enc`。已实现 `video_encoder=auto|libx264|h264_v4l2m2m`：启动时用 0.5s 试编码探测，硬件可用则启用，否则自动回退 libx264 并打印原因
-  - 证据：`walle_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py`（`probe_hw_h264_encoder` / `select_encoder` / `_select_encoder` / `_build_ffmpeg_cmd`）
+  - 证据：`ros2_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py`（`probe_hw_h264_encoder` / `select_encoder` / `_select_encoder` / `_build_ffmpeg_cmd`）
   - 验收：本机探测 0.2s 后正确回退 libx264（Pi 5 无硬件编码器，CPU 不下降属硬件限制）；带 V4L2 M2M 编码器的设备上 `auto` 会自动切到 `h264_v4l2m2m`
 
 - [x] ✅ **P2-1.4 MQTT 消息处理与监控解耦**
@@ -236,37 +236,37 @@
 
 - [x] ✅ **P2-2.1 拆分 agent.py**
   - 处理：按职责拆为 `config` / `identity` / `monitor` / `protocol` / `capability` / `media` / `audio` / `video` / `phone_audio` 九个模块；`agent.py` 只保留 `RpiMonitor` 组合、启动流程、`--check` 与公共名 re-export（`__getattr__` 兼容 `DEVICE_ID` 等运行期配置读取）。最大文件 `monitor.py` 388 行，原 2935 行的 `agent.py` 降至 321 行
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/` 下 `config.py`（环境/主题）、`identity.py`（身份/格式化）、`monitor.py`（采样与 state 快照）、`protocol.py`（MQTT 回调/查询）、`capability.py`（能力缓存）、`media.py`（摄像头/ffmpeg/日志）、`audio.py`（音频探测）、`video.py`、`phone_audio.py`
+  - 证据：`ros2_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/` 下 `config.py`（环境/主题）、`identity.py`（身份/格式化）、`monitor.py`（采样与 state 快照）、`protocol.py`（MQTT 回调/查询）、`capability.py`（能力缓存）、`media.py`（摄像头/ffmpeg/日志）、`audio.py`（音频探测）、`video.py`、`phone_audio.py`
   - 验收：`test/test_modules.py` 逐一导入各模块并断言所有 `.py` < 500 行；`net_mqtt_bridge` 36 项 pytest 通过；`node.py` 仅改为从 `config` 读写 `DEVICE_ID_FILE`/`DEVICE_ID`，其余接口不变
 
 - [x] ✅ **P2-2.2 删除被 node 覆盖的旧视频实现**
   - 处理：删除 net_mqtt_bridge 内整套 ffmpeg 推流实现——`video.py` 只保留推流/停止结果报文与独立运行占位（明确提示由 `video_webrtc_bridge` 推流），`_stop_video_stream` 变为空实现；删除 `media.py` 的 `build_ffmpeg_cmd` / `build_rtmp_url` 及只被旧实现使用的 `VIDEO_LOG_LEVEL` / `VIDEO_VIDEO_SIZE` / `VIDEO_FRAMERATE` / `VIDEO_BITRATE` / `VIDEO_GOP` / `VIDEO_STARTUP_GRACE` / `VIDEO_AUDIO_FRAGMENT_SIZE`；`_video_status` 默认值简化为未推流（ROS 下仍由 node.py 覆盖）
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/video.py`、`media.py`；唯一推流实现见 `walle_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py`
+  - 证据：`ros2_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/video.py`、`media.py`；唯一推流实现见 `ros2_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py`
   - 验收：`test/test_video_removed.py` 断言包内无 `libx264` / `v4l2` 推流管线与 `build_ffmpeg_cmd` 等旧符号；独立模式 start 返回 -2、stop 返回 -1 并提示走 ROS 桥；`net_mqtt_bridge` 39 项 pytest 通过
 
 - [x] ✅ **P2-2.3 版本号单一来源**
-  - 处理：`config.py` 不再写死版本，环境变量 `WALLE_VERSION_NUM` / `WALLE_VERSION_NAME` 优先（`env_walle.sh` 已 source 并 export）；未注入时按目录结构定位 ROS2 工作空间根目录（`WALLE_WS`/`WALLE_HOME`，其次按包路径查找 `walle_ws`），读取其下的 `VERSION`，不写死绝对路径；`WALLE_VERSION_FILE` 可覆盖。发版只需改 `walle_ws/VERSION`
-  - 证据：`walle_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/config.py`（`_workspace_dir` / `_parse_version_file` / `VERSION_FILE`）、`walle_ws/VERSION`、`scripts/env_walle.sh`
-  - 验收：`test/test_version.py` 覆盖 VERSION 解析、工作空间定位、`WALLE_HOME` 优先、常量与文件一致；本机解析到 `walle_ws/VERSION`（`VERSION_CODE=1`、`VERSION_NAME=0.0.2`）
+  - 处理：`config.py` 不再写死版本，环境变量 `WALLE_VERSION_NUM` / `WALLE_VERSION_NAME` 优先（`env_walle.sh` 已 source 并 export）；未注入时按目录结构定位设备端根目录（`WALLE_WS`/`WALLE_HOME`，其次按包路径查找 `ros2_ws` 的上级目录），读取其中的 `VERSION`（linux-demo 与 ROS2 共用），不写死绝对路径；`WALLE_VERSION_FILE` 可覆盖。发版只需改 `VERSION`
+  - 证据：`ros2_ws/src/net/net_mqtt_bridge/net_mqtt_bridge/config.py`（`_version_root` / `_parse_version_file` / `VERSION_FILE`）、`VERSION`、`scripts/env_walle.sh`
+  - 验收：`test/test_version.py` 覆盖 VERSION 解析、设备端根目录定位、`WALLE_HOME` 优先、常量与文件一致；本机解析到 `VERSION`（`VERSION_CODE=1`、`VERSION_NAME=0.0.2`）
 
 - [x] ✅ **P2-2.4 修复 enable_reception 属性覆盖**
   - 处理：新增 `self._reception_enabled` 保存上报开关，`pub_callback` 改为读该字段；`enable_reception()` 保持为独立方法，回调里只更新 `_reception_enabled` 并同步 `board.enable_reception()`，不再把方法名覆盖成 bool
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`__init__` / `pub_callback` / `enable_reception`）
+  - 证据：`ros2_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`__init__` / `pub_callback` / `enable_reception`）
   - 验收：本地以 `object.__new__` 冒烟连续调用两次 `enable_reception()`（False→True）不抛 `TypeError`，Board 收到 `[False, True]`；订阅回调引用仍为方法本身
 
 - [x] ✅ **P2-2.5 移除节点构造函数内的 rclpy.init()**
   - 处理：`RosRobotController`（ros_robot_controller）与 `SonarController`（sonar_controller）的构造函数不再调用 `rclpy.init()`；两个 `main()` 在创建节点前各调用一次，节点可被测试或其他进程组合复用
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`main`）、`walle_ws/src/car_control/sonar_controller/sonar_controller/sonar_controller_node.py`（`main`）
+  - 证据：`ros2_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`main`）、`ros2_ws/src/car_control/sonar_controller/sonar_controller/sonar_controller_node.py`（`main`）
   - 验收：AST 检查两个文件均为「类内 `rclpy.init` 0 次、`main` 内 1 次」；`py_compile` 通过；`colcon build` 后单节点启动正常，单进程同时构造 controller + sonar 运行 3s 未出现 `Context.init() must only be called once`
 
 - [x] ✅ **P2-2.6 修复 PWM 舵机状态服务**
   - 处理：`get_pwm_servo_state` 改为标准服务回调签名 `(request, response)`，遍历 `request.cmd` 后把结果写入 `response.state`、`response.success` 并返回 `response`，不再返回 `[True, states]` list
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`get_pwm_servo_state`）
+  - 证据：`ros2_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`get_pwm_servo_state`）
   - 验收：mock 冒烟返回同一 `response` 对象（`success=True`、`state` 含 1 项，position/offset 正确）；实车可再执行 `ros2 service call /ros_robot_controller/pwm_servo/get_state ros_robot_controller_msgs/srv/GetPWMServoState "{cmd: [{id: 1, get_position: 1, get_offset: 1}]}"` 复核
 
 - [x] ✅ **P2-2.7 修正 IMU 数据语义**
   - 处理：`pub_imu_data` 中 `orientation_covariance[0]` 改为 `-1`（REP-145：本消息不提供姿态），零四元数仅作占位；角速度/加速度协方差保持不变。本版本小车没有 IMU 传感器，保留该发布逻辑用于兼容有 IMU 的底盘
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`pub_imu_data`）
+  - 证据：`ros2_ws/src/car_control/ros_robot_controller/ros_robot_controller/ros_robot_controller_node.py`（`pub_imu_data`）
   - 验收：mock 冒烟 `pub_imu_data` 发布成功且 `orientation_covariance[0] == -1.0`；因无 IMU 硬件，未做实车验证，下游（robot_localization/Nav2）会按 REP-145 忽略姿态
 
 - [ ] 🔴 **P2-2.8 补 URDF/TF**
@@ -277,38 +277,38 @@
 
 - [x] ✅ **P2-3.1 消除 process() 忙等**
   - 处理：`VLLMTrack.PROCESS_PERIOD_SEC = 0.05`，`process()` 每轮先 `time.sleep(0.05)` 再执行 `cmd_vel` 保活与动作处理；20Hz 轮询既满足 10Hz 保活，又避免空闲时忙等占满 CPU
-  - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py`（`PROCESS_PERIOD_SEC` / `process`）
+  - 证据：`ros2_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py`（`PROCESS_PERIOD_SEC` / `process`）
   - 验收：mock 冒烟连续 5 轮 `process()`，`time.sleep` 均为 0.05s；空闲时不再无休止自旋，CPU 占用接近 0
 
 - [x] ✅ **P2-3.2 去除阻塞式 time.sleep**
   - 处理：删除 `execute_action_for_one_second` 的 0.6s 阻塞循环，改为非阻塞状态机：`_begin_timed_action` 立即返回并记录截止时间，`process()` 每 50ms 调用 `_tick_timed_action` 按 10Hz 重发速度、到点停车并 `_advance_action`；新请求/动作完成时清理定时状态
-  - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py`（`_begin_timed_action` / `_tick_timed_action` / `_advance_action` / `process`）
+  - 证据：`ros2_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py`（`_begin_timed_action` / `_tick_timed_action` / `_advance_action` / `process`）
   - 验收：mock 冒烟 `_begin_timed_action` 0.3ms 返回（不再阻塞 0.6s），deadline 正确设置；`_tick_timed_action` 能重发速度并到点推进到下一动作；源码中已无 `execute_action_for_one_second`
 
 - [x] ✅ **P2-3.3 声呐超时保护**
   - 处理：`distance_callback` 记录 `distance_ts`；新增 `SONAR_TIMEOUT_SEC = 0.4` 与 `_distance_stale()`，`move_forward` 执行前检查断流或 `-1` 无效值，命中后 `_handle_sonar_timeout()` 立即停车、清空当前动作并只告警一次（数据恢复后重置告警标志）
-  - 证据：`walle_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py`（`SONAR_TIMEOUT_SEC` / `distance_callback` / `_distance_stale` / `_handle_sonar_timeout` / `process`）
+  - 证据：`ros2_ws/src/ai/large_models/large_models/vllm_obstacle_avoidance.py`（`SONAR_TIMEOUT_SEC` / `distance_callback` / `_distance_stale` / `_handle_sonar_timeout` / `process`）
   - 验收：mock 冒烟模拟断流后 `process()` 最后一帧 `cmd_vel.linear.x == 0`、动作被清空、日志出现「声呐数据超过 0.4s 未更新」；0.4s 超时 + 0.05s 轮询可保证 0.5s 内停车
 
 - [x] ✅ **P2-3.4 从生产 launch 移除或加开关**
   - 处理：核查生产启动链路，`bringup.launch.py` → `large_models/start.launch.py` 只启动 `vocal_detect`（唤醒/ASR）、`agent_process`（LLM 服务）、`tts_node`（TTS），均不发布 `/cmd_vel`；`vllm_obstacle_avoidance`、`llm_control_move`、`llm_visual_patrol`、`llm_color_track`、`vllm_with_camera`、`vllm_smart_housekeeper` 等实验节点各自独立 launch，生产 bringup 不引用，需手动启动
-  - 证据：`walle_ws/src/ai/large_models/launch/start.launch.py`、`walle_ws/src/bringup/launch/bringup.launch.py`；`grep -nE "vllm_obstacle_avoidance|llm_control_move|llm_visual_patrol" walle_ws/src/ai/large_models/launch/start.launch.py` 无匹配
+  - 证据：`ros2_ws/src/ai/large_models/launch/start.launch.py`、`ros2_ws/src/bringup/launch/bringup.launch.py`；`grep -nE "vllm_obstacle_avoidance|llm_control_move|llm_visual_patrol" ros2_ws/src/ai/large_models/launch/start.launch.py` 无匹配
   - 验收：生产启动只含语音交互节点，不含任何直接发布 `/cmd_vel` 的实验 AI 节点；实验节点必须显式 `ros2 launch large_models <xxx>.launch.py` 才会运行。后续若将其接入 bringup，必须增加 `enable_ai` 参数且默认 false
 
 ### P2-4 摄像头与兼容性
 
 - [x] ✅ **P2-4.1 usb_cam 控制名适配**
   - 处理：确认 usb_cam 0.8.1 在 kernel 6.8 下仍用旧控制名（`white_balance_temperature_auto` / `exposure_auto` / `focus_auto`），与 UVC 新名称（`white_balance_automatic` / `auto_exposure` / `focus_automatic_continuous`）不匹配且无法通过参数跳过；按本项允许的兜底方式记录为已知告警，同时在 `usb_cam.launch.py` 中用 `v4l2-ctl` 按新名称设置自动白平衡/曝光/对焦
-  - 证据：`walle_ws/src/video/walle_video/config/usb_cam_param.yaml`（已知告警说明）、`walle_ws/src/video/walle_video/launch/usb_cam.launch.py`（`v4l2-ctl` 预设置）
+  - 证据：`ros2_ws/src/video/walle_video/config/usb_cam_param.yaml`（已知告警说明）、`ros2_ws/src/video/walle_video/launch/usb_cam.launch.py`（`v4l2-ctl` 预设置）
   - 验收：`/image_raw` 正常 30 FPS；`white_balance_automatic=1`、`auto_exposure=3` 已由 v4l2-ctl 设置；启动日志仍有 3 条 usb_cam 0.8.1 的 `unknown control` 告警，属上游已知问题、非致命，已在本项与配置文件中明确记录
 
 - [x] ✅ **P2-4.2 多 video 节点环境固定设备**
   - 处理：`99-walle-camera.rules` 已按 `idVendor=0bc8` / `idProduct=5880` + `index=0` 固定 `/dev/walle-camera`；`usb_cam.launch.py` 增加启动前 `_preflight()`：校验设备存在、sysfs 路径含 `usb`（排除 `pispbe` ISP / `rpivid` 解码节点）、`v4l2-ctl` 支持 `MJPG` 与 `640x480`，失败时跳过启动并打印原因
-  - 证据：`walle_ws/src/car_control/ros_robot_controller/scripts/99-walle-camera.rules`、`walle_ws/src/video/walle_video/launch/usb_cam.launch.py`（`_is_usb_camera` / `_preflight`）
+  - 证据：`ros2_ws/src/car_control/ros_robot_controller/scripts/99-walle-camera.rules`、`ros2_ws/src/video/walle_video/launch/usb_cam.launch.py`（`_is_usb_camera` / `_preflight`）
   - 验收：`_preflight('/dev/walle-camera')` 返回 True；`/dev/video19`（rpivid）与 `/dev/video20`（pispbe）均返回 False；启动后 `/image_raw` 约 28–30 FPS，无前置检查失败日志
 
 - [x] ✅ **P2-4.3 修复测试页缺失服务**
-  - 处理：原 `app` 包的 `avoidance_node` 未迁移到 `walle_ws`（`object_tracking` / `line_following` / `qrcode` 同样未迁移），按本项允许的“移除按钮”方案处理：删除测试页避障页签、面板、参数与按钮 JS、`TAB_VIDEO` / `VIDEO_TIP` 条目，并去掉急停中的 `/avoidance_node/exit` 调用（成功计数 5 → 4）
+  - 处理：原 `app` 包的 `avoidance_node` 未迁移到 `ros2_ws`（`object_tracking` / `line_following` / `qrcode` 同样未迁移），按本项允许的“移除按钮”方案处理：删除测试页避障页签、面板、参数与按钮 JS、`TAB_VIDEO` / `VIDEO_TIP` 条目，并去掉急停中的 `/avoidance_node/exit` 调用（成功计数 5 → 4）
   - 证据：`web/car_ctl_by_bridge.html` 已无 `avoidance_node` / 避障相关引用；`grep -nE "avoid|避障"` 无匹配
   - 验收：页签与面板一一对应（`manual` / `gesture` / `tracking` / `line` / `qr` / `hw`），JS 中 `#id` 引用无悬空；点击急停只调用已存在玩法的退出服务，不再出现 `/avoidance_node/enter` 的 rosbridge 错误
 
@@ -426,7 +426,7 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-1.4 | 未提交 | 查询/动作分池 + 有界队列 + 丢弃告警；新增队列限流、动作不阻塞查询、洪峰下采样不中断单测 | 待确认 |
 | 2026-11-10 | P2-2.1 | 未提交 | agent.py 拆为 9 个职责模块；新增模块导入与 <500 行约束测试；36 项 pytest 通过 | 待确认 |
 | 2026-11-10 | P2-2.2 | 未提交 | 删除 net 侧旧 ffmpeg 推流实现与专用常量；新增“仅 video_webrtc_bridge 推流”回归测试；39 项 pytest 通过 | 待确认 |
-| 2026-11-10 | P2-2.3 | 未提交 | config.py 改为读 walle_ws/VERSION（env 优先）；新增版本解析与一致性单测；43 项 pytest 通过 | 待确认 |
+| 2026-11-10 | P2-2.3 | 未提交 | config.py 改为读 VERSION（env 优先）；新增版本解析与一致性单测；43 项 pytest 通过 | 待确认 |
 | 2026-11-10 | P2-2.4 | 未提交 | 上报开关改用 `_reception_enabled`，`enable_reception()` 保持方法；冒烟验证重复调用不抛 TypeError | 待确认 |
 | 2026-11-10 | P2-2.5 | 未提交 | 两个控制器节点移除构造函数内的 `rclpy.init()`，统一放到 main；colcon build 后单进程双节点组合验证通过 | 待确认 |
 | 2026-11-10 | P2-2.6 | 未提交 | `get_pwm_servo_state` 改为 `(request, response)` 并填充/返回 response；mock 冒烟通过 | 待确认 |
@@ -445,7 +445,7 @@ cd walle-device/scripts && ./start.sh
 ## 备注
 
 - 2026-11-10：P2-4.3 `app` 包（`avoidance_node` / `object_tracking` / `line_following` /
-  `qrcode` / 手势）未迁移到 `walle_ws`，测试页按“移除按钮”方案删除避障页签及相关
+  `qrcode` / 手势）未迁移到 `ros2_ws`，测试页按“移除按钮”方案删除避障页签及相关
   服务调用；其余玩法页签仍依赖未迁移的 `app` 节点，仅适用于 TurboPi 原始环境调试。
 - 2026-11-10：P2-4.2 摄像头设备由 `99-walle-camera.rules`（USB VID/PID + index=0）
   固定为 `/dev/walle-camera`；`usb_cam.launch.py` 启动前校验目标必须是 USB video
@@ -476,9 +476,9 @@ cd walle-device/scripts && ./start.sh
 - 2026-11-10：P2-2.4 `ros_robot_controller` 的上报开关改用 `_reception_enabled`，
   避免 Bool 回调把 `enable_reception` 方法名覆盖成 bool；连续调用回调不再抛
   `TypeError`，Board 仍同步收到开关值。
-- 2026-11-10：P2-2.3 设备版本统一读取 ROS2 工作空间下的 `walle_ws/VERSION`
+- 2026-11-10：P2-2.3 设备版本统一读取 `VERSION`（linux-demo 与 ROS2 共用）
   （环境变量 `WALLE_VERSION_NUM` / `WALLE_VERSION_NAME` 优先；未注入时按
-  `WALLE_WS`/`WALLE_HOME` 或包路径定位 `walle_ws`；
+  `WALLE_WS`/`WALLE_HOME` 或包路径定位 `ros2_ws` 的上级目录；
   `WALLE_VERSION_FILE` 可覆盖）。`env_walle.sh` 同步 source 该文件。当前
   `VERSION` 为 `0.0.2`，而 Android `versionName` 仍为 `0.1.1`——按协议约定两端
   版本需一致，正式发版前请确认以哪个为准并同步。
@@ -561,7 +561,7 @@ cd walle-device/scripts && ./start.sh
   注入并直接 `source env_walle.sh` 启动；`start.sh` 仅用于开发环境。
   `WatchdogSec` 暂未启用（节点未实现 sd_notify，见 P1-1.2）。
 - 2026-11-09：P0-5.2 已把 env 模板统一为 `*.example`
-  （`scripts/walle-ai.conf.example`、`linux/walle-ai.conf.example`），仓库根与
+  （`scripts/walle-ai.conf.example`、`linux-demo/walle-ai.conf.example`），仓库根与
   `walle-device/.gitignore` 忽略 `*.env`、`walle-ai.conf`；开发时先
   `cp walle-ai.conf.example walle-ai.conf`，生产由 `deploy.sh` 安装。
 - 2026-11-09：P0-5.3 对 88 个提交做全历史扫描，仅发现占位符（`sk-你的新key`、`xxx`），

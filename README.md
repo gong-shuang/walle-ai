@@ -85,7 +85,7 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 
 推流成功后在 App 侧按 `room_number` 拼接 WHEP 地址拉流（`BuildConfig.WHEP_URL_TEMPLATE`）。
 
-> 设备端实现与部署见 [`linux/README.md`](linux/README.md)。
+> 设备端实现与部署见 [`walle-device/linux-demo/README.md`](walle-device/linux-demo/README.md)。
 
 ---
 
@@ -95,7 +95,7 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 |---|---|
 | [doc/service_deploy.md](doc/service_deploy.md) | 如何部署服务器、配置证书，权限介绍|
 | [doc/quick_start.md](doc/quick_start.md) | 如何编译app，连接服务器，如何使用|
-| [linux/README.md](linux/README.md) | 如何部署linux设备端代码，如何使用和调试设备端代码。|
+| [walle-device/linux-demo/README.md](walle-device/linux-demo/README.md) | 如何部署linux设备端代码，如何使用和调试设备端代码。|
 
 
 ## 快速验证demo
@@ -108,7 +108,9 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 adb install walle-android-0.1.1.apk
 ```
 
-测试使用的用户名为home，密码是123456，注意，当前apk未配置whipSecret(在[walle-android/gradle.properties](walle-android/gradle.properties)文件中)，因此不能app端发起语音通话，但是能看到视频流。
+测试账号请在自己的 EMQX 中创建并配置，不要把用户名/密码以明文写进 README 或代码仓库。
+
+注意：当前 apk 未配置 whipSecret（在 [walle-android/gradle.properties](walle-android/gradle.properties) 文件中），因此不能 app 端发起语音通话，但是能看到视频流。
 
 打开app后，需要先配置用户名和密码，然后点击保存连接，如图所示：
 
@@ -147,7 +149,7 @@ adb install walle-android-0.1.1.apk
 
 - [快速上手指南](doc/quick_start.md) — 环境要求、构建、Broker 配置、证书与权限
 - [MQTT 协议约定（协议 v1）](doc/MQTT_protocol_convention.md) — 全部报文字段定义、设计原则与修改流程（改协议前必读）
-- [设备端部署说明](linux/README.md) — 树莓派一键安装脚本、配置项与排障
+- [设备端部署说明](walle-device/linux-demo/README.md) — 树莓派一键安装脚本、配置项与排障
 
 ## 许可
 

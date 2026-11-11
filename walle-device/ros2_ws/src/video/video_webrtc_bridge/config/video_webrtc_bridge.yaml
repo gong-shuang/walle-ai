@@ -1,0 +1,43 @@
+video_webrtc_bridge:
+  ros__parameters:
+    # 环境文件：用于读取 MEDIA_SERVER_HOST / MEDIA_SERVER_SECRET（不覆盖已有环境变量）
+    env_file: /etc/walle-ai.conf
+
+    image_topic: /image_raw
+    # 与 usb_cam 保持一致，使用 udev 固定路径 /dev/walle-camera
+    camera_device: /dev/walle-camera
+    framerate: 30.0
+    room_number_pattern: "^[A-Za-z0-9_-]{1,64}$"
+
+    # 媒体服务器地址与推流 secret 从 env_file 读取（MEDIA_SERVER_HOST / MEDIA_SERVER_SECRET）。
+    # 推流地址由协议固定：rtmp://{host}:1935/live/{room}?secret={secret}，无需配置模板。
+    # 不要把 secret 写进 YAML：ros2 param dump 会把明文打出来。
+    video_bitrate: "1000k"
+    video_gop: 60
+    video_preset: "ultrafast"
+    # H.264 编码器：auto=优先 V4L2 M2M 硬件（h264_v4l2m2m），不可用自动回退 libx264；
+    # 也可强制 libx264 / h264_v4l2m2m。Raspberry Pi 5 无硬件编码器，会走 libx264。
+    video_encoder: "auto"
+
+    # 麦克风混入：有可用录音源时自动带上音频
+    audio_enable: true
+    audio_device: "default"
+    audio_codec: "aac"
+    audio_bitrate: "128k"
+    audio_fragment_size: 1024
+    audio_probe_timeout: 3.0
+
+    startup_grace: 3.0
+    first_frame_timeout: 3.0
+
+    # ffmpeg 日志目录，留空则用 ~/.ros/log/video_webrtc_bridge
+    log_dir: ""
+    log_max_bytes: 20971520
+    # 历史日志保留：7 天 / 最多 10 个文件 / 总大小 100MB，优先删最旧的
+    log_retention_days: 7.0
+    log_max_files: 10
+    log_max_total_bytes: 104857600
+
+    # net_mqtt_bridge 心跳：丢失超过该时间自动停流，避免 MQTT 网关退出后留下孤儿推流
+    heartbeat_topic: /net_mqtt_bridge/heartbeat
+    heartbeat_timeout: 5.0
