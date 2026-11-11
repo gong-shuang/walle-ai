@@ -155,7 +155,7 @@ colcon build --symlink-install
 ### 安装 udev 规则（底盘串口）
 
 ```bash
-cd ~/walle-device/ros2_ws/src/car_control/ros_robot_controller/scripts
+cd ~/walle-device/scripts/udev
 sudo ./create_udev_rules.sh
 ```
 

@@ -304,7 +304,7 @@
 
 - [x] ✅ **P2-4.2 多 video 节点环境固定设备**
   - 处理：`99-walle-camera.rules` 已按 `idVendor=0bc8` / `idProduct=5880` + `index=0` 固定 `/dev/walle-camera`；`usb_cam.launch.py` 增加启动前 `_preflight()`：校验设备存在、sysfs 路径含 `usb`（排除 `pispbe` ISP / `rpivid` 解码节点）、`v4l2-ctl` 支持 `MJPG` 与 `640x480`，失败时跳过启动并打印原因
-  - 证据：`ros2_ws/src/car_control/ros_robot_controller/scripts/99-walle-camera.rules`、`ros2_ws/src/video/walle_video/launch/usb_cam.launch.py`（`_is_usb_camera` / `_preflight`）
+  - 证据：`scripts/udev/99-walle-camera.rules`、`ros2_ws/src/video/walle_video/launch/usb_cam.launch.py`（`_is_usb_camera` / `_preflight`）
   - 验收：`_preflight('/dev/walle-camera')` 返回 True；`/dev/video19`（rpivid）与 `/dev/video20`（pispbe）均返回 False；启动后 `/image_raw` 约 28–30 FPS，无前置检查失败日志
 
 - [x] ✅ **P2-4.3 修复测试页缺失服务**

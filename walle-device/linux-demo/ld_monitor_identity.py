@@ -154,11 +154,11 @@ class MonitorIdentityMixin:
 
     def _publish_discovery_result(self, rid):
         try:
-            info = self.build_device_info()
-            info["request_id"] = rid
-            self.publish_json(RES_DISCOVERY_RESULT, info)
-            logging.info("已响应设备身份查询 -> %s（request_id=%s，型号=%s 序列号=%s 主机名=%s）",
-                         device_topic(RES_DISCOVERY_RESULT), rid or "-", info.get("model"),
-                         info.get("serial"), info.get("hostname"))
+            # 与 online 保持完全一致：列表页只展示最小身份，设备详情走 state/query
+            payload = self.build_online_payload(True)
+            self.publish_json(RES_DISCOVERY_RESULT, payload)
+            logging.info("已响应设备发现查询 -> %s（request_id=%s，型号=%s 主机名=%s）",
+                         device_topic(RES_DISCOVERY_RESULT), rid or "-",
+                         payload.get("model"), payload.get("hostname"))
         except Exception:
             logging.exception("上报 %s 失败", device_topic(RES_DISCOVERY_RESULT))
