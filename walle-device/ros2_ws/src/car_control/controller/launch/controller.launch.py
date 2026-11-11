@@ -24,7 +24,11 @@ def generate_launch_description():
         executable='mecanum',
         name='mecanum_chassis_node',
         output='screen',
-        parameters=[],
+        parameters=[{
+            # 加速度斜坡：0 = 关闭（收到 cmd_vel 立即达到目标速度）
+            'max_linear_accel': 0.0,
+            'max_angular_accel': 0.0,
+        }],
         remappings=[],
         respawn=True,
         respawn_delay=5.0,

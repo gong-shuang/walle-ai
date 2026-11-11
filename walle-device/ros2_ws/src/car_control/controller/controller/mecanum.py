@@ -15,15 +15,15 @@ class MecanumChassis(Node):
         self.track_width = track_width
         self.wheel_diameter = wheel_diameter
 
-        # 速度与加速度限幅（全部可通过 ROS 参数覆盖）
+        # 速度与加速度限幅（全部可通过 ROS 参数覆盖；加速度 <= 0 表示关闭斜坡，直接响应）
         self.max_linear_speed = max(0.01, float(self.declare_parameter(
             'max_linear_speed', max_linear_speed).value))     # 最大线速度 (m/s)
         self.max_angular_speed = max(0.01, float(self.declare_parameter(
             'max_angular_speed', max_angular_speed).value))   # 最大角速度 (rad/s)
-        self.max_linear_accel = max(0.01, float(self.declare_parameter(
-            'max_linear_accel', 1.0).value))                  # 线加速度上限 (m/s²)
-        self.max_angular_accel = max(0.01, float(self.declare_parameter(
-            'max_angular_accel', 3.0).value))                 # 角加速度上限 (rad/s²)
+        self.max_linear_accel = float(self.declare_parameter(
+            'max_linear_accel', 1.0).value)                   # 线加速度上限 (m/s²)，<=0 关闭
+        self.max_angular_accel = float(self.declare_parameter(
+            'max_angular_accel', 3.0).value)                  # 角加速度上限 (rad/s²)，<=0 关闭
         self._slew_linear_x = 0.0
         self._slew_linear_y = 0.0
         self._slew_angular_z = 0.0
@@ -101,13 +101,20 @@ class MecanumChassis(Node):
         target_y = self._clamp(msg.linear.y, self.max_linear_speed)
         target_z = self._clamp(msg.angular.z, self.max_angular_speed)
 
-        # 2) 加速度限幅（按实际 dt 平滑，避免阶跃/急停急起）
-        self._slew_linear_x = self._approach(
-            self._slew_linear_x, target_x, self.max_linear_accel * dt)
-        self._slew_linear_y = self._approach(
-            self._slew_linear_y, target_y, self.max_linear_accel * dt)
-        self._slew_angular_z = self._approach(
-            self._slew_angular_z, target_z, self.max_angular_accel * dt)
+        # 2) 加速度限幅（按实际 dt 平滑；参数 <= 0 时关闭斜坡，直接响应目标速度）
+        if self.max_linear_accel > 0.0:
+            self._slew_linear_x = self._approach(
+                self._slew_linear_x, target_x, self.max_linear_accel * dt)
+            self._slew_linear_y = self._approach(
+                self._slew_linear_y, target_y, self.max_linear_accel * dt)
+        else:
+            self._slew_linear_x = target_x
+            self._slew_linear_y = target_y
+        if self.max_angular_accel > 0.0:
+            self._slew_angular_z = self._approach(
+                self._slew_angular_z, target_z, self.max_angular_accel * dt)
+        else:
+            self._slew_angular_z = target_z
 
         self._last_cmd_time = now
         self._moving = any(abs(v) > 1e-6 for v in (

@@ -144,6 +144,17 @@ def test_cmd_vel_callback_ramps_acceleration(chassis):
         [-10.0, 10.0, -10.0, 10.0], abs=1e-3)
 
 
+def test_cmd_vel_zero_accel_is_immediate(chassis):
+    """加速度参数为 0 时关闭斜坡：第一帧就达到目标速度。"""
+    chassis.max_linear_accel = 0.0
+    chassis.max_angular_accel = 0.0
+    msg = Twist()
+    msg.linear.x = 0.5
+    chassis.cmd_vel_callback(msg)
+    assert _speeds(chassis.publisher.messages[-1]) == pytest.approx(
+        [-50.0, 50.0, -50.0, 50.0], abs=1e-3)
+
+
 def test_cmd_vel_callback_clamps_twist(chassis):
     chassis.max_linear_speed = 0.5
     chassis.max_angular_speed = 0.5
