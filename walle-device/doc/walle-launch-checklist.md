@@ -72,7 +72,7 @@
 - [ ] 🟡 **P0-3.3 MCU 固件通信超时停车（软硬双保险）**
   - 状态：阻塞——`ros_robot_controller` 为 STM32 固件，源码不在本仓库，需固件方实现并烧录
   - 需求：见 `doc/mcu-comm-timeout-requirement.md`（合法电机帧计时、默认 500ms 超时四轮置 0、仅电机帧刷新、超时后新指令可恢复）
-  - 验证：架空车轮后运行 `tools/test_mcu_timeout.py`，并补 `kill -9` 与整机断电测试
+  - 验证：架空车轮后运行 `test/test_mcu_timeout.py`，并补 `kill -9` 与整机断电测试
   - 验收：上位机死机/断电时，底盘在 0.5s 内自动停止
 
 - [x] ✅ **P0-3.4 速度与加速度限幅**
@@ -199,7 +199,7 @@
   - 验收：三个包 `pytest` 共 63 项通过（21 + 23 + 19，含 P1-5.1 的 3 项）；`controller` 的 copyright/flake8/pep257 为包内历史遗留失败，与本次单测无关
 
 - [x] ✅ **P1-5.3 故障注入与长稳测试**
-  - 处理：新增 `scripts/stability_test.py`：`kill` 逐个 SIGKILL 关键节点并等待 launch/systemd 拉起；`camera` 通过 sysfs 解绑/绑定 uvcvideo 模拟拔插；`network` 默认用 iptables 只拦截 Broker 流量（不影响 SSH），`--mode link` 才断整块网卡并带延时恢复兜底；`soak` 周期采样 RSS/FD/磁盘/温度并输出 CSV，结束时判定泄漏趋势。串口掉线无法软件模拟，README 补充手动拔插步骤
+  - 处理：新增 `test/stability_test.py`：`kill` 逐个 SIGKILL 关键节点并等待 launch/systemd 拉起；`camera` 通过 sysfs 解绑/绑定 uvcvideo 模拟拔插；`network` 默认用 iptables 只拦截 Broker 流量（不影响 SSH），`--mode link` 才断整块网卡并带延时恢复兜底；`soak` 周期采样 RSS/FD/磁盘/温度并输出 CSV，结束时判定泄漏趋势。串口掉线无法软件模拟，README 补充手动拔插步骤
   - 验收：脚本 `--help`、`health`、`kill`（无节点）、`camera`（非 USB 设备）、`soak`（9 样本）冒烟通过；真机需按 README 执行 kill/camera/network/soak 24h 并留存 CSV
 
 - [x] ✅ **P1-5.4 CI 流水线**
@@ -522,7 +522,7 @@ cd walle-device/scripts && ./start.sh
   与 `scripts`/测试目录严格 flake8，`build-test` 在 Jazzy 下构建并跑三个包单测；
   顺带补齐 `sdk/common.py` 的 `random` 与 `speech.py` 的 `queue` 导入。
   GitHub 分支保护（Require status checks）需在仓库 Settings 中手动启用。
-- 2026-11-09：P1-5.3 新增 `scripts/stability_test.py`：`kill` 验证节点自治恢复；
+- 2026-11-09：P1-5.3 新增 `test/stability_test.py`：`kill` 验证节点自治恢复；
   `camera` 用 sysfs unbind/bind 模拟拔插；`network` 默认只拦截 Broker 流量，
   `--mode link` 断网卡并带延时恢复兜底；`soak` 采样 RSS/FD/磁盘/温度并判定泄漏。
   README 增加「稳定性测试（上线前）」操作步骤，串口掉线保留手动拔插验证。
@@ -583,7 +583,7 @@ cd walle-device/scripts && ./start.sh
 - 2026-11-09：P0-3.4 已在 `mecanum.py` 增加速度限幅与加速度斜坡（默认
   1.0 m/s、3.0 rad/s、1.0 m/s²、3.0 rad/s²），看门狗急停不经斜坡；需架空验证。
 - 2026-11-09：P0-3.3 阻塞于 MCU 固件源码缺失；需求见
-  `doc/mcu-comm-timeout-requirement.md`，验证脚本 `tools/test_mcu_timeout.py`
+  `doc/mcu-comm-timeout-requirement.md`，验证脚本 `test/test_mcu_timeout.py`
   （需架空车轮）。
 - 2026-11-08：rosbridge / web_video_server 定位为开发调试工具，`scripts/env_walle.sh` 新增
   `WALLE_RUNTIME_ENV`（prod/debug），`bringup` 的 `enable_rosbridge` /

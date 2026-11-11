@@ -242,14 +242,14 @@ journalctl -u walle-ai -f       # 查看日志
 
 ## 稳定性测试（上线前）
 
-`scripts/stability_test.py` 用于故障注入与长稳验证，建议在整机镜像上以 root 执行：
+`test/stability_test.py` 用于故障注入与长稳验证，建议在整机镜像上以 root 执行：
 
 ```bash
-sudo ./scripts/stability_test.py health                       # 服务/节点/MQTT 基线
-sudo ./scripts/stability_test.py kill                         # 逐个 kill 节点，等待自动拉起
-sudo ./scripts/stability_test.py camera                       # 解绑/绑定 uvcvideo，模拟拔插摄像头
-sudo ./scripts/stability_test.py network --offline 15         # 只拦截 Broker 流量，不影响 SSH
-./scripts/stability_test.py soak --hours 24 --require-stream  # 持续推流并采样 24h
+sudo ./test/stability_test.py health                       # 服务/节点/MQTT 基线
+sudo ./test/stability_test.py kill                         # 逐个 kill 节点，等待自动拉起
+sudo ./test/stability_test.py camera                       # 解绑/绑定 uvcvideo，模拟拔插摄像头
+sudo ./test/stability_test.py network --offline 15         # 只拦截 Broker 流量，不影响 SSH
+./test/stability_test.py soak --hours 24 --require-stream  # 持续推流并采样 24h
 ```
 
 - `network --mode link --iface wlan0` 才会断开整块网卡，需在串口/本地终端执行（脚本带延时自动恢复兜底）。

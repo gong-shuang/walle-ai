@@ -36,6 +36,7 @@ jobs:
         run: >
           flake8 --select=E,F,W --max-line-length=99
           walle-device/scripts
+          walle-device/test
           walle-device/ros2_ws/src/car_control/controller/test
           walle-device/ros2_ws/src/net/net_mqtt_bridge/test
           walle-device/ros2_ws/src/video/video_webrtc_bridge/test

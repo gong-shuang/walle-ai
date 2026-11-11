@@ -241,9 +241,9 @@
 
 - [ ] 🟡 **P1-5.3 故障注入与长稳测试**
   - 状态：暂缓至实机阶段（2026-11-10 确认）。代码侧已具备 `PR_SET_PDEATHSIG`、`TimeoutStopSec/KillMode`、断线重连与流租约回收（P0-5.1 / P0-5.2 / P1-2.2 / P1-3.5），需在真实设备上执行故障注入与 24h soak
-  - 动作：复用 `walle-device/scripts/stability_test.py` 思路，覆盖 `kill -9`（验证子进程清理）、断网/恢复、摄像头解绑/绑定、声卡不可用、MQTT Broker 重启、24h soak（RSS/FD/磁盘/温度）
+  - 动作：复用 `walle-device/test/stability_test.py` 思路，覆盖 `kill -9`（验证子进程清理）、断网/恢复、摄像头解绑/绑定、声卡不可用、MQTT Broker 重启、24h soak（RSS/FD/磁盘/温度）
   - 验收：`kill -9` 后无 ffmpeg/播放器残留；断网恢复后自动上线；24h 无泄漏趋势
-  - 证据：`walle-device/scripts/stability_test.py`；`main.py` L1841-L1858、L2169-L2186
+  - 证据：`walle-device/test/stability_test.py`；`main.py` L1841-L1858、L2169-L2186
 
 - [ ] 🟡 **P1-5.4 CI 覆盖 linux-demo**
   - 状态：暂缓（2026-11-10 确认不修改 `.github/workflows/ci.yml`）。现有 `Critical lint` 已覆盖 linux-demo 的语法级检查；本地已提供 `linux-demo/test/`（19 项 unittest，可用 pytest 运行），CI job 待后续统一处理

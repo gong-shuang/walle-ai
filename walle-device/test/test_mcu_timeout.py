@@ -5,7 +5,7 @@
 危险：脚本会真实驱动电机。运行前必须把车轮架空！
 
 用法：
-    python3 tools/test_mcu_timeout.py --speed 20 --pulse 0.3 --observe 2.0
+    python3 test/test_mcu_timeout.py --speed 20 --pulse 0.3 --observe 2.0
 
 流程：
     1. 以 20Hz 发送低占空比速度，持续 --pulse 秒；

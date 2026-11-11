@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """P1-5.3 故障注入与长稳测试工具（设备本机使用，勿在生产高峰执行）。
 
-    sudo ./scripts/stability_test.py health
-    sudo ./scripts/stability_test.py kill
-    sudo ./scripts/stability_test.py camera --device /dev/walle-camera
-    sudo ./scripts/stability_test.py network --mode broker --offline 15
-    ./scripts/stability_test.py soak --hours 24 --interval 10 --require-stream
+    sudo ./test/stability_test.py health
+    sudo ./test/stability_test.py kill
+    sudo ./test/stability_test.py camera --device /dev/walle-camera
+    sudo ./test/stability_test.py network --mode broker --offline 15
+    ./test/stability_test.py soak --hours 24 --interval 10 --require-stream
 
 kill    ：逐个 SIGKILL 关键节点，等待 launch/systemd 拉起新进程。
 camera  ：用 usbfs DISCONNECT/CONNECT 模拟拔插摄像头，等待 usb_cam 重启。
@@ -133,10 +133,13 @@ def parse_conf(path):
 
 
 def mqtt_settings(host=None, port=None):
-    """优先命令行，其次环境变量，最后读 /etc 与脚本同级配置。"""
+    """优先命令行，其次环境变量，最后读 /etc、脚本同级与 scripts/ 下的配置。"""
     conf = {}
     here = os.path.dirname(os.path.abspath(__file__))
-    for path in ("/etc/walle-ai.conf", os.path.join(here, "walle-ai.conf")):
+    candidates = ("/etc/walle-ai.conf",
+                  os.path.join(here, "walle-ai.conf"),
+                  os.path.join(here, os.pardir, "scripts", "walle-ai.conf"))
+    for path in candidates:
         if os.path.isfile(path) and os.access(path, os.R_OK):
             conf.update(parse_conf(path))
     host = host or os.environ.get("MQTT_HOST") or conf.get("MQTT_HOST") or ""
