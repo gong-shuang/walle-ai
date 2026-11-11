@@ -11,7 +11,7 @@ import time
 import psutil
 
 from . import config
-from .identity import (get_cpu_model, get_device_serial,
+from .identity import (get_cpu_model, get_device_serial, get_os_description,
                         get_os_pretty_name, get_pi_model, human_duration,
                         human_size, now_str, now_ts)
 from .monitor import disk_mounts, get_cpu_temp
@@ -199,9 +199,13 @@ class ProtocolMixin:
 
     # ---------- 告警状态机（带回滞） ----------
 
-    def build_device_info(self):
+    def build_device_info(self, include_disk=True):
         """组装设备身份信息：型号、主机名、IP、系统版本、内核、运行时长等
-        （不含 interfaces / mqtt / monitor，保持报文精简）"""
+        （不含 interfaces / mqtt / monitor，保持报文精简）。
+
+        include_disk=False 时跳过 disk_mounts()，用于 online/LWT 等不能卡在
+        网络挂载上的路径；此时磁盘总量为 null。
+        """
         vm = psutil.virtual_memory()
         boot = psutil.boot_time()
         uptime = int(time.time() - boot)
@@ -210,8 +214,11 @@ class ProtocolMixin:
         except (OSError, RuntimeError, SystemError):
             freq = None
         mac = self.mac
-        mounts = disk_mounts()
-        disk_total = sum(m["total_bytes"] for m in mounts)
+        if include_disk:
+            mounts = disk_mounts()
+            disk_total = sum(m["total_bytes"] for m in mounts)
+        else:
+            disk_total = None
         model = get_pi_model()
 
         return {
@@ -219,6 +226,7 @@ class ProtocolMixin:
             "uuid": config.DEVICE_UUID,
             "version_code": config.VERSION_CODE,
             "version_name": config.VERSION_NAME,
+            "os_description": get_os_description(),  # os-release 的 PRETTY_NAME
             "device_type": ("raspberrypi"
                             if model and "raspberry pi" in model.lower()
                             else "embedded-linux"),
@@ -250,7 +258,7 @@ class ProtocolMixin:
             "memory_total_bytes": vm.total,
             "memory_total_human": human_size(vm.total),
             "disk_total_bytes": disk_total,
-            "disk_total_human": human_size(disk_total),
+            "disk_total_human": human_size(disk_total) if disk_total is not None else None,
             "uptime_seconds": uptime,
             "uptime_human": human_duration(uptime),
             "boot_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(boot)),
@@ -259,18 +267,27 @@ class ProtocolMixin:
         }
 
     def build_online_payload(self, online=True):
+        """online（retained/LWT）只发最小身份，字段与 linux-demo 保持一致。
+
+        完整身份（MAC/序列号/磁盘/系统详情）只通过 discovery/query 返回，避免订阅该
+        租户主题的客户端长期读取敏感信息；这里跳过磁盘扫描，避免阻塞连接路径。
         """
-        online 报文：内容与 identity 保持一致（同一份 build_device_info），
-        只额外加一个 online 布尔字段区分上线/下线。
-        """
-        info = self.build_device_info()
-        payload = {
+        info = self.build_device_info(include_disk=False)
+        return {
             "device_id": info["device_id"],
             "uuid": info["uuid"],
             "online": bool(online),
+            "version_code": info.get("version_code"),
+            "version_name": info.get("version_name"),
+            "os_description": info.get("os_description"),
+            "device_type": info.get("device_type"),
+            "model": info.get("model"),
+            "hostname": info.get("hostname"),
+            "ip": info.get("ip"),
+            "uptime_seconds": info.get("uptime_seconds"),
+            "timestamp": now_ts(),
+            "datetime": now_str(),
         }
-        payload.update({k: v for k, v in info.items() if k not in ("device_id", "uuid")})
-        return payload
 
     def handle_device_query(self, payload):
         rid = self._rid(self._safe_json(payload))

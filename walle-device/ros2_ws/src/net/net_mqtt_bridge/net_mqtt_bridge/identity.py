@@ -95,6 +95,24 @@ def get_os_pretty_name():
     return f"{platform.system()} {platform.release()}"
 
 
+_OS_DESCRIPTION = None
+
+
+def get_os_description():
+    """操作系统描述：取 os-release 的 PRETTY_NAME（/etc 缺失时自动回退 /usr/lib）。"""
+    global _OS_DESCRIPTION
+    if _OS_DESCRIPTION is not None:
+        return _OS_DESCRIPTION
+    try:
+        info = platform.freedesktop_os_release()
+    except OSError:
+        info = {}
+    _OS_DESCRIPTION = (info.get("PRETTY_NAME")
+                       or " ".join(x for x in (info.get("NAME"), info.get("VERSION")) if x)
+                       or f"{platform.system()} {platform.release()}")
+    return _OS_DESCRIPTION
+
+
 def get_cpu_model():
     """读取 CPU 型号：优先 model name / cpu model，树莓派取 Model 行"""
     p = Path("/proc/cpuinfo")

@@ -202,6 +202,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 | `online` | bool，true=上线 / false=下线 |
 | `device_id` / `uuid` / `hostname` | 归并与展示用标识 |
 | `version_code` / `version_name` | 设备端软件版本：版本号（整数，如 `1`）、版本名（如 `0.1.1.1`） |
+| `os_description` | 操作系统描述，取 os-release 的 `PRETTY_NAME`（如 `Ubuntu 24.04.5 LTS`）；无 PRETTY_NAME 时回退 `NAME` + `VERSION`，文件缺失时回退内核信息 |
 | `device_type` / `model` | 设备类型、型号（如 Raspberry Pi 5） |
 | `ip` | 设备当前 IP，展示与排障用 |
 | `uptime_seconds` | 运行时长（秒） |

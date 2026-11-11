@@ -66,6 +66,7 @@ class MonitorIdentityMixin:
             "uuid": config.DEVICE_UUID,
             "version_code": VERSION_CODE,
             "version_name": VERSION_NAME,
+            "os_description": get_os_description(),  # os-release 的 PRETTY_NAME
             "device_type": ("raspberrypi"
                             if model and "raspberry pi" in model.lower()
                             else "embedded-linux"),
@@ -118,6 +119,7 @@ class MonitorIdentityMixin:
             "online": bool(online),
             "version_code": info.get("version_code"),
             "version_name": info.get("version_name"),
+            "os_description": info.get("os_description"),
             "device_type": info.get("device_type"),
             "model": info.get("model"),
             "hostname": info.get("hostname"),

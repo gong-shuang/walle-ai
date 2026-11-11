@@ -34,6 +34,8 @@ class OnlineIdentityTest(unittest.TestCase):
         self.assertNotIn("disk_total_bytes", payload)
         self.assertNotIn("mac", payload)
         self.assertIn("ip", payload)
+        self.assertIn("os_description", payload)
+        self.assertIsInstance(payload["os_description"], str)
         self.assertTrue(payload["online"])
 
     def test_refresh_identity_cache_is_reused(self):
