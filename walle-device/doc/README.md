@@ -159,7 +159,7 @@ colcon build --symlink-install
 
 ### 安装 udev 规则
 
-根据主控板型号选择对应的安装脚本：
+根据主控板型号选择对应的安装脚本（仅安装串口映射规则）：
 
 ```bash
 # 树莓派 5（RaspberryPi5）
@@ -171,8 +171,19 @@ cd ~/walle-ai/walle-device/scripts/udev
 sudo ./create_orangePi_udev_rules.sh
 ```
 
-> 规则会创建 `/dev/wi_uart`（树莓派 `ttyAMA0` / 香橙派 `ttyS6`，`dialout` 0660）和 `/dev/walle-camera`（USB 摄像头，按 idVendor/idProduct 匹配）；确保运行用户在 `dialout` 与 `video` 组。
-> 换摄像头后需更新 `99-walle-camera.rules` 的 USB id。
+> 规则会创建 `/dev/wi_uart`（树莓派 `ttyAMA0` / 香橙派 `ttyS6`，`dialout` 0660）；确保运行用户在 `dialout` 与 `video` 组。
+> 摄像头不使用 udev 固定符号链接，直接使用实际设备节点（如 `/dev/video0`），由用户按实际设备配置。
+
+### 配置摄像头设备
+
+用 `ls /dev/video*` 或 `v4l2-ctl --list-devices` 确认真实的摄像头节点，然后修改：
+
+- `ros2_ws/src/video/walle_video/config/usb_cam_param.yaml` 的 `video_device`
+- `ros2_ws/src/video/video_webrtc_bridge/config/video_webrtc_bridge.yaml` 的 `camera_device`（需与上一项一致）
+
+也可以在启动时覆盖：`ros2 launch bringup bringup.launch.py camera_device:=/dev/video1`。
+
+> `usb_cam.launch.py` 启动前会校验设备存在、属于 USB 摄像头且支持 MJPG 640x480，失败则跳过启动，避免误开 ISP/编解码节点。
 
 ## 部署形态选择（ROS2 版 / linux-demo 二选一）
 

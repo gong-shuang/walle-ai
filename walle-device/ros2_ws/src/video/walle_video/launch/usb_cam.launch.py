@@ -3,10 +3,13 @@ import subprocess
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, LogInfo, OpaqueFunction
+from launch.actions import (DeclareLaunchArgument, ExecuteProcess, LogInfo,
+                            OpaqueFunction)
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-CAMERA_DEVICE = '/dev/walle-camera'
+# 默认摄像头设备，按实际设备修改：ls /dev/video* 或 v4l2-ctl --list-devices
+CAMERA_DEVICE = '/dev/video0'
 REQUIRED_FORMAT = 'MJPG'
 REQUIRED_WIDTH = 640
 REQUIRED_HEIGHT = 480
@@ -22,7 +25,7 @@ def _is_usb_camera(device):
 def _preflight(device):
     """启动前校验设备存在、是 USB 摄像头且支持配置的分辨率/格式。"""
     if not os.path.exists(device):
-        return False, f'{device} 不存在（请安装 99-walle-camera.rules 后重插摄像头）'
+        return False, f'{device} 不存在（请确认摄像头已插好，或用 camera_device:=/dev/videoN 指定实际设备）'
     if not _is_usb_camera(device):
         return False, f'{device} 不是 USB 摄像头节点（可能误指向 ISP/编解码节点）'
     try:
@@ -45,8 +48,9 @@ def _preflight(device):
 
 def launch_setup(context):
     video_package_path = get_package_share_directory('walle_video')
+    device = LaunchConfiguration('camera_device').perform(context).strip() or CAMERA_DEVICE
 
-    ok, reason = _preflight(CAMERA_DEVICE)
+    ok, reason = _preflight(device)
     if not ok:
         # 不启动 usb_cam，避免退回扫描其他 /dev/videoN 而误开 ISP/编解码节点
         return [LogInfo(msg=f'[usb_cam] 前置检查失败：{reason}；跳过启动')]
@@ -56,7 +60,7 @@ def launch_setup(context):
     # 名称显式开启自动白平衡/自动曝光/连续自动对焦，保证功能符合预期。
     camera_controls = ExecuteProcess(
         cmd=[
-            'v4l2-ctl', '-d', CAMERA_DEVICE,
+            'v4l2-ctl', '-d', device,
             '-c', 'white_balance_automatic=1',
             '-c', 'auto_exposure=3',
             '-c', 'focus_automatic_continuous=1',
@@ -69,7 +73,10 @@ def launch_setup(context):
         executable='usb_cam_node_exe',
         output='screen',
         name='usb_cam',
-        parameters=[os.path.join(video_package_path, 'config', 'usb_cam_param.yaml')],
+        parameters=[
+            os.path.join(video_package_path, 'config', 'usb_cam_param.yaml'),
+            {'video_device': device},
+        ],
         remappings=[],
         respawn=True,
         respawn_delay=5.0,
@@ -79,4 +86,9 @@ def launch_setup(context):
 
 
 def generate_launch_description():
-    return LaunchDescription([OpaqueFunction(function=launch_setup)])
+    return LaunchDescription([
+        DeclareLaunchArgument(
+            'camera_device', default_value=CAMERA_DEVICE,
+            description='Camera device node, e.g. /dev/video0'),
+        OpaqueFunction(function=launch_setup),
+    ])

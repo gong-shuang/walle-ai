@@ -1,7 +1,7 @@
 /**:
     ros__parameters:
-      # udev 固定为 /dev/walle-camera（见 99-walle-camera.rules）；usb_cam 不支持 by-id 深层链接
-      video_device: "/dev/walle-camera"
+      # 摄像头设备节点，按实际设备修改：ls /dev/video* 或 v4l2-ctl --list-devices
+      video_device: "/dev/video0"
       framerate: 30.0
       io_method: "mmap"
       frame_id: "camera"

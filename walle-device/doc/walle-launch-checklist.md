@@ -161,9 +161,9 @@
   - 处理：串口读 `timeout=1s`、写 `write_timeout=0.5s`；舵机读取队列 `timeout=2s` 超时返回 None；节点改用 `MultiThreadedExecutor`，底盘/执行器写回调放入 `ReentrantCallbackGroup`，与状态查询回调互不阻塞
   - 验收：串口卡顿时 `/cmd_vel` 与状态查询仍能及时响应（需实车验证）
 
-- [x] ✅ **P1-3.3 摄像头设备节点固定**
-  - 处理：新增 `99-walle-camera.rules`，按 `idVendor/idProduct` 创建一级符号链接 `/dev/walle-camera`；`usb_cam_param.yaml` 与 `video_webrtc_bridge.yaml` 使用该路径（`usb_cam` 不支持 by-id 深层链接，会把 `../../video0` 拼成 `/dev/../../video0`）
-  - 验收：重启/插拔后 `/dev/walle-camera` 始终指向正确摄像头，`usb_cam` 正常打开；换相机时更新 udev id 与配置
+- [x] ✅ **P1-3.3 摄像头设备节点配置**
+  - 处理：摄像头不再使用 udev 符号链接，`usb_cam_param.yaml` 与 `video_webrtc_bridge.yaml` 直接使用实际设备节点（默认 `/dev/video0`），由用户按实际设备修改；`usb_cam.launch.py` / `bringup.launch.py` 支持 `camera_device:=/dev/videoN` 启动参数覆盖
+  - 验收：按实际摄像头节点修改配置后 `usb_cam` 正常打开；换相机时只改配置，无需安装 udev 规则
 
 - [x] ✅ **P1-3.4 补齐 `/dev/rrc` udev 规则**
   - 处理：规则改为 `99-rrc.rules`——`ttyAMA0` 创建 `SYMLINK+="rrc"`，属组 `dialout`、`MODE=0660`；兼容 `ttyACM0` 并忽略 ModemManager；`create_udev_rules.sh` 自动安装
@@ -302,10 +302,10 @@
   - 证据：`ros2_ws/src/video/walle_video/config/usb_cam_param.yaml`（已知告警说明）、`ros2_ws/src/video/walle_video/launch/usb_cam.launch.py`（`v4l2-ctl` 预设置）
   - 验收：`/image_raw` 正常 30 FPS；`white_balance_automatic=1`、`auto_exposure=3` 已由 v4l2-ctl 设置；启动日志仍有 3 条 usb_cam 0.8.1 的 `unknown control` 告警，属上游已知问题、非致命，已在本项与配置文件中明确记录
 
-- [x] ✅ **P2-4.2 多 video 节点环境固定设备**
-  - 处理：`99-walle-camera.rules` 已按 `idVendor=0bc8` / `idProduct=5880` + `index=0` 固定 `/dev/walle-camera`；`usb_cam.launch.py` 增加启动前 `_preflight()`：校验设备存在、sysfs 路径含 `usb`（排除 `pispbe` ISP / `rpivid` 解码节点）、`v4l2-ctl` 支持 `MJPG` 与 `640x480`，失败时跳过启动并打印原因
-  - 证据：`scripts/udev/99-walle-camera.rules`、`ros2_ws/src/video/walle_video/launch/usb_cam.launch.py`（`_is_usb_camera` / `_preflight`）
-  - 验收：`_preflight('/dev/walle-camera')` 返回 True；`/dev/video19`（rpivid）与 `/dev/video20`（pispbe）均返回 False；启动后 `/image_raw` 约 28–30 FPS，无前置检查失败日志
+- [x] ✅ **P2-4.2 多 video 节点环境指定设备**
+  - 处理：摄像头直接使用实际设备节点（默认 `/dev/video0`，由用户在 `usb_cam_param.yaml` / `video_webrtc_bridge.yaml` 配置，或 `camera_device:=` 覆盖）；`usb_cam.launch.py` 增加启动前 `_preflight()`：校验设备存在、sysfs 路径含 `usb`（排除 `pispbe` ISP / `rpivid` 解码节点）、`v4l2-ctl` 支持 `MJPG` 与 `640x480`，失败时跳过启动并打印原因
+  - 证据：`ros2_ws/src/video/walle_video/launch/usb_cam.launch.py`（`_is_usb_camera` / `_preflight`）、`ros2_ws/src/video/walle_video/config/usb_cam_param.yaml`
+  - 验收：`_preflight('/dev/video0')` 返回 True；`/dev/video19`（rpivid）与 `/dev/video20`（pispbe）均返回 False；启动后 `/image_raw` 约 28–30 FPS，无前置检查失败日志
 
 - [x] ✅ **P2-4.3 修复测试页缺失服务**
   - 处理：原 `app` 包的 `avoidance_node` 未迁移到 `ros2_ws`（`object_tracking` / `line_following` / `qrcode` 同样未迁移），按本项允许的“移除按钮”方案处理：删除测试页避障页签、面板、参数与按钮 JS、`TAB_VIDEO` / `VIDEO_TIP` 条目，并去掉急停中的 `/avoidance_node/exit` 调用（成功计数 5 → 4）
@@ -411,7 +411,7 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P1-2.4 | 未提交 | `WALLE_VENV` 可覆盖 venv 路径，site-packages 按实际 Python 版本取；默认路径与不存在路径均已验证 | 待确认 |
 | 2026-11-09 | P1-3.1 | 未提交 | SDK 增加串口自动重连；编译通过；需实车拔插 USB 验证 | 待确认 |
 | 2026-11-09 | P1-3.2 | 未提交 | 串口读写超时收紧 + MultiThreadedExecutor/回调组；编译通过；需实车验证卡顿不阻塞 | 待确认 |
-| 2026-11-09 | P1-3.3 | 未提交 | 新增 `99-walle-camera.rules`，相机固定 `/dev/walle-camera`；待安装 udev 规则后重启验证 | 待确认 |
+| 2026-11-09 | P1-3.3 | 未提交 | 摄像头前后改用实际设备节点（默认 `/dev/video0`，用户配置）；udev 符号链接方案已移除；待按实际设备修改配置后验证 | 待确认 |
 | 2026-11-09 | P1-3.4 | 未提交 | `99-rrc.rules` 创建 `/dev/rrc`（ttyAMA0，dialout 0660）；待全新镜像或 reload udev 验证 | 待确认 |
 | 2026-11-09 | P1-3.5 | 未提交 | 声呐 I2C 异常不再吞掉，失败发布 -1 并节流告警；编译后待拔插验证 | 待确认 |
 | 2026-11-09 | P1-4.1 | 未提交 | ffmpeg 日志按 7 天/10 个/100MB 清理；编译通过，待连续推流验证 | 待确认 |
@@ -436,7 +436,7 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-3.3 | 未提交 | 声呐记录时间戳，0.4s 断流/无效值即停车并终止动作；mock 冒烟验证 | 待确认 |
 | 2026-11-10 | P2-3.4 | 未提交 | 核查生产 launch：仅 vocal_detect/agent_process/tts_node；实验驾驶节点均为独立 launch，未被 bringup 引用 | 待确认 |
 | 2026-11-10 | P2-4.1 | 未提交 | usb_cam 0.8.1 旧控制名告警记录为已知问题；launch 中用 v4l2-ctl 按新名称设置自动模式；实测 30FPS | 待确认 |
-| 2026-11-10 | P2-4.2 | 未提交 | udev 已按 USB VID/PID 固定设备；launch 增加 USB/格式/分辨率前置校验，实测不会误开 ISP/解码节点 | 待确认 |
+| 2026-11-10 | P2-4.2 | 未提交 | 设备节点改为用户配置的 `/dev/videoN`；launch 保留 USB/格式/分辨率前置校验，实测不会误开 ISP/解码节点 | 待确认 |
 | 2026-11-10 | P2-4.3 | 未提交 | 移除测试页避障页签/面板/JS 与急停中的 `/avoidance_node/exit`；页面已无避障引用，页签与面板一致 | 待确认 |
 |  |  |  |  |  |
 
@@ -444,12 +444,15 @@ cd walle-device/scripts && ./start.sh
 
 ## 备注
 
+- 2026-11-12：摄像头 udev 规则 `99-walle-camera.rules` 已移除，不再创建 `/dev/walle-camera`；
+  摄像头直接使用实际设备节点（默认 `/dev/video0`），用户在 `usb_cam_param.yaml` 的
+  `video_device` 与 `video_webrtc_bridge.yaml` 的 `camera_device` 中配置（两者需一致），
+  也可用 `camera_device:=/dev/videoN` 启动参数覆盖。
 - 2026-11-10：P2-4.3 `app` 包（`avoidance_node` / `object_tracking` / `line_following` /
   `qrcode` / 手势）未迁移到 `ros2_ws`，测试页按“移除按钮”方案删除避障页签及相关
   服务调用；其余玩法页签仍依赖未迁移的 `app` 节点，仅适用于 TurboPi 原始环境调试。
-- 2026-11-10：P2-4.2 摄像头设备由 `99-walle-camera.rules`（USB VID/PID + index=0）
-  固定为 `/dev/walle-camera`；`usb_cam.launch.py` 启动前校验目标必须是 USB video
-  节点且支持 MJPG 640x480，失败则跳过启动，避免误开 `pispbe`/`rpivid` 节点。
+- 2026-11-10：P2-4.2 `usb_cam.launch.py` 启动前校验目标必须是 USB video 节点且支持
+  MJPG 640x480，失败则跳过启动，避免误开 `pispbe`/`rpivid` 节点。
 - 2026-11-10：P2-4.1 usb_cam 0.8.1 的控制名仍为 `white_balance_temperature_auto` /
   `exposure_auto` / `focus_auto`，与 kernel 6.8 的 UVC 新名称不匹配；参数无法跳过，
   仓库内也无更新版本。按本项兜底方式记录为已知告警，并在 `usb_cam.launch.py`
@@ -537,8 +540,8 @@ cd walle-device/scripts && ./start.sh
   P1-4.2 MQTT 报文默认只记录主题与长度，DEBUG 才输出脱敏内容。
 - 2026-11-09：P1-3.5 声呐 I2C 读取失败不再静默，节点发布 `-1` 无效值并节流告警，
   恢复后自动继续；RGB 写入与退出清理加异常保护。
-- 2026-11-09：P1-3.3/P1-3.4 相机固定为 `/dev/walle-camera`（`99-walle-camera.rules`，
-  usb_cam 不支持 by-id 深层链接）；udev 规则改为 `99-rrc.rules`
+- 2026-11-09：P1-3.3/P1-3.4 摄像头改为使用实际设备节点（默认 `/dev/video0`，
+  用户配置；原 `/dev/walle-camera` udev 方案已移除）；udev 规则改为 `99-rrc.rules`
   （ttyAMA0 → `/dev/rrc`，dialout 0660），README 同步说明。
 - 2026-11-09：P1-3.1/P1-3.2 `Board` 增加串口自动重连（1s 周期），读写异常关闭
   端口并重连；串口读 1s/写 0.5s/舵机读取 2s 超时；节点改用 MultiThreadedExecutor

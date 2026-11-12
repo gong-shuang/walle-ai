@@ -4,7 +4,7 @@
 
     sudo ./test/stability_test.py health
     sudo ./test/stability_test.py kill
-    sudo ./test/stability_test.py camera --device /dev/walle-camera
+    sudo ./test/stability_test.py camera --device /dev/video0
     sudo ./test/stability_test.py network --mode broker --offline 15
     ./test/stability_test.py soak --hours 24 --interval 10 --require-stream
 
@@ -604,7 +604,7 @@ def build_parser():
                       help="开发环境手动启动时跳过 systemd 判定")
 
     camera = sub.add_parser("camera", help="USB 断开/重连模拟拔插摄像头")
-    camera.add_argument("--device", default="/dev/walle-camera")
+    camera.add_argument("--device", default="/dev/video0")
     camera.add_argument("--offline", type=float, default=5.0)
     camera.add_argument("--recover-timeout", type=float, default=60.0)
 

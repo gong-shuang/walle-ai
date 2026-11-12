@@ -71,10 +71,13 @@ def launch_setup(context):
                          'launch/net_mqtt_bridge.launch.py')),
     )
 
-    # 启动摄像头相关节点
+    # 启动摄像头相关节点（设备节点默认 /dev/video0，可用 camera_device:=/dev/videoN 覆盖）
     usb_cam_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(walle_video_package_path, 'launch/usb_cam.launch.py')),
+        launch_arguments={
+            'camera_device': LaunchConfiguration('camera_device'),
+        }.items(),
     )
 
     # 启动 /image_raw -> RTMP/WebRTC 推流桥
@@ -162,5 +165,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'enable_web_video_server', default_value=_debug_default(),
             description='Start web_video_server on 8080 (default: WALLE_RUNTIME_ENV=debug)'),
+        DeclareLaunchArgument(
+            'camera_device', default_value='/dev/video0',
+            description='Camera device node, e.g. /dev/video0'),
         OpaqueFunction(function=launch_setup)
     ])
