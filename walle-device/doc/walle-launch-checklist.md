@@ -493,6 +493,31 @@ cd walle-device/scripts && ./start.sh
   `agent.py` 保留 `RpiMonitor` 组合、启动流程、`--check` 与公共名 re-export，
   `node.py` 改为从 `config` 读写 `DEVICE_ID_FILE` / `DEVICE_ID`。各文件均 < 500 行，
   新增 `test/test_modules.py` 固化模块导入与文件大小约束。
+- 2026-11-12：P2-1.3 新增 `camera_backend=shm` 分离链路：
+  `walle_camera` 独占摄像头并发布 `/image_raw`（10fps），H.264 经
+  GStreamer `shmsink wait-for-connection=true` / `shmsrc` 交给
+  `video_webrtc_bridge` 混流推 RTMP。实测接收端收到 640x480 H.264 317 帧；
+  推流时 camera 约 81.3% 单核、bridge 解码/混流进程约 2.8% 单核，
+  整机约 15.6%。
+- 2026-11-12：P2-1.3 新增 `camera_backend=shm` 分离链路最小版：
+  `walle_camera` 独占摄像头并发布 `/image_raw`（10fps），H.264 经本机
+  RTP/UDP 交给 `video_webrtc_bridge` 混流推 RTMP。实测接收端收到
+  640x480 H.264 248 帧；视频链路约 79% 单核（camera 76.5 + bridge/gst 2.9），
+  整机约 12.5%。`shmsink` 对后连接客户端不下发数据，最小版暂用 RTP/UDP，
+  后续再评估 shm/ipcpipeline。
+- 2026-11-12：P2-1.3 camera_owner 模式修复 MPP buffer 竞争：`mppjpegdec`
+  显式指定 `format=NV12`，`tee` 的 ROS 分支在 `videoconvert` 前用 `identity`
+  抽样降频（默认 10fps）。实测推流时 owner 进程约 88.8% 单核（改造前
+  usb_cam+bridge+gst 约 102%），整机约 15.9%（改造前约 21%），连续推流
+  1 分钟无 `mpp_buffer` / 编码器 watchdog 错误。
+- 2026-11-12：P2-1.3 新增 camera_owner 模式：`bringup` 检测到 `mppjpegdec` 时
+  跳过 usb_cam，由 `video_webrtc_bridge` 独占摄像头——`v4l2src(MJPG) → mppjpegdec
+  → tee`，一路按 `ros_image_fps`（默认 10fps，identity 抽样）发布 `/image_raw`，
+  一路 `mpph264enc → flvmux → rtmpsink`；`camera_backend` 可显式指定
+  `auto|gst|shm|usb_cam`，摄像头断开时自动重建管道。
+- 2026-11-13：`camera_backend=auto` 默认后端改为 `shm`（检测到 `mppjpegdec`
+  时），不带参数执行 `ros2 launch bringup bringup.launch.py` 即启动
+  `walle_camera` + 共享内存 H.264；`video_gop` 默认 30，关键帧间隔 1s。
 - 2026-11-12：P2-1.3 新增 Rockchip MPP 硬件编码后端：`auto` 先探测 GStreamer
   `mpph264enc`（RK3588 编码器走 `/dev/mpp_service`，ffmpeg 的 `h264_v4l2m2m`
   会报 `Could not find a valid device`），可用时用 GStreamer 管道推 RTMP，

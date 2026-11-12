@@ -6,6 +6,16 @@ video_webrtc_bridge:
     image_topic: /image_raw
     # 摄像头设备节点，需与 usb_cam_param.yaml 的 video_device 保持一致
     camera_device: /dev/video0
+    # camera_owner=true：本节点独占摄像头（MJPG 硬解 + 硬件 H.264 编码），
+    # 并发布 /image_raw；bringup 会自动检测并跳过 usb_cam。
+    camera_owner: false
+    camera_width: 640
+    camera_height: 480
+    # /image_raw 目标帧率（仅 camera_owner）；在 RGB 转换前抽样降频，
+    # 推流分支仍按 framerate 全帧率编码。
+    ros_image_fps: 10.0
+    # 非空时从 walle_camera 的 shmsink 读取 H.264（camera_backend=shm）
+    shm_socket: ""
     framerate: 30.0
     room_number_pattern: "^[A-Za-z0-9_-]{1,64}$"
 
@@ -14,7 +24,7 @@ video_webrtc_bridge:
     # 不要把 secret 写进 YAML：ros2 param dump 会把明文打出来。
     # 码率：640x480 建议 1000k；720p 建议 1500k~2500k；1080p 建议 3000k~4000k
     video_bitrate: "1000k"
-    video_gop: 60
+    video_gop: 30
     video_preset: "ultrafast"
     # H.264 编码器：auto=优先 Rockchip MPP 硬件（mpph264enc，RK3588 等），
     # 其次 V4L2 M2M（h264_v4l2m2m），不可用自动回退 libx264；

@@ -28,6 +28,7 @@ setup(
     entry_points={
         "console_scripts": [
             "video_webrtc_bridge = video_webrtc_bridge.node:main",
+            "walle_camera = video_webrtc_bridge.camera_shm_node:main",
         ],
     },
 )

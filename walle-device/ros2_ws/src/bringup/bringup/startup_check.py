@@ -10,11 +10,12 @@ from std_msgs.msg import String
 from ros_robot_controller_msgs.msg import BuzzerState, SetPWMServoState, PWMServoState
 
 
-# 冷启动必须就绪的节点；缺少任一节点即判定启动超时
+# 冷启动必须就绪的节点；缺少任一节点即判定启动超时。
+# 摄像头可能由 usb_cam 或 video_webrtc_bridge（camera_owner）提供，
+# 因此不检查具体节点名，只要求 /image_raw 有发布者。
 REQUIRED_NODES = (
     'ros_robot_controller',
     'mecanum_chassis_node',
-    'usb_cam',
     'video_webrtc_bridge',
     'net_mqtt_bridge',
 )

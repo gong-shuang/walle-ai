@@ -109,6 +109,10 @@ def _bare_node(encoder):
     node.video_preset = "ultrafast"
     node.video_gop = 60
     node.video_bitrate = "1000k"
+    node.camera_device = "/dev/video0"
+    node.camera_width = 640
+    node.camera_height = 480
+    node.ros_image_fps = 10.0
     node.audio_fragment_size = 1024
     node.audio_device = "default"
     node.audio_codec = "aac"
@@ -171,3 +175,46 @@ def test_build_gst_cmd_with_named_audio_device():
         640, 480, "rtmp://example/live/room",
         {"available": True, "device": "alsa_input.usb-mic"})
     assert "device=alsa_input.usb-mic" in cmd
+
+
+def test_build_stream_bin_desc_video_only():
+    desc = _bare_node(MPP_H264_ENCODER)._build_stream_bin_desc(
+        "rtmp://example/live/room", {"available": False})
+    assert "mpph264enc" in desc
+    assert "flvmux name=mux" in desc
+    assert 'rtmpsink location="rtmp://example/live/room"' in desc
+    assert "pulsesrc" not in desc
+
+
+def test_build_stream_bin_desc_with_default_audio():
+    desc = _bare_node(MPP_H264_ENCODER)._build_stream_bin_desc(
+        "rtmp://example/live/room", {"available": True, "device": "default"})
+    assert "pulsesrc !" in desc
+    assert "device=default" not in desc
+    assert "voaacenc bitrate=128000" in desc
+    assert desc.rstrip().endswith("! mux.")
+
+
+def test_camera_pipeline_decimates_ros_fps():
+    desc = _bare_node(MPP_H264_ENCODER)._camera_pipeline_desc()
+    assert "mppjpegdec format=NV12" in desc
+    assert "identity drop-probability=0.6667" in desc
+    assert "video/x-raw,format=RGB" in desc
+
+
+def test_camera_pipeline_keeps_full_fps_when_equal():
+    node = _bare_node(MPP_H264_ENCODER)
+    node.ros_image_fps = 30.0
+    assert "drop-probability" not in node._camera_pipeline_desc()
+
+
+def test_build_h264_cmd_uses_shmsrc():
+    node = _bare_node(MPP_H264_ENCODER)
+    node.shm_socket = "/tmp/walle-video.sock"
+    cmd = node._build_h264_cmd(
+        "rtmp://example/live/room", {"available": False})
+    assert "shmsrc" in cmd
+    assert "socket-path=/tmp/walle-video.sock" in cmd
+    assert "h264parse" in cmd
+    assert "rtmpsink" in cmd
+    assert cmd[-1] == "location=rtmp://example/live/room"

@@ -31,6 +31,16 @@ from std_msgs.msg import Bool
 from interfaces.msg import VideoStreamStatus
 from interfaces.srv import VideoStreamControl
 
+try:
+    import gi
+    gi.require_version("Gst", "1.0")
+    from gi.repository import Gst
+    Gst.init(None)
+    GST_AVAILABLE = True
+except Exception:  # noqa: BLE001
+    Gst = None
+    GST_AVAILABLE = False
+
 DEFAULT_ROOM_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 
 # H.264 编码器（P2-1.3）：auto 优先 Rockchip MPP 硬件编码，其次 V4L2 M2M，最后 libx264
@@ -280,6 +290,17 @@ class VideoWebrtcBridge(Node):
 
         self.image_topic = self.declare_parameter("image_topic", "/image_raw").value
         self.camera_device = self.declare_parameter("camera_device", "/dev/video0").value
+        # camera_owner=true：本节点用 GStreamer 独占摄像头并发布 /image_raw，
+        # 推流分支直接从硬件解码后的 NV12 取帧，不再经过 ROS/Python 拷贝。
+        self.camera_owner = bool(self.declare_parameter("camera_owner", False).value)
+        self.camera_width = int(self.declare_parameter("camera_width", 640).value)
+        self.camera_height = int(self.declare_parameter("camera_height", 480).value)
+        # /image_raw 目标帧率（仅 camera_owner）；RGB 转换耗 CPU，
+        # 用 identity drop-probability 抽样降频，推流分支保持全帧率。
+        self.ros_image_fps = float(
+            self.declare_parameter("ros_image_fps", 10.0).value)
+        # 非空时：视频从 walle_camera 的 shmsink 读取 H.264，本节点只做混流/推流
+        self.shm_socket = self.declare_parameter("shm_socket", "").value.strip()
         self.framerate = float(self.declare_parameter("framerate", 30.0).value)
         self.room_pattern = self.declare_parameter(
             "room_number_pattern", DEFAULT_ROOM_PATTERN).value
@@ -289,7 +310,7 @@ class VideoWebrtcBridge(Node):
         self.media_host = os.environ.get("MEDIA_SERVER_HOST", "").strip()
         self.media_secret = os.environ.get("MEDIA_SERVER_SECRET", "").strip()
         self.video_bitrate = self.declare_parameter("video_bitrate", "1000k").value
-        self.video_gop = int(self.declare_parameter("video_gop", 60).value)
+        self.video_gop = int(self.declare_parameter("video_gop", 30).value)
         self.video_preset = self.declare_parameter("video_preset", "ultrafast").value
         # auto / mpph264enc / libx264 / h264_v4l2m2m；auto 时启动探测，未知值按 auto
         self.video_encoder = self.declare_parameter("video_encoder", "auto").value
@@ -351,6 +372,14 @@ class VideoWebrtcBridge(Node):
         self._audio = self._empty_audio()
         self._last_heartbeat = time.monotonic()
         self._last_convert_error = 0.0
+        self._image_pub = None
+        self._camera_pipeline = None
+        self._camera_tee = None
+        self._stream_bin = None
+        self._stream_pad = None
+        self._camera_restarting = False
+        self._camera_element_names = set()
+        self._bus_lock = threading.Lock()
 
         status_qos = QoSProfile(
             depth=1,
@@ -370,10 +399,27 @@ class VideoWebrtcBridge(Node):
         # P2-1.3：启动时探测一次编码器（auto 优先硬件），结果缓存到本次运行
         self._select_encoder()
 
+        if self.camera_owner:
+            if not GST_AVAILABLE:
+                self.get_logger().error(
+                    "camera_owner=true 但 Python GStreamer 不可用（缺少 python3-gi）")
+            else:
+                self._image_pub = self.create_publisher(
+                    Image, self.image_topic, QoSProfile(
+                        depth=2,
+                        reliability=ReliabilityPolicy.RELIABLE,
+                        durability=DurabilityPolicy.VOLATILE,
+                        history=HistoryPolicy.KEEP_LAST,
+                    ))
+                if not self._start_camera_pipeline():
+                    self._handle_camera_failure()
+                self.create_timer(1.0, self._poll_camera_bus)
+
         self.get_logger().info(
-            "video_webrtc_bridge 启动：image=%s camera=%s "
+            "video_webrtc_bridge 启动：image=%s camera=%s owner=%s "
             "service=~/stream_control heartbeat=%s"
-            % (self.image_topic, self.camera_device, self.heartbeat_topic))
+            % (self.image_topic, self.camera_device, self.camera_owner,
+               self.heartbeat_topic))
 
     # ------------------------------------------------------------------ 基础工具
     def _empty_audio(self):
@@ -395,7 +441,7 @@ class VideoWebrtcBridge(Node):
         return f"rtmp://{self.media_host}:1935/live/{room}?secret={self.media_secret}"
 
     def _ensure_image_subscription(self):
-        if self._image_sub is not None:
+        if self.camera_owner or self._image_sub is not None:
             return
         image_qos = QoSProfile(
             depth=1,
@@ -406,6 +452,176 @@ class VideoWebrtcBridge(Node):
         self._image_sub = self.create_subscription(
             Image, self.image_topic, self._on_image, image_qos,
             callback_group=self._image_group)
+
+    # ------------------------------------------------------------------ 摄像头管道（camera_owner）
+    def _camera_pipeline_desc(self):
+        """MJPG -> mppjpegdec -> tee（ROS 图像抽样 + 推流分支）。"""
+        fps = max(int(round(self.framerate)), 1)
+        ros_fps = min(max(int(round(self.ros_image_fps)), 1), fps)
+        drop = 0.0
+        if ros_fps < fps:
+            # identity 在 videoconvert 之前丢帧，避免 30fps RGB 转换占满 CPU，
+            # 也避免 videorate 持有 MPP DMABuf 导致编码器 buffer 竞争。
+            drop = min(1.0 - float(ros_fps) / fps, 0.95)
+        ros_branch = ""
+        if drop > 0:
+            ros_branch = "identity drop-probability=%.4f ! " % drop
+        return (
+            "v4l2src device=%s io-mode=2 ! "
+            "image/jpeg,width=%d,height=%d,framerate=%d/1 ! "
+            "jpegparse ! mppjpegdec format=NV12 ! tee name=t "
+            "t. ! queue max-size-buffers=1 leaky=downstream ! %s"
+            "videoconvert ! video/x-raw,format=RGB ! "
+            "appsink name=ros_sink emit-signals=true max-buffers=1 "
+            "drop=true sync=false"
+            % (self.camera_device, self.camera_width, self.camera_height, fps,
+               ros_branch)
+        )
+
+    def _start_camera_pipeline(self):
+        if not GST_AVAILABLE:
+            return False
+        desc = self._camera_pipeline_desc()
+        try:
+            pipeline = Gst.parse_launch(desc)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().error("创建摄像头管道失败: %s" % exc)
+            return False
+        sink = pipeline.get_by_name("ros_sink")
+        if sink is None:
+            self.get_logger().error("摄像头管道缺少 ros_sink")
+            pipeline.set_state(Gst.State.NULL)
+            return False
+        sink.connect("new-sample", self._on_camera_sample)
+        self._camera_pipeline = pipeline
+        self._camera_tee = pipeline.get_by_name("t")
+        self._camera_element_names = set()
+        it = pipeline.iterate_elements()
+        while True:
+            result = it.next()
+            if result[0] == Gst.IteratorResult.OK:
+                self._camera_element_names.add(result[1].get_name())
+            elif result[0] == Gst.IteratorResult.DONE:
+                break
+            else:
+                break
+        if pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
+            err, _ = self._drain_camera_bus()
+            self.get_logger().error(
+                "摄像头管道启动失败：%s（检查设备是否存在/被占用）%s"
+                % (self.camera_device, ("：" + err) if err else ""))
+            self._teardown_camera_pipeline()
+            return False
+        self.get_logger().info(
+            "摄像头管道已启动：%s %dx%d@%d（mppjpegdec 硬件解码，/image_raw=%dfps）"
+            % (self.camera_device, self.camera_width, self.camera_height,
+               max(int(round(self.framerate)), 1),
+               min(max(int(round(self.ros_image_fps)), 1),
+                   max(int(round(self.framerate)), 1))))
+        return True
+
+    def _teardown_camera_pipeline(self):
+        pipeline = self._camera_pipeline
+        self._camera_pipeline = None
+        self._camera_tee = None
+        if pipeline is not None:
+            try:
+                pipeline.set_state(Gst.State.NULL)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _on_camera_sample(self, appsink):
+        sample = appsink.emit("pull-sample")
+        if sample is None:
+            return Gst.FlowReturn.OK
+        buf = sample.get_buffer()
+        caps = sample.get_caps()
+        if buf is None or caps is None:
+            return Gst.FlowReturn.OK
+        structure = caps.get_structure(0)
+        width = int(structure.get_value("width"))
+        height = int(structure.get_value("height"))
+        ok, mapinfo = buf.map(Gst.MapFlags.READ)
+        if not ok:
+            return Gst.FlowReturn.OK
+        try:
+            data = bytes(mapinfo.data)
+        finally:
+            buf.unmap(mapinfo)
+        if self._image_pub is not None:
+            msg = Image()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.frame_id = "camera"
+            msg.width = width
+            msg.height = height
+            msg.encoding = "rgb8"
+            msg.is_bigendian = 0
+            msg.step = width * 3
+            msg.data = data
+            try:
+                self._image_pub.publish(msg)
+            except Exception:  # noqa: BLE001
+                pass
+        with self._lock:
+            self._frame_size = (width, height)
+            self._frame = b""
+            self._frame_seq += 1
+        self._frame_event.set()
+        return Gst.FlowReturn.OK
+
+    def _drain_camera_bus(self):
+        pipeline = self._camera_pipeline
+        if pipeline is None or not GST_AVAILABLE:
+            return None, None
+        bus = pipeline.get_bus()
+        if bus is None:
+            return None, None
+        first = None
+        first_src = ""
+        with self._bus_lock:
+            while bus.have_pending():
+                msg = bus.pop()
+                if msg.type == Gst.MessageType.ERROR:
+                    err, debug = msg.parse_error()
+                    if first is None:
+                        first = "%s (%s)" % (err.message, debug)
+                        first_src = msg.src.get_name() if msg.src else ""
+                elif msg.type == Gst.MessageType.EOS and first is None:
+                    first = "pipeline EOS"
+                    first_src = msg.src.get_name() if msg.src else ""
+        return first, first_src
+
+    def _poll_camera_bus(self):
+        err, src = self._drain_camera_bus()
+        if not err:
+            return
+        self.get_logger().error("摄像头 GStreamer 管道异常：%s" % err)
+        if src in self._camera_element_names:
+            self._handle_camera_failure()
+        else:
+            self._stop_stream("推流管道异常")
+
+    def _handle_camera_failure(self):
+        with self._lock:
+            if self._camera_restarting:
+                return
+            self._camera_restarting = True
+        self._stop_stream("摄像头管道异常")
+        threading.Thread(
+            target=self._restart_camera_pipeline,
+            daemon=True, name="camera-restart").start()
+
+    def _restart_camera_pipeline(self):
+        """摄像头断开/管道错误时持续重试，直到设备恢复或节点退出。"""
+        try:
+            while rclpy.ok():
+                time.sleep(2.0)
+                self._teardown_camera_pipeline()
+                if self._start_camera_pipeline():
+                    return
+        finally:
+            with self._lock:
+                self._camera_restarting = False
 
     # ------------------------------------------------------------------ 图像输入
     def _on_image(self, msg):
@@ -489,7 +705,10 @@ class VideoWebrtcBridge(Node):
 
         with self._lock:
             proc = self._proc
-            streaming = bool(proc is not None and proc.poll() is None)
+            if self.camera_owner:
+                streaming = bool(self._streaming and self._stream_bin is not None)
+            else:
+                streaming = bool(proc is not None and proc.poll() is None)
             same = streaming and self._room == room and self._device == device
             prev_room = self._room if streaming else ""
             prev_device = self._device if streaming else ""
@@ -497,7 +716,7 @@ class VideoWebrtcBridge(Node):
                 response.result = 0
                 response.cause = "ok"
                 response.action = "already_streaming"
-                response.pid = int(proc.pid)
+                response.pid = self._stream_pid()
                 response.rtmp_url = self._rtmp_url
                 response.command = self._command
                 response.started_at = self._started_at
@@ -508,28 +727,31 @@ class VideoWebrtcBridge(Node):
         if streaming:
             self._stop_stream("收到新的推流请求")
 
-        # 等第一帧，确定分辨率和编码格式
-        self._starting = True
-        self._frame_event.clear()
-        self._ensure_image_subscription()
-        got_frame = self._frame_event.wait(timeout=self.first_frame_timeout)
-        self._starting = False
-        if not got_frame:
-            response.result = -2
-            response.cause = "命令执行失败"
-            response.action = "failed"
-            response.error = "等待 %s 图像超时（%.1fs）" % (
-                self.image_topic, self.first_frame_timeout)
-            return response
-
-        with self._lock:
-            if self._frame is None or self._frame_size is None:
+        # 等第一帧，确定分辨率和编码格式（shm 模式直接用摄像头配置）
+        if self.shm_socket:
+            width, height = self.camera_width, self.camera_height
+        else:
+            self._starting = True
+            self._frame_event.clear()
+            self._ensure_image_subscription()
+            got_frame = self._frame_event.wait(timeout=self.first_frame_timeout)
+            self._starting = False
+            if not got_frame:
                 response.result = -2
                 response.cause = "命令执行失败"
                 response.action = "failed"
-                response.error = "没有可用的图像帧"
+                response.error = "等待 %s 图像超时（%.1fs）" % (
+                    self.image_topic, self.first_frame_timeout)
                 return response
-            width, height = self._frame_size
+
+            with self._lock:
+                if self._frame is None or self._frame_size is None:
+                    response.result = -2
+                    response.cause = "命令执行失败"
+                    response.action = "failed"
+                    response.error = "没有可用的图像帧"
+                    return response
+                width, height = self._frame_size
 
         audio = self._detect_microphone()
         if (self._select_encoder() == MPP_H264_ENCODER
@@ -538,7 +760,14 @@ class VideoWebrtcBridge(Node):
             audio["available"] = False
             audio["reason"] = "GStreamer MPP 后端音频编码仅支持 aac"
         url = self._build_rtmp_url(room)
-        cmd = self._build_stream_cmd(width, height, url, audio)
+        if self.camera_owner:
+            return self._start_owned_stream(
+                room, device, url, audio, width, height,
+                prev_room, prev_device, response)
+        if self.shm_socket:
+            cmd = self._build_h264_cmd(url, audio)
+        else:
+            cmd = self._build_stream_cmd(width, height, url, audio)
         program = os.path.basename(cmd[0])
         masked_url = self._mask_url(url)
         command_text = " ".join(cmd).replace(url, masked_url)
@@ -553,7 +782,8 @@ class VideoWebrtcBridge(Node):
         try:
             proc = subprocess.Popen(
                 cmd,
-                stdin=subprocess.PIPE,
+                stdin=(subprocess.DEVNULL if self.shm_socket
+                       else subprocess.PIPE),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 bufsize=0,
@@ -594,11 +824,13 @@ class VideoWebrtcBridge(Node):
             self._audio = audio
             writer_stop = self._writer_stop
 
-        writer = threading.Thread(
-            target=self._writer_loop,
-            args=(proc, writer_stop, stream_id),
-            daemon=True, name="video-writer")
-        writer.start()
+        writer = None
+        if not self.shm_socket:
+            writer = threading.Thread(
+                target=self._writer_loop,
+                args=(proc, writer_stop, stream_id),
+                daemon=True, name="video-writer")
+            writer.start()
         with self._lock:
             self._writer_thread = writer
 
@@ -609,7 +841,8 @@ class VideoWebrtcBridge(Node):
             code = None
         if code is not None:
             writer_stop.set()
-            writer.join(timeout=1.0)
+            if writer is not None:
+                writer.join(timeout=1.0)
             time.sleep(0.2)
             tail = sink.error_line()
             self._reset_stream(stream_id)
@@ -649,12 +882,15 @@ class VideoWebrtcBridge(Node):
         req_room = (request.room_number or "").strip()
         with self._lock:
             proc = self._proc
-            streaming = bool(proc is not None and proc.poll() is None)
+            if self.camera_owner:
+                streaming = bool(self._streaming and self._stream_bin is not None)
+            else:
+                streaming = bool(proc is not None and proc.poll() is None)
             current_room = self._room
             meta = {
                 "room_number": self._room,
                 "video_device": self._device,
-                "pid": int(proc.pid) if proc else 0,
+                "pid": self._stream_pid(),
                 "started_at": self._started_at,
                 "rtmp_url": self._rtmp_url,
                 "audio": dict(self._audio),
@@ -697,6 +933,162 @@ class VideoWebrtcBridge(Node):
         return response
 
     # ------------------------------------------------------------------ 推流进程
+    def _stream_pid(self):
+        if self._proc is not None:
+            return int(self._proc.pid)
+        return os.getpid() if self.camera_owner else 0
+
+    def _build_stream_bin_desc(self, url, audio):
+        video_bps = bitrate_to_bps(self.video_bitrate, 1000 * 1000)
+        desc = (
+            "queue ! mpph264enc bps=%d rc-mode=cbr gop=%d ! h264parse "
+            "! queue ! flvmux name=mux streamable=true "
+            '! queue ! rtmpsink location="%s"'
+            % (video_bps, max(int(self.video_gop), 1), url)
+        )
+        if audio.get("available"):
+            device = (audio.get("device") or self.audio_device or "").strip()
+            src = "pulsesrc"
+            if device and device.lower() != "default":
+                src += " device=%s" % device
+            audio_bps = bitrate_to_bps(self.audio_bitrate, 128 * 1000)
+            desc += (
+                " %s ! audioconvert ! audioresample "
+                "! audio/x-raw,rate=44100,channels=2 "
+                "! voaacenc bitrate=%d ! aacparse ! queue ! mux."
+                % (src, audio_bps)
+            )
+        return desc
+
+    def _start_owned_stream(self, room, device, url, audio, width, height,
+                            prev_room, prev_device, response):
+        if (not GST_AVAILABLE or self._camera_pipeline is None
+                or self._camera_tee is None):
+            response.result = -2
+            response.cause = "命令执行失败"
+            response.action = "failed"
+            response.error = "摄像头管道未就绪（检查 GStreamer 与摄像头设备）"
+            return response
+        if self._stream_bin is not None:
+            self._stop_stream("重新开始推流")
+
+        masked_url = self._mask_url(url)
+        desc = self._build_stream_bin_desc(url, audio)
+        command_text = ("gst pipeline: " + desc).replace(url, masked_url)
+        started_at = _now_str()
+        started_ts = time.time()
+        stream_bin = None
+        tee_pad = None
+        try:
+            stream_bin = Gst.parse_bin_from_description(desc, True)
+            sink_pad = stream_bin.get_static_pad("sink")
+            if sink_pad is None:
+                raise RuntimeError("推流分支缺少 sink pad")
+            self._camera_pipeline.add(stream_bin)
+            tee_pad = self._camera_tee.get_request_pad("src_%u")
+            if tee_pad.link(sink_pad) != Gst.PadLinkReturn.OK:
+                raise RuntimeError("推流分支连接 tee 失败")
+            stream_bin.sync_state_with_parent()
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().error("启动 GStreamer 推流失败: %s" % exc)
+            self._remove_stream_bin(stream_bin, tee_pad)
+            response.result = -2
+            response.cause = "命令执行失败"
+            response.action = "failed"
+            response.error = "启动 GStreamer 推流失败: %s" % exc
+            return response
+
+        with self._lock:
+            self._stream_id += 1
+            self._streaming = True
+            self._proc = None
+            self._sink = None
+            self._writer_stop = None
+            self._stream_bin = stream_bin
+            self._stream_pad = tee_pad
+            self._room = room
+            self._device = device
+            self._rtmp_url = masked_url
+            self._command = command_text
+            self._started_at = started_at
+            self._started_ts = started_ts
+            self._audio = audio
+
+        deadline = time.monotonic() + self.startup_grace
+        while time.monotonic() < deadline:
+            err, src = self._drain_camera_bus()
+            if err:
+                self.get_logger().error("推流管道启动失败：%s" % err)
+                if src in self._camera_element_names:
+                    self._handle_camera_failure()
+                else:
+                    self._stop_stream("推流管道异常")
+                response.result = -2
+                response.cause = "命令执行失败"
+                response.action = "failed"
+                response.error = "推流管道启动失败: %s" % err
+                return response
+            time.sleep(0.1)
+
+        response.result = 0
+        response.cause = "ok"
+        response.action = "restarted" if prev_room else "started"
+        response.pid = self._stream_pid()
+        response.rtmp_url = masked_url
+        response.command = command_text
+        response.started_at = started_at
+        response.started_ts = started_ts
+        response.previous_room_number = prev_room
+        response.previous_video_device = prev_device
+        self._fill_audio(response, audio)
+        self._publish_status()
+        self.get_logger().info(
+            "开始推流: %s（room=%s, pid=%s, camera_owner=true）"
+            % (masked_url, room, os.getpid()))
+        return response
+
+    def _remove_stream_bin(self, stream_bin, tee_pad):
+        if stream_bin is not None:
+            try:
+                stream_bin.set_state(Gst.State.NULL)
+            except Exception:  # noqa: BLE001
+                pass
+        if tee_pad is not None and self._camera_tee is not None:
+            try:
+                self._camera_tee.release_request_pad(tee_pad)
+            except Exception:  # noqa: BLE001
+                pass
+        if stream_bin is not None and self._camera_pipeline is not None:
+            try:
+                self._camera_pipeline.remove(stream_bin)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _stop_owned_stream(self, reason=""):
+        with self._lock:
+            stream_bin = self._stream_bin
+            tee_pad = self._stream_pad
+            stream_id = self._stream_id
+            meta = {
+                "room_number": self._room,
+                "video_device": self._device,
+                "pid": self._stream_pid(),
+            }
+        if stream_bin is None:
+            self._reset_stream(stream_id)
+            return False
+        self._remove_stream_bin(stream_bin, tee_pad)
+        with self._lock:
+            self._stream_bin = None
+            self._stream_pad = None
+        self._reset_stream(stream_id)
+        self._publish_status()
+        self.get_logger().info(
+            "已停止推流%s（room=%s, pid=%s）"
+            % (("：" + reason) if reason else "",
+               meta["room_number"], meta["pid"]))
+        return True
+
     def _select_encoder(self):
         """选择 H.264 编码器并缓存（auto 优先 MPP，其次 M2M，最后 libx264）。"""
         if self._encoder is not None:
@@ -724,6 +1116,35 @@ class VideoWebrtcBridge(Node):
                 % (mpp_reason or "未启用", hw_reason or "未启用"))
         self._encoder = encoder
         return encoder
+
+    def _build_h264_cmd(self, url, audio):
+        """从 walle_camera 的 shmsink 读取 H.264，只做混流和推流。"""
+        cmd = [
+            "gst-launch-1.0", "-q", "-e",
+            "shmsrc", "socket-path=%s" % self.shm_socket, "is-live=true",
+            "!", "h264parse",
+            "!", "queue",
+            "!", "flvmux", "name=mux", "streamable=true",
+            "!", "queue",
+            "!", "rtmpsink", "location=%s" % url,
+        ]
+        if audio.get("available"):
+            device = (audio.get("device") or self.audio_device or "").strip()
+            src = "pulsesrc"
+            if device and device.lower() != "default":
+                src += " device=%s" % device
+            audio_bps = bitrate_to_bps(self.audio_bitrate, 128 * 1000)
+            cmd += [
+                src,
+                "!", "audioconvert",
+                "!", "audioresample",
+                "!", "audio/x-raw,rate=44100,channels=2",
+                "!", "voaacenc", "bitrate=%d" % audio_bps,
+                "!", "aacparse",
+                "!", "queue",
+                "!", "mux.",
+            ]
+        return cmd
 
     def _build_stream_cmd(self, width, height, url, audio):
         if self._select_encoder() == MPP_H264_ENCODER:
@@ -884,7 +1305,8 @@ class VideoWebrtcBridge(Node):
             meta = {
                 "room_number": self._room,
                 "video_device": self._device,
-                "pid": int(self._proc.pid) if self._proc else 0,
+                "pid": (int(self._proc.pid) if self._proc else
+                        (os.getpid() if self.camera_owner else 0)),
                 "started_at": self._started_at,
                 "rtmp_url": self._rtmp_url,
                 "audio": dict(self._audio),
@@ -904,6 +1326,8 @@ class VideoWebrtcBridge(Node):
             return meta
 
     def _stop_stream(self, reason=""):
+        if self.camera_owner:
+            return self._stop_owned_stream(reason)
         with self._lock:
             proc = self._proc
             stream_id = self._stream_id
@@ -956,11 +1380,17 @@ class VideoWebrtcBridge(Node):
     def _publish_status(self):
         msg = VideoStreamStatus()
         with self._lock:
-            msg.streaming = bool(self._streaming and self._proc is not None)
+            if self.camera_owner:
+                streaming = bool(self._streaming and self._stream_bin is not None)
+                pid = os.getpid() if streaming else 0
+            else:
+                streaming = bool(self._streaming and self._proc is not None)
+                pid = int(self._proc.pid) if streaming else 0
+            msg.streaming = streaming
             msg.room_number = self._room
             msg.video_device = self._device
             msg.rtmp_url = self._rtmp_url
-            msg.pid = int(self._proc.pid) if self._proc else 0
+            msg.pid = pid
             msg.started_at = self._started_at
             msg.started_ts = float(self._started_ts)
             msg.audio_available = bool(self._audio.get("available"))

@@ -185,6 +185,22 @@ sudo ./create_orangePi_udev_rules.sh
 
 > `usb_cam.launch.py` 启动前会校验设备存在、属于 USB 摄像头且支持 MJPG 640x480，失败则跳过启动，避免误开 ISP/编解码节点。
 
+### 摄像头后端（auto / shm / gst / usb_cam）
+
+`bringup.launch.py` 新增 `camera_backend` 参数：
+
+- `auto`（默认）：检测到 `mppjpegdec` 时使用 `shm`，否则使用 `usb_cam`；
+- `shm`：`walle_camera` 节点独占摄像头并发布 `/image_raw`，H.264 通过 GStreamer 共享内存（`shmsink`/`shmsrc`）交给 `video_webrtc_bridge` 混流推 RTMP，视频只编码一次；
+- `gst`：`video_webrtc_bridge` 独占摄像头，MJPG 经 `mppjpegdec` 硬件解码后分两路：一路按 `ros_image_fps`（默认 10fps）发布 `/image_raw`，一路直接 `mpph264enc` 推流；
+- `usb_cam`：保持原有 usb_cam + `/image_raw` + 推流桥模式。
+
+```bash
+ros2 launch bringup bringup.launch.py                      # RK3588 默认 shm
+ros2 launch bringup bringup.launch.py camera_backend:=gst   # GStreamer 独占
+ros2 launch bringup bringup.launch.py camera_backend:=shm   # 分离 + 共享内存 H.264
+ros2 launch bringup bringup.launch.py camera_backend:=usb_cam
+```
+
 ### 视频硬件编码
 
 `video_webrtc_bridge` 的 `video_encoder=auto` 会优先使用硬件编码：
