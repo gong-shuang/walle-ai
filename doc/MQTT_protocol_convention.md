@@ -612,13 +612,9 @@ python3 walle-device/linux-demo/selftest_topics.py       # 设备端契约自检
    （P0-3.1）。
 3. **WHEP 鉴权实测**：Nginx 8443 `/whep-audio/` + `secure_link` 验证无 token 403、
    过期 410、正确 token 502（P0-4.1）。
-4. **App 适配最小身份报文**：`online` 与 `discovery/result` 均只含最小身份（`device_id`/
-   `uuid`/`version`/`os_description`/`device_type`/`model`/`hostname`/`ip`/`uptime`/
-   `timestamp`），列表页只展示基本信息，详情页统一走 `state/query`；Android 侧
-   `DeviceInfo.from` 仍在解析 `mac`/`serial`/`os`/`cpu`/磁盘等字段，需后续清理。
-5. **手机端刷新方式实测**：改用 `UNSUBSCRIBE` + `SUBSCRIBE` `walle/{t}/+/v1/online`
+4. **手机端刷新方式实测**：改用 `UNSUBSCRIBE` + `SUBSCRIBE` `walle/{t}/+/v1/online`
    触发 retained 回放，替代 `discovery/query`；验证通过后可删除 discovery 主题、
    处理逻辑与 `DISCOVERY_MIN_INTERVAL_SEC` / `DISCOVERY_JITTER_SEC`。
-6. **linux-demo 实机验证**：`kill -9` 子进程清理、断网恢复、摄像头插拔、声卡不可用与
+5. **linux-demo 实机验证**：`kill -9` 子进程清理、断网恢复、摄像头插拔、声卡不可用与
    24h soak（P1-5.3）；CI 接入 `.github/workflows/ci.yml`（P1-5.4，暂缓）。
-7. **linux-demo 剩余 P2**：兼容性与功能优化项，见上线清单 P2-3/P2-4/P2-5。
+6. **linux-demo 剩余 P2**：兼容性与功能优化项，见上线清单 P2-3/P2-4/P2-5。

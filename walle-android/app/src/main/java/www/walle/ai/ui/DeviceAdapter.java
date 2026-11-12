@@ -13,7 +13,6 @@ import www.walle.ai.net.DeviceInfo;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 /** 设备卡片列表适配器：一台设备一张卡片，点击切换当前设备。 */
 public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.VH> {
@@ -53,24 +52,12 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.VH> {
         h.tvModel.setText(d.modelLabel());
 
         String ip = d.ip == null || d.ip.isEmpty() ? "IP 未知" : d.ip;
-        String mac = d.mac == null || d.mac.isEmpty() ? "" : " · " + d.mac;
-        h.tvLine1.setText((d.online ? "在线" : "离线") + " · " + ip + mac);
+        h.tvLine1.setText((d.online ? "在线" : "离线") + " · " + ip);
 
-        String kernel = d.kernel == null || d.kernel.isEmpty() ? "" : " · 内核 " + d.kernel;
-        h.tvLine2.setText(d.osLabel() + kernel);
+        h.tvLine2.setText(d.osLabel());
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("内存 ").append(d.memLabel());
-        if (d.diskTotalHuman != null && !d.diskTotalHuman.isEmpty()) {
-            sb.append(" · 磁盘 ").append(d.diskTotalHuman);
-        }
-        if (d.uptimeHuman != null && !d.uptimeHuman.isEmpty()) {
-            sb.append(" · 运行 ").append(d.uptimeHuman);
-        }
-        if (d.tempC != null) {
-            sb.append(String.format(Locale.US, " · %.1f℃", d.tempC));
-        }
-        h.tvLine3.setText(sb.toString());
+        String uptime = d.uptimeLabel();
+        h.tvLine3.setText(uptime.isEmpty() ? "—" : "运行 " + uptime);
 
         h.tvVersion.setText("Version  " + (d.versionName == null || d.versionName.isEmpty() ? "—" : d.versionName));
 

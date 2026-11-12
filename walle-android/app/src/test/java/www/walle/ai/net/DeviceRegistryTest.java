@@ -71,7 +71,6 @@ public class DeviceRegistryTest {
         assertEquals(1, r.count());          // 旧 uuid 条目已被清理
         assertNull(r.get("old"));
         assertNotNull(r.get("new"));
-        assertTrue(r.get("new").detailLoaded);
         assertTrue(r.get("new").online);
     }
 
@@ -96,14 +95,14 @@ public class DeviceRegistryTest {
     }
 
     @Test
-    public void driftedDeviceIdMergesByMacInsteadOfCreatingGhostCard() {
+    public void driftedDeviceIdMergesByHostnameInsteadOfCreatingGhostCard() {
         // 真实 bug：同一台机器两次启动算出两个 device_id（MemTotal 浮动几 KiB 进了哈希），
         // 旧主题上的 retained online:false 会和新主题的 online:true 一起回放。
-        // 两条报文必须归并成一张卡片，且不能被更旧的 offline 刷成离线。
+        // 身份报文已不含 MAC，按 hostname 归并；更旧的 offline 必须被丢弃。
         DeviceRegistry r = new DeviceRegistry();
-        r.applyOnline(json("{\"uuid\":\"new-uuid\",\"device_id\":\"d-new\",\"mac\":\"90:DE:80:18:7E:31\","
+        r.applyOnline(json("{\"uuid\":\"new-uuid\",\"device_id\":\"d-new\","
                 + "\"hostname\":\"aigo\",\"online\":true,\"timestamp\":200}"));
-        r.applyOnline(json("{\"uuid\":\"old-uuid\",\"device_id\":\"d-old\",\"mac\":\"90:de:80:18:7e:31\","
+        r.applyOnline(json("{\"uuid\":\"old-uuid\",\"device_id\":\"d-old\","
                 + "\"hostname\":\"aigo\",\"online\":false,\"timestamp\":100}"));
 
         assertEquals(1, r.count());
@@ -118,12 +117,12 @@ public class DeviceRegistryTest {
     public void staleOfflineArrivingFirstIsMergedAwayByLiveOnline() {
         // 回放顺序反过来（旧 offline 先到）：先建卡片，随后被在线报文归并，不能多出一台
         DeviceRegistry r = new DeviceRegistry();
-        r.applyOnline(json("{\"uuid\":\"old-uuid\",\"device_id\":\"d-old\",\"mac\":\"AA:BB:CC:DD:EE:FF\","
+        r.applyOnline(json("{\"uuid\":\"old-uuid\",\"device_id\":\"d-old\","
                 + "\"hostname\":\"aigo\",\"online\":false,\"timestamp\":100}"));
         assertEquals(1, r.count());
         assertEquals(0, r.onlineCount());
 
-        r.applyOnline(json("{\"uuid\":\"new-uuid\",\"device_id\":\"d-new\",\"mac\":\"aa:bb:cc:dd:ee:ff\","
+        r.applyOnline(json("{\"uuid\":\"new-uuid\",\"device_id\":\"d-new\","
                 + "\"hostname\":\"aigo\",\"online\":true,\"timestamp\":200}"));
 
         assertEquals(1, r.count());
@@ -136,9 +135,9 @@ public class DeviceRegistryTest {
     public void offlineOfSameDeviceIdStillApplies() {
         // 同一次开机的遗嘱（LWT）用的就是当前 device_id，时间戳与 online 相同，必须生效
         DeviceRegistry r = new DeviceRegistry();
-        r.applyOnline(json("{\"uuid\":\"u1\",\"device_id\":\"d1\",\"mac\":\"AA:BB:CC:DD:EE:FF\","
+        r.applyOnline(json("{\"uuid\":\"u1\",\"device_id\":\"d1\","
                 + "\"online\":true,\"timestamp\":200}"));
-        r.applyOnline(json("{\"uuid\":\"u1\",\"device_id\":\"d1\",\"mac\":\"AA:BB:CC:DD:EE:FF\","
+        r.applyOnline(json("{\"uuid\":\"u1\",\"device_id\":\"d1\","
                 + "\"online\":false,\"timestamp\":200}"));
 
         assertEquals(1, r.count());
@@ -146,20 +145,20 @@ public class DeviceRegistryTest {
     }
 
     @Test
-    public void devicesWithDifferentMacsStaySeparate() {
+    public void devicesWithDifferentHostnamesStaySeparate() {
         DeviceRegistry r = new DeviceRegistry();
-        r.applyOnline(json("{\"uuid\":\"u1\",\"device_id\":\"d1\",\"mac\":\"AA:AA:AA:AA:AA:AA\",\"online\":true}"));
-        r.applyOnline(json("{\"uuid\":\"u2\",\"device_id\":\"d2\",\"mac\":\"BB:BB:BB:BB:BB:BB\",\"online\":true}"));
+        r.applyOnline(json("{\"uuid\":\"u1\",\"device_id\":\"d1\",\"hostname\":\"walle-a\",\"online\":true}"));
+        r.applyOnline(json("{\"uuid\":\"u2\",\"device_id\":\"d2\",\"hostname\":\"walle-b\",\"online\":true}"));
         assertEquals(2, r.count());
         assertEquals(2, r.onlineCount());
     }
 
     @Test
-    public void discoveryResultReplacesStaleEntryOfSameMacWhenDeviceIdDrifted() {
+    public void discoveryResultReplacesStaleEntryOfSameHostnameWhenDeviceIdDrifted() {
         DeviceRegistry r = new DeviceRegistry();
-        r.applyOnline(json("{\"uuid\":\"old\",\"device_id\":\"d-old\",\"mac\":\"AA:BB:CC:DD:EE:FF\",\"online\":false}"));
+        r.applyOnline(json("{\"uuid\":\"old\",\"device_id\":\"d-old\",\"hostname\":\"aigo\",\"online\":false}"));
         DeviceInfo d = r.applyInfo(json("{\"uuid\":\"new\",\"device_id\":\"d-new\","
-                + "\"mac\":\"aa:bb:cc:dd:ee:ff\",\"hostname\":\"aigo\"}"));
+                + "\"hostname\":\"aigo\"}"));
 
         assertNotNull(d);
         assertEquals(1, r.count());
