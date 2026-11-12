@@ -25,8 +25,8 @@
 
 硬件：
 
-- 树莓派 5 或同级 ARM64 板卡，系统为 Ubuntu 24.04
-- Walle 麦克纳姆轮底盘（STM32 控制器，USB 串口连接）
+- 树莓派 5（RaspberryPi5）或香橙派 5（OrangePi5），系统为 Ubuntu 24.04
+- Walle 麦克纳姆轮底盘（STM32 控制器，SoC UART 连接）
 - USB 摄像头、I2C 声呐、麦克风/扬声器（或语音盒子）
 
 软件：
@@ -152,15 +152,22 @@ source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 ```
 
-### 安装 udev 规则（底盘串口）
+### 安装 udev 规则
+
+根据主控板型号选择对应的安装脚本：
 
 ```bash
+# 树莓派 5（RaspberryPi5）
 cd ~/walle-device/scripts/udev
-sudo ./create_udev_rules.sh
+sudo ./create_rpi_udev_rules.sh
+
+# 香橙派 5（OrangePi5）
+cd ~/walle-device/scripts/udev
+sudo ./create_orangePi_udev_rules.sh
 ```
 
-> 规则会创建 `/dev/rrc`（`ttyAMA0`，`dialout` 0660）和 `/dev/walle-camera`（USB 摄像头，按 idVendor/idProduct 匹配）；确保运行用户在 `dialout` 与 `video` 组。
-> 换摄像头后需更新 `99-walle-camera.rules` 的 USB id 与两个 yaml 中的设备路径。
+> 规则会创建 `/dev/wi_uart`（树莓派 `ttyAMA0` / 香橙派 `ttyS6`，`dialout` 0660）和 `/dev/walle-camera`（USB 摄像头，按 idVendor/idProduct 匹配）；确保运行用户在 `dialout` 与 `video` 组。
+> 换摄像头后需更新 `99-walle-camera.rules` 的 USB id。
 
 ## 部署形态选择（ROS2 版 / linux-demo 二选一）
 
@@ -253,7 +260,7 @@ sudo ./test/stability_test.py network --offline 15         # 只拦截 Broker �
 ```
 
 - `network --mode link --iface wlan0` 才会断开整块网卡，需在串口/本地终端执行（脚本带延时自动恢复兜底）。
-- 串口掉线无法软件模拟：手动拔插 `/dev/rrc` 后观察 `ros_robot_controller` 是否自动重连。
+- 串口掉线无法软件模拟：手动拔插 `/dev/wi_uart` 后观察 `ros_robot_controller` 是否自动重连。
 - `soak` 的 CSV 写入 `~/.ros/log/stability/soak-*.csv`，结束时按 RSS / FD / 磁盘增长判定泄漏；任一项 `FAIL` 需在发布前处理。
 
 ## 持续集成

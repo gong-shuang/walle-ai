@@ -49,6 +49,22 @@ export WALLE_RUNTIME_ENV=debug
 # 机器类型：Walle
 export MACHINE_TYPE=Walle
 
+# 主控板型号：RaspberryPi5 / OrangePi5
+# 可通过环境变量 MAIN_CONTROL_BOARD 覆盖；默认 RaspberryPi5
+export MAIN_CONTROL_BOARD="${MAIN_CONTROL_BOARD:-RaspberryPi5}"
+
+# 根据主控板型号自动选择 I2C 总线：
+#   RaspberryPi5 -> i2c-1 (总线 1)
+#   OrangePi5    -> i2c-2 (总线 2)
+case "$MAIN_CONTROL_BOARD" in
+    OrangePi5)
+        export WALLE_I2C_BUS=2
+        ;;
+    RaspberryPi5|*)
+        export WALLE_I2C_BUS=1
+        ;;
+esac
+
 # 语言设置，主要涉及语音部分：Chinese/English
 export ASR_LANGUAGE=Chinese
 
@@ -98,6 +114,7 @@ echo -e "\033[32m----------------------------------------------
 当前环境是ROS2|The current environment is ROS2
 ----------------------------------------------\033[0m"
 echo -e "MACHINE: \033[32m$MACHINE_TYPE\033[0m"
+echo -e "BOARD:   \033[32m$MAIN_CONTROL_BOARD\033[0m (I2C bus $WALLE_I2C_BUS)"
 echo -e "RUNTIME: \033[32m$WALLE_RUNTIME_ENV\033[0m"
 echo -e "OS:      \033[32m${os_pretty:-Unknown}\033[0m"
 echo -e "ROS2:    \033[32m${ros_distro^}\033[0m"

@@ -41,7 +41,7 @@ def zero_speed(board):
 def main():
     parser = argparse.ArgumentParser(
         description='P0-3.3 固件通信超时停车验证（必须架空车轮）')
-    parser.add_argument('--device', default='/dev/rrc', help='串口设备')
+    parser.add_argument('--device', default='/dev/wi_uart', help='串口设备')
     parser.add_argument('--speed', type=float, default=20.0,
                         help='测试占空比，范围 -100~100，默认 20')
     parser.add_argument('--pulse', type=float, default=0.3,

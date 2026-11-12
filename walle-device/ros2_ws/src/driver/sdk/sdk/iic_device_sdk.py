@@ -3,6 +3,7 @@
 # 幻尔 IIC 设备库：超声波模块 + 语音交互模块
 # Hiwonder IIC device library: sonar + speech interaction module
 
+import os
 import sys
 import time
 from smbus2 import SMBus, i2c_msg
@@ -34,7 +35,8 @@ class Sonar:
 
     def __init__(self):
         self.i2c_addr = 0x77
-        self.i2c = 1
+        # 从环境变量读取 I2C 总线号：RaspberryPi5=1, OrangePi5=2；默认 1
+        self.i2c = int(os.environ.get('WALLE_I2C_BUS', 1))
         self.Pixels = [0, 0]
         self.RGBMode = 0
 
