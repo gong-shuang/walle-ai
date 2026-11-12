@@ -103,6 +103,11 @@ sudo apt update
 sudo apt install -y ros-jazzy-desktop-full
 ```
 
+# 安装ROS2的依赖，注意，如果版本是别的，如Humble，需要修改为对应的包名
+```bash
+sudo apt install -y ros-jazzy-rosbridge-server ros-jazzy-web-video-server ros-jazzy-usb-cam
+```
+
 配置环境变量：
 ```bash
 echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
@@ -158,11 +163,11 @@ colcon build --symlink-install
 
 ```bash
 # 树莓派 5（RaspberryPi5）
-cd ~/walle-device/scripts/udev
+cd ~/walle-ai/walle-device/scripts/udev
 sudo ./create_rpi_udev_rules.sh
 
 # 香橙派 5（OrangePi5）
-cd ~/walle-device/scripts/udev
+cd ~/walle-ai/walle-device/scripts/udev
 sudo ./create_orangePi_udev_rules.sh
 ```
 

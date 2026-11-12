@@ -10,5 +10,6 @@ pyserial==3.5
 smbus2==0.6.1
 numpy==1.26.4
 dashscope==2.0.4
+openai==3.49.0
 PyYAML==6.0.1
 transforms3d==0.4.2

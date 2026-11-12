@@ -50,8 +50,8 @@ export WALLE_RUNTIME_ENV=debug
 export MACHINE_TYPE=Walle
 
 # 主控板型号：RaspberryPi5 / OrangePi5
-# 可通过环境变量 MAIN_CONTROL_BOARD 覆盖；默认 RaspberryPi5
-export MAIN_CONTROL_BOARD="${MAIN_CONTROL_BOARD:-RaspberryPi5}"
+# 可通过环境变量 MAIN_CONTROL_BOARD 覆盖；默认 OrangePi5
+export MAIN_CONTROL_BOARD="${MAIN_CONTROL_BOARD:-OrangePi5}"
 
 # 根据主控板型号自动选择 I2C 总线：
 #   RaspberryPi5 -> i2c-1 (总线 1)
@@ -88,7 +88,11 @@ if [[ ! -f "$venv_path/bin/activate" ]]; then
     return 1
 fi
 source "$venv_path/bin/activate"
-source /opt/ros/jazzy/setup.bash
+if [[ "$MAIN_CONTROL_BOARD" == RaspberryPi5 ]]; then
+    source /opt/ros/jazzy/setup.bash
+elif [[ "$MAIN_CONTROL_BOARD" == OrangePi5 ]]; then
+    source /opt/ros/humble/setup.bash
+fi
 source "$walle_home/ros2_ws/install/setup.bash"
 # source "$current_dir/third_party_ros2/third_party_ws/install/setup.bash"
 
