@@ -278,6 +278,12 @@ public class PlayerActivity extends AppCompatActivity {
         }
         // 音频流名固定为 {room}_audio，避免和设备推的视频抢同一个 stream
         String url = BuildConfig.WHIP_AUDIO_URL_TEMPLATE.replace("{room}", Uri.encode(roomNumber));
+        // 构建期没注入 Oryx 推流 secret 时直接给出可操作提示，避免只看到服务端 502
+        if (!url.contains("secret=")) {
+            viewModel.postStatus("未配置 Oryx 推流 secret，请用 -PoryxSecret=... 或环境变量 "
+                    + "WHIP_SECRET 重新构建 App");
+            return;
+        }
         micStarting = true;
         updateMicUi();
         viewModel.postStatus("正在开启麦克风…");

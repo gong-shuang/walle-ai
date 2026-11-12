@@ -79,7 +79,10 @@ public final class WhepClient {
                     + ", body=" + body.length() + " chars, Location=" + locationHeader);
 
             if (status != HttpURLConnection.HTTP_OK && status != HttpURLConnection.HTTP_CREATED) {
-                throw new WhepException("WHEP 协商失败: HTTP " + status + ", " + body);
+                // 401/403/502：Oryx 开启推流鉴权后，secret 缺失或错误都会这样返回
+                String hint = (status == 401 || status == 403 || status == 502)
+                        ? "（推流请检查 Oryx secret 是否已正确注入）" : "";
+                throw new WhepException("WHEP 协商失败: HTTP " + status + hint + ", " + body);
             }
             if (body.trim().isEmpty()) {
                 throw new WhepException("WHEP 响应为空: HTTP " + status);
