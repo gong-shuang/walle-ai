@@ -530,6 +530,30 @@ python3 walle-device/linux-demo/selftest_topics.py       # 设备端契约自检
 
 ## 8. 变更记录
 
+### 2026-11-10～11-12：online / discovery/result 统一为最小身份报文
+
+**提交**：`104ed22`（设备端，`feat(linux-demo): 最小化 retained online 报文`）、
+`b8957d5`（App，`refactor(mqtt): 适配设备最小身份报文`）。
+
+**变更类型**：非破坏性收敛（协议 v1 主题不变，身份字段只减不增）。
+
+**变更内容**
+
+- 设备端：`online`（retained + LWT）与 `discovery/result` 统一只发最小身份
+  （`device_id`/`uuid`/`version_code`/`version_name`/`os_description`/`device_type`/
+  `model`/`hostname`/`ip`/`uptime_seconds`/`timestamp`/`datetime`）。
+- `mac`/`serial`/`os`/`cpu`/内存/磁盘/`boot_time` 等不再随身份报文下发；系统、CPU、
+  磁盘等明细统一走 `state/query`（§4.3）。
+- App：`DeviceInfo` 只解析上述字段；`DeviceRegistry` 归并改为 `device_id` → `uuid` →
+  `hostname`（去掉 MAC）；设备列表只展示在线状态、IP、系统描述、型号与运行时长。
+
+**影响与兼容性**：旧版 App 仍可运行；新版 App 不再依赖 MAC，`device_id` 漂移时退化为
+按 `hostname` 归并；设备详情仍以 `state/query` 为准。
+
+**验证方式**：设备端 `linux-demo/test/test_online_identity.py` 校验最小字段；
+App `DeviceInfoTest` / `DeviceRegistryTest` 共 21 个用例通过
+（`./gradlew :app:testDebugUnitTest`）。
+
 ### 2026-11-10：state/query 改为复用监控采样快照
 
 **变更类型**：非破坏性增量（协议 v1 字段只增不改）。

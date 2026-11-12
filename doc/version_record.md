@@ -24,6 +24,7 @@ commit 格式：`type(scope): description`
 - perf：性能优化
 - test：增加 / 修改测试代码
 - chore: 构建、CI 配置、依赖更新
+- release: 发布新版本
   所有合并请求（PR）请提交至 dev 分支。
 
 示例1（单行，一句话描述清楚）：
