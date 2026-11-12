@@ -54,10 +54,8 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.VH> {
         String ip = d.ip == null || d.ip.isEmpty() ? "IP 未知" : d.ip;
         h.tvLine1.setText((d.online ? "在线" : "离线") + " · " + ip);
 
-        h.tvLine2.setText(d.osLabel());
-
         String uptime = d.uptimeLabel();
-        h.tvLine3.setText(uptime.isEmpty() ? "—" : "运行 " + uptime);
+        h.tvLine2.setText(d.osLabel() + " · " + (uptime.isEmpty() ? "" : "运行 " + uptime));
 
         h.tvVersion.setText("Version  " + (d.versionName == null || d.versionName.isEmpty() ? "—" : d.versionName));
 
@@ -71,7 +69,7 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.VH> {
 
     static class VH extends RecyclerView.ViewHolder {
         final View dot;
-        final TextView tvName, tvType, tvCurrent, tvModel, tvLine1, tvLine2, tvLine3, tvVersion;
+        final TextView tvName, tvType, tvCurrent, tvModel, tvLine1, tvLine2, tvVersion;
         VH(@NonNull View v) {
             super(v);
             dot = v.findViewById(R.id.dotOnline);
@@ -81,7 +79,6 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.VH> {
             tvModel = v.findViewById(R.id.tvModel);
             tvLine1 = v.findViewById(R.id.tvLine1);
             tvLine2 = v.findViewById(R.id.tvLine2);
-            tvLine3 = v.findViewById(R.id.tvLine3);
             tvVersion = v.findViewById(R.id.tvVersion);
         }
     }

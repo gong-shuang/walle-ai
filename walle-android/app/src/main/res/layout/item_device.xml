@@ -90,15 +90,6 @@
         android:text="系统" />
 
     <TextView
-        android:id="@+id/tvLine3"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:textColor="@color/text_secondary"
-        android:textSize="12sp"
-        android:text="运行时长" />
-
-    <TextView
         android:id="@+id/tvVersion"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
