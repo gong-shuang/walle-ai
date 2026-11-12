@@ -185,6 +185,15 @@ sudo ./create_orangePi_udev_rules.sh
 
 > `usb_cam.launch.py` 启动前会校验设备存在、属于 USB 摄像头且支持 MJPG 640x480，失败则跳过启动，避免误开 ISP/编解码节点。
 
+### 视频硬件编码
+
+`video_webrtc_bridge` 的 `video_encoder=auto` 会优先使用硬件编码：
+
+- Orange Pi 5 Plus（RK3588）：GStreamer `mpph264enc`（Rockchip MPP）。需 `gst-launch-1.0` 与 `gstreamer1.0-rockchip1`，Orange Pi 官方镜像已预装，可用 `gst-inspect-1.0 mpph264enc` 检查。
+- 其他平台：ffmpeg `h264_v4l2m2m`；硬件不可用时自动回退 `libx264`。
+
+启动日志会打印实际使用的编码器；RK3588 上应显示 `mpph264enc`（GStreamer/Rockchip MPP 硬件编码）。
+
 ## 部署形态选择（ROS2 版 / linux-demo 二选一）
 
 本仓库提供两套设备端实现，**同一台设备只能部署其中一套**：

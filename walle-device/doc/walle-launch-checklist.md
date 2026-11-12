@@ -223,9 +223,9 @@
   - 验收：`test/test_capability_cache.py` 覆盖只读缓存、cache-only 立即返回 pending、后台探测写入缓存、探测失败保留旧缓存；请求线程不再执行 v4l2/pactl
 
 - [x] ✅ **P2-1.3 视频硬件编码**
-  - 处理：评估结论——本机 Pi 5（kernel 6.8）只有 `pispbe` ISP 与 `rpivid` 解码节点，无 V4L2 M2M 编码器；ffmpeg 的 `h264_v4l2m2m` / `hevc_v4l2m2m` 试编码均报 `Could not find a valid device`，GStreamer 也没有 `v4l2h264enc`。已实现 `video_encoder=auto|libx264|h264_v4l2m2m`：启动时用 0.5s 试编码探测，硬件可用则启用，否则自动回退 libx264 并打印原因
-  - 证据：`ros2_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py`（`probe_hw_h264_encoder` / `select_encoder` / `_select_encoder` / `_build_ffmpeg_cmd`）
-  - 验收：本机探测 0.2s 后正确回退 libx264（Pi 5 无硬件编码器，CPU 不下降属硬件限制）；带 V4L2 M2M 编码器的设备上 `auto` 会自动切到 `h264_v4l2m2m`
+  - 处理：`video_encoder=auto` 优先 Rockchip MPP 硬件编码（`mpph264enc`，Orange Pi 5 Plus / RK3588 走 MPP），其次 ffmpeg V4L2 M2M（`h264_v4l2m2m`），都不可用时回退 `libx264`；MPP 后端使用 GStreamer 管道（`fdsrc → rawvideoparse → videoconvert → mpph264enc → flvmux → rtmpsink`），其余后端沿用 ffmpeg。RK3588 上 ffmpeg 的 `h264_v4l2m2m` / `hevc_v4l2m2m` 会报 `Could not find a valid device`（编码器走 `/dev/mpp_service`，不是 V4L2 M2M 节点）
+  - 证据：`ros2_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py`（`probe_mpp_h264_encoder` / `probe_hw_h264_encoder` / `select_encoder` / `_build_gst_cmd` / `_build_ffmpeg_cmd`）
+  - 验收：Orange Pi 5 Plus 启动日志显示 `mpph264enc`；实测 640x480@30 / 720p@30 编码约 9% / 12% 单核（libx264 约 26% / 71%）；Raspberry Pi 5 无硬件编码器时仍正确回退 `libx264`
 
 - [x] ✅ **P2-1.4 MQTT 消息处理与监控解耦**
   - 处理：请求按「查询（state/capability/discovery）/动作（video、phone audio）」分两个线程池，慢动作不再占用查询线程；每池用 `BoundedSemaphore` 限制「执行中 + 排队」总量（默认查询 2+16、动作 2+8），洪峰时丢弃并每 5s 汇总告警；监控采样仍在独立线程 `monitor_loop`，与请求池完全解耦
@@ -493,6 +493,11 @@ cd walle-device/scripts && ./start.sh
   `agent.py` 保留 `RpiMonitor` 组合、启动流程、`--check` 与公共名 re-export，
   `node.py` 改为从 `config` 读写 `DEVICE_ID_FILE` / `DEVICE_ID`。各文件均 < 500 行，
   新增 `test/test_modules.py` 固化模块导入与文件大小约束。
+- 2026-11-12：P2-1.3 新增 Rockchip MPP 硬件编码后端：`auto` 先探测 GStreamer
+  `mpph264enc`（RK3588 编码器走 `/dev/mpp_service`，ffmpeg 的 `h264_v4l2m2m`
+  会报 `Could not find a valid device`），可用时用 GStreamer 管道推 RTMP，
+  否则依次回退 `h264_v4l2m2m` / `libx264`；实测 640x480@30 / 720p@30 编码
+  约占 9% / 12% 单核（libx264 约 26% / 71%）。
 - 2026-11-10：P2-1.3 评估结论——Raspberry Pi 5（kernel 6.8）没有 V4L2 M2M 编码器：
   `/sys/class/video4linux` 只有 `pispbe-*`（ISP）与 `rpivid`（解码），
   `ffmpeg -c:v h264_v4l2m2m` / `hevc_v4l2m2m` 试编码均报

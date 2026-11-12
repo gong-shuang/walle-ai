@@ -12,11 +12,13 @@ video_webrtc_bridge:
     # 媒体服务器地址与推流 secret 从 env_file 读取（MEDIA_SERVER_HOST / MEDIA_SERVER_SECRET）。
     # 推流地址由协议固定：rtmp://{host}:1935/live/{room}?secret={secret}，无需配置模板。
     # 不要把 secret 写进 YAML：ros2 param dump 会把明文打出来。
+    # 码率：640x480 建议 1000k；720p 建议 1500k~2500k；1080p 建议 3000k~4000k
     video_bitrate: "1000k"
     video_gop: 60
     video_preset: "ultrafast"
-    # H.264 编码器：auto=优先 V4L2 M2M 硬件（h264_v4l2m2m），不可用自动回退 libx264；
-    # 也可强制 libx264 / h264_v4l2m2m。Raspberry Pi 5 无硬件编码器，会走 libx264。
+    # H.264 编码器：auto=优先 Rockchip MPP 硬件（mpph264enc，RK3588 等），
+    # 其次 V4L2 M2M（h264_v4l2m2m），不可用自动回退 libx264；
+    # 也可强制 mpph264enc / h264_v4l2m2m / libx264。
     video_encoder: "auto"
 
     # 麦克风混入：有可用录音源时自动带上音频
