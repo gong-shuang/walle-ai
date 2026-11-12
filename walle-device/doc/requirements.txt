@@ -1,7 +1,7 @@
 # Walle 设备端 Python 依赖（Ubuntu 24.04 / Python 3.12 / ROS2 Jazzy）
 #
 # 系统 apt 依赖（不在 pip 中安装）：
-#   sudo apt install -y ffmpeg python3-opencv python3-smbus
+#   sudo apt install -y ffmpeg python3-opencv python3-smbus libportaudio2
 # 说明：rclpy、ROS 消息包等由 ROS2 安装与 colcon 提供，不在此文件
 
 paho-mqtt==2.2.0
@@ -13,3 +13,5 @@ dashscope==2.0.4
 openai==3.49.0
 PyYAML==6.0.1
 transforms3d==0.4.2
+aiortc==1.15.0
+sounddevice==0.5.6

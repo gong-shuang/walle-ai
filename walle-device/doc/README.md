@@ -103,8 +103,8 @@ sudo apt update
 sudo apt install -y ros-jazzy-desktop-full
 ```
 
-# 安装ROS2的依赖，注意，如果版本是别的，如Humble，需要修改为对应的包名
 ```bash
+# 安装ROS2的依赖，注意，如果版本是别的，如Humble，需要修改为对应的包名
 sudo apt install -y ros-jazzy-rosbridge-server ros-jazzy-web-video-server ros-jazzy-usb-cam
 ```
 
@@ -139,7 +139,7 @@ touch ~/venv/COLCON_IGNORE
 source ~/venv/bin/activate
 
 # 安装系统依赖（OpenCV / I2C / 推流）
-sudo apt install -y ffmpeg python3-opencv python3-smbus
+sudo apt install -y ffmpeg python3-opencv python3-smbus libportaudio2
 
 # 安装 walle 项目的 Python 依赖
 pip install -r ~/walle-device/doc/requirements.txt
