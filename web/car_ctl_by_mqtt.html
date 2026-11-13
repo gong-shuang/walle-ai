@@ -77,6 +77,7 @@ select.deviceSelect{height:32px;max-width:260px;padding:0 10px;border-radius:9px
 .statusCard{order:1}
 .videoCard{order:2}
 .alarmCard{order:3}
+.carCard{order:4}
 .identity{display:flex;gap:14px;align-items:center;padding:13px 14px;border-radius:12px;
   background:rgba(255,255,255,.028);border:1px solid var(--line);margin-bottom:14px}
 .identity .avatar{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;
@@ -121,6 +122,32 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .alarmItem b{display:block;font-size:12px;font-weight:550;color:var(--text);word-break:break-word}
 .alarmItem p{margin:3px 0 0;font-size:11px;color:var(--dim)}
 .alarmItem time{flex:none;font-size:10.5px;color:var(--dim);white-space:nowrap}
+.carBody{display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+.carPad{display:grid;grid-template-columns:repeat(3,64px);grid-template-rows:repeat(2,64px);gap:12px;flex:none}
+.carKey{
+  border:1px solid var(--line2);border-radius:14px;
+  background:linear-gradient(180deg,#1b2433,#121923);
+  color:var(--text);font-size:21px;font-weight:700;line-height:1;padding:0;
+  display:grid;place-items:center;user-select:none;touch-action:none;
+  box-shadow:0 5px 0 #080c12,0 8px 18px rgba(0,0,0,.35);
+  transition:transform .06s,box-shadow .06s,background .15s,border-color .15s;
+}
+.carKey:hover{border-color:#3a475c;background:linear-gradient(180deg,#202b3d,#141c28)}
+.carKey.rot{color:#a9d4ff;border-color:rgba(74,168,255,.35);background:linear-gradient(180deg,#17263a,#101a29)}
+.carKey.rot:hover{border-color:rgba(74,168,255,.6)}
+.carKey.pressed,.carKey:active{
+  transform:translateY(4px);
+  box-shadow:0 1px 0 #080c12,0 3px 8px rgba(0,0,0,.3);
+  border-color:rgba(61,220,151,.55);
+  background:linear-gradient(180deg,rgba(61,220,151,.18),rgba(20,29,40,.95));
+}
+.carKey.rot.pressed,.carKey.rot:active{border-color:rgba(74,168,255,.7);background:linear-gradient(180deg,rgba(74,168,255,.22),rgba(16,26,41,.95))}
+.carInfo{min-width:200px;flex:1}
+.carStatus{font-size:12px;color:var(--muted);word-break:break-all;min-height:18px}
+.carStatus.ok{color:#9ff0cf}
+.carStatus.err{color:#ffb3b3}
+.carLegend{margin-top:10px;font-size:11px;line-height:1.8;color:var(--dim)}
+.carLegend b{color:var(--muted);font-weight:600}
 .emptyState{padding:26px 10px;text-align:center;font-size:12px;color:var(--dim)}
 .scrim{position:fixed;inset:0;z-index:40;background:rgba(3,5,8,.62);backdrop-filter:blur(3px);opacity:0;pointer-events:none;transition:opacity .2s}
 .scrim.show{opacity:1;pointer-events:auto}
@@ -158,7 +185,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div class="logo">◈</div>
       <div>
         <h1>Walle 控制台</h1>
-        <p>设备状态 · 实时画面 · 告警</p>
+        <p>设备状态 · 实时画面 · 车辆控制 · 告警</p>
       </div>
     </div>
     <div class="topActions">
@@ -247,6 +274,33 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         <button id="btnAlarmClear" class="btn" style="height:28px;font-size:11px">清空</button>
       </div>
       <div id="alarmList" class="alarmList"><div class="emptyState">暂无告警</div></div>
+    </section>
+    <section class="card carCard">
+      <div class="cardHead">
+        <div>
+          <h2>车辆控制</h2>
+          <small>car/motor/drive · 按住持续下发（200ms）</small>
+        </div>
+        <span class="badge">0.6 m/s</span>
+      </div>
+      <div class="carBody">
+        <div class="carPad">
+          <span class="carGap" aria-hidden="true"></span>
+          <button class="carKey" type="button" data-car-key="w" aria-label="前进">w</button>
+          <span class="carGap" aria-hidden="true"></span>
+          <button class="carKey rot" type="button" data-car-key="a" aria-label="左旋转">a</button>
+          <button class="carKey" type="button" data-car-key="s" aria-label="后退">s</button>
+          <button class="carKey rot" type="button" data-car-key="d" aria-label="右旋转">d</button>
+        </div>
+        <div class="carInfo">
+          <div id="carStatus" class="carStatus">MQTT 未连接</div>
+          <div class="carLegend">
+            <div><b>w</b> 前进 · <b>s</b> 后退</div>
+            <div><b>a</b> 左旋转 · <b>d</b> 右旋转</div>
+            <div>可同时按住一个移动键 + 一个旋转键；松开立即停车。</div>
+          </div>
+        </div>
+      </div>
     </section>
   </main>
 </div>
@@ -340,7 +394,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
    'devPills', 'mCpu', 'bCpu', 'mTemp', 'bTemp', 'mMem', 'bMem', 'mUptime', 'bUp', 'dHost', 'dOs', 'dLoad', 'dNet',
    'dDisk', 'dUsb', 'dVideo', 'stateTime', 'autoState', 'btnState', 'btnCapability', 'videoEl',
    'videoEmpty', 'videoHint', 'cameraSelect', 'roomInput', 'btnVideoStart', 'btnVideoStop', 'btnVideoConnect',
-   'videoMsg', 'alarmList', 'btnAlarmClear',
+   'videoMsg', 'alarmList', 'btnAlarmClear', 'carStatus',
    'scrim', 'drawer', 'btnDrawerClose', 'fWsUrl', 'fUser', 'fPass', 'fClientId', 'fKeepalive', 'fDevice',
    'fVideoUrl', 'btnSave']
     .forEach(function (k) { el[k] = document.getElementById(k); });
@@ -348,6 +402,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   var ui = { online: false, uuid: '', devices: {}, state: {}, cap: {}, pendingVideo: null,
     pendingCap: null, pendingVideoStop: null, discoveryRid: '',
     video: { pc: null, location: '', room: '', camera: '', lastAlarmKey: '', connected: false, uiStreaming: null },
+    car: { held: {}, timer: null, pendingRid: '', wasActive: false },
     autoTimer: null, statePending: null, offline: {} };
   var reconnectTimer = null, mqtt;
   var RUNTIME_SUFFIX = Math.random().toString(16).slice(2, 6);
@@ -470,7 +525,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function subBase() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/+/v1/'; }
   function discoveryTopic() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/v1/discovery/query'; }
   var SUBS = ['online', 'discovery/result', 'state/result', 'capability/result',
-    'video/start/result', 'video/stop/result', 'alarm'];
+    'video/start/result', 'video/stop/result', 'car/motor/result', 'alarm'];
 
   function setConn(kind, text) {
     el.connChip.className = 'chip ' + (kind === 'on' ? 'on' : 'bad');
@@ -490,9 +545,12 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       onStatus: function (kind, text) {
         setConn(kind === 'on' ? 'on' : 'bad', text);
         if (kind === 'on') {
+          if (carHasActive()) { carEnsureLoop(); carSendNow(); }
+          else carSetStatus('按住 w/s 移动，a/d 旋转 · 0.6 m/s', null);
           if (cfg.device) setTimeout(queryState, 600);
           setTimeout(function () { if (!Object.keys(ui.devices).length) discover(); }, 900);
         } else if (kind === 'closed' || kind === 'error') {
+          carReleaseAll(false);
           if (ui.pendingCap && ui.pendingCap.timer) clearTimeout(ui.pendingCap.timer);
           ui.pendingCap = null;
           updateCapabilityButton(false);
@@ -510,6 +568,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     else if (/\/capability\/result$/.test(topic)) onCapability(dev, data);
     else if (/\/video\/start\/result$/.test(topic)) onVideoStartResult(dev, data);
     else if (/\/video\/stop\/result$/.test(topic)) onVideoStopResult(dev, data);
+    else if (/\/car\/motor\/result$/.test(topic)) onCarMotorResult(dev, data);
     else if (/\/alarm$/.test(topic)) onAlarm(dev, data);
   }
   function devOf(topic) {
@@ -537,11 +596,13 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       ui.online = data.online === true;
       el.onlineBadge.className = 'badge ' + (ui.online ? 'ok' : 'bad');
       el.onlineBadge.textContent = ui.online ? '在线' : '离线';
+      if (!ui.online) carReleaseAll(false);
       if (data.uuid) ui.uuid = data.uuid;
       if (ui.online && (!wasOnline || wasUuid !== ui.uuid)) {
         queryState();
         requestCapability();
       }
+      if (ui.uuid && carHasActive()) { carEnsureLoop(); carSendNow(); }
       applyVideoUi();
     }
     renderDevices();
@@ -586,6 +647,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
   function selectDevice(dev) {
     if (!dev) return;
+    carReleaseAll(true);
     cfg.device = dev; saveCfg();
     var info = ui.devices[dev] || {};
     ui.deviceInfo = info;
@@ -918,6 +980,156 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     while (el.alarmList.children.length > 200) el.alarmList.removeChild(el.alarmList.lastChild);
   }
 
+  // ---------------------------------------------------------------- 车控
+  var CAR_SPEED = 0.6;
+  var CAR_KEYS = { w: 'move', a: 'rot', s: 'move', d: 'rot' };
+  var CAR_MOVE_ORDER = ['w', 's'];
+  var CAR_ROT_ORDER = ['a', 'd'];
+
+  function carIsTyping(target) {
+    if (!target) return false;
+    var tag = String(target.tagName || '').toLowerCase();
+    return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
+  }
+  function carButton(key) {
+    return document.querySelector('.carKey[data-car-key="' + key + '"]');
+  }
+  function carSetPressed(key, on) {
+    var btn = carButton(key);
+    if (btn) btn.classList.toggle('pressed', !!on);
+  }
+  function carSetStatus(text, kind) {
+    if (!el.carStatus) return;
+    el.carStatus.textContent = text;
+    el.carStatus.className = 'carStatus' + (kind ? ' ' + kind : '');
+  }
+  function carActiveMove() {
+    for (var i = 0; i < CAR_MOVE_ORDER.length; i++) {
+      if (ui.car.held[CAR_MOVE_ORDER[i]]) return CAR_MOVE_ORDER[i];
+    }
+    return '';
+  }
+  function carActiveRotate() {
+    for (var i = 0; i < CAR_ROT_ORDER.length; i++) {
+      if (ui.car.held[CAR_ROT_ORDER[i]]) return CAR_ROT_ORDER[i];
+    }
+    return '';
+  }
+  function carHasActive() { return !!(carActiveMove() || carActiveRotate()); }
+  function carPayload() {
+    var m = carActiveMove(), r = carActiveRotate();
+    return {
+      move: {
+        forward: m === 'w' ? CAR_SPEED : 0,
+        back: m === 's' ? CAR_SPEED : 0,
+        left: 0,
+        right: 0
+      },
+      rotate: { left: r === 'a', right: r === 'd' }
+    };
+  }
+  function carStopLoop() {
+    if (ui.car.timer) { clearInterval(ui.car.timer); ui.car.timer = null; }
+  }
+  function carEnsureLoop() {
+    if (ui.car.timer) return;
+    ui.car.timer = setInterval(carSendNow, 200);
+  }
+  function carPrereqOk() {
+    if (!mqtt || !mqtt.connected) { carSetStatus('MQTT 未连接', 'err'); return false; }
+    if (!cfg.device) { carSetStatus('未选择设备', 'err'); return false; }
+    if (ui.offline[cfg.device]) { carSetStatus('设备离线，无法控制', 'err'); return false; }
+    if (!ui.uuid) { carSetStatus('缺少设备 uuid（等待 online/discovery 回填）', 'err'); return false; }
+    return true;
+  }
+  function carSendNow() {
+    if (!carHasActive()) return;
+    // 未连接/未选设备时只停发，保留按键的下沉效果，等 keyup 再松开。
+    if (!carPrereqOk()) { carStopLoop(); return; }
+    var id = rid();
+    var payload = carPayload();
+    payload.uuid = ui.uuid;
+    payload.request_id = id;
+    if (!mqtt.publish(base(cfg.device) + '/car/motor/drive', payload)) {
+      carSetStatus('car/motor/drive 发送失败：MQTT 已断开', 'err');
+      carStopLoop();
+      return;
+    }
+    ui.car.pendingRid = id;
+    ui.car.wasActive = true;
+    var m = carActiveMove(), r = carActiveRotate();
+    var label = m ? m.toUpperCase() : '';
+    if (r) label += (label ? ' + ' : '') + (r === 'a' ? '左旋' : '右旋');
+    carSetStatus('已下发 ' + label + ' · ' + CAR_SPEED + ' m/s', 'ok');
+  }
+  function carSendStop() {
+    if (!ui.car.wasActive) return;
+    ui.car.wasActive = false;
+    if (!mqtt || !mqtt.connected || !cfg.device || !ui.uuid) return;
+    var id = rid();
+    mqtt.publish(base(cfg.device) + '/car/motor/drive', {
+      uuid: ui.uuid,
+      request_id: id,
+      move: { forward: 0, back: 0, left: 0, right: 0 },
+      rotate: { left: false, right: false }
+    });
+    ui.car.pendingRid = id;
+  }
+  function carPress(key) {
+    var kind = CAR_KEYS[key];
+    if (!kind || ui.car.held[key]) return;
+    // 同一类只保留一个：移动键互斥、旋转键互斥；移动 + 旋转可同时存在。
+    (kind === 'move' ? CAR_MOVE_ORDER : CAR_ROT_ORDER).forEach(function (k) {
+      if (k !== key && ui.car.held[k]) {
+        delete ui.car.held[k];
+        carSetPressed(k, false);
+      }
+    });
+    ui.car.held[key] = true;
+    carSetPressed(key, true);
+    carEnsureLoop();
+    carSendNow();
+  }
+  function carRelease(key) {
+    if (!ui.car.held[key]) return;
+    delete ui.car.held[key];
+    carSetPressed(key, false);
+    if (carHasActive()) {
+      carEnsureLoop();
+      carSendNow();
+    } else {
+      carStopLoop();
+      var had = ui.car.wasActive;
+      carSendStop();
+      if (had) carSetStatus('已停止', null);
+    }
+  }
+  function carReleaseAll(sendStop) {
+    var hadActive = ui.car.wasActive;
+    Object.keys(ui.car.held).forEach(function (k) {
+      delete ui.car.held[k];
+      carSetPressed(k, false);
+    });
+    carStopLoop();
+    if (sendStop) {
+      carSendStop();
+      if (hadActive) carSetStatus('已停止', null);
+    } else {
+      ui.car.wasActive = false;
+    }
+  }
+  function onCarMotorResult(dev, data) {
+    if (dev !== cfg.device) return;
+    if (data.request_id && ui.car.pendingRid && data.request_id !== ui.car.pendingRid) return;
+    if (data.result === 0) {
+      if (!carHasActive()) carSetStatus('已停止', 'ok');
+      return;
+    }
+    carSetStatus('车控失败：result=' + data.result + ' · ' + (data.cause || ''), 'err');
+    // 设备已停车或链路不可用：页面同时松开按键，避免继续重发。
+    carReleaseAll(false);
+  }
+
   function waitIce(pc) {
     return new Promise(function (resolve) {
       if (!pc || pc.iceGatheringState === 'complete') return resolve();
@@ -1013,6 +1225,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var url = el.fWsUrl.value.trim();
     if (!/^ws(s)?:\/\/[^\s]+/i.test(url)) { setConn('bad', 'WebSocket 地址必须以 ws:// 或 wss:// 开头'); return; }
     var keep = Math.max(5, Math.min(300, Number(el.fKeepalive.value) || 60));
+    carReleaseAll(true);
     cfg.wsUrl = url; cfg.user = el.fUser.value.trim() || 'home'; cfg.pass = el.fPass.value;
     cfg.clientId = el.fClientId.value.trim();
     cfg.keepalive = keep; cfg.device = el.fDevice.value.trim();
@@ -1062,7 +1275,33 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   el.btnAlarmClear.addEventListener('click', function () {
     el.alarmList.innerHTML = '<div class="emptyState">暂无告警</div>';
   });
-  window.addEventListener('pagehide', function () { closeWhep(true); });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.carKey'), function (btn) {
+    var k = btn.getAttribute('data-car-key');
+    btn.addEventListener('pointerdown', function (e) { e.preventDefault(); carPress(k); });
+    btn.addEventListener('pointerup', function (e) { e.preventDefault(); carRelease(k); });
+    btn.addEventListener('pointercancel', function () { carRelease(k); });
+    btn.addEventListener('pointerleave', function () { carRelease(k); });
+    btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.repeat) return;
+    var k = String(e.key || '').toLowerCase();
+    if (!CAR_KEYS[k] || carIsTyping(e.target)) return;
+    e.preventDefault();
+    carPress(k);
+  });
+  document.addEventListener('keyup', function (e) {
+    var k = String(e.key || '').toLowerCase();
+    if (!CAR_KEYS[k]) return;
+    if (!carIsTyping(e.target)) e.preventDefault();
+    carRelease(k);
+  });
+  window.addEventListener('blur', function () { carReleaseAll(true); });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) carReleaseAll(true);
+  });
+  window.addEventListener('pagehide', function () { carReleaseAll(true); closeWhep(true); });
 
   if (cfg.videoRoom && !el.roomInput.value) el.roomInput.value = cfg.videoRoom;
   el.videoHint.textContent = '页面不自动拉流。file:// 直接打开时，HTTPS WHEP 可能被 CORS/证书拦截；建议在 web/ 下起本地静态服务。';
