@@ -25,8 +25,9 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     .../video/stop/request                      .../video/stop/result                停止推流（动作）
     .../phone/audio/send                        .../phone/audio/send/result            手机麦上行·开（App 发起）
     .../phone/audio/stop                        .../phone/audio/stop/result            手机麦上行·关（App 发起）
+    .../car/motor/drive                         .../car/motor/result                   电机持续控制（最新状态覆盖）
 
-    命名约定：请求按语义划分 —— 查询 /query、动作 /request；
+    命名约定：请求按语义划分 —— 查询 /query、动作 /request、持续控制 /drive；
     应答一律 /result，且只在收到对应请求后才发布，只有 online 与 alarm 是主动上报。
 
     除 discovery 广播外，设备只订阅自己子树下的「请求类」主题，
@@ -87,12 +88,14 @@ import psutil
 
 from . import config
 from .capability import CapabilityMixin
+from .car_motor import CarMotorMixin
 from .config import (ACTION_REQUESTS, MQTT_CA_FILE, MQTT_HOST, MQTT_KEEPALIVE,  # noqa: F401
                      MQTT_PASSWORD, MQTT_PORT, MQTT_QOS, MQTT_TENANT, MQTT_TLS,
                      MQTT_USER, REQUEST_HANDLERS, REQUEST_TO_RESULT,
-                     REQ_CAPABILITY, REQ_DISCOVERY, REQ_PHONE_AUDIO_SEND,
-                     REQ_PHONE_AUDIO_STOP, REQ_STATE, REQ_VIDEO_START,
-                     REQ_VIDEO_STOP, RES_ALARM, RES_CAPABILITY_RESULT,
+                     REQ_CAPABILITY, REQ_CAR_MOTOR_DRIVE, REQ_DISCOVERY,
+                     REQ_PHONE_AUDIO_SEND, REQ_PHONE_AUDIO_STOP, REQ_STATE,
+                     REQ_VIDEO_START, REQ_VIDEO_STOP, RES_ALARM,
+                     RES_CAPABILITY_RESULT, RES_CAR_MOTOR_RESULT,
                      RES_DISCOVERY_RESULT, RES_ONLINE,
                      RES_PHONE_AUDIO_SEND_RESULT, RES_PHONE_AUDIO_STOP_RESULT,
                      RES_STATE_RESULT, RES_VIDEO_START_RESULT,
@@ -119,8 +122,8 @@ def __getattr__(name):
 
 
 class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
-                 PhoneAudioMixin):
-    """设备代理：组合协议、监控、能力、推流与手机音频能力。"""
+                 PhoneAudioMixin, CarMotorMixin):
+    """设备代理：组合协议、监控、能力、推流、手机音频与车控能力。"""
 
     def __init__(self):
         self.client = None

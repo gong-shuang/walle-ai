@@ -43,6 +43,9 @@ public class MessageRouter {
 
         void onVideoStopResult(JSONObject payload);
 
+        /** car/motor/result：车控持续命令回执。 */
+        void onCarMotorResult(JSONObject payload);
+
         /** 无法识别的主题/资源（默认只打日志）。 */
         default void onIgnored(String topic, String reason) {
         }
@@ -118,6 +121,9 @@ public class MessageRouter {
                 break;
             case "video/stop/result":
                 if (!isDuplicate("video/stop", json)) sink.onVideoStopResult(json);
+                break;
+            case "car/motor/result":
+                if (!isDuplicate("car/motor", json)) sink.onCarMotorResult(json);
                 break;
             default:
                 sink.onIgnored(topic, "未知资源 " + resource);

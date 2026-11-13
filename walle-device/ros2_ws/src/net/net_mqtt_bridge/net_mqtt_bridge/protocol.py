@@ -140,6 +140,14 @@ class ProtocolMixin:
             logging.debug("忽略非请求类主题: %s", topic)
             return
         handler = getattr(self, handler_name)
+        # 实时控制类请求（车控）只做校验 + 发布，直接在 MQTT 回调线程执行；
+        # 排进查询/动作队列会被慢查询拖到几百毫秒，200ms 的控制周期就失效了。
+        if resource in config.REALTIME_REQUESTS:
+            try:
+                handler(payload)
+            except Exception:
+                logging.exception("实时请求处理失败: %s", topic)
+            return
         if resource in config.ACTION_REQUESTS:
             self._submit(self.action_pool, self._action_slots, handler, payload, topic)
         else:

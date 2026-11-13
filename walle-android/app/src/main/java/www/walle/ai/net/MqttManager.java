@@ -62,6 +62,9 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         /** video/stop/result：停止推流结果 */
         default void onVideoStopResult(JSONObject payload) {}
 
+        /** car/motor/result：车控持续命令回执 */
+        default void onCarMotorResult(JSONObject payload) {}
+
         /** 发布失败；kind 取值见 {@link TopicNames#KIND_STATE} 等常量 */
         default void onDeliveryError(String kind, String error) {}
     }
@@ -367,6 +370,70 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         return rid;
     }
 
+    /**
+     * 车控持续命令：{@code car/motor/drive}。
+     *
+     * <p>move 四个方向只允许一个非 0，取值 0 或 [0.5,1.0] m/s；
+     * rotate 的 left/right 互斥，都为 false 表示停止旋转。
+     * 设备端保存最新状态并以 10Hz 重发 /cmd_vel，500ms 没有有效命令会自动停车。</p>
+     *
+     * @return 本次 request_id；参数不合法或未选设备时返回空串
+     */
+    public String sendCarMotorDrive(String uuid, double forward, double back,
+                                    double left, double right,
+                                    boolean rotateLeft, boolean rotateRight) {
+        if (uuid == null || uuid.isEmpty()) {
+            notifyDeliveryError(TopicNames.KIND_CAR_MOTOR, "请先在设备页选择设备");
+            return "";
+        }
+        if (!isValidCarDrive(forward, back, left, right, rotateLeft, rotateRight)) {
+            notifyDeliveryError(TopicNames.KIND_CAR_MOTOR, "车控参数不合法");
+            return "";
+        }
+        final String rid = newRequestId();
+        JSONObject move = new JSONObject();
+        JSONObject rotate = new JSONObject();
+        JSONObject body = new JSONObject();
+        try {
+            move.put("forward", forward);
+            move.put("back", back);
+            move.put("left", left);
+            move.put("right", right);
+            rotate.put("left", rotateLeft);
+            rotate.put("right", rotateRight);
+            body.put("uuid", uuid);
+            body.put("request_id", rid);
+            body.put("move", move);
+            body.put("rotate", rotate);
+        } catch (JSONException ignore) {
+        }
+        client.publish(TopicNames.KIND_CAR_MOTOR,
+                TopicNames.carMotorDrive(tenant, deviceSegment(uuid)), body.toString());
+        return rid;
+    }
+
+    /** 停止车控：move 全 0 + rotate 都为 false。 */
+    public String stopCarMotorDrive(String uuid) {
+        return sendCarMotorDrive(uuid, 0, 0, 0, 0, false, false);
+    }
+
+    /** App 侧先做一次轻量校验，避免明显非法的报文占用 MQTT。 */
+    private static boolean isValidCarDrive(double forward, double back,
+                                           double left, double right,
+                                           boolean rotateLeft, boolean rotateRight) {
+        if (rotateLeft && rotateRight) return false;
+        double[] values = {forward, back, left, right};
+        int moving = 0;
+        for (double value : values) {
+            if (Double.isNaN(value) || Double.isInfinite(value)) return false;
+            if (value != 0.0) {
+                if (value < 0.5 || value > 1.0) return false;
+                moving++;
+            }
+        }
+        return moving <= 1;
+    }
+
     /** 在租户内广播设备发现：{@code walle/{tenant}/discovery/query}。返回本次 request_id。 */
     public String requestDeviceInfo() {
         final String rid = newRequestId();
@@ -488,6 +555,11 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     @Override
     public void onVideoStopResult(JSONObject payload) {
         for (Listener l : listeners) main.post(() -> l.onVideoStopResult(payload));
+    }
+
+    @Override
+    public void onCarMotorResult(JSONObject payload) {
+        for (Listener l : listeners) main.post(() -> l.onCarMotorResult(payload));
     }
 
     @Override

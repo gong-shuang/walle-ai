@@ -8,7 +8,7 @@ import net_mqtt_bridge
 
 MODULES = (
     "config", "identity", "monitor", "protocol", "capability",
-    "media", "audio", "video", "phone_audio", "agent",
+    "media", "audio", "video", "phone_audio", "car_motor", "agent",
 )
 
 

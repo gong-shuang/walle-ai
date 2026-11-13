@@ -8,7 +8,8 @@ MQTT 协议入口（唯一 MQTT 客户端）：
   - video/start|stop 不再直接起 ffmpeg，而是通过 ROS2 service 调
     video_webrtc_bridge；
   - 订阅 video_webrtc_bridge 的推流状态，填 state/result 的 video 分组；
-  - 以 Bool 心跳告知 video_webrtc_bridge 当前 MQTT 是否在线。
+  - 以 Bool 心跳告知 video_webrtc_bridge 当前 MQTT 是否在线；
+  - car/motor/drive：保存最新运动状态，10Hz 重发 /cmd_vel，500ms 无有效命令自动停车。
 """
 
 import logging
@@ -18,6 +19,7 @@ import threading
 import time
 
 import rclpy
+from geometry_msgs.msg import Twist
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -25,6 +27,8 @@ from std_msgs.msg import Bool
 
 from interfaces.msg import VideoStreamStatus
 from interfaces.srv import VideoStreamControl
+
+import net_mqtt_bridge.car_motor as car_motor
 
 
 class NetMqttBridge(Node):
@@ -37,6 +41,7 @@ class NetMqttBridge(Node):
         self.declare_parameter('video_status_topic', '/video_webrtc_bridge/status')
         self.declare_parameter('video_call_timeout', 15.0)
         self.declare_parameter('video_startup_grace', 3.0)
+        self.declare_parameter('cmd_vel_topic', '/cmd_vel')
 
         env_file = self.get_parameter('env_file').value or ''
         if env_file:
@@ -110,11 +115,21 @@ class NetMqttBridge(Node):
         self._heartbeat_pub = self.create_publisher(Bool, '~/heartbeat', 10)
         self.create_timer(1.0, self._publish_heartbeat)
 
-        # 用 ROS 服务替换 main.py 里的 ffmpeg 推流实现
+        # ---- car/motor/drive：/cmd_vel 发布 + 本地状态 + 10Hz 重发 + 500ms 死区 ----
+        self._cmd_vel_pub = self.create_publisher(
+            Twist, self.get_parameter('cmd_vel_topic').value, 10)
+        self._car_lock = threading.Lock()
+        self._car_state = (0.0, 0.0, 0.0)
+        self._car_last_valid = 0.0
+        self._car_moving = False
+        self.create_timer(1.0 / config.CAR_MOTOR_STATE_HZ, self._car_tick)
+
+        # 用 ROS 实现替换 main.py 里的 ffmpeg 推流实现
         self.agent.handle_video_request = self._handle_video_start
         self.agent.handle_video_stop = self._handle_video_stop
         self.agent._video_status = self._video_status_dict
         self.agent._stop_video_stream = self._stop_video_via_service
+        self.agent.handle_car_motor_drive = self._handle_car_motor_drive
 
         self.get_logger().info(
             'net_mqtt_bridge 启动：device_id=%s tenant=%s video_service=%s'
@@ -140,17 +155,113 @@ class NetMqttBridge(Node):
 
     def shutdown(self):
         self._shutting_down = True
+        # 退出前主动停车，避免 bridge 退出后底盘按最后状态继续走。
+        self._car_stop('节点退出')
         self.agent.stop_event.set()
         if (self._agent_thread is not None
                 and self._agent_thread.is_alive()
                 and self._agent_thread is not threading.current_thread()):
             self._agent_thread.join(timeout=5.0)
+        # agent 线程退出前可能还有一条在途命令，最后再停一次。
+        self._car_stop('节点退出')
 
     # ------------------------------------------------------------------ 心跳/状态
     def _publish_heartbeat(self):
         client = self.agent.client
         connected = bool(client is not None and client.is_connected())
         self._heartbeat_pub.publish(Bool(data=connected))
+
+    # ------------------------------------------------------------------ 车控
+    def _publish_cmd_vel(self, linear_x, linear_y, angular_z):
+        try:
+            msg = Twist()
+            msg.linear.x = float(linear_x)
+            msg.linear.y = float(linear_y)
+            msg.angular.z = float(angular_z)
+            self._cmd_vel_pub.publish(msg)
+            return True
+        except Exception:  # noqa: BLE001
+            self.get_logger().debug('发布 /cmd_vel 失败（退出阶段）')
+            return False
+
+    def _apply_car_state(self, linear_x, linear_y, angular_z):
+        """保存最新运动状态并立即下发一次 /cmd_vel。
+
+        状态更新与发布放在同一把锁内，保证 10Hz 重发不会把旧状态覆盖到
+        “停止/新命令”之后（否则停车后可能又被重发成运动状态）。
+        """
+        with self._car_lock:
+            self._car_state = (linear_x, linear_y, angular_z)
+            self._car_last_valid = time.monotonic()
+            self._car_moving = any(
+                abs(v) > 1e-6 for v in (linear_x, linear_y, angular_z))
+            self._publish_cmd_vel(linear_x, linear_y, angular_z)
+
+    def _car_stop(self, reason=''):
+        """清空运动状态并立即发布零速；用于停止命令、非法命令和死区。"""
+        with self._car_lock:
+            was_moving = self._car_moving
+            self._car_state = (0.0, 0.0, 0.0)
+            self._car_moving = False
+            self._car_last_valid = 0.0
+            self._publish_cmd_vel(0.0, 0.0, 0.0)
+        if was_moving and reason:
+            self.get_logger().warn('车控停车：%s' % reason)
+
+    def _car_tick(self):
+        """10Hz 重发最新状态；超过 500ms 没收到有效命令则自动停车。"""
+        now = time.monotonic()
+        with self._car_lock:
+            if not self._car_moving:
+                return
+            if now - self._car_last_valid > self._agent_mod.CAR_MOTOR_DEADMAN_SEC:
+                self._car_state = (0.0, 0.0, 0.0)
+                self._car_moving = False
+                self._car_last_valid = 0.0
+                self._publish_cmd_vel(0.0, 0.0, 0.0)
+                expired = True
+            else:
+                linear_x, linear_y, angular_z = self._car_state
+                self._publish_cmd_vel(linear_x, linear_y, angular_z)
+                expired = False
+        if expired:
+            self.get_logger().warn(
+                'car/motor/drive 超过 %.1fs 未收到有效命令，自动停车'
+                % self._agent_mod.CAR_MOTOR_DEADMAN_SEC)
+
+    def _handle_car_motor_drive(self, payload):
+        """car/motor/drive：校验 -> 更新状态 -> 立即下发 /cmd_vel -> 回 result。"""
+        if self._shutting_down:
+            return
+        ok, data = self.agent.verify_uuid(
+            payload, self._agent_mod.REQ_CAR_MOTOR_DRIVE)
+        if not ok:
+            return
+
+        rid = self.agent._rid(data)
+        result, cause, twist = car_motor.parse_drive(data)
+        if result != car_motor.RESULT_OK:
+            self._car_stop('命令无效/错误')
+            self.agent._publish_car_motor_result(rid, result, cause)
+            return
+
+        # 没有 /cmd_vel 订阅者说明底盘节点不在线；不要更新状态，避免恢复后自己动起来。
+        try:
+            subscribers = self._cmd_vel_pub.get_subscription_count()
+        except Exception:  # noqa: BLE001
+            subscribers = 1
+        if subscribers == 0:
+            self._car_stop('底盘控制链路不可用')
+            self.agent._publish_car_motor_result(
+                rid, car_motor.RESULT_LINK_DOWN, car_motor.CAUSE_LINK_DOWN)
+            return
+
+        self._apply_car_state(*twist)
+        self.agent._publish_car_motor_result(
+            rid, car_motor.RESULT_OK, car_motor.CAUSE_OK)
+        self.get_logger().debug(
+            'car/motor/drive request_id=%s -> linear=(%.3f, %.3f) angular=%.3f'
+            % (rid or '-', twist[0], twist[1], twist[2]))
 
     def _on_video_status(self, msg):
         with self._status_lock:

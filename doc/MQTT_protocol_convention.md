@@ -1,10 +1,11 @@
-# MQTT 协议约定（文档版本 v1.1）
+# MQTT 协议约定（文档版本 v1.2）
 
-> 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`）之间 MQTT 报文契约的**唯一权威文档**。
+> 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`；ROS2 车控为
+> `walle-device/ros2_ws/src/net/net_mqtt_bridge`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
 > - 与设备通信的，用来控制小车的协议版本：v1  （记录每个协议的版本，用来兼容旧版本） 
-> - 本文档的版本：v1.1 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.2 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -46,6 +47,7 @@ walle/{tenant}/{device}/v1/{resource}
 | 8 | 手机音频上行·开 | `walle/{t}/{d}/v1/phone/audio/send` | `walle/{t}/{d}/v1/phone/audio/send/result` | 单向动作（App 不订阅应答） | v1.0 |  |
 | 9 | 手机音频上行·关 | `walle/{t}/{d}/v1/phone/audio/stop` | `walle/{t}/{d}/v1/phone/audio/stop/result` | 单向动作（App 不订阅应答） | v1.0 |  |
 | 10 | 远程命令执行 | `walle/{t}/{d}/v1/cmd/exec` | `walle/{t}/{d}/v1/cmd/result` | 请求-应答 | v1.1 | v1.1已删除 |
+| 11 | 电机持续控制 | `walle/{t}/{d}/v1/car/motor/drive` | `walle/{t}/{d}/v1/car/motor/result` | 持续控制（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车 |
 
 > `{t}` = tenant，`{d}` = device_id。
 > 8/9 只承载「开/关」控制，音频本身走独立 RTMP（§4.8）。
@@ -90,10 +92,11 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 | `…/result` | 应答，**只在收到对应请求后发布**，绝不主动上报 | `state/result` |
 | `…/send` | 手机侧发起「开始上行」的新后缀（App 是动作发起方，不是设备推流） | `phone/audio/send` |
 | `…/stop` | 手机侧发起「停止上行」的新后缀（无 room 也可发，用于退出兜底） | `phone/audio/stop` |
+| `…/drive` | 持续控制命令（有副作用；最新一条覆盖旧状态，不排队） | `car/motor/drive` |
 | 无后缀 | 主动上报，只有 `online` 和 `alarm` 两个 | — |
 
-这套约定由 `walle-device/linux-demo/selftest_topics.py` 第 4 节强制检查：每个 `REQ_*` 必须在
-`REQUEST_TO_RESULT` 里登记对应的 `RES_*`，不允许存在「没人请求的 /result 主题」。
+这套约定由设备端 `net_mqtt_bridge/test/test_protocol.py` 与 `linux-demo/test/test_protocol.py` 强制检查：
+每个 `REQ_*` 必须在 `REQUEST_TO_RESULT` 里登记对应的 `RES_*`，不允许存在「没人请求的 /result 主题」。
 
 ### 2.4 请求-应答严格配对：request_id
 
@@ -107,8 +110,8 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 
 QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 `MessageRouter` 用
 「键排序后的 JSON 签名 + 2 秒窗口」去重，但只针对**一次性事件**：
-`alarm`、`capability/result`、`video/start/result`、`video/stop/result`
-（重复处理会出事，例如推流结果重复 → 播放器初始化两次）。
+`alarm`、`capability/result`、`video/start/result`、`video/stop/result`、`car/motor/result`
+（重复处理会出事，例如推流结果重复 → 播放器初始化两次；车控结果重复 → UI 重复提示）。
 `online` 与 `state/result` 是幂等的（同一份状态重复应用无害），**不去重**。
 
 ### 2.6 retained 只给 online，发现靠回放而非轮询（N7）
@@ -123,8 +126,8 @@ QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 
 MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求再收一遍，浪费带宽、
 干扰排查。所以两端都只订**精确的响应/请求主题清单**：
 
-- App 订 7 条：`walle/{t}/+/v1` 下的 `online`、`alarm`、5 条 `…/result`（见 `TopicNames.responseSubscriptions`）
-- 设备端订 7 条：6 条设备级请求（含 `phone/audio/send|stop`）+ 1 条租户级 `discovery/query`（见 `main.subscriptions()`）
+- App 订 8 条：`walle/{t}/+/v1` 下的 `online`、`alarm`、6 条 `…/result`（见 `TopicNames.responseSubscriptions`）
+- 设备端订 8 条：7 条设备级请求（含 `phone/audio/send|stop`、`car/motor/drive`）+ 1 条租户级 `discovery/query`（见 `config.subscriptions()`）
 
 ---
 
@@ -503,6 +506,79 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 安全开关（设备端环境变量 / 常量）：`ENABLE_CMD_EXEC`（总开关）、`CMD_ALLOWLIST`
 （前缀白名单，为空=允许任意命令）。**这是高危能力**，Broker ACL 必须保证租户隔离。
 
+### 4.10 电机持续控制 car/motor/drive → car/motor/result（V1.2）
+
+**作用**：App 按住方向键时，以 200ms 周期下发目标运动状态；设备端保存最新状态，
+以 10Hz 重发 `/cmd_vel`，500ms 没有收到有效命令就自动停车。
+
+- 请求：`walle/{t}/{d}/v1/car/motor/drive`
+- 应答：`walle/{t}/{d}/v1/car/motor/result`（父资源 + `/result`，不是 `drive/result`）
+- 请求不 retained，QoS1；设备重启默认停车，运动状态不落盘。
+
+**请求字段**（公共字段 `uuid`、`request_id` 必填；`request_id` 原样回显）：
+
+```json
+{
+  "move":   {"forward": 0.6, "back": 0.0, "left": 0.0, "right": 0.0},
+  "rotate": {"left": true, "right": false}
+}
+```
+
+| 字段 | 类型 | 规则 |
+|---|---|---|
+| `move.forward/back/left/right` | number | 表示对应方向的线速度；只能有一个非 0；非 0 值必须在 `[0.5, 1.0]` m/s；全 0 = 停止线速度 |
+| `rotate.left/right` | boolean | 恰好一个为 `true` 时旋转；都为 `false` = 停止旋转；都为 `true` = 命令错误 |
+| `move` / `rotate` | object | **必须同时存在**；整个对象缺失 → `result=1`；对象内子字段缺失按 `0.0` / `false` 处理 |
+
+**校验规则**：
+
+- `move` 同时出现两个及以上非 0 值（含 `forward`+`back`、`left`+`right`）→ 命令错误；
+- 非 0 值小于 0.5 或大于 1.0（含负数）→ 命令错误；
+- `rotate` 取值不是 JSON 布尔、或 `left`/`right` 同时为 `true` → 命令错误；
+- `move` 或 `rotate` 整个对象缺失 → 命令无效（`result=1`）；
+- 未知字段忽略。
+
+**映射到 `/cmd_vel`**：
+
+```
+linear.x  = forward - back
+linear.y  = left - right
+angular.z =  2.5  (rotate.left = true)
+          = -2.5  (rotate.right = true)
+          =  0    (both false)
+```
+
+**轮速预算**：麦轮逆解的最坏轮速为 `|linear| + k*|angular|`，其中
+`k = (wheelbase + track_width) / 2 = 0.1389`。角速度固定 2.5 时，
+同时旋转的线速度上限为 `1.0 - 0.1389*2.5 = 0.653 m/s`；超过时按比例缩放线速度
+（不改变角速度）。纯平移最大 1.0 m/s。
+
+**停止**：
+
+- 合法停止命令 = `move` 全 0 + `rotate` 都为 `false` → 清空状态、发布零速、`result=0`；
+- 收到 `result=1/2` 的无效/错误命令 → 清空状态、立即发布零速；
+- 500ms 死区触发 → 清空状态、立即发布零速；
+- 设备退出 → 清空状态、发布零速。
+
+**应答字段**：
+
+| 字段 | 取值 | 说明 |
+|---|---|---|
+| `result` | `0` / `1` / `2` / `3` | 0 成功并已下发；1 命令无效（缺 `move`/`rotate`）；2 命令错误（类型/取值/互斥）；3 底盘控制链路不可用（`/cmd_vel` 无订阅者） |
+| `cause` | `ok` / `命令无效` / `命令错误` / `底盘控制链路不可用` | 可读原因 |
+| `request_id` 及公共字段 | — | 原样回显请求的 `request_id` |
+
+`result=0` 表示“命令已接受并下发”，不是“车已经执行完成”。`result=3` 时设备端不会
+保存这次状态，避免底盘恢复后自己动起来。
+
+**App 行为**：按住方向键每 200ms 发一条；快速点击去重后仍按 200ms 节流；松开立即发
+停止命令（停止不受 200ms 去重限制）。去重只针对完全相同的 payload，方向反转必须立即发。
+
+**设备端实现**：`net_mqtt_bridge/car_motor.py`（校验/结果）与 `node.py`
+（`/cmd_vel` 发布、10Hz 重发、500ms 死区）；`/cmd_vel` 为 `geometry_msgs/msg/Twist`。
+500ms 停车由 bridge 进程保证；若 bridge 本身崩溃，由底盘节点 `mecanum.py` 的
+`cmd_vel_timeout`（默认 1.5s）兜底。
+
 ---
 
 ## 5. 修改协议的流程（改前必读）
@@ -512,12 +588,13 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 3. 同步更新测试，**缺一不可**：
    - App：`TopicNamesTest`（主题命名/清洗）、`MessageRouterTest`（路由/去重）、
      以及对应模型的解析测试（`StatusSnapshotTest` 等）
-   - 设备端：`walle-device/linux-demo/selftest_topics.py`（清洗对照、订阅清单、命名成对、request_id 回显）
+   - 设备端：`net_mqtt_bridge/test/test_protocol.py`（主题配对/订阅清单/uuid/request_id）、
+     `test_car_motor.py`（车控校验与轮速预算）等
 4. 本地验证通过后提交（CI 工作流已移除，提交前务必本地跑通以下检查）：
 
 ```bash
 ./gradlew :app:testDebugUnitTest        # App 契约测试
-python3 walle-device/linux-demo/selftest_topics.py       # 设备端契约自检
+python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设备端契约测试
 ```
 
 **三条铁律**：
@@ -534,6 +611,28 @@ python3 walle-device/linux-demo/selftest_topics.py       # 设备端契约自检
 ---
 
 ## 7. 变更记录
+
+### 2026-11-13：新增 car/motor/drive 电机持续控制（V1.2）
+
+**变更类型**：非破坏性增量（协议 v1 主题不变，新增资源与 `…/drive` 后缀）。
+
+**变更内容**
+
+- 新增请求 `walle/{t}/{d}/v1/car/motor/drive` 与应答 `walle/{t}/{d}/v1/car/motor/result`。
+- 把 `…/drive` 正式登记为「持续控制命令」后缀：最新一条覆盖旧状态，不排队。
+- `move` 只允许一个方向非 0，取值 `0` 或 `[0.5,1.0]` m/s；`rotate.left/right` 为布尔且互斥。
+- 设备端保存运动状态，以 10Hz 重发 `/cmd_vel`；500ms 没有有效命令、收到非法命令、
+  收到停止命令或进程退出时清状态并立即发布零速。
+- 同时旋转时线速度上限压到 `0.653 m/s`（麦轮轮速预算），超出按比例缩放。
+- App 端新增 `TopicNames.carMotorDrive/carMotorResult`、`MqttManager.sendCarMotorDrive/
+  stopCarMotorDrive`、`MessageRouter` 的 `car/motor/result` 路由与去重。
+
+**影响与兼容性**：旧版 App/设备不受影响；新版 App 需订阅 `car/motor/result`。
+`drive` 是新后缀，不会与现有主题冲突。
+
+**验证方式**：设备端 `net_mqtt_bridge/test/test_car_motor.py` 覆盖取值/互斥/轮速缩放；
+`test_protocol.py` 校验订阅清单与请求-应答配对；App `TopicNamesTest` / `MessageRouterTest`
+覆盖新增主题与路由。
 
 ### 2026-11-10～11-12：online / discovery/result 统一为最小身份报文
 

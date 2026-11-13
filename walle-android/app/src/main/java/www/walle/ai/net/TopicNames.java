@@ -13,7 +13,7 @@ package www.walle.ai.net;
  *   <li>{@code device}：<b>稳定</b>的设备标识（{@code device_id}，回退 hostname、最后 uuid），
  *       不能用每次重启都会变的 uuid；</li>
  *   <li>{@code 资源}：请求按语义命名 —— 查询用 {@code .../query}、
- *       动作用 {@code .../request}（推流）；
+ *       动作用 {@code .../request}（推流）、持续控制用 {@code .../drive}（车控）；
  *       应答一律 {@code .../result}，且只在收到对应请求后发布；
  *       主动上报只有 {@code online} 与 {@code alarm}。</li>
  * </ul>
@@ -63,6 +63,8 @@ public final class TopicNames {
     public static final String KIND_PHONE_AUDIO_SEND = "phone/audio/send";
     /** 关闭手机麦克风音频上行失败 */
     public static final String KIND_PHONE_AUDIO_STOP = "phone/audio/stop";
+    /** 车控持续命令失败 */
+    public static final String KIND_CAR_MOTOR = "car/motor/drive";
 
     // ---------------------------------------------------------------- 清洗
 
@@ -149,6 +151,11 @@ public final class TopicNames {
         return deviceBase(tenant, device) + "/video/stop/result";
     }
 
+    /** 车控持续命令结果（收到 car/motor/drive 后发布）。 */
+    public static String carMotorResult(String tenant, String device) {
+        return deviceBase(tenant, device) + "/car/motor/result";
+    }
+
     /**
      * App 需要订阅的主题（只订「设备 → App」的响应类，不订请求类）。
      *
@@ -167,6 +174,7 @@ public final class TopicNames {
                 base + "/capability/result",
                 base + "/video/start/result",
                 base + "/video/stop/result",
+                base + "/car/motor/result",
         };
     }
 
@@ -189,6 +197,14 @@ public final class TopicNames {
     /** 停止推流（动作类，用 /request）。 */
     public static String videoStopRequest(String tenant, String device) {
         return deviceBase(tenant, device) + "/video/stop/request";
+    }
+
+    /**
+     * 车控持续命令（App → 设备）：最新一条覆盖旧状态。
+     * <p>应答为父资源 {@code car/motor/result}，不是 {@code car/motor/drive/result}。</p>
+     */
+    public static String carMotorDrive(String tenant, String device) {
+        return deviceBase(tenant, device) + "/car/motor/drive";
     }
 
     /**
