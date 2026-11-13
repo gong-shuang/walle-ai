@@ -18,7 +18,7 @@
 - `ros2_ws/src/audio`、`ros2_ws/src/ai`：语音交互与大模型
 - `ros2_ws/src/protocol`：自定义 ROS 消息与服务
 - `ros2_ws/src/bringup`：统一启动、启动自检、版本横幅
-- `scripts`：`deploy.sh`、`start.sh`、`env_walle.sh` 与配置/服务模板
+- `scripts`：`deploy.sh`、`start.sh`、`env_walle.sh`、`auto_gen_camera_conf.sh` 与配置/服务模板
 - `doc`：部署文档、依赖清单与上线检查清单
 
 ### 软硬件要求
@@ -32,7 +32,7 @@
 软件：
 
 - ROS 2 Jazzy、Python 3.12、colcon
-- ffmpeg（推流）、OpenCV（`python3-opencv`）、`python3-smbus`
+- ffmpeg（推流）、OpenCV（`python3-opencv`）、`python3-smbus`、`v4l-utils`（摄像头枚举与校验）
 - Python 依赖见 [`requirements.txt`](requirements.txt)
 
 
@@ -174,25 +174,61 @@ sudo ./create_orangePi_udev_rules.sh
 > 规则会创建 `/dev/wi_uart`（树莓派 `ttyAMA0` / 香橙派 `ttyS6`，`dialout` 0660）；确保运行用户在 `dialout` 与 `video` 组。
 > 摄像头不使用 udev 固定符号链接，直接使用实际设备节点（如 `/dev/video0`），由用户按实际设备配置。
 
-### 配置摄像头设备
+### 配置摄像头（交互式，推荐）
 
-用 `ls /dev/video*` 或 `v4l2-ctl --list-devices` 确认真实的摄像头节点，然后修改：
+首次部署或更换摄像头后，在设备上运行：
 
-- `ros2_ws/src/video/walle_video/config/usb_cam_param.yaml` 的 `video_device`
-- `ros2_ws/src/video/video_webrtc_bridge/config/video_webrtc_bridge.yaml` 的 `camera_device`（需与上一项一致）
+```bash
+cd ~/walle-ai/walle-device/scripts
+./auto_gen_camera_conf.sh
+```
 
-也可以在启动时覆盖：`ros2 launch bringup bringup.launch.py camera_device:=/dev/video1`。
+脚本通过 `v4l2-ctl` 枚举摄像头、格式（MJPG/YUYV）、分辨率与帧率，并让你命名，最后生成：
 
-> `usb_cam.launch.py` 启动前会校验设备存在、属于 USB 摄像头且支持 MJPG 640x480，失败则跳过启动，避免误开 ISP/编解码节点。
+```text
+walle-device/scripts/etc/walle_camera.conf
+```
+
+配置为 JSON，示例见 `scripts/etc/walle_camera.conf.example`：
+
+```json
+{
+  "schema_version": 1,
+  "name": "front_camera",
+  "device": "/dev/video0",
+  "format": "MJPG",
+  "width": 640,
+  "height": 480,
+  "framerate": 30
+}
+```
+
+运行时按以下顺序查找（找到即用）：
+
+1. `ros2 launch ... camera_conf:=<path>` 或环境变量 `WALLE_CAMERA_CONF`
+2. `/etc/walle-ai/walle_camera.conf`（`deploy.sh` 安装）
+3. `$TURBOPI_HOME/scripts/etc/walle_camera.conf`（开发环境）
+
+未找到或 schema 不合法时，`bringup` 会打印错误并提示运行本脚本，摄像头不会启动；
+`startup_check` 也会校验该文件。`bringup` 读取后把设备、格式、分辨率、帧率分发给
+`walle_camera` / `usb_cam` / `video_webrtc_bridge`，三者保持一致。
+
+> `/dev/videoN` 编号可能随 USB 插口变化；换口后重新运行脚本即可，不需要 udev 规则。
+> `camera_device:=/dev/videoN` 仍可临时覆盖配置中的设备节点。
+
+`usb_cam` 后端启动前会校验设备存在、属于 USB 摄像头且支持所选格式/分辨率，失败则跳过启动，避免误开 ISP/编解码节点。
 
 ### 摄像头后端（auto / shm / gst / usb_cam）
 
 `bringup.launch.py` 新增 `camera_backend` 参数：
 
-- `auto`（默认）：检测到 `mppjpegdec` 时使用 `shm`，否则使用 `usb_cam`；
+- `auto`（默认）：检测到 `mppjpegdec` 时使用 `shm`，否则使用 `usb_cam`（需已生成 `walle_camera.conf`）；
 - `shm`：`walle_camera` 节点独占摄像头并发布 `/image_raw`，H.264 通过 GStreamer 共享内存（`shmsink`/`shmsrc`）交给 `video_webrtc_bridge` 混流推 RTMP，视频只编码一次；
 - `gst`：`video_webrtc_bridge` 独占摄像头，MJPG 经 `mppjpegdec` 硬件解码后分两路：一路按 `ros_image_fps`（默认 10fps）发布 `/image_raw`，一路直接 `mpph264enc` 推流；
 - `usb_cam`：保持原有 usb_cam + `/image_raw` + 推流桥模式。
+
+所有后端的采集参数（设备、格式、分辨率、帧率）都来自 `walle_camera.conf`，
+`camera_backend` 只决定由哪个进程打开摄像头以及 H.264 的传输方式。
 
 ```bash
 ros2 launch bringup bringup.launch.py                      # RK3588 默认 shm

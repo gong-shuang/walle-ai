@@ -5,8 +5,9 @@
 *.pyc
 
 # ---------- 环境变量 / 密钥 ----------
-# 只提交 *.example 模板，真实配置（walle-ai.conf）不入库
+# 只提交 *.example 模板，真实配置（walle-ai.conf / walle_camera.conf）不入库
 scripts/walle-ai.conf
+scripts/etc/walle_camera.conf
 
 # 大模型权重：超过 GitHub 单文件 100MB 限制，仅保留在本机，不入库
 ros2_ws/src/ai/large_models/large_models/resources/models/*.pt

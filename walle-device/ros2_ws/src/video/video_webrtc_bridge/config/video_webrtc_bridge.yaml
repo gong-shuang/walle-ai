@@ -4,8 +4,11 @@ video_webrtc_bridge:
     env_file: /etc/walle-ai.conf
 
     image_topic: /image_raw
-    # 摄像头设备节点，需与 usb_cam_param.yaml 的 video_device 保持一致
+    # 以下采集参数由 bringup 从 scripts/etc/walle_camera.conf 注入；
+    # 这里的值只在单独启动 video_webrtc_bridge.launch.py 时生效。
     camera_device: /dev/video0
+    # camera_format: MJPG | YUYV
+    camera_format: MJPG
     # camera_owner=true：本节点独占摄像头（MJPG 硬解 + 硬件 H.264 编码），
     # 并发布 /image_raw；bringup 会自动检测并跳过 usb_cam。
     camera_owner: false

@@ -29,9 +29,17 @@ class CameraShmNode(Node):
     def __init__(self):
         super().__init__("walle_camera")
         self.device = self.declare_parameter("camera_device", "/dev/video0").value
+        self.camera_format = str(
+            self.declare_parameter("camera_format", "MJPG").value).strip().upper()
+        if self.camera_format == "MJPEG":
+            self.camera_format = "MJPG"
+        if self.camera_format not in ("MJPG", "YUYV"):
+            self.get_logger().warning(
+                "camera_format=%s 不支持，按 MJPG 处理" % self.camera_format)
+            self.camera_format = "MJPG"
         self.width = int(self.declare_parameter("camera_width", 640).value)
         self.height = int(self.declare_parameter("camera_height", 480).value)
-        self.fps = int(self.declare_parameter("framerate", 30.0).value)
+        self.fps = float(self.declare_parameter("framerate", 30.0).value)
         self.ros_fps = float(self.declare_parameter("ros_image_fps", 10.0).value)
         self.bitrate = self.declare_parameter("video_bitrate", "1000k").value
         self.gop = int(self.declare_parameter("video_gop", 30).value)
@@ -52,9 +60,10 @@ class CameraShmNode(Node):
         self._start_pipeline()
         self.create_timer(1.0, self._poll_bus)
         self.get_logger().info(
-            "walle_camera 启动：%s %dx%d@%d，/image_raw=%dfps，H.264 shm=%s"
-            % (self.device, self.width, self.height, self.fps,
-               min(int(self.ros_fps), self.fps), self.shm_socket))
+            "walle_camera 启动：%s %s %dx%d@%g，/image_raw=%dfps，H.264 shm=%s"
+            % (self.device, self.camera_format, self.width, self.height,
+               self.fps, min(int(self.ros_fps), int(round(self.fps))),
+               self.shm_socket))
 
     def _bitrate_bps(self, value, default):
         text = str(value or "").strip().lower()
@@ -68,25 +77,42 @@ class CameraShmNode(Node):
             return default
 
     def _pipeline_desc(self):
-        ros_fps = min(max(int(self.ros_fps), 1), self.fps)
+        fps = max(int(round(self.fps)), 1)
+        ros_fps = min(max(int(self.ros_fps), 1), fps)
         drop = 0.0
-        if ros_fps < self.fps:
-            drop = min(1.0 - float(ros_fps) / self.fps, 0.95)
+        if ros_fps < fps:
+            drop = min(1.0 - float(ros_fps) / fps, 0.95)
         drop_el = ("identity drop-probability=%.4f ! " % drop) if drop > 0 else ""
         bps = self._bitrate_bps(self.bitrate, 1000 * 1000)
-        return (
-            "v4l2src device=%s io-mode=2 ! "
-            "image/jpeg,width=%d,height=%d,framerate=%d/1 ! "
-            "jpegparse ! mppjpegdec format=NV12 ! tee name=t "
-            "t. ! queue max-size-buffers=1 leaky=downstream ! %s"
-            "videoconvert ! video/x-raw,format=RGB ! "
-            "appsink name=ros_sink emit-signals=true max-buffers=1 "
-            "drop=true sync=false "
-            "t. ! queue max-size-buffers=2 ! "
+        if self.camera_format == "YUYV":
+            source = (
+                "v4l2src device=%s io-mode=2 ! "
+                "video/x-raw,format=YUY2,width=%d,height=%d,framerate=%d/1 ! "
+                % (self.device, self.width, self.height, fps))
+            encode_pre = "videoconvert ! video/x-raw,format=NV12 ! "
+        else:
+            source = (
+                "v4l2src device=%s io-mode=2 ! "
+                "image/jpeg,width=%d,height=%d,framerate=%d/1 ! "
+                "jpegparse ! mppjpegdec format=NV12 ! "
+                % (self.device, self.width, self.height, fps))
+            encode_pre = ""
+        encode = (
             "mpph264enc bps=%d rc-mode=cbr gop=%d ! h264parse ! "
             "shmsink socket-path=%s sync=false wait-for-connection=true"
-            % (self.device, self.width, self.height, self.fps, drop_el,
-               bps, max(self.gop, 1), self.shm_socket)
+            % (bps, max(self.gop, 1), self.shm_socket)
+        )
+        return (
+            source
+            + "tee name=t "
+            + "t. ! queue max-size-buffers=1 leaky=downstream ! "
+            + drop_el
+            + "videoconvert ! video/x-raw,format=RGB ! "
+            + "appsink name=ros_sink emit-signals=true max-buffers=1 "
+            + "drop=true sync=false "
+            + "t. ! queue max-size-buffers=2 ! "
+            + encode_pre
+            + encode
         )
 
     def _start_pipeline(self):

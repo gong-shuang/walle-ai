@@ -162,8 +162,8 @@
   - 验收：串口卡顿时 `/cmd_vel` 与状态查询仍能及时响应（需实车验证）
 
 - [x] ✅ **P1-3.3 摄像头设备节点配置**
-  - 处理：摄像头不再使用 udev 符号链接，`usb_cam_param.yaml` 与 `video_webrtc_bridge.yaml` 直接使用实际设备节点（默认 `/dev/video0`），由用户按实际设备修改；`usb_cam.launch.py` / `bringup.launch.py` 支持 `camera_device:=/dev/videoN` 启动参数覆盖
-  - 验收：按实际摄像头节点修改配置后 `usb_cam` 正常打开；换相机时只改配置，无需安装 udev 规则
+  - 处理：摄像头不再使用 udev 符号链接，采集参数统一放在 `scripts/etc/walle_camera.conf`（由 `scripts/auto_gen_camera_conf.sh` 交互式生成）；`bringup` 读取 JSON 后分发给 `walle_camera` / `usb_cam` / `video_webrtc_bridge`，`camera_device:=/dev/videoN` 仍可临时覆盖
+  - 验收：运行脚本选择设备后摄像头正常打开；换相机或换 USB 口时只需重新运行脚本，无需安装 udev 规则
 
 - [x] ✅ **P1-3.4 补齐 `/dev/rrc` udev 规则**
   - 处理：规则改为 `99-rrc.rules`——`ttyAMA0` 创建 `SYMLINK+="rrc"`，属组 `dialout`、`MODE=0660`；兼容 `ttyACM0` 并忽略 ModemManager；`create_udev_rules.sh` 自动安装
@@ -444,10 +444,17 @@ cd walle-device/scripts && ./start.sh
 
 ## 备注
 
+- 2026-11-13：摄像头采集参数改为 JSON 单一来源 `scripts/etc/walle_camera.conf`，
+  由 `scripts/auto_gen_camera_conf.sh` 交互式生成（摄像头、格式、分辨率、帧率、名称）；
+  `bringup` 读取后分发给 `walle_camera` / `usb_cam` / `video_webrtc_bridge`。
+  查找顺序：`camera_conf:=` / `WALLE_CAMERA_CONF` → `/etc/walle-ai/walle_camera.conf`
+  （`deploy.sh` 安装）→ `$TURBOPI_HOME/scripts/etc/walle_camera.conf`。配置缺失或
+  schema 不合法时摄像头不启动并提示运行脚本，`startup_check` 同步校验。
 - 2026-11-12：摄像头 udev 规则 `99-walle-camera.rules` 已移除，不再创建 `/dev/walle-camera`；
-  摄像头直接使用实际设备节点（默认 `/dev/video0`），用户在 `usb_cam_param.yaml` 的
+  摄像头直接使用实际设备节点（默认 `/dev/video0`）。当时在 `usb_cam_param.yaml` 的
   `video_device` 与 `video_webrtc_bridge.yaml` 的 `camera_device` 中配置（两者需一致），
-  也可用 `camera_device:=/dev/videoN` 启动参数覆盖。
+  也可用 `camera_device:=/dev/videoN` 启动参数覆盖；2026-11-13 起改为
+  `scripts/etc/walle_camera.conf` 单一来源。
 - 2026-11-10：P2-4.3 `app` 包（`avoidance_node` / `object_tracking` / `line_following` /
   `qrcode` / 手势）未迁移到 `ros2_ws`，测试页按“移除按钮”方案删除避障页签及相关
   服务调用；其余玩法页签仍依赖未迁移的 `app` 节点，仅适用于 TurboPi 原始环境调试。

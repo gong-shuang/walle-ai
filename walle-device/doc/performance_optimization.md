@@ -161,10 +161,41 @@ ros2 launch bringup bringup.launch.py camera_backend:=gst
 ros2 launch bringup bringup.launch.py camera_backend:=usb_cam
 ```
 
+### 4.1 摄像头参数配置（JSON 单一来源）
+
+采集参数不再写死在 launch 中，由交互式脚本生成：
+
+```bash
+cd walle-device/scripts
+./auto_gen_camera_conf.sh
+# -> scripts/etc/walle_camera.conf
+```
+
+```json
+{
+  "schema_version": 1,
+  "name": "front_camera",
+  "device": "/dev/video0",
+  "format": "MJPG",
+  "width": 640,
+  "height": 480,
+  "framerate": 30
+}
+```
+
+- `format` 支持 `MJPG`（`mppjpegdec` 硬件解码，推荐）与 `YUYV`（原始 YUV，
+  推流分支需先 `videoconvert` 到 NV12）；
+- `bringup` 读取配置后，把设备、格式、分辨率、帧率分发给 `walle_camera`、
+  `usb_cam` 与 `video_webrtc_bridge`，避免三处配置不一致；
+- 查找顺序：`camera_conf:=` / `WALLE_CAMERA_CONF` →
+  `/etc/walle-ai/walle_camera.conf` → `$TURBOPI_HOME/scripts/etc/walle_camera.conf`；
+- 配置缺失或 schema 不合法时摄像头不启动，日志提示运行脚本；
+  `startup_check` 也会校验配置和设备节点。
+
 相关参数（`video_webrtc_bridge.yaml`）：
 
-- `camera_device`：摄像头节点，默认 `/dev/video0`；
-- `camera_width` / `camera_height` / `framerate`：采集与推流参数；
+- `camera_device` / `camera_format` / `camera_width` / `camera_height` /
+  `framerate`：由 `walle_camera.conf` 注入，YAML 默认值仅用于单独启动；
 - `ros_image_fps`：`/image_raw` 目标帧率，默认 10；
 - `video_bitrate`：默认 1000k（720p 建议 1500k~2500k）；
 - `video_gop`：默认 30；

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 # encoding: utf-8
 
+import importlib.util
+import os
 import time
 
 import rclpy
+from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import String
@@ -44,8 +47,35 @@ class StartupCheckNode(Node):
         self.deadline = time.monotonic() + STARTUP_TIMEOUT
         self.done = False
         self.timer = self.create_timer(1.0, self.check_ready)
+        self._check_camera_conf()
         self.get_logger().info(
             'startup_check：等待关键节点就绪（最多 %.0fs）' % STARTUP_TIMEOUT)
+
+    def _check_camera_conf(self):
+        """校验 walle_camera.conf 是否存在且 schema 合法。"""
+        try:
+            path = os.path.join(
+                get_package_share_directory('bringup'), 'camera_conf.py')
+            spec = importlib.util.spec_from_file_location(
+                'walle_camera_conf', path)
+            if spec is None or spec.loader is None:
+                raise RuntimeError('无法加载 %s' % path)
+            api = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(api)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().error(
+                '摄像头配置校验失败：加载 camera_conf.py 出错：%s' % exc)
+            return
+        conf, conf_path, error = api.load_camera_conf()
+        if conf is None:
+            self.get_logger().error('摄像头配置校验失败：%s' % error)
+            return
+        self.get_logger().info(
+            '摄像头配置：%s（%s）'
+            % (conf_path, api.describe_camera_conf(conf)))
+        if not os.path.exists(conf['device']):
+            self.get_logger().warning(
+                '摄像头设备 %s 当前不存在' % conf['device'])
 
     def check_ready(self):
         if self.done:

@@ -1,6 +1,8 @@
 /**:
     ros__parameters:
-      # 摄像头设备节点，按实际设备修改：ls /dev/video* 或 v4l2-ctl --list-devices
+      # 以下采集参数是单独启动 usb_cam.launch.py 时的默认值；
+      # bringup 会用 scripts/etc/walle_camera.conf（JSON）覆盖
+      # video_device / pixel_format / image_width / image_height / framerate。
       video_device: "/dev/video0"
       framerate: 30.0
       io_method: "mmap"

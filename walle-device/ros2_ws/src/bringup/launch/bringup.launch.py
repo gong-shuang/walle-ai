@@ -1,3 +1,4 @@
+import importlib.util
 import os
 import subprocess
 
@@ -34,6 +35,18 @@ def _version_banner():
         os.environ.get('WALLE_VERSION_NAME', 'unknown'),
         os.environ.get('WALLE_VERSION_NUM', 'unknown'),
         os.environ.get('WALLE_VERSION_DATE', 'unknown'))
+
+
+def _camera_conf_module():
+    """按文件加载 camera_conf.py（symlink-install 下 bringup 包不可直接 import）。"""
+    path = os.path.join(get_package_share_directory('bringup'),
+                        'camera_conf.py')
+    spec = importlib.util.spec_from_file_location('walle_camera_conf', path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError('无法加载 %s' % path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def launch_setup(context):
@@ -83,6 +96,37 @@ def launch_setup(context):
                          'launch/net_mqtt_bridge.launch.py')),
     )
 
+    # 摄像头参数唯一来源：scripts/auto_gen_camera_conf.sh 生成的 JSON。
+    # camera_device:= 仅用于临时覆盖，正常部署不再手改 YAML。
+    camera_conf_arg = LaunchConfiguration('camera_conf').perform(context).strip()
+    camera_device_arg = LaunchConfiguration('camera_device').perform(
+        context).strip()
+    try:
+        camera_conf_api = _camera_conf_module()
+    except Exception as exc:  # noqa: BLE001
+        camera_conf_api = None
+        camera_conf, camera_conf_path = None, None
+        camera_conf_error = '加载 camera_conf.py 失败：%s' % exc
+    if camera_conf_api is not None:
+        camera_conf, camera_conf_path, camera_conf_error = \
+            camera_conf_api.load_camera_conf(camera_conf_arg or None)
+    if camera_conf is not None and camera_device_arg:
+        if camera_device_arg != camera_conf['device']:
+            camera_conf = dict(camera_conf, device=camera_device_arg)
+    device = (camera_conf['device'] if camera_conf is not None
+              else camera_device_arg or '/dev/video0')
+    if camera_conf is not None:
+        note = ''
+        if not os.path.exists(device):
+            note = '；警告：设备节点 %s 当前不存在（插好摄像头后重启）' % device
+        config_log = LogInfo(
+            msg='[bringup] 摄像头配置：%s（%s）%s'
+                % (camera_conf_path,
+                   camera_conf_api.describe_camera_conf(camera_conf), note))
+    else:
+        config_log = LogInfo(
+            msg='[bringup] 摄像头配置不可用：%s' % camera_conf_error)
+
     # 摄像头后端：auto 时 RK3588（有 mppjpegdec）默认使用 walle_camera +
     # 共享内存 H.264；其他平台仍用 usb_cam；也可显式指定 gst / shm / usb_cam。
     backend = LaunchConfiguration('camera_backend').perform(context).strip().lower()
@@ -90,8 +134,14 @@ def launch_setup(context):
         backend = 'auto'
     if backend == 'auto':
         backend = 'shm' if _gst_mpp_available() else 'usb_cam'
+    if camera_conf is None:
+        backend = 'none'
     camera_owner = 'true' if backend == 'gst' else 'false'
     h264_tcp = '/tmp/walle-video.sock' if backend == 'shm' else ''
+    camera_format = camera_conf['format'] if camera_conf else 'MJPG'
+    camera_width = str(camera_conf['width']) if camera_conf else '640'
+    camera_height = str(camera_conf['height']) if camera_conf else '480'
+    camera_framerate = str(camera_conf['framerate']) if camera_conf else '30.0'
 
     usb_cam_launch = None
     if backend == 'usb_cam':
@@ -99,7 +149,11 @@ def launch_setup(context):
             PythonLaunchDescriptionSource(
                 os.path.join(walle_video_package_path, 'launch/usb_cam.launch.py')),
             launch_arguments={
-                'camera_device': LaunchConfiguration('camera_device'),
+                'camera_device': device,
+                'camera_format': camera_format,
+                'camera_width': camera_width,
+                'camera_height': camera_height,
+                'camera_framerate': camera_framerate,
             }.items(),
         )
 
@@ -111,10 +165,11 @@ def launch_setup(context):
             name='walle_camera',
             output='screen',
             parameters=[{
-                'camera_device': LaunchConfiguration('camera_device'),
-                'camera_width': 640,
-                'camera_height': 480,
-                'framerate': 30.0,
+                'camera_device': device,
+                'camera_format': camera_format,
+                'camera_width': camera_conf['width'],
+                'camera_height': camera_conf['height'],
+                'framerate': camera_conf['framerate'],
                 'ros_image_fps': 10.0,
                 'video_bitrate': '1000k',
                 'video_gop': 30,
@@ -132,8 +187,13 @@ def launch_setup(context):
                          'launch/video_webrtc_bridge.launch.py')),
         launch_arguments={
             'camera_owner': camera_owner,
-            'camera_device': LaunchConfiguration('camera_device'),
+            'camera_device': device,
             'shm_socket': h264_tcp,
+            'camera_format': camera_format,
+            'camera_width': camera_width,
+            'camera_height': camera_height,
+            'framerate': camera_framerate,
+            'ros_image_fps': '10.0',
         }.items(),
     )
 
@@ -163,13 +223,18 @@ def launch_setup(context):
     )
 
     camera_actions = [
+        config_log,
         LogInfo(msg='[bringup] 阶段 2/4：启动摄像头（%s）与声呐' % backend),
         sonar_controller_launch,
     ]
+    if backend == 'none':
+        camera_actions.append(LogInfo(
+            msg='[bringup] 摄像头未启动：请运行 '
+                'walle-device/scripts/auto_gen_camera_conf.sh 生成配置后重启'))
     if usb_cam_launch is not None:
-        camera_actions.insert(1, usb_cam_launch)
+        camera_actions.append(usb_cam_launch)
     if camera_shm_launch is not None:
-        camera_actions.insert(1, camera_shm_launch)
+        camera_actions.append(camera_shm_launch)
     start_camera = TimerAction(period=3.0, actions=camera_actions)
     start_services = TimerAction(
         period=6.0,
@@ -216,8 +281,12 @@ def generate_launch_description():
             'enable_web_video_server', default_value=_debug_default(),
             description='Start web_video_server on 8080 (default: WALLE_RUNTIME_ENV=debug)'),
         DeclareLaunchArgument(
-            'camera_device', default_value='/dev/video0',
-            description='Camera device node, e.g. /dev/video0'),
+            'camera_conf', default_value='',
+            description='Path to walle_camera.conf (default: /etc/walle-ai or '
+                        'scripts/etc, or WALLE_CAMERA_CONF)'),
+        DeclareLaunchArgument(
+            'camera_device', default_value='',
+            description='Temporary override for camera device in walle_camera.conf'),
         DeclareLaunchArgument(
             'camera_backend', default_value='auto',
             description='Camera backend: auto | gst | shm | usb_cam'),

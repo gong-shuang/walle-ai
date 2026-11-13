@@ -290,6 +290,16 @@ class VideoWebrtcBridge(Node):
 
         self.image_topic = self.declare_parameter("image_topic", "/image_raw").value
         self.camera_device = self.declare_parameter("camera_device", "/dev/video0").value
+        # 摄像头采集格式（来自 walle_camera.conf）：MJPG 走硬件 JPEG 解码，
+        # YUYV 走原始 YUV，帧率/分辨率与配置文件保持一致。
+        self.camera_format = str(
+            self.declare_parameter("camera_format", "MJPG").value).strip().upper()
+        if self.camera_format == "MJPEG":
+            self.camera_format = "MJPG"
+        if self.camera_format not in ("MJPG", "YUYV"):
+            self.get_logger().warning(
+                "camera_format=%s 不支持，按 MJPG 处理" % self.camera_format)
+            self.camera_format = "MJPG"
         # camera_owner=true：本节点用 GStreamer 独占摄像头并发布 /image_raw，
         # 推流分支直接从硬件解码后的 NV12 取帧，不再经过 ROS/Python 拷贝。
         self.camera_owner = bool(self.declare_parameter("camera_owner", False).value)
@@ -455,7 +465,7 @@ class VideoWebrtcBridge(Node):
 
     # ------------------------------------------------------------------ 摄像头管道（camera_owner）
     def _camera_pipeline_desc(self):
-        """MJPG -> mppjpegdec -> tee（ROS 图像抽样 + 推流分支）。"""
+        """MJPG/YUYV -> tee（ROS 图像抽样 + 推流分支）。"""
         fps = max(int(round(self.framerate)), 1)
         ros_fps = min(max(int(round(self.ros_image_fps)), 1), fps)
         drop = 0.0
@@ -466,16 +476,27 @@ class VideoWebrtcBridge(Node):
         ros_branch = ""
         if drop > 0:
             ros_branch = "identity drop-probability=%.4f ! " % drop
+        if self.camera_format == "YUYV":
+            source = (
+                "v4l2src device=%s io-mode=2 ! "
+                "video/x-raw,format=YUY2,width=%d,height=%d,framerate=%d/1 ! "
+                % (self.camera_device, self.camera_width, self.camera_height,
+                   fps))
+        else:
+            source = (
+                "v4l2src device=%s io-mode=2 ! "
+                "image/jpeg,width=%d,height=%d,framerate=%d/1 ! "
+                "jpegparse ! mppjpegdec format=NV12 ! "
+                % (self.camera_device, self.camera_width, self.camera_height,
+                   fps))
         return (
-            "v4l2src device=%s io-mode=2 ! "
-            "image/jpeg,width=%d,height=%d,framerate=%d/1 ! "
-            "jpegparse ! mppjpegdec format=NV12 ! tee name=t "
-            "t. ! queue max-size-buffers=1 leaky=downstream ! %s"
-            "videoconvert ! video/x-raw,format=RGB ! "
-            "appsink name=ros_sink emit-signals=true max-buffers=1 "
-            "drop=true sync=false"
-            % (self.camera_device, self.camera_width, self.camera_height, fps,
-               ros_branch)
+            source
+            + "tee name=t "
+            + "t. ! queue max-size-buffers=1 leaky=downstream ! "
+            + ros_branch
+            + "videoconvert ! video/x-raw,format=RGB ! "
+            + "appsink name=ros_sink emit-signals=true max-buffers=1 "
+            + "drop=true sync=false"
         )
 
     def _start_camera_pipeline(self):
@@ -513,9 +534,9 @@ class VideoWebrtcBridge(Node):
             self._teardown_camera_pipeline()
             return False
         self.get_logger().info(
-            "摄像头管道已启动：%s %dx%d@%d（mppjpegdec 硬件解码，/image_raw=%dfps）"
-            % (self.camera_device, self.camera_width, self.camera_height,
-               max(int(round(self.framerate)), 1),
+            "摄像头管道已启动：%s %s %dx%d@%d（/image_raw=%dfps）"
+            % (self.camera_device, self.camera_format, self.camera_width,
+               self.camera_height, max(int(round(self.framerate)), 1),
                min(max(int(round(self.ros_image_fps)), 1),
                    max(int(round(self.framerate)), 1))))
         return True
@@ -940,8 +961,12 @@ class VideoWebrtcBridge(Node):
 
     def _build_stream_bin_desc(self, url, audio):
         video_bps = bitrate_to_bps(self.video_bitrate, 1000 * 1000)
-        desc = (
-            "queue ! mpph264enc bps=%d rc-mode=cbr gop=%d ! h264parse "
+        desc = "queue ! "
+        if self.camera_format == "YUYV":
+            # MJPG 分支解码后已是 NV12；YUYV 分支需要先转 NV12 再编码
+            desc += "videoconvert ! video/x-raw,format=NV12 ! "
+        desc += (
+            "mpph264enc bps=%d rc-mode=cbr gop=%d ! h264parse "
             "! queue ! flvmux name=mux streamable=true "
             '! queue ! rtmpsink location="%s"'
             % (video_bps, max(int(self.video_gop), 1), url)
