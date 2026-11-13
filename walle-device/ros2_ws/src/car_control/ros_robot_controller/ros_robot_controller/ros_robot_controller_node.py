@@ -217,19 +217,26 @@ class RosRobotController(Node):
 
     def get_pwm_servo_state(self, request, response):
         states = []
+        success = True
         for i in request.cmd:
             data = PWMServoState()
+            # id/position/offset 在 msg 里都是数组字段，不能直接赋 int。
+            data.id = [int(i.id)]
             if i.get_position:
                 state = self.board.pwm_servo_read_position(i.id)
-                if state is not None:
-                    data.position = state
+                if state is None:
+                    success = False
+                else:
+                    data.position = [int(state)]
             if i.get_offset:
                 state = self.board.pwm_servo_read_offset(i.id)
-                if state is not None:
-                    data.offset = state
+                if state is None:
+                    success = False
+                else:
+                    data.offset = [int(state)]
             states.append(data)
         response.state = states
-        response.success = True
+        response.success = success
         return response
 
     def set_bus_servo_position(self, msg):
