@@ -94,7 +94,7 @@ def test_subscriptions_are_device_scoped_without_wildcards():
                for topic in topics)
     assert base + "/" + agent.REQ_STATE in topics
     assert base + "/" + agent.REQ_VIDEO_START in topics
-    assert base + "/" + agent.REQ_CAR_MOTOR_DRIVE in topics
+    assert base + "/" + agent.REQ_CAR_MOTOR_SET in topics
     assert discovery in topics
 
 
@@ -105,8 +105,8 @@ def test_device_topic_base_sanitizes_segments():
 
 
 def test_car_motor_topics_and_realtime_dispatch_registered():
-    assert (config.REQUEST_TO_RESULT[config.REQ_CAR_MOTOR_DRIVE]
+    assert (config.REQUEST_TO_RESULT[config.REQ_CAR_MOTOR_SET]
             == config.RES_CAR_MOTOR_RESULT)
-    assert (config.REQUEST_HANDLERS[config.REQ_CAR_MOTOR_DRIVE]
-            == "handle_car_motor_drive")
-    assert config.REQ_CAR_MOTOR_DRIVE in config.REALTIME_REQUESTS
+    assert (config.REQUEST_HANDLERS[config.REQ_CAR_MOTOR_SET]
+            == "handle_car_motor_set")
+    assert config.REQ_CAR_MOTOR_SET in config.REALTIME_REQUESTS

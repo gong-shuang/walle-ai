@@ -371,7 +371,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     }
 
     /**
-     * 车控持续命令：{@code car/motor/drive}。
+     * 车控持续命令：{@code car/motor/set}。
      *
      * <p>move 四个方向只允许一个非 0，取值 0 或 [0.5,1.0] m/s；
      * rotate 的 left/right 互斥，都为 false 表示停止旋转。
@@ -408,7 +408,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_CAR_MOTOR,
-                TopicNames.carMotorDrive(tenant, deviceSegment(uuid)), body.toString());
+                TopicNames.carMotorSet(tenant, deviceSegment(uuid)), body.toString());
         return rid;
     }
 

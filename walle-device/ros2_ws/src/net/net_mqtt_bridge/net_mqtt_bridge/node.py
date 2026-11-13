@@ -9,7 +9,7 @@ MQTT 协议入口（唯一 MQTT 客户端）：
     video_webrtc_bridge；
   - 订阅 video_webrtc_bridge 的推流状态，填 state/result 的 video 分组；
   - 以 Bool 心跳告知 video_webrtc_bridge 当前 MQTT 是否在线；
-  - car/motor/drive：保存最新运动状态，10Hz 重发 /cmd_vel，500ms 无有效命令自动停车。
+  - car/motor/set：保存最新运动状态，10Hz 重发 /cmd_vel，500ms 无有效命令自动停车。
 """
 
 import logging
@@ -115,7 +115,7 @@ class NetMqttBridge(Node):
         self._heartbeat_pub = self.create_publisher(Bool, '~/heartbeat', 10)
         self.create_timer(1.0, self._publish_heartbeat)
 
-        # ---- car/motor/drive：/cmd_vel 发布 + 本地状态 + 10Hz 重发 + 500ms 死区 ----
+        # ---- car/motor/set：/cmd_vel 发布 + 本地状态 + 10Hz 重发 + 500ms 死区 ----
         self._cmd_vel_pub = self.create_publisher(
             Twist, self.get_parameter('cmd_vel_topic').value, 10)
         self._car_lock = threading.Lock()
@@ -129,7 +129,7 @@ class NetMqttBridge(Node):
         self.agent.handle_video_stop = self._handle_video_stop
         self.agent._video_status = self._video_status_dict
         self.agent._stop_video_stream = self._stop_video_via_service
-        self.agent.handle_car_motor_drive = self._handle_car_motor_drive
+        self.agent.handle_car_motor_set = self._handle_car_motor_set
 
         self.get_logger().info(
             'net_mqtt_bridge 启动：device_id=%s tenant=%s video_service=%s'
@@ -226,15 +226,15 @@ class NetMqttBridge(Node):
                 expired = False
         if expired:
             self.get_logger().warn(
-                'car/motor/drive 超过 %.1fs 未收到有效命令，自动停车'
+                'car/motor/set 超过 %.1fs 未收到有效命令，自动停车'
                 % self._agent_mod.CAR_MOTOR_DEADMAN_SEC)
 
-    def _handle_car_motor_drive(self, payload):
-        """car/motor/drive：校验 -> 更新状态 -> 立即下发 /cmd_vel -> 回 result。"""
+    def _handle_car_motor_set(self, payload):
+        """car/motor/set：校验 -> 更新状态 -> 立即下发 /cmd_vel -> 回 result。"""
         if self._shutting_down:
             return
         ok, data = self.agent.verify_uuid(
-            payload, self._agent_mod.REQ_CAR_MOTOR_DRIVE)
+            payload, self._agent_mod.REQ_CAR_MOTOR_SET)
         if not ok:
             return
 
@@ -260,7 +260,7 @@ class NetMqttBridge(Node):
         self.agent._publish_car_motor_result(
             rid, car_motor.RESULT_OK, car_motor.CAUSE_OK)
         self.get_logger().debug(
-            'car/motor/drive request_id=%s -> linear=(%.3f, %.3f) angular=%.3f'
+            'car/motor/set request_id=%s -> linear=(%.3f, %.3f) angular=%.3f'
             % (rid or '-', twist[0], twist[1], twist[2]))
 
     def _on_video_status(self, msg):

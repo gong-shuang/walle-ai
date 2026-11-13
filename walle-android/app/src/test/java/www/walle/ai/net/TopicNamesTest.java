@@ -64,7 +64,7 @@ public class TopicNamesTest {
         assertEquals(BASE + "/video/start/result", TopicNames.videoStartResult(TENANT, DEVICE));
         assertEquals(BASE + "/video/stop/result", TopicNames.videoStopResult(TENANT, DEVICE));
         assertEquals(BASE + "/car/motor/result", TopicNames.carMotorResult(TENANT, DEVICE));
-        assertEquals(BASE + "/car/motor/drive", TopicNames.carMotorDrive(TENANT, DEVICE));
+        assertEquals(BASE + "/car/motor/set", TopicNames.carMotorSet(TENANT, DEVICE));
     }
 
     @Test

@@ -47,7 +47,7 @@ walle/{tenant}/{device}/v1/{resource}
 | 8 | 手机音频上行·开 | `walle/{t}/{d}/v1/phone/audio/send` | `walle/{t}/{d}/v1/phone/audio/send/result` | 单向动作（App 不订阅应答） | v1.0 |  |
 | 9 | 手机音频上行·关 | `walle/{t}/{d}/v1/phone/audio/stop` | `walle/{t}/{d}/v1/phone/audio/stop/result` | 单向动作（App 不订阅应答） | v1.0 |  |
 | 10 | 远程命令执行 | `walle/{t}/{d}/v1/cmd/exec` | `walle/{t}/{d}/v1/cmd/result` | 请求-应答 | v1.1 | v1.1已删除 |
-| 11 | 电机持续控制 | `walle/{t}/{d}/v1/car/motor/drive` | `walle/{t}/{d}/v1/car/motor/result` | 持续控制（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车 |
+| 11 | 电机持续控制 | `walle/{t}/{d}/v1/car/motor/set` | `walle/{t}/{d}/v1/car/motor/result` | 持续控制（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车 |
 
 > `{t}` = tenant，`{d}` = device_id。
 > 8/9 只承载「开/关」控制，音频本身走独立 RTMP（§4.8）。
@@ -92,7 +92,7 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 | `…/result` | 应答，**只在收到对应请求后发布**，绝不主动上报 | `state/result` |
 | `…/send` | 手机侧发起「开始上行」的新后缀（App 是动作发起方，不是设备推流） | `phone/audio/send` |
 | `…/stop` | 手机侧发起「停止上行」的新后缀（无 room 也可发，用于退出兜底） | `phone/audio/stop` |
-| `…/drive` | 持续控制命令（有副作用；最新一条覆盖旧状态，不排队） | `car/motor/drive` |
+| `…/set` | 持续设置命令（有副作用；最新一条覆盖旧状态，不排队） | `car/motor/set` |
 | 无后缀 | 主动上报，只有 `online` 和 `alarm` 两个 | — |
 
 这套约定由设备端 `net_mqtt_bridge/test/test_protocol.py` 与 `linux-demo/test/test_protocol.py` 强制检查：
@@ -127,7 +127,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 干扰排查。所以两端都只订**精确的响应/请求主题清单**：
 
 - App 订 8 条：`walle/{t}/+/v1` 下的 `online`、`alarm`、6 条 `…/result`（见 `TopicNames.responseSubscriptions`）
-- 设备端订 8 条：7 条设备级请求（含 `phone/audio/send|stop`、`car/motor/drive`）+ 1 条租户级 `discovery/query`（见 `config.subscriptions()`）
+- 设备端订 8 条：7 条设备级请求（含 `phone/audio/send|stop`、`car/motor/set`）+ 1 条租户级 `discovery/query`（见 `config.subscriptions()`）
 
 ---
 
@@ -506,13 +506,13 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 安全开关（设备端环境变量 / 常量）：`ENABLE_CMD_EXEC`（总开关）、`CMD_ALLOWLIST`
 （前缀白名单，为空=允许任意命令）。**这是高危能力**，Broker ACL 必须保证租户隔离。
 
-### 4.10 电机持续控制 car/motor/drive → car/motor/result（V1.2）
+### 4.10 电机持续控制 car/motor/set → car/motor/result（V1.2）
 
 **作用**：App 按住方向键时，以 200ms 周期下发目标运动状态；设备端保存最新状态，
 以 10Hz 重发 `/cmd_vel`，500ms 没有收到有效命令就自动停车。
 
-- 请求：`walle/{t}/{d}/v1/car/motor/drive`
-- 应答：`walle/{t}/{d}/v1/car/motor/result`（父资源 + `/result`，不是 `drive/result`）
+- 请求：`walle/{t}/{d}/v1/car/motor/set`
+- 应答：`walle/{t}/{d}/v1/car/motor/result`（父资源 + `/result`，不是 `set/result`）
 - 请求不 retained，QoS1；设备重启默认停车，运动状态不落盘。
 
 **请求字段**（公共字段 `uuid`、`request_id` 必填；`request_id` 原样回显）：
@@ -618,8 +618,8 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 
 **变更内容**
 
-- 新增请求 `walle/{t}/{d}/v1/car/motor/drive` 与应答 `walle/{t}/{d}/v1/car/motor/result`。
-- 把 `…/drive` 正式登记为「持续控制命令」后缀：最新一条覆盖旧状态，不排队。
+- 新增请求 `walle/{t}/{d}/v1/car/motor/set` 与应答 `walle/{t}/{d}/v1/car/motor/result`。
+- 把 `…/set` 正式登记为「持续控制命令」后缀：最新一条覆盖旧状态，不排队。
 - `move` 只允许一个方向非 0，取值 `0` 或 `[0.5,1.0]` m/s；`rotate.left/right` 为布尔且互斥。
 - 设备端保存运动状态，以 10Hz 重发 `/cmd_vel`；500ms 没有有效命令、收到非法命令、
   收到停止命令或进程退出时清状态并立即发布零速。
@@ -628,7 +628,7 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
   stopCarMotorDrive`、`MessageRouter` 的 `car/motor/result` 路由与去重。
 
 **影响与兼容性**：旧版 App/设备不受影响；新版 App 需订阅 `car/motor/result`。
-`drive` 是新后缀，不会与现有主题冲突。
+`set` 是新后缀，不会与现有主题冲突。
 
 **验证方式**：设备端 `net_mqtt_bridge/test/test_car_motor.py` 覆盖取值/互斥/轮速缩放；
 `test_protocol.py` 校验订阅清单与请求-应答配对；App `TopicNamesTest` / `MessageRouterTest`

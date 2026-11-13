@@ -64,7 +64,7 @@ public final class TopicNames {
     /** 关闭手机麦克风音频上行失败 */
     public static final String KIND_PHONE_AUDIO_STOP = "phone/audio/stop";
     /** 车控持续命令失败 */
-    public static final String KIND_CAR_MOTOR = "car/motor/drive";
+    public static final String KIND_CAR_MOTOR = "car/motor/set";
 
     // ---------------------------------------------------------------- 清洗
 
@@ -151,7 +151,7 @@ public final class TopicNames {
         return deviceBase(tenant, device) + "/video/stop/result";
     }
 
-    /** 车控持续命令结果（收到 car/motor/drive 后发布）。 */
+    /** 车控持续命令结果（收到 car/motor/set 后发布）。 */
     public static String carMotorResult(String tenant, String device) {
         return deviceBase(tenant, device) + "/car/motor/result";
     }
@@ -201,10 +201,10 @@ public final class TopicNames {
 
     /**
      * 车控持续命令（App → 设备）：最新一条覆盖旧状态。
-     * <p>应答为父资源 {@code car/motor/result}，不是 {@code car/motor/drive/result}。</p>
+     * <p>应答为父资源 {@code car/motor/result}，不是 {@code car/motor/set/result}。</p>
      */
-    public static String carMotorDrive(String tenant, String device) {
-        return deviceBase(tenant, device) + "/car/motor/drive";
+    public static String carMotorSet(String tenant, String device) {
+        return deviceBase(tenant, device) + "/car/motor/set";
     }
 
     /**

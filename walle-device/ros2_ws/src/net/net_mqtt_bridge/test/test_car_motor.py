@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""car/motor/drive 报文校验与轮速预算测试。"""
+"""car/motor/set 报文校验与轮速预算测试。"""
 
 import pytest
 

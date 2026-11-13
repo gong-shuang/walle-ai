@@ -101,7 +101,7 @@ MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE", "").strip()      # 留空则用系
 TLS_PORTS = (8883, 8084)
 
 # ---- 主题命名约定（完整主题 = walle/{tenant}/{device}/v1/{资源}）----
-#   请求按语义命名：查询 .../query、动作 .../request、持续控制 .../drive；
+#   请求按语义命名：查询 .../query、动作 .../request、持续控制 .../set；
 #   应答统一 .../result，且**只在收到对应请求后发布**，绝不主动上报；
 #   主动上报只有 online（上线/下线）与 alarm（告警/USB 插拔）两个。
 # ---- 应答（设备 -> App）----
@@ -112,7 +112,7 @@ RES_VIDEO_START_RESULT = "video/start/result"       # 收到 video/start/request
 RES_VIDEO_STOP_RESULT = "video/stop/result"         # 收到 video/stop/request 后发布
 RES_PHONE_AUDIO_SEND_RESULT = "phone/audio/send/result"   # 收到 phone/audio/send 后发布
 RES_PHONE_AUDIO_STOP_RESULT = "phone/audio/stop/result"   # 收到 phone/audio/stop 后发布
-RES_CAR_MOTOR_RESULT = "car/motor/result"                 # 收到 car/motor/drive 后发布
+RES_CAR_MOTOR_RESULT = "car/motor/result"                 # 收到 car/motor/set 后发布
 
 # ---- 主动上报（设备 -> App，不必等查询）----
 RES_ONLINE = "online"                       # retained + 遗嘱
@@ -133,9 +133,9 @@ REQ_VIDEO_START = "video/start/request"
 REQ_VIDEO_STOP = "video/stop/request"
 REQ_PHONE_AUDIO_SEND = "phone/audio/send"     # 手机麦上行：App 开始往 {room}_audio 推音频
 REQ_PHONE_AUDIO_STOP = "phone/audio/stop"     # 手机麦上行：App 停止推音频
-REQ_CAR_MOTOR_DRIVE = "car/motor/drive"       # 持续控制：最新一条覆盖旧状态
+REQ_CAR_MOTOR_SET = "car/motor/set"           # 持续控制：最新一条覆盖旧状态
 
-# ---- car/motor/drive 常量（协议固定值，改协议时同步文档 §4.10）----
+# ---- car/motor/set 常量（协议固定值，改协议时同步文档 §4.10）----
 CAR_MOTOR_LINEAR_MIN = 0.5          # 允许的线速度下限（m/s）
 CAR_MOTOR_LINEAR_MAX = 1.0          # 允许的线速度上限（m/s）
 CAR_MOTOR_ANGULAR_SPEED = 2.5       # 固定角速度（rad/s）
@@ -316,7 +316,7 @@ REQUEST_TO_RESULT = {
     REQ_VIDEO_STOP: RES_VIDEO_STOP_RESULT,
     REQ_PHONE_AUDIO_SEND: RES_PHONE_AUDIO_SEND_RESULT,
     REQ_PHONE_AUDIO_STOP: RES_PHONE_AUDIO_STOP_RESULT,
-    REQ_CAR_MOTOR_DRIVE: RES_CAR_MOTOR_RESULT,
+    REQ_CAR_MOTOR_SET: RES_CAR_MOTOR_RESULT,
 }
 
 # 请求资源 → 处理函数名
@@ -327,7 +327,7 @@ REQUEST_HANDLERS = {
     REQ_VIDEO_STOP: "handle_video_stop",
     REQ_PHONE_AUDIO_SEND: "handle_phone_audio_send",
     REQ_PHONE_AUDIO_STOP: "handle_phone_audio_stop",
-    REQ_CAR_MOTOR_DRIVE: "handle_car_motor_drive",
+    REQ_CAR_MOTOR_SET: "handle_car_motor_set",
 }
 
 # 动作类请求：可能阻塞数秒（等首帧 / 推流宽限期 / 音频启动），单独线程池处理，
@@ -338,7 +338,7 @@ ACTION_REQUESTS = frozenset({
 
 # 实时请求：处理只做校验 + 发布 /cmd_vel，必须在 MQTT 回调线程内立即执行，
 # 不能排进查询/动作队列，否则 200ms 的控制周期会被慢查询拖垮。
-REALTIME_REQUESTS = frozenset({REQ_CAR_MOTOR_DRIVE})
+REALTIME_REQUESTS = frozenset({REQ_CAR_MOTOR_SET})
 
 
 def subscriptions():
@@ -355,7 +355,7 @@ def subscriptions():
         (f"{base}/{REQ_VIDEO_STOP}", MQTT_QOS),
         (f"{base}/{REQ_PHONE_AUDIO_SEND}", MQTT_QOS),
         (f"{base}/{REQ_PHONE_AUDIO_STOP}", MQTT_QOS),
-        (f"{base}/{REQ_CAR_MOTOR_DRIVE}", MQTT_QOS),
+        (f"{base}/{REQ_CAR_MOTOR_SET}", MQTT_QOS),
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
     ]
 

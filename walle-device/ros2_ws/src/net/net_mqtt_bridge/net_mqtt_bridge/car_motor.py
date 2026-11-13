@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""car/motor/drive 持续控制命令：报文校验与结果封装。
+"""car/motor/set 持续控制命令：报文校验与结果封装。
 
 协议约定见 doc/MQTT_protocol_convention.md §4.10：
   - move 四个方向只允许一个非 0，取值 0 或 [0.5, 1.0] m/s；
@@ -40,7 +40,7 @@ def _number(value):
 
 
 def parse_drive(data):
-    """校验并归一化一条 car/motor/drive 报文。
+    """校验并归一化一条 car/motor/set 报文。
 
     返回 (result, cause, twist)：
       - twist 为 (linear_x, linear_y, angular_z)，仅 result=0 时非 None；
@@ -104,7 +104,7 @@ class CarMotorMixin:
     """结果封装 + 非 ROS 环境的兜底处理。
 
     真正的 /cmd_vel 发布、10Hz 重发和 500ms 死区在 node.py 中覆盖
-    handle_car_motor_drive；独立运行（linux-demo）只返回链路不可用。
+    handle_car_motor_set；独立运行（linux-demo）只返回链路不可用。
     """
 
     def _publish_car_motor_result(self, request_id, result_code, cause):
@@ -121,18 +121,18 @@ class CarMotorMixin:
         }
         self.publish_json(config.RES_CAR_MOTOR_RESULT, payload)
         if result_code == RESULT_OK:
-            logging.debug("car/motor/drive 结果 -> %s: request_id=%s result=0 cause=ok",
+            logging.debug("car/motor/set 结果 -> %s: request_id=%s result=0 cause=ok",
                           config.device_topic(config.RES_CAR_MOTOR_RESULT),
                           payload["request_id"] or "-")
         else:
-            logging.warning("car/motor/drive 结果 -> %s: request_id=%s result=%s cause=%s",
+            logging.warning("car/motor/set 结果 -> %s: request_id=%s result=%s cause=%s",
                             config.device_topic(config.RES_CAR_MOTOR_RESULT),
                             payload["request_id"] or "-", result_code, cause)
         return payload
 
-    def handle_car_motor_drive(self, payload):
+    def handle_car_motor_set(self, payload):
         """独立运行时没有 /cmd_vel 发布者，直接返回链路不可用。"""
-        ok, data = self.verify_uuid(payload, config.REQ_CAR_MOTOR_DRIVE)
+        ok, data = self.verify_uuid(payload, config.REQ_CAR_MOTOR_SET)
         if not ok:
             return
         self._publish_car_motor_result(

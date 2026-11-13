@@ -25,9 +25,9 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     .../video/stop/request                      .../video/stop/result                停止推流（动作）
     .../phone/audio/send                        .../phone/audio/send/result            手机麦上行·开（App 发起）
     .../phone/audio/stop                        .../phone/audio/stop/result            手机麦上行·关（App 发起）
-    .../car/motor/drive                         .../car/motor/result                   电机持续控制（最新状态覆盖）
+    .../car/motor/set                         .../car/motor/result                   电机持续控制（最新状态覆盖）
 
-    命名约定：请求按语义划分 —— 查询 /query、动作 /request、持续控制 /drive；
+    命名约定：请求按语义划分 —— 查询 /query、动作 /request、持续控制 /set；
     应答一律 /result，且只在收到对应请求后才发布，只有 online 与 alarm 是主动上报。
 
     除 discovery 广播外，设备只订阅自己子树下的「请求类」主题，
@@ -92,7 +92,7 @@ from .car_motor import CarMotorMixin
 from .config import (ACTION_REQUESTS, MQTT_CA_FILE, MQTT_HOST, MQTT_KEEPALIVE,  # noqa: F401
                      MQTT_PASSWORD, MQTT_PORT, MQTT_QOS, MQTT_TENANT, MQTT_TLS,
                      MQTT_USER, REQUEST_HANDLERS, REQUEST_TO_RESULT,
-                     REQ_CAPABILITY, REQ_CAR_MOTOR_DRIVE, REQ_DISCOVERY,
+                     REQ_CAPABILITY, REQ_CAR_MOTOR_SET, REQ_DISCOVERY,
                      REQ_PHONE_AUDIO_SEND, REQ_PHONE_AUDIO_STOP, REQ_STATE,
                      REQ_VIDEO_START, REQ_VIDEO_STOP, RES_ALARM,
                      RES_CAPABILITY_RESULT, RES_CAR_MOTOR_RESULT,

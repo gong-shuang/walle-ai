@@ -279,7 +279,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div class="cardHead">
         <div>
           <h2>车辆控制</h2>
-          <small>car/motor/drive · 按住持续下发（200ms）</small>
+          <small>car/motor/set · 按住持续下发（200ms）</small>
         </div>
         <span class="badge">0.6 m/s</span>
       </div>
@@ -1050,8 +1050,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var payload = carPayload();
     payload.uuid = ui.uuid;
     payload.request_id = id;
-    if (!mqtt.publish(base(cfg.device) + '/car/motor/drive', payload)) {
-      carSetStatus('car/motor/drive 发送失败：MQTT 已断开', 'err');
+    if (!mqtt.publish(base(cfg.device) + '/car/motor/set', payload)) {
+      carSetStatus('car/motor/set 发送失败：MQTT 已断开', 'err');
       carStopLoop();
       return;
     }
@@ -1067,7 +1067,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     ui.car.wasActive = false;
     if (!mqtt || !mqtt.connected || !cfg.device || !ui.uuid) return;
     var id = rid();
-    mqtt.publish(base(cfg.device) + '/car/motor/drive', {
+    mqtt.publish(base(cfg.device) + '/car/motor/set', {
       uuid: ui.uuid,
       request_id: id,
       move: { forward: 0, back: 0, left: 0, right: 0 },
