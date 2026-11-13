@@ -122,9 +122,12 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .alarmItem b{display:block;font-size:12px;font-weight:550;color:var(--text);word-break:break-word}
 .alarmItem p{margin:3px 0 0;font-size:11px;color:var(--dim)}
 .alarmItem time{flex:none;font-size:10.5px;color:var(--dim);white-space:nowrap}
-.carBody{display:flex;align-items:center;gap:24px;flex-wrap:wrap}
-.carPad{display:grid;grid-template-columns:repeat(3,64px);grid-template-rows:repeat(2,64px);gap:12px;flex:none}
-.carKey{
+.carBody{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:start}
+.carHalf{min-width:0}
+.carHalf + .carHalf{border-left:1px solid var(--line);padding-left:24px}
+.carHalfHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;font-size:12px;font-weight:600;color:var(--text)}
+.carPad{display:grid;grid-template-columns:repeat(3,64px);grid-template-rows:repeat(2,64px);gap:12px;justify-content:start}
+.carKey,.servoKey{
   border:1px solid var(--line2);border-radius:14px;
   background:linear-gradient(180deg,#1b2433,#121923);
   color:var(--text);font-size:21px;font-weight:700;line-height:1;padding:0;
@@ -132,21 +135,31 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   box-shadow:0 5px 0 #080c12,0 8px 18px rgba(0,0,0,.35);
   transition:transform .06s,box-shadow .06s,background .15s,border-color .15s;
 }
-.carKey:hover{border-color:#3a475c;background:linear-gradient(180deg,#202b3d,#141c28)}
+.carKey:hover,.servoKey:hover:not(:disabled){border-color:#3a475c;background:linear-gradient(180deg,#202b3d,#141c28)}
 .carKey.rot{color:#a9d4ff;border-color:rgba(74,168,255,.35);background:linear-gradient(180deg,#17263a,#101a29)}
 .carKey.rot:hover{border-color:rgba(74,168,255,.6)}
-.carKey.pressed,.carKey:active{
+.carKey.pressed,.carKey:active,.servoKey.pressed,.servoKey:active{
   transform:translateY(4px);
   box-shadow:0 1px 0 #080c12,0 3px 8px rgba(0,0,0,.3);
   border-color:rgba(61,220,151,.55);
   background:linear-gradient(180deg,rgba(61,220,151,.18),rgba(20,29,40,.95));
 }
 .carKey.rot.pressed,.carKey.rot:active{border-color:rgba(74,168,255,.7);background:linear-gradient(180deg,rgba(74,168,255,.22),rgba(16,26,41,.95))}
-.carInfo{min-width:200px;flex:1}
-.carStatus{font-size:12px;color:var(--muted);word-break:break-all;min-height:18px}
+.servoKey{color:#a9d4ff;border-color:rgba(74,168,255,.35);background:linear-gradient(180deg,#17263a,#101a29);font-size:24px}
+.servoKey.pressed,.servoKey:active{border-color:rgba(74,168,255,.7);background:linear-gradient(180deg,rgba(74,168,255,.22),rgba(16,26,41,.95))}
+.servoKey:disabled{opacity:.32;cursor:not-allowed;filter:grayscale(1);box-shadow:none;transform:none}
+.servoKey:disabled:hover{border-color:var(--line2);background:linear-gradient(180deg,#1b2433,#121923)}
+.switch{position:relative;display:inline-block;width:40px;height:22px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch .slider{position:absolute;inset:0;cursor:pointer;border-radius:999px;border:1px solid var(--line2);background:#1b2433;transition:.2s}
+.switch .slider:before{content:"";position:absolute;width:16px;height:16px;left:2px;top:2px;border-radius:50%;background:var(--dim);transition:.2s}
+.switch input:checked + .slider{background:rgba(61,220,151,.22);border-color:rgba(61,220,151,.55)}
+.switch input:checked + .slider:before{transform:translateX(18px);background:var(--accent)}
+.carInfo{min-width:0}
+.carStatus{font-size:12px;color:var(--muted);word-break:break-all;min-height:18px;margin-top:10px}
 .carStatus.ok{color:#9ff0cf}
 .carStatus.err{color:#ffb3b3}
-.carLegend{margin-top:10px;font-size:11px;line-height:1.8;color:var(--dim)}
+.carLegend{margin-top:8px;font-size:11px;line-height:1.8;color:var(--dim)}
 .carLegend b{color:var(--muted);font-weight:600}
 .emptyState{padding:26px 10px;text-align:center;font-size:12px;color:var(--dim)}
 .scrim{position:fixed;inset:0;z-index:40;background:rgba(3,5,8,.62);backdrop-filter:blur(3px);opacity:0;pointer-events:none;transition:opacity .2s}
@@ -175,6 +188,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
   .detailGrid{grid-template-columns:1fr}
   .card{padding:15px}
+  .carBody{grid-template-columns:1fr}
+  .carHalf + .carHalf{border-left:0;border-top:1px solid var(--line);padding-left:0;padding-top:16px}
 }
 </style>
 </head>
@@ -279,25 +294,49 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div class="cardHead">
         <div>
           <h2>车辆控制</h2>
-          <small>car/motor/set · 按住持续下发（200ms）</small>
+          <small>车轮 / 相机方位 · 按住持续下发</small>
         </div>
         <span class="badge">0.6 m/s</span>
       </div>
       <div class="carBody">
-        <div class="carPad">
-          <span class="carGap" aria-hidden="true"></span>
-          <button class="carKey" type="button" data-car-key="w" aria-label="前进">w</button>
-          <span class="carGap" aria-hidden="true"></span>
-          <button class="carKey rot" type="button" data-car-key="a" aria-label="左旋转">a</button>
-          <button class="carKey" type="button" data-car-key="s" aria-label="后退">s</button>
-          <button class="carKey rot" type="button" data-car-key="d" aria-label="右旋转">d</button>
-        </div>
-        <div class="carInfo">
+        <div class="carHalf">
+          <div class="carHalfHead"><span>车轮控制</span></div>
+          <div class="carPad">
+            <span class="carGap" aria-hidden="true"></span>
+            <button class="carKey" type="button" data-car-key="w" aria-label="前进">w</button>
+            <span class="carGap" aria-hidden="true"></span>
+            <button class="carKey rot" type="button" data-car-key="a" aria-label="左旋转">a</button>
+            <button class="carKey" type="button" data-car-key="s" aria-label="后退">s</button>
+            <button class="carKey rot" type="button" data-car-key="d" aria-label="右旋转">d</button>
+          </div>
           <div id="carStatus" class="carStatus">MQTT 未连接</div>
           <div class="carLegend">
             <div><b>w</b> 前进 · <b>s</b> 后退</div>
             <div><b>a</b> 左旋转 · <b>d</b> 右旋转</div>
             <div>可同时按住一个移动键 + 一个旋转键；松开立即停车。</div>
+          </div>
+        </div>
+        <div class="carHalf">
+          <div class="carHalfHead">
+            <span>相机方位</span>
+            <label class="switch" title="启用相机方位控制">
+              <input type="checkbox" id="servoEnable">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="carPad">
+            <span class="carGap" aria-hidden="true"></span>
+            <button class="servoKey" type="button" data-servo-dir="up" aria-label="上" disabled>↑</button>
+            <span class="carGap" aria-hidden="true"></span>
+            <button class="servoKey" type="button" data-servo-dir="left" aria-label="左" disabled>←</button>
+            <button class="servoKey" type="button" data-servo-dir="down" aria-label="下" disabled>↓</button>
+            <button class="servoKey" type="button" data-servo-dir="right" aria-label="右" disabled>→</button>
+          </div>
+          <div id="servoStatus" class="carStatus">相机方位未启用</div>
+          <div class="carLegend">
+            <div>打开开关后先查询舵机位置</div>
+            <div><b>↑/↓</b> 1号舵机 · <b>←/→</b> 2号舵机</div>
+            <div>按住每 1 秒步进 100；到 800/2200 自动置灰。</div>
           </div>
         </div>
       </div>
@@ -394,7 +433,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
    'devPills', 'mCpu', 'bCpu', 'mTemp', 'bTemp', 'mMem', 'bMem', 'mUptime', 'bUp', 'dHost', 'dOs', 'dLoad', 'dNet',
    'dDisk', 'dUsb', 'dVideo', 'stateTime', 'autoState', 'btnState', 'btnCapability', 'videoEl',
    'videoEmpty', 'videoHint', 'cameraSelect', 'roomInput', 'btnVideoStart', 'btnVideoStop', 'btnVideoConnect',
-   'videoMsg', 'alarmList', 'btnAlarmClear', 'carStatus',
+   'videoMsg', 'alarmList', 'btnAlarmClear', 'carStatus', 'servoStatus', 'servoEnable',
    'scrim', 'drawer', 'btnDrawerClose', 'fWsUrl', 'fUser', 'fPass', 'fClientId', 'fKeepalive', 'fDevice',
    'fVideoUrl', 'btnSave']
     .forEach(function (k) { el[k] = document.getElementById(k); });
@@ -403,6 +442,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     pendingCap: null, pendingVideoStop: null, discoveryRid: '',
     video: { pc: null, location: '', room: '', camera: '', lastAlarmKey: '', connected: false, uiStreaming: null },
     car: { held: {}, timer: null, pendingRid: '', wasActive: false },
+    servo: { enabled: false, held: {}, pos: { 1: null, 2: null }, timer: null,
+      queryTimer: null, pendingQueryRid: '', pendingSetRid: '' },
     autoTimer: null, statePending: null, offline: {} };
   var reconnectTimer = null, mqtt;
   var RUNTIME_SUFFIX = Math.random().toString(16).slice(2, 6);
@@ -525,7 +566,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function subBase() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/+/v1/'; }
   function discoveryTopic() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/v1/discovery/query'; }
   var SUBS = ['online', 'discovery/result', 'state/result', 'capability/result',
-    'video/start/result', 'video/stop/result', 'car/motor/result', 'alarm'];
+    'video/start/result', 'video/stop/result', 'car/motor/result',
+    'car/servo/status/result', 'car/servo/result', 'alarm'];
 
   function setConn(kind, text) {
     el.connChip.className = 'chip ' + (kind === 'on' ? 'on' : 'bad');
@@ -551,6 +593,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
           setTimeout(function () { if (!Object.keys(ui.devices).length) discover(); }, 900);
         } else if (kind === 'closed' || kind === 'error') {
           carReleaseAll(false);
+          servoDisable('MQTT 已断开');
           if (ui.pendingCap && ui.pendingCap.timer) clearTimeout(ui.pendingCap.timer);
           ui.pendingCap = null;
           updateCapabilityButton(false);
@@ -569,6 +612,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     else if (/\/video\/start\/result$/.test(topic)) onVideoStartResult(dev, data);
     else if (/\/video\/stop\/result$/.test(topic)) onVideoStopResult(dev, data);
     else if (/\/car\/motor\/result$/.test(topic)) onCarMotorResult(dev, data);
+    else if (/\/car\/servo\/status\/result$/.test(topic)) onCarServoStatusResult(dev, data);
+    else if (/\/car\/servo\/result$/.test(topic)) onCarServoSetResult(dev, data);
     else if (/\/alarm$/.test(topic)) onAlarm(dev, data);
   }
   function devOf(topic) {
@@ -596,13 +641,17 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       ui.online = data.online === true;
       el.onlineBadge.className = 'badge ' + (ui.online ? 'ok' : 'bad');
       el.onlineBadge.textContent = ui.online ? '在线' : '离线';
-      if (!ui.online) carReleaseAll(false);
+      if (!ui.online) { carReleaseAll(false); servoDisable('设备离线'); }
       if (data.uuid) ui.uuid = data.uuid;
       if (ui.online && (!wasOnline || wasUuid !== ui.uuid)) {
         queryState();
         requestCapability();
       }
       if (ui.uuid && carHasActive()) { carEnsureLoop(); carSendNow(); }
+      if (ui.online && ui.uuid && ui.servo.enabled
+        && ui.servo.pos[1] == null && ui.servo.pos[2] == null) {
+        servoQuery();
+      }
       applyVideoUi();
     }
     renderDevices();
@@ -648,6 +697,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function selectDevice(dev) {
     if (!dev) return;
     carReleaseAll(true);
+    servoDisable('设备已切换');
     cfg.device = dev; saveCfg();
     var info = ui.devices[dev] || {};
     ui.deviceInfo = info;
@@ -986,10 +1036,20 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   var CAR_MOVE_ORDER = ['w', 's'];
   var CAR_ROT_ORDER = ['a', 'd'];
 
+  function isTextEntry(target) {
+    if (!target) return false;
+    var tag = String(target.tagName || '').toLowerCase();
+    if (tag === 'textarea' || target.isContentEditable) return true;
+    if (tag === 'input') {
+      var type = String(target.type || 'text').toLowerCase();
+      return ['text', 'search', 'email', 'url', 'tel', 'password', 'number'].indexOf(type) >= 0;
+    }
+    return false;
+  }
   function carIsTyping(target) {
     if (!target) return false;
     var tag = String(target.tagName || '').toLowerCase();
-    return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
+    return tag === 'select' || isTextEntry(target);
   }
   function carButton(key) {
     return document.querySelector('.carKey[data-car-key="' + key + '"]');
@@ -1130,6 +1190,245 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     carReleaseAll(false);
   }
 
+  // ---------------------------------------------------------------- 相机方位舵机
+  var SERVO_STEP = 100;
+  var SERVO_MIN = 800;
+  var SERVO_MAX = 2200;
+  var SERVO_DURATION = 1.0;
+  var SERVO_REPEAT_MS = 1000;
+  var SERVO_KEYMAP = {
+    ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+    Up: 'up', Down: 'down', Left: 'left', Right: 'right'
+  };
+  var SERVO_GROUP = {
+    up: ['up', 'down'], down: ['up', 'down'],
+    left: ['left', 'right'], right: ['left', 'right']
+  };
+
+  function servoButton(dir) {
+    return document.querySelector('.servoKey[data-servo-dir="' + dir + '"]');
+  }
+  function servoSetPressed(dir, on) {
+    var btn = servoButton(dir);
+    if (btn) btn.classList.toggle('pressed', !!on);
+  }
+  function servoSetStatus(text, kind) {
+    if (!el.servoStatus) return;
+    el.servoStatus.textContent = text;
+    el.servoStatus.className = 'carStatus' + (kind ? ' ' + kind : '');
+  }
+  function servoPrereqOk() {
+    if (!mqtt || !mqtt.connected) { servoSetStatus('MQTT 未连接', 'err'); return false; }
+    if (!cfg.device) { servoSetStatus('未选择设备', 'err'); return false; }
+    if (ui.offline[cfg.device]) { servoSetStatus('设备离线，无法控制', 'err'); return false; }
+    if (!ui.uuid) { servoSetStatus('缺少设备 uuid（等待 online/discovery 回填）', 'err'); return false; }
+    return true;
+  }
+  function servoStopLoop() {
+    if (ui.servo.timer) { clearInterval(ui.servo.timer); ui.servo.timer = null; }
+  }
+  function servoClearQueryTimer() {
+    if (ui.servo.queryTimer) { clearTimeout(ui.servo.queryTimer); ui.servo.queryTimer = null; }
+  }
+  function servoUpdateButtons() {
+    var pos = ui.servo.pos;
+    var ok1 = pos[1] != null && pos[1] >= SERVO_MIN && pos[1] <= SERVO_MAX;
+    var ok2 = pos[2] != null && pos[2] >= SERVO_MIN && pos[2] <= SERVO_MAX;
+    var states = {
+      up: !ui.servo.enabled || !ok1 || pos[1] <= SERVO_MIN,
+      down: !ui.servo.enabled || !ok1 || pos[1] >= SERVO_MAX,
+      left: !ui.servo.enabled || !ok2 || pos[2] >= SERVO_MAX,
+      right: !ui.servo.enabled || !ok2 || pos[2] <= SERVO_MIN
+    };
+    Object.keys(states).forEach(function (dir) {
+      var btn = servoButton(dir);
+      if (!btn) return;
+      btn.disabled = states[dir];
+      if (states[dir] && ui.servo.held[dir]) {
+        delete ui.servo.held[dir];
+        servoSetPressed(dir, false);
+      }
+    });
+    if (!Object.keys(ui.servo.held).length) servoStopLoop();
+  }
+  function servoSetEnabled(on, text, kind) {
+    ui.servo.enabled = !!on;
+    if (el.servoEnable) el.servoEnable.checked = !!on;
+    if (!on) {
+      servoReleaseAll();
+      servoClearQueryTimer();
+      ui.servo.pos = { 1: null, 2: null };
+      ui.servo.pendingQueryRid = '';
+      ui.servo.pendingSetRid = '';
+    }
+    servoUpdateButtons();
+    if (text !== undefined) servoSetStatus(text, kind || null);
+  }
+  function servoDisable(text) {
+    servoSetEnabled(false, text, 'err');
+  }
+  function servoQuery() {
+    if (!ui.servo.enabled || ui.servo.pendingQueryRid) return;
+    if (!servoPrereqOk()) return;
+    servoClearQueryTimer();
+    var id = rid();
+    if (!mqtt.publish(base(cfg.device) + '/car/servo/status/query', {
+      uuid: ui.uuid, request_id: id, ids: [1, 2], include_offset: false
+    })) {
+      servoSetStatus('car/servo/status/query 发送失败：MQTT 已断开', 'err');
+      servoUpdateButtons();
+      return;
+    }
+    ui.servo.pendingQueryRid = id;
+    ui.servo.pendingSetRid = '';
+    servoSetStatus('查询舵机位置…', null);
+    servoUpdateButtons();
+    ui.servo.queryTimer = setTimeout(function () {
+      if (!ui.servo.enabled || ui.servo.pendingQueryRid !== id) return;
+      ui.servo.pendingQueryRid = '';
+      servoDisable('舵机查询超时，请重新打开开关');
+    }, 6000);
+  }
+  function onCarServoStatusResult(dev, data) {
+    if (dev !== cfg.device) return;
+    if (data.request_id && ui.servo.pendingQueryRid && data.request_id !== ui.servo.pendingQueryRid) return;
+    servoClearQueryTimer();
+    ui.servo.pendingQueryRid = '';
+    if (!ui.servo.enabled) return;
+
+    var pos = { 1: null, 2: null };
+    (data.servos || []).forEach(function (item) {
+      if (!item) return;
+      var id = item.id;
+      if ((id === 1 || id === 2) && item.available && typeof item.position === 'number') {
+        pos[id] = item.position;
+      }
+    });
+    ui.servo.pos = pos;
+    servoUpdateButtons();
+    if (pos[1] == null && pos[2] == null) {
+      servoDisable('舵机位置查询失败：' + (data.cause || ('result=' + data.result)));
+      return;
+    }
+    var text = '1号 ' + (pos[1] == null ? '不可用' : pos[1])
+      + ' · 2号 ' + (pos[2] == null ? '不可用' : pos[2]);
+    if (data.result !== 0) text += '（部分不可用）';
+    servoSetStatus(text, (data.result === 0 && pos[1] != null && pos[2] != null) ? 'ok' : 'err');
+  }
+  function servoTick(onlyDir) {
+    if (!ui.servo.enabled) { servoStopLoop(); return; }
+    var pos = ui.servo.pos;
+    var targets = [];
+    function shouldStep(dir) {
+      return ui.servo.held[dir] && (!onlyDir || onlyDir === dir);
+    }
+    function addTarget(id, dir, delta) {
+      var current = pos[id];
+      if (current == null) {
+        delete ui.servo.held[dir];
+        servoSetPressed(dir, false);
+        return;
+      }
+      var target = current + delta;
+      if (target < SERVO_MIN) target = SERVO_MIN;
+      if (target > SERVO_MAX) target = SERVO_MAX;
+      if (target === current) {
+        delete ui.servo.held[dir];
+        servoSetPressed(dir, false);
+        servoSetStatus((id === 1 ? '1号' : '2号') + '舵机已到边界', 'err');
+        return;
+      }
+      targets.push({ id: id, position: target });
+    }
+    if (shouldStep('up')) addTarget(1, 'up', -SERVO_STEP);
+    if (shouldStep('down')) addTarget(1, 'down', SERVO_STEP);
+    if (shouldStep('left')) addTarget(2, 'left', SERVO_STEP);
+    if (shouldStep('right')) addTarget(2, 'right', -SERVO_STEP);
+    if (!targets.length) { servoUpdateButtons(); return; }
+    if (!servoPrereqOk()) { servoStopLoop(); return; }
+
+    var id = rid();
+    if (!mqtt.publish(base(cfg.device) + '/car/servo/set', {
+      uuid: ui.uuid, request_id: id, servos: targets, duration: SERVO_DURATION
+    })) {
+      servoSetStatus('car/servo/set 发送失败：MQTT 已断开', 'err');
+      servoStopLoop();
+      return;
+    }
+    targets.forEach(function (t) { ui.servo.pos[t.id] = t.position; });
+    ui.servo.pendingSetRid = id;
+    var label = targets.map(function (t) { return t.id + '号 ' + t.position; }).join(' · ');
+    servoSetStatus('已设置 ' + label, 'ok');
+    servoUpdateButtons();
+  }
+  function servoEnsureLoop() {
+    if (ui.servo.timer) return;
+    ui.servo.timer = setInterval(servoTick, SERVO_REPEAT_MS);
+  }
+  function servoPress(dir) {
+    if (!ui.servo.enabled) return;
+    var btn = servoButton(dir);
+    if (!btn || btn.disabled || ui.servo.held[dir]) return;
+    (SERVO_GROUP[dir] || []).forEach(function (other) {
+      if (other !== dir && ui.servo.held[other]) {
+        delete ui.servo.held[other];
+        servoSetPressed(other, false);
+      }
+    });
+    ui.servo.held[dir] = true;
+    servoSetPressed(dir, true);
+    servoEnsureLoop();
+    servoTick(dir);
+  }
+  function servoRelease(dir) {
+    if (!ui.servo.held[dir]) return;
+    delete ui.servo.held[dir];
+    servoSetPressed(dir, false);
+    if (!Object.keys(ui.servo.held).length) servoStopLoop();
+  }
+  function servoReleaseAll() {
+    Object.keys(ui.servo.held).forEach(function (dir) {
+      delete ui.servo.held[dir];
+      servoSetPressed(dir, false);
+    });
+    servoStopLoop();
+  }
+  function servoEnableChanged() {
+    if (el.servoEnable.checked) {
+      ui.servo.enabled = true;
+      servoUpdateButtons();
+      servoSetStatus('查询舵机位置…', null);
+      servoQuery();
+    } else {
+      servoSetEnabled(false, '相机方位未启用', null);
+    }
+  }
+  function onCarServoSetResult(dev, data) {
+    if (dev !== cfg.device) return;
+    if (!ui.servo.enabled) return;
+    if (data.request_id && ui.servo.pendingSetRid && data.request_id !== ui.servo.pendingSetRid) return;
+    ui.servo.pendingSetRid = '';
+    if (data.result === 0) {
+      (data.applied || []).forEach(function (item) {
+        if (item && (item.id === 1 || item.id === 2) && typeof item.position === 'number') {
+          ui.servo.pos[item.id] = item.position;
+        }
+      });
+      servoUpdateButtons();
+      var parts = (data.applied || []).map(function (item) {
+        return item.id + '号 ' + item.position;
+      });
+      var text = '已设置 ' + (parts.join(' · ') || 'ok');
+      if ((data.skipped || []).length) {
+        text += '；跳过 ' + data.skipped.map(function (item) { return item.id + '号'; }).join('、');
+      }
+      servoSetStatus(text, 'ok');
+      return;
+    }
+    servoReleaseAll();
+    servoDisable('舵机设置失败：result=' + data.result + ' · ' + (data.cause || ''));
+  }
+
   function waitIce(pc) {
     return new Promise(function (resolve) {
       if (!pc || pc.iceGatheringState === 'complete') return resolve();
@@ -1226,6 +1525,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (!/^ws(s)?:\/\/[^\s]+/i.test(url)) { setConn('bad', 'WebSocket 地址必须以 ws:// 或 wss:// 开头'); return; }
     var keep = Math.max(5, Math.min(300, Number(el.fKeepalive.value) || 60));
     carReleaseAll(true);
+    servoDisable('连接参数已修改');
     cfg.wsUrl = url; cfg.user = el.fUser.value.trim() || 'home'; cfg.pass = el.fPass.value;
     cfg.clientId = el.fClientId.value.trim();
     cfg.keepalive = keep; cfg.device = el.fDevice.value.trim();
@@ -1284,27 +1584,58 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     btn.addEventListener('pointerleave', function () { carRelease(k); });
     btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   });
+  Array.prototype.forEach.call(document.querySelectorAll('.servoKey'), function (btn) {
+    var dir = btn.getAttribute('data-servo-dir');
+    btn.addEventListener('pointerdown', function (e) { e.preventDefault(); servoPress(dir); });
+    btn.addEventListener('pointerup', function (e) { e.preventDefault(); servoRelease(dir); });
+    btn.addEventListener('pointercancel', function () { servoRelease(dir); });
+    btn.addEventListener('pointerleave', function () { servoRelease(dir); });
+    btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  });
+  el.servoEnable.addEventListener('change', servoEnableChanged);
+  // 方向键在相机方位控制启用时只用于舵机，不允许滚动页面。
+  // 捕获阶段先 preventDefault，避免焦点在开关/按钮上时页面先滚动。
+  document.addEventListener('keydown', function (e) {
+    if (!ui.servo.enabled || !SERVO_KEYMAP[e.key] || carIsTyping(e.target)) return;
+    e.preventDefault();
+  }, true);
   document.addEventListener('keydown', function (e) {
     if (e.repeat) return;
+    var arrow = SERVO_KEYMAP[e.key];
+    if (arrow) {
+      if (carIsTyping(e.target)) return;
+      e.preventDefault();
+      servoPress(arrow);
+      return;
+    }
     var k = String(e.key || '').toLowerCase();
     if (!CAR_KEYS[k] || carIsTyping(e.target)) return;
     e.preventDefault();
     carPress(k);
   });
   document.addEventListener('keyup', function (e) {
+    var arrow = SERVO_KEYMAP[e.key];
+    if (arrow) {
+      if (!carIsTyping(e.target)) e.preventDefault();
+      servoRelease(arrow);
+      return;
+    }
     var k = String(e.key || '').toLowerCase();
     if (!CAR_KEYS[k]) return;
     if (!carIsTyping(e.target)) e.preventDefault();
     carRelease(k);
   });
-  window.addEventListener('blur', function () { carReleaseAll(true); });
+  window.addEventListener('blur', function () { carReleaseAll(true); servoReleaseAll(); });
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) carReleaseAll(true);
+    if (document.hidden) { carReleaseAll(true); servoReleaseAll(); }
   });
-  window.addEventListener('pagehide', function () { carReleaseAll(true); closeWhep(true); });
+  window.addEventListener('pagehide', function () {
+    carReleaseAll(true); servoReleaseAll(); closeWhep(true);
+  });
 
   if (cfg.videoRoom && !el.roomInput.value) el.roomInput.value = cfg.videoRoom;
   el.videoHint.textContent = '页面不自动拉流。file:// 直接打开时，HTTPS WHEP 可能被 CORS/证书拦截；建议在 web/ 下起本地静态服务。';
+  servoSetEnabled(false, '相机方位未启用', null);
   rebuildMqtt(); renderDevices();
 })();
 </script>
