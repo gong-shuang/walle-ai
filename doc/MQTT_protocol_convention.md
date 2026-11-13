@@ -1,16 +1,12 @@
-# MQTT 协议约定（协议 v1 · 多租户主题）
+# MQTT 协议约定（文档版本 v1.1）
 
 > 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
-> - 协议版本：**v1**（多租户主题）。旧版全局主题（如 `device/online`）已彻底删除，无兼容层。
-> - 传输：MQTT 3.1.1，报文一律 **JSON（UTF-8）**，**QoS 1**，Keep Alive 60s。
-> - App 端实现：`app/src/main/java/www/walle/ai/net/`（TopicNames / MessageRouter / MqttManager）
-> - 设备端实现：`walle-device/linux-demo/main.py`
-> - 契约交叉验证：`app` 单测（TopicNamesTest / MessageRouterTest / …）+ `walle-device/linux-demo/selftest_topics.py`
-
-> **2026-11-08 安全变更**：`walle/{t}/{d}/v1/cmd/exec` 与 `walle/{t}/{d}/v1/cmd/result`
-> 已从协议中移除，原因、影响与验证方式见文末「§8 变更记录」。旧版 App 调用将不会收到应答。
+> - 与设备通信的，用来控制小车的协议版本：v1  （记录每个协议的版本，用来兼容旧版本） 
+> - 本文档的版本：v1.1 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
+> 
 
 ---
 
@@ -18,8 +14,8 @@
 
 ```
 ┌──────────────┐   walle/{tenant}/{device}/v1/{resource}   ┌──────────────┐
-│  Android App │ ◄────────── MQTT Broker ─────────────► │ Linux 设备端  │
-└──────────────┘         （EMQX / Mosquitto）           └──────────────┘
+│  Android App │ ◄────────── MQTT Broker ────────────────► │ Linux 设备端  │
+└──────────────┘         （EMQX / Mosquitto）               └──────────────┘
 ```
 
 主题结构：
@@ -38,17 +34,18 @@ walle/{tenant}/{device}/v1/{resource}
 
 ### 主题总表
 
-| # | 协议 | App → 设备（请求） | 设备 → App（应答/上报） | 类型 |
-|---|---|---|---|---|
-| 1 | 上线/下线 | — | `walle/{t}/{d}/v1/online` | 主动上报（retained + LWT） |
-| 2 | 设备发现 | `walle/{t}/v1/discovery/query` | `walle/{t}/{d}/v1/discovery/result` | 请求-应答（按需、限频） |
-| 3 | 状态查询 | `walle/{t}/{d}/v1/state/query` | `walle/{t}/{d}/v1/state/result` | 请求-应答 |
-| 4 | 设备能力 | `walle/{t}/{d}/v1/capability/query` | `walle/{t}/{d}/v1/capability/result` | 请求-应答 |
-| 5 | 开始推流 | `walle/{t}/{d}/v1/video/start/request` | `walle/{t}/{d}/v1/video/start/result` | 请求-应答 |
-| 6 | 停止推流 | `walle/{t}/{d}/v1/video/stop/request` | `walle/{t}/{d}/v1/video/stop/result` | 请求-应答 |
-| 7 | 告警 | — | `walle/{t}/{d}/v1/alarm` | 主动上报 |
-| 8 | 手机音频上行·开 | `walle/{t}/{d}/v1/phone/audio/send` | `walle/{t}/{d}/v1/phone/audio/send/result` | 单向动作（App 不订阅应答） |
-| 9 | 手机音频上行·关 | `walle/{t}/{d}/v1/phone/audio/stop` | `walle/{t}/{d}/v1/phone/audio/stop/result` | 单向动作（App 不订阅应答） |
+| # | 协议 | App → 设备（请求） | 设备 → App（应答/上报） | 类型 | 版本 | 备注 |
+|---|---|---|---|---|---|---|
+| 1 | 上线/下线 | — | `walle/{t}/{d}/v1/online` | 主动上报（retained + LWT） | v1.1 | v1.1最小化json报文 |
+| 2 | 设备发现 | `walle/{t}/v1/discovery/query` | `walle/{t}/{d}/v1/discovery/result` | 请求-应答（按需、限频） | v1.1 | v1.1最小化json报文 |
+| 3 | 状态查询 | `walle/{t}/{d}/v1/state/query` | `walle/{t}/{d}/v1/state/result` | 请求-应答 | v1.0 |  |
+| 4 | 设备能力 | `walle/{t}/{d}/v1/capability/query` | `walle/{t}/{d}/v1/capability/result` | 请求-应答 | v1.0 |  |
+| 5 | 开始推流 | `walle/{t}/{d}/v1/video/start/request` | `walle/{t}/{d}/v1/video/start/result` | 请求-应答 | v1.0 |  |
+| 6 | 停止推流 | `walle/{t}/{d}/v1/video/stop/request` | `walle/{t}/{d}/v1/video/stop/result` | 请求-应答 | v1.0 |  |
+| 7 | 告警 | — | `walle/{t}/{d}/v1/alarm` | 主动上报 | v1.0 |  |
+| 8 | 手机音频上行·开 | `walle/{t}/{d}/v1/phone/audio/send` | `walle/{t}/{d}/v1/phone/audio/send/result` | 单向动作（App 不订阅应答） | v1.0 |  |
+| 9 | 手机音频上行·关 | `walle/{t}/{d}/v1/phone/audio/stop` | `walle/{t}/{d}/v1/phone/audio/stop/result` | 单向动作（App 不订阅应答） | v1.0 |  |
+| 10 | 远程命令执行 | `walle/{t}/{d}/v1/cmd/exec` | `walle/{t}/{d}/v1/cmd/result` | 请求-应答 | v1.1 | v1.1已删除 |
 
 > `{t}` = tenant，`{d}` = device_id。
 > 8/9 只承载「开/关」控制，音频本身走独立 RTMP（§4.8）。
@@ -65,14 +62,13 @@ walle/{tenant}/{device}/v1/{resource}
 用户 A 的 App 和设备只能看到 `walle/A/#`，天然隔离多用户，无需服务端代码。
 **因此主题段里绝不允许出现 `+ # /` 等通配/分隔符**（见 §3.3 清洗规则），否则 ACL 会失效。
 
-### 2.2 设备段必须稳定，禁止用 uuid
+### 2.2 设备ID必须稳定，禁止用 uuid
 
 `uuid` 由设备端按 `uuid5(MAC|IP|启动时间)` 生成，**每次重启都会变**。
-如果主题用 uuid，设备重启后 App 订阅的旧主题全部失效，还会产生「幽灵设备卡片」。
-所以主题里的设备段只用 `device_id`（稳定标识）；`uuid` 降级为**报文字段**，
-用于请求校验（§3.4）和设备归并。App 侧归并逻辑见 `DeviceRegistry`。
+在运行期间不会改变，之前用来当做设备的唯一标识，后发现很多bug，于是用device_id替代，
+，目前当前系统暂不使用，保留，用于扩展后续功能。
 
-**`device_id` 必须落盘，不能每次启动重算**（历史 bug）：它原来的算法是
+**`device_id` 是设备的唯一标识，只要不更换硬件，就不会变**。
 `md5(MAC | CPU 核数 | 内存字节数)` 取 16 位，但 `MemTotal` 在两次启动之间会浮动几 KiB
 （内核保留页、启动参数、内存训练），于是同一台机器算出了两个 `device_id` —— 表现为
 App 里同一台设备出现两张卡片、旧主题上的 retained `online:false` 一直残留。
@@ -81,10 +77,6 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 - 首次启动按 `md5(MAC | CPU 物理核数 | 内存 **GiB**)` 生成，写入 `<安装目录>/.device-id`
   （可用 `DEVICE_ID_FILE` 覆盖）；
 - 之后**只读文件复用**，硬件指纹再怎么漂移都不影响；
-- 只有「文件里的 MAC 集合不包含当前 MAC」时才重新生成（换网卡 / 克隆镜像到新机器），
-  旧值记入 `previous` 便于排查；
-- App 侧还有一层兜底：`device_id` 变了但 MAC 相同时按同一台设备归并，并用报文
-  `timestamp` 丢弃更旧的 retained `online:false`（见 `DeviceRegistry.applyOnline`）。
 
 > 代价：`device_id` 一旦变化（换网卡），旧主题上的 retained `online` 无法由设备自己清理
 > ——Broker ACL 只允许它写 `walle/{tenant}/${clientid}/#`。这类残留由 App 侧按 MAC 归并消化。
@@ -103,15 +95,13 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 这套约定由 `walle-device/linux-demo/selftest_topics.py` 第 4 节强制检查：每个 `REQ_*` 必须在
 `REQUEST_TO_RESULT` 里登记对应的 `RES_*`，不允许存在「没人请求的 /result 主题」。
 
-### 2.4 请求-应答严格配对：request_id + uuid 双校验
+### 2.4 请求-应答严格配对：request_id
+
+‘request_id‘用于标识当前的请求，每次请求的`request_id`都不同。
 
 - `request_id`：App 生成的 8 位十六进制随机串（`UUID.randomUUID()` 前 8 位）。
   设备端在应答里**原样回显**，App 用它把结果和「哪一次请求」对上；迟到的旧结果直接丢弃。
-- `uuid`：除 `discovery/query` 外，**所有请求必须带设备当前 uuid**。设备端校验不匹配就
-  **静默忽略**（不执行、不回复），防止同一租户内多台设备串控（重启换 uuid 后旧指令自然失效）。
 
-> 历史教训：设备端曾重建请求字典时漏掉 `request_id`，应答回显成空串，App 严格配对后
-> 丢弃结果，UI 表现为「一直转圈」。`selftest_topics.py` 第 7 节是该 bug 的回归测试。
 
 ### 2.5 QoS1 重复投递：一次性事件去重，幂等事件不去重
 
@@ -179,7 +169,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 | `x/y+z#` | `xyz` |
 | `中文租户` / 空 / null | `unknown` |
 
-### 3.4 uuid 校验（设备端 `verify_uuid`）
+### 3.4 uuid 校验（设备端 `verify_uuid`）（已废弃，因为现在设备订阅的主题字段里包含device_id，非此设备的请求在服务端就被过滤了）
 
 - `discovery/query`：**免校验**（App 此时还不知道任何 uuid）。
 - 其余所有请求：报文必须是 JSON 对象且 `uuid` 与设备当前值一致（大小写不敏感），
@@ -189,7 +179,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 ## 4. 各协议详解
 
-### 4.1 online —— 上线/下线（主动上报）
+### 4.1 online —— 上线/下线（主动上报）（V1.1）
 
 **作用**：App 设备列表的唯一数据源。上线 retained 报文只含基本身份，订阅即回放。
 
@@ -224,7 +214,7 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 新版设备端 online 不含 MAC，App 需容忍该字段缺失，退化为按 `device_id`/`uuid`/`hostname`
 归并；真实的同一启动周期遗嘱（`device_id` 相同、时间戳相同）不受影响。
 
-### 4.2 设备发现 discovery/query → discovery/result
+### 4.2 设备发现 discovery/query → discovery/result（V1.1）
 
 **作用**：设备列表页的按需刷新。应答内容与 §4.1 的 `online` **完全一致**（同一份
 `build_online_payload`），只含最小身份字段，`online` 固定为 `true`，不再返回完整身份。
@@ -255,7 +245,7 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 > `device="v1", resource="discovery/query"`——两端（`TopicNames.parse`、`main._handle_request`）
 > 都对它做了特判，别改没。
 
-### 4.3 状态查询 state/query → state/result
+### 4.3 状态查询 state/query → state/result（V1.0）
 
 **作用**：拉取设备运行状态，驱动状态页所有卡片。CPU/网络数据复用监控循环的
 最近一次采样（`MONITOR_INTERVAL`，默认 5s），USB 列表复用 `check_usb` 的维护结果，
@@ -297,7 +287,7 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 （缺分组归空、异常数值归一为 null、网卡按名称排序等）。**状态是实时查询数据，不落盘**
 （N11 曾落盘又 revert，决策见 git 历史）。
 
-### 4.4 设备能力 capability/query → capability/result
+### 4.4 设备能力 capability/query → capability/result（V1.0）
 
 **作用**：枚举设备端外设能力——摄像头（v4l2）、麦克风/音响（PulseAudio）等，供控制页
 展示与选择。早期只查摄像头，任务 4 起升级为通用能力查询（旧主题已彻底删除，无兼容层）。
@@ -335,7 +325,7 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 缺 `audio` 分组（旧设备端）归一为 unavailable，绝不崩。契约测试：`DeviceCapabilityTest`、
 `CameraCapabilityTest`。
 
-### 4.5 开始推流 video/start/request → video/start/result
+### 4.5 开始推流 video/start/request → video/start/result（V1.0）
 
 **作用**：让设备端用 ffmpeg 把摄像头画面推到流媒体服务（RTMP），App 拿到
 `room_number` 后拼 WHEP 地址拉流播放（`BuildConfig.WHEP_URL_TEMPLATE`）。
@@ -371,7 +361,7 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 - 任一参数不同 → 先停旧流再用新参数推（同一时刻设备只有一路流）；
 - 因此 App 切换摄像头时**复用同一 room_number**，避免 WHEP 侧重新协商导致黑屏。
 
-### 4.6 停止推流 video/stop/request → video/stop/result
+### 4.6 停止推流 video/stop/request → video/stop/result（V1.0）
 
 **作用**：停掉设备当前推流。
 
@@ -393,7 +383,7 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 **一致性校验**：请求带了 `room_number` 且与当前推流不一致 → `result=-1` 并在 `error`
 里说明当前房间号，**不会误停别人的流**。
 
-### 4.7 alarm —— 告警（主动上报）
+### 4.7 alarm —— 告警（主动上报）（V1.0）
 
 **作用**：阈值越限/恢复、USB 插拔、推流/手机音频中断的实时通知，驱动 App 告警中心（落 SQLite，200 条滚动淘汰）。
 
@@ -422,7 +412,7 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 达到最长时长自动停止时改发 `video_timeout` / `phone_audio_timeout`（`event=alarm`、`level=info`，
 `detail` 带 `room_number`、`max_duration_sec`、`started_at`），不视为故障。
 
-### 4.8 手机麦克风上行 phone/audio/send|stop（控制面）＋ WebRTC WHIP/WHEP（媒体面）
+### 4.8 手机麦克风上行 phone/audio/send|stop（控制面）＋ WebRTC WHIP/WHEP（媒体面）（V1.0）
 
 **作用**：把手机麦克风的声音实时送到设备扬声器（「反向音频」）。**媒体不走 MQTT**，
 走独立 WebRTC：App 用 WHIP 推 `https://www.baidong.xyz:443/rtc/v1/whip/?app=live&stream={room}_audio&secret=…`，
@@ -482,6 +472,37 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 帧后写入 `sounddevice.RawOutputStream`（blocksize=20ms，抖动队列最多 6 帧 ≈ 120ms，
 溢出丢最旧帧）。依赖：`pip install aiortc sounddevice` + `apt install libportaudio2`。
 
+### 4.9 远程命令执行 cmd/exec → cmd/result（V1.1，已废弃）
+
+**作用**：在设备上以 shell（`/bin/bash`）执行任意命令并回传结果。
+
+- 请求：`walle/{t}/{d}/v1/cmd/exec`
+- 应答：`walle/{t}/{d}/v1/cmd/result`
+
+请求字段：
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `uuid` | 是 | 不匹配静默忽略（不执行、不回复） |
+| `cmd` | 是 | 要执行的 shell 命令字符串 |
+| `request_id` | 建议 | 缺省时设备端自生成（App 将无法配对，只用于展示） |
+| `timeout` | 否 | 秒，1–300，默认 30，越界自动钳制 |
+
+应答字段：
+
+| 字段 | 说明 |
+|---|---|
+| `request_id` | 原样回显 |
+| `cmd` | 回显命令原文 |
+| `status` | `success`（exit 0）/ `failed`（exit 非 0）/ `timeout`（超时被杀）/ `denied`（白名单拒绝）/ `error`（执行异常或参数非法） |
+| `exit_code` | 进程退出码（timeout 时为 null） |
+| `stdout` / `stderr` | 输出，超过 64KB 截断（尾部带截断提示） |
+| `duration_ms` / `timeout_sec` | 实际耗时 / 生效超时 |
+| `device_id`、`uuid`、`hostname`、`timestamp`、`datetime` | 公共字段 |
+
+安全开关（设备端环境变量 / 常量）：`ENABLE_CMD_EXEC`（总开关）、`CMD_ALLOWLIST`
+（前缀白名单，为空=允许任意命令）。**这是高危能力**，Broker ACL 必须保证租户隔离。
+
 ---
 
 ## 5. 修改协议的流程（改前必读）
@@ -505,30 +526,14 @@ python3 walle-device/linux-demo/selftest_topics.py       # 设备端契约自检
 - 除 `discovery/query` 外请求必须带 `uuid`，设备端不匹配必须静默忽略；
 - 新增主题段先过 `sanitize`，两端清洗规则必须逐字符一致。
 
-## 6. 两端代码对照表
 
-| 职责 | App（`app/src/main/java/www/walle/ai/net/`） | 设备端（`walle-device/linux-demo/main.py`） |
-|---|---|---|
-| 主题拼装/解析/清洗 | `TopicNames.java` | `sanitize_segment` / `device_topic` / `_handle_request` |
-| 报文路由 + QoS1 去重 | `MessageRouter.java` | `_handle_request` + `REQUEST_HANDLERS` |
-| 请求发送 API | `MqttManager.java` | — |
-| online 发布/遗嘱 | `DeviceRegistry.java`（消费） | `build_online_payload` / `publish_json(..., retain=True)` |
-| 发现应答 | `DevicesViewModel.java`（消费） | `handle_device_query`（限频+抖动） |
-| 状态采集 | `StatusSnapshot.java`（解析） | `build_status` / `handle_query_status` |
-| 设备能力 | `DeviceCapability.java`（解析，摄像头部分复用 `CameraCapability`） | `build_capability` / `probe_audio_capture` / `probe_audio_playback` / `handle_capability_query` |
-| 推流控制 | `ControlViewModel` / `PlayerViewModel`（消费） | `handle_video_request` / `handle_video_stop` |
-| 手机音频上行 | `PlayerActivity`（按钮/开关）+ `MqttManager`（发 send/stop）+ `WhipAudioSession`（WebRTC 音频 WHIP 推流） | `handle_phone_audio_send` / `handle_phone_audio_stop` / `_start_phone_audio`（WHEP 拉流 + 声卡播放） |
-| 告警 | `AlarmStore.java`（落盘）/ `AlarmViewModel` | `_event` / `check_threshold` / `check_usb` |
-| uuid 校验 | —（App 负责携带） | `verify_uuid` |
-| 配置/常量 | `Topics.java`（QoS=1、KeepAlive=60s） | 模块顶部常量（`MQTT_QOS`、阈值、开关） |
-
-## 7. 相关文档
+## 6. 相关文档
 
 - [设备端部署说明](../walle-device/linux-demo/README.md) — main.py 安装与配置
 
 ---
 
-## 8. 变更记录
+## 7. 变更记录
 
 ### 2026-11-10～11-12：online / discovery/result 统一为最小身份报文
 
