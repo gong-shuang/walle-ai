@@ -13,7 +13,7 @@ package www.walle.ai.net;
  *   <li>{@code device}：<b>稳定</b>的设备标识（{@code device_id}，回退 hostname、最后 uuid），
  *       不能用每次重启都会变的 uuid；</li>
  *   <li>{@code 资源}：请求按语义命名 —— 查询用 {@code .../query}、
- *       动作用 {@code .../request}（推流）、持续控制用 {@code .../drive}（车控）；
+ *       动作用 {@code .../request}（推流）、持续控制用 {@code .../set}（车控）；
  *       应答一律 {@code .../result}，且只在收到对应请求后发布；
  *       主动上报只有 {@code online} 与 {@code alarm}。</li>
  * </ul>
@@ -65,6 +65,8 @@ public final class TopicNames {
     public static final String KIND_PHONE_AUDIO_STOP = "phone/audio/stop";
     /** 车控持续命令失败 */
     public static final String KIND_CAR_MOTOR = "car/motor/set";
+    /** 舵机状态查询失败 */
+    public static final String KIND_CAR_SERVO_STATUS = "car/servo/status/query";
 
     // ---------------------------------------------------------------- 清洗
 
@@ -156,6 +158,11 @@ public final class TopicNames {
         return deviceBase(tenant, device) + "/car/motor/result";
     }
 
+    /** 舵机状态查询结果（收到 car/servo/status/query 后发布）。 */
+    public static String carServoStatusResult(String tenant, String device) {
+        return deviceBase(tenant, device) + "/car/servo/status/result";
+    }
+
     /**
      * App 需要订阅的主题（只订「设备 → App」的响应类，不订请求类）。
      *
@@ -175,6 +182,7 @@ public final class TopicNames {
                 base + "/video/start/result",
                 base + "/video/stop/result",
                 base + "/car/motor/result",
+                base + "/car/servo/status/result",
         };
     }
 
@@ -205,6 +213,11 @@ public final class TopicNames {
      */
     public static String carMotorSet(String tenant, String device) {
         return deviceBase(tenant, device) + "/car/motor/set";
+    }
+
+    /** 舵机状态查询（App → 设备）。 */
+    public static String carServoStatusQuery(String tenant, String device) {
+        return deviceBase(tenant, device) + "/car/servo/status/query";
     }
 
     /**

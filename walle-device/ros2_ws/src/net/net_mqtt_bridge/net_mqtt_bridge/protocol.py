@@ -150,6 +150,8 @@ class ProtocolMixin:
             return
         if resource in config.ACTION_REQUESTS:
             self._submit(self.action_pool, self._action_slots, handler, payload, topic)
+        elif resource in config.SERVO_REQUESTS:
+            self._submit(self.servo_pool, self._servo_slots, handler, payload, topic)
         else:
             self._submit(self.query_pool, self._query_slots, handler, payload, topic)
 

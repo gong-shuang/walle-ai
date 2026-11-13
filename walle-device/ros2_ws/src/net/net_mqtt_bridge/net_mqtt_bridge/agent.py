@@ -89,14 +89,15 @@ import psutil
 from . import config
 from .capability import CapabilityMixin
 from .car_motor import CarMotorMixin
+from .car_servo import CarServoMixin
 from .config import (ACTION_REQUESTS, MQTT_CA_FILE, MQTT_HOST, MQTT_KEEPALIVE,  # noqa: F401
                      MQTT_PASSWORD, MQTT_PORT, MQTT_QOS, MQTT_TENANT, MQTT_TLS,
                      MQTT_USER, REQUEST_HANDLERS, REQUEST_TO_RESULT,
-                     REQ_CAPABILITY, REQ_CAR_MOTOR_SET, REQ_DISCOVERY,
-                     REQ_PHONE_AUDIO_SEND, REQ_PHONE_AUDIO_STOP, REQ_STATE,
-                     REQ_VIDEO_START, REQ_VIDEO_STOP, RES_ALARM,
+                     REQ_CAPABILITY, REQ_CAR_MOTOR_SET, REQ_CAR_SERVO_STATUS,
+                     REQ_DISCOVERY, REQ_PHONE_AUDIO_SEND, REQ_PHONE_AUDIO_STOP,
+                     REQ_STATE, REQ_VIDEO_START, REQ_VIDEO_STOP, RES_ALARM,
                      RES_CAPABILITY_RESULT, RES_CAR_MOTOR_RESULT,
-                     RES_DISCOVERY_RESULT, RES_ONLINE,
+                     RES_CAR_SERVO_STATUS_RESULT, RES_DISCOVERY_RESULT, RES_ONLINE,
                      RES_PHONE_AUDIO_SEND_RESULT, RES_PHONE_AUDIO_STOP_RESULT,
                      RES_STATE_RESULT, RES_VIDEO_START_RESULT,
                      RES_VIDEO_STOP_RESULT, VIDEO_ENABLE, VIDEO_ROOM_PATTERN,
@@ -122,8 +123,8 @@ def __getattr__(name):
 
 
 class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
-                 PhoneAudioMixin, CarMotorMixin):
-    """设备代理：组合协议、监控、能力、推流、手机音频与车控能力。"""
+                 PhoneAudioMixin, CarMotorMixin, CarServoMixin):
+    """设备代理：组合协议、监控、能力、推流、手机音频、车控与舵机状态能力。"""
 
     def __init__(self):
         self.client = None
@@ -137,8 +138,11 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
                                              thread_name_prefix="mqtt-query")
         self.action_pool = ThreadPoolExecutor(config.ACTION_WORKERS,
                                               thread_name_prefix="mqtt-action")
+        self.servo_pool = ThreadPoolExecutor(config.SERVO_WORKERS,
+                                             thread_name_prefix="mqtt-servo")
         self._query_slots = threading.BoundedSemaphore(config.QUERY_WORKERS + config.MAX_QUERY_BACKLOG)
         self._action_slots = threading.BoundedSemaphore(config.ACTION_WORKERS + config.MAX_ACTION_BACKLOG)
+        self._servo_slots = threading.BoundedSemaphore(config.SERVO_WORKERS + config.MAX_SERVO_BACKLOG)
         self.dropped_requests = 0
         self._dropped_lock = threading.Lock()
         self._last_drop_log = 0.0
@@ -248,6 +252,7 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
                 pass
             self.query_pool.shutdown(wait=False, cancel_futures=True)
             self.action_pool.shutdown(wait=False, cancel_futures=True)
+            self.servo_pool.shutdown(wait=False, cancel_futures=True)
             self.client.loop_stop()
             self.client.disconnect()
 

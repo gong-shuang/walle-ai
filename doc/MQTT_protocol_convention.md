@@ -48,6 +48,7 @@ walle/{tenant}/{device}/v1/{resource}
 | 9 | 手机音频上行·关 | `walle/{t}/{d}/v1/phone/audio/stop` | `walle/{t}/{d}/v1/phone/audio/stop/result` | 单向动作（App 不订阅应答） | v1.0 |  |
 | 10 | 远程命令执行 | `walle/{t}/{d}/v1/cmd/exec` | `walle/{t}/{d}/v1/cmd/result` | 请求-应答 | v1.1 | v1.1已删除 |
 | 11 | 电机持续控制 | `walle/{t}/{d}/v1/car/motor/set` | `walle/{t}/{d}/v1/car/motor/result` | 持续控制（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车 |
+| 12 | 舵机状态查询 | `walle/{t}/{d}/v1/car/servo/status/query` | `walle/{t}/{d}/v1/car/servo/status/result` | 请求-应答 | v1.2 | 默认只读位置，不读 offset |
 
 > `{t}` = tenant，`{d}` = device_id。
 > 8/9 只承载「开/关」控制，音频本身走独立 RTMP（§4.8）。
@@ -110,7 +111,7 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 
 QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 `MessageRouter` 用
 「键排序后的 JSON 签名 + 2 秒窗口」去重，但只针对**一次性事件**：
-`alarm`、`capability/result`、`video/start/result`、`video/stop/result`、`car/motor/result`
+`alarm`、`capability/result`、`video/start/result`、`video/stop/result`、`car/motor/result`、`car/servo/status/result`
 （重复处理会出事，例如推流结果重复 → 播放器初始化两次；车控结果重复 → UI 重复提示）。
 `online` 与 `state/result` 是幂等的（同一份状态重复应用无害），**不去重**。
 
@@ -126,8 +127,8 @@ QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 
 MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求再收一遍，浪费带宽、
 干扰排查。所以两端都只订**精确的响应/请求主题清单**：
 
-- App 订 8 条：`walle/{t}/+/v1` 下的 `online`、`alarm`、6 条 `…/result`（见 `TopicNames.responseSubscriptions`）
-- 设备端订 8 条：7 条设备级请求（含 `phone/audio/send|stop`、`car/motor/set`）+ 1 条租户级 `discovery/query`（见 `config.subscriptions()`）
+- App 订 9 条：`walle/{t}/+/v1` 下的 `online`、`alarm`、7 条 `…/result`（见 `TopicNames.responseSubscriptions`）
+- 设备端订 9 条：8 条设备级请求（含 `phone/audio/send|stop`、`car/motor/set`、`car/servo/status/query`）+ 1 条租户级 `discovery/query`（见 `config.subscriptions()`）
 
 ---
 
@@ -579,6 +580,89 @@ angular.z =  2.5  (rotate.left = true)
 500ms 停车由 bridge 进程保证；若 bridge 本身崩溃，由底盘节点 `mecanum.py` 的
 `cmd_vel_timeout`（默认 1.5s）兜底。
 
+### 4.11 舵机状态查询 car/servo/status/query → car/servo/status/result（V1.2）
+
+**作用**：查询 PWM 舵机的当前位置/偏移，供 App/网页显示舵机状态。设备端调用
+`/ros_robot_controller/pwm_servo/get_state` 服务，再把结果汇总成一条 MQTT 应答。
+
+- 请求：`walle/{t}/{d}/v1/car/servo/status/query`
+- 应答：`walle/{t}/{d}/v1/car/servo/status/result`
+- 请求不 retained，QoS1；应答只在收到查询后发布。
+
+**请求字段**：
+
+```json
+{
+  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "request_id": "a1b2c3d4",
+  "ids": [1, 2],
+  "include_offset": false
+}
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `uuid` | 是 | 不匹配静默忽略 |
+| `request_id` | 是 | 原样回显 |
+| `ids` | 否 | 要查询的舵机 ID，默认 `[1,2]`；当前小车 ID1=上下、ID2=左右；允许 1–4，不允许空数组或重复 |
+| `include_offset` | 否 | 默认 `false`；为 `true` 时同时读取 offset |
+
+**应答字段**：
+
+```json
+{
+  "result": 0,
+  "cause": "ok",
+  "request_id": "a1b2c3d4",
+  "servos": [
+    {"id": 1, "position": 1500, "offset": null, "available": true, "error": null},
+    {"id": 2, "position": 1480, "offset": null, "available": true, "error": null}
+  ],
+  "device_id": "666feb85d43410b2",
+  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "hostname": "orangepi5plus",
+  "ip": "192.168.1.10",
+  "timestamp": 1763000000,
+  "datetime": "2026-11-13 22:30:00"
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `result` | `0` 成功 / `1` 命令无效 / `2` 命令错误 / `3` 舵机控制链路不可用 |
+| `cause` | `ok` / `命令无效` / `命令错误` / `舵机控制链路不可用` |
+| `servos[]` | 按请求的 `ids` 顺序返回 |
+| `servos[].id` | 舵机 ID；即使读取失败也要返回 |
+| `servos[].position` | 当前绝对位置；失败为 `null` |
+| `servos[].offset` | 偏移；未请求或失败为 `null` |
+| `servos[].available` | 该舵机是否读取成功 |
+| `servos[].error` | 失败原因，例如 `读取超时` / `服务不可用`；成功为 `null` |
+
+**结果码规则**：
+
+- `0`：所有请求的舵机都读取成功；
+- `1`：`ids` 为空、重复或超出 1–4；
+- `2`：`ids` 不是数组、元素不是整数、`include_offset` 不是布尔等类型错误；
+- `3`：`get_state` 服务不可用，或任意一个请求的舵机读取失败。
+  此时 `servos[]` 仍保留读取成功的舵机，App 可展示部分结果。
+
+**性能与限制**：
+
+- `get_state` 底层每个字段最多阻塞 2 秒；只读 2 个舵机的位置，最坏约 4 秒；
+- `include_offset=true` 时，2 个舵机最多 4 次读取，最坏约 8 秒；
+- App 查询超时建议：默认 6 秒；带 offset 时 10 秒；
+- 不要每秒轮询；建议手动查询或 ≥5 秒一次；
+- 设备端用独立的舵机查询线程池，不阻塞 state/capability 查询和推流动作线程。
+
+**位置说明**：
+
+- 返回的是查询瞬间的位置；如果舵机正在执行 `duration=1.0` 的动作，读到的是运动中的中间值，不是最终目标；
+- 现有调试页的舵机范围是 800–2200，状态查询返回原始位置，不做钳位。
+
+**设备端实现**：`net_mqtt_bridge/car_servo.py`（校验/结果/服务调用）与 `node.py`
+（注册 `GetPWMServoState` 客户端）；`GetPWMServoState` 的 `id/position/offset` 都是数组，
+MQTT 桥接层取数组第一个元素并回填请求的 ID。
+
 ---
 
 ## 5. 修改协议的流程（改前必读）
@@ -612,9 +696,31 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 
 ## 7. 变更记录
 
-### 2026-11-13：新增 car/motor/drive 电机持续控制（V1.2）
+### 2026-11-13：新增 car/servo/status/query 舵机状态查询（V1.2）
 
-**变更类型**：非破坏性增量（协议 v1 主题不变，新增资源与 `…/drive` 后缀）。
+**变更类型**：非破坏性增量（协议 v1 主题不变，新增查询资源）。
+
+**变更内容**
+
+- 新增请求 `walle/{t}/{d}/v1/car/servo/status/query` 与应答
+  `walle/{t}/{d}/v1/car/servo/status/result`。
+- 请求可选 `ids`（默认 `[1,2]`）与 `include_offset`（默认 `false`）。
+- 设备端调用 `/ros_robot_controller/pwm_servo/get_state`，返回每个舵机的
+  `id/position/offset/available/error`；任意舵机读取失败时 `result=3`，但保留部分结果。
+- 设备端使用独立的舵机查询线程池，避免阻塞 state/capability 查询与推流动作。
+- App 端新增 `TopicNames.carServoStatusQuery/carServoStatusResult`、
+  `MqttManager.requestCarServoStatus`、`MessageRouter` 的 `car/servo/status/result` 路由与去重。
+- App 订阅主题由 8 条增加到 9 条；设备端订阅由 8 条增加到 9 条。
+
+**影响与兼容性**：新增主题，不影响现有 App/设备；旧版 App 不订阅该结果即可。
+
+**验证方式**：设备端 `test_car_servo.py` 覆盖 ids/include_offset 校验，
+`test_protocol.py` 校验主题配对与订阅；App `TopicNamesTest` / `MessageRouterTest`
+覆盖新增主题与路由。
+
+### 2026-11-13：新增 car/motor/set 电机持续控制（V1.2）
+
+**变更类型**：非破坏性增量（协议 v1 主题不变，新增资源与 `…/set` 后缀）。
 
 **变更内容**
 
@@ -624,7 +730,7 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 - 设备端保存运动状态，以 10Hz 重发 `/cmd_vel`；500ms 没有有效命令、收到非法命令、
   收到停止命令或进程退出时清状态并立即发布零速。
 - 同时旋转时线速度上限压到 `0.653 m/s`（麦轮轮速预算），超出按比例缩放。
-- App 端新增 `TopicNames.carMotorDrive/carMotorResult`、`MqttManager.sendCarMotorDrive/
+- App 端新增 `TopicNames.carMotorSet/carMotorResult`、`MqttManager.sendCarMotorDrive/
   stopCarMotorDrive`、`MessageRouter` 的 `car/motor/result` 路由与去重。
 
 **影响与兼容性**：旧版 App/设备不受影响；新版 App 需订阅 `car/motor/result`。

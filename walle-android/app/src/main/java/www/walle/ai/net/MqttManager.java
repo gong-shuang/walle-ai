@@ -5,6 +5,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -64,6 +65,9 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
 
         /** car/motor/result：车控持续命令回执 */
         default void onCarMotorResult(JSONObject payload) {}
+
+        /** car/servo/status/result：舵机状态查询回执 */
+        default void onCarServoStatusResult(JSONObject payload) {}
 
         /** 发布失败；kind 取值见 {@link TopicNames#KIND_STATE} 等常量 */
         default void onDeliveryError(String kind, String error) {}
@@ -417,6 +421,51 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         return sendCarMotorDrive(uuid, 0, 0, 0, 0, false, false);
     }
 
+    /** 查询默认舵机 ID 1、2 的位置，不读 offset。 */
+    public String requestCarServoStatus(String uuid) {
+        return requestCarServoStatus(uuid, new int[]{1, 2}, false);
+    }
+
+    /**
+     * 查询 PWM 舵机状态：{@code car/servo/status/query}。
+     *
+     * <p>设备端调用 get_state，每个舵机最多阻塞 2 秒；UI 超时应至少 6 秒。
+     * 默认不读 offset，避免 2 个舵机最坏等待约 8 秒。</p>
+     *
+     * @param ids           要查询的舵机 ID，允许 1–4；为空时使用 [1,2]
+     * @param includeOffset 是否同时读取 offset
+     * @return 本次 request_id；参数不合法或未选设备时返回空串
+     */
+    public String requestCarServoStatus(String uuid, int[] ids, boolean includeOffset) {
+        if (uuid == null || uuid.isEmpty()) {
+            notifyDeliveryError(TopicNames.KIND_CAR_SERVO_STATUS, "请先在设备页选择设备");
+            return "";
+        }
+        int[] queryIds = (ids == null || ids.length == 0) ? new int[]{1, 2} : ids;
+        boolean[] seen = new boolean[5];
+        JSONArray idArray = new JSONArray();
+        for (int id : queryIds) {
+            if (id < 1 || id > 4 || seen[id]) {
+                notifyDeliveryError(TopicNames.KIND_CAR_SERVO_STATUS, "舵机 ID 不合法");
+                return "";
+            }
+            seen[id] = true;
+            idArray.put(id);
+        }
+        final String rid = newRequestId();
+        JSONObject body = new JSONObject();
+        try {
+            body.put("uuid", uuid);
+            body.put("request_id", rid);
+            body.put("ids", idArray);
+            body.put("include_offset", includeOffset);
+        } catch (JSONException ignore) {
+        }
+        client.publish(TopicNames.KIND_CAR_SERVO_STATUS,
+                TopicNames.carServoStatusQuery(tenant, deviceSegment(uuid)), body.toString());
+        return rid;
+    }
+
     /** App 侧先做一次轻量校验，避免明显非法的报文占用 MQTT。 */
     private static boolean isValidCarDrive(double forward, double back,
                                            double left, double right,
@@ -560,6 +609,11 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     @Override
     public void onCarMotorResult(JSONObject payload) {
         for (Listener l : listeners) main.post(() -> l.onCarMotorResult(payload));
+    }
+
+    @Override
+    public void onCarServoStatusResult(JSONObject payload) {
+        for (Listener l : listeners) main.post(() -> l.onCarServoStatusResult(payload));
     }
 
     @Override

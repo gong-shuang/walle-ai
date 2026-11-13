@@ -113,6 +113,7 @@ RES_VIDEO_STOP_RESULT = "video/stop/result"         # 收到 video/stop/request 
 RES_PHONE_AUDIO_SEND_RESULT = "phone/audio/send/result"   # 收到 phone/audio/send 后发布
 RES_PHONE_AUDIO_STOP_RESULT = "phone/audio/stop/result"   # 收到 phone/audio/stop 后发布
 RES_CAR_MOTOR_RESULT = "car/motor/result"                 # 收到 car/motor/set 后发布
+RES_CAR_SERVO_STATUS_RESULT = "car/servo/status/result"   # 收到 car/servo/status/query 后发布
 
 # ---- 主动上报（设备 -> App，不必等查询）----
 RES_ONLINE = "online"                       # retained + 遗嘱
@@ -134,6 +135,14 @@ REQ_VIDEO_STOP = "video/stop/request"
 REQ_PHONE_AUDIO_SEND = "phone/audio/send"     # 手机麦上行：App 开始往 {room}_audio 推音频
 REQ_PHONE_AUDIO_STOP = "phone/audio/stop"     # 手机麦上行：App 停止推音频
 REQ_CAR_MOTOR_SET = "car/motor/set"           # 持续控制：最新一条覆盖旧状态
+REQ_CAR_SERVO_STATUS = "car/servo/status/query"   # 查询 PWM 舵机位置/偏移
+
+# ---- car/servo/status/query 常量 ----
+CAR_SERVO_IDS = (1, 2)              # 当前小车：ID1 上下、ID2 左右
+CAR_SERVO_ID_MIN = 1                # 控制板 PWM 舵机 ID 范围 1–4
+CAR_SERVO_ID_MAX = 4
+CAR_SERVO_READ_TIMEOUT_SEC = 2.0    # SDK 单次读取超时
+CAR_SERVO_QUERY_GRACE_SEC = 1.0     # 服务调用额外宽限
 
 # ---- car/motor/set 常量（协议固定值，改协议时同步文档 §4.10）----
 CAR_MOTOR_LINEAR_MIN = 0.5          # 允许的线速度下限（m/s）
@@ -317,6 +326,7 @@ REQUEST_TO_RESULT = {
     REQ_PHONE_AUDIO_SEND: RES_PHONE_AUDIO_SEND_RESULT,
     REQ_PHONE_AUDIO_STOP: RES_PHONE_AUDIO_STOP_RESULT,
     REQ_CAR_MOTOR_SET: RES_CAR_MOTOR_RESULT,
+    REQ_CAR_SERVO_STATUS: RES_CAR_SERVO_STATUS_RESULT,
 }
 
 # 请求资源 → 处理函数名
@@ -328,6 +338,7 @@ REQUEST_HANDLERS = {
     REQ_PHONE_AUDIO_SEND: "handle_phone_audio_send",
     REQ_PHONE_AUDIO_STOP: "handle_phone_audio_stop",
     REQ_CAR_MOTOR_SET: "handle_car_motor_set",
+    REQ_CAR_SERVO_STATUS: "handle_car_servo_status",
 }
 
 # 动作类请求：可能阻塞数秒（等首帧 / 推流宽限期 / 音频启动），单独线程池处理，
@@ -339,6 +350,10 @@ ACTION_REQUESTS = frozenset({
 # 实时请求：处理只做校验 + 发布 /cmd_vel，必须在 MQTT 回调线程内立即执行，
 # 不能排进查询/动作队列，否则 200ms 的控制周期会被慢查询拖垮。
 REALTIME_REQUESTS = frozenset({REQ_CAR_MOTOR_SET})
+
+# 舵机状态查询：会阻塞数秒（get_state 每个舵机最多 2s），单独一个池，
+# 不能占用 state/capability 查询线程，也不能和推流启动抢动作线程。
+SERVO_REQUESTS = frozenset({REQ_CAR_SERVO_STATUS})
 
 
 def subscriptions():
@@ -356,6 +371,7 @@ def subscriptions():
         (f"{base}/{REQ_PHONE_AUDIO_SEND}", MQTT_QOS),
         (f"{base}/{REQ_PHONE_AUDIO_STOP}", MQTT_QOS),
         (f"{base}/{REQ_CAR_MOTOR_SET}", MQTT_QOS),
+        (f"{base}/{REQ_CAR_SERVO_STATUS}", MQTT_QOS),
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
     ]
 
@@ -377,6 +393,8 @@ QUERY_WORKERS = max(1, int(os.environ.get("MQTT_QUERY_WORKERS", "2")))
 ACTION_WORKERS = max(1, int(os.environ.get("MQTT_ACTION_WORKERS", "2")))
 MAX_QUERY_BACKLOG = max(0, int(os.environ.get("MQTT_MAX_QUERY_BACKLOG", "16")))
 MAX_ACTION_BACKLOG = max(0, int(os.environ.get("MQTT_MAX_ACTION_BACKLOG", "8")))
+SERVO_WORKERS = max(1, int(os.environ.get("MQTT_SERVO_WORKERS", "1")))
+MAX_SERVO_BACKLOG = max(0, int(os.environ.get("MQTT_MAX_SERVO_BACKLOG", "2")))
 
 # ---- 布尔环境变量 ----
 
