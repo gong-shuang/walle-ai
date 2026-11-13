@@ -49,6 +49,7 @@ walle/{tenant}/{device}/v1/{resource}
 | 10 | 远程命令执行 | `walle/{t}/{d}/v1/cmd/exec` | `walle/{t}/{d}/v1/cmd/result` | 请求-应答 | v1.1 | v1.1已删除 |
 | 11 | 电机持续控制 | `walle/{t}/{d}/v1/car/motor/set` | `walle/{t}/{d}/v1/car/motor/result` | 持续控制（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车 |
 | 12 | 舵机状态查询 | `walle/{t}/{d}/v1/car/servo/status/query` | `walle/{t}/{d}/v1/car/servo/status/result` | 请求-应答 | v1.2 | 默认只读位置，不读 offset |
+| 13 | 舵机位置设置 | `walle/{t}/{d}/v1/car/servo/set` | `walle/{t}/{d}/v1/car/servo/result` | 请求-应答 | v1.2 | 绝对位置；单舵机越界只跳过该舵机 |
 
 > `{t}` = tenant，`{d}` = device_id。
 > 8/9 只承载「开/关」控制，音频本身走独立 RTMP（§4.8）。
@@ -111,7 +112,7 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 
 QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 `MessageRouter` 用
 「键排序后的 JSON 签名 + 2 秒窗口」去重，但只针对**一次性事件**：
-`alarm`、`capability/result`、`video/start/result`、`video/stop/result`、`car/motor/result`、`car/servo/status/result`
+`alarm`、`capability/result`、`video/start/result`、`video/stop/result`、`car/motor/result`、`car/servo/status/result`、`car/servo/result`
 （重复处理会出事，例如推流结果重复 → 播放器初始化两次；车控结果重复 → UI 重复提示）。
 `online` 与 `state/result` 是幂等的（同一份状态重复应用无害），**不去重**。
 
@@ -127,8 +128,8 @@ QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 
 MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求再收一遍，浪费带宽、
 干扰排查。所以两端都只订**精确的响应/请求主题清单**：
 
-- App 订 9 条：`walle/{t}/+/v1` 下的 `online`、`alarm`、7 条 `…/result`（见 `TopicNames.responseSubscriptions`）
-- 设备端订 9 条：8 条设备级请求（含 `phone/audio/send|stop`、`car/motor/set`、`car/servo/status/query`）+ 1 条租户级 `discovery/query`（见 `config.subscriptions()`）
+- App 订 10 条：`walle/{t}/+/v1` 下的 `online`、`alarm`、8 条 `…/result`（见 `TopicNames.responseSubscriptions`）
+- 设备端订 10 条：9 条设备级请求（含 `phone/audio/send|stop`、`car/motor/set`、`car/servo/status/query`、`car/servo/set`）+ 1 条租户级 `discovery/query`（见 `config.subscriptions()`）
 
 ---
 
@@ -663,6 +664,95 @@ angular.z =  2.5  (rotate.left = true)
 （注册 `GetPWMServoState` 客户端）；`GetPWMServoState` 的 `id/position/offset` 都是数组，
 MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
+### 4.12 舵机位置设置 car/servo/set → car/servo/result（V1.2）
+
+**作用**：按**绝对位置**设置一个或多个 PWM 舵机；设备端发布到
+`/ros_robot_controller/pwm_servo/set_state`。
+
+- 请求：`walle/{t}/{d}/v1/car/servo/set`
+- 应答：`walle/{t}/{d}/v1/car/servo/result`
+- 请求不 retained，QoS1；应答只在收到设置请求后发布。
+
+**请求字段**：
+
+```json
+{
+  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "request_id": "a1b2c3d4",
+  "servos": [
+    {"id": 1, "position": 1400},
+    {"id": 2, "position": 1600}
+  ],
+  "duration": 1.0
+}
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `uuid` | 是 | 不匹配静默忽略 |
+| `request_id` | 是 | 原样回显 |
+| `servos` | 是 | 非空数组，最多 4 个；同一条消息一次下发 |
+| `servos[].id` | 是 | 1–4；同一请求内不能重复 |
+| `servos[].position` | 是 | 绝对位置整数，有效范围 800–2200 |
+| `duration` | 否 | 秒，0.1–5.0，默认 1.0 |
+
+**越界规则**：
+
+- 所有请求的 `position` 都超出 800–2200 → `result=1`，不执行任何舵机；
+- 只有一个越界、另一个合法 → 只执行合法的那一个，`result=0`；
+- 越界的舵机放在 `skipped[]` 里，合法的放在 `applied[]` 里；
+- 单舵机请求且越界 → `result=1`（没有可执行项）。
+
+**应答字段**：
+
+```json
+{
+  "result": 0,
+  "cause": "ok",
+  "request_id": "a1b2c3d4",
+  "duration": 1.0,
+  "applied": [
+    {"id": 1, "position": 1400}
+  ],
+  "skipped": [
+    {"id": 2, "position": 2400, "reason": "超出范围 800–2200"}
+  ],
+  "device_id": "666feb85d43410b2",
+  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "hostname": "orangepi5plus",
+  "ip": "192.168.1.10",
+  "timestamp": 1763000000,
+  "datetime": "2026-11-13 22:30:00"
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `result` | `0` 成功 / `1` 命令无效 / `2` 命令错误 / `3` 舵机控制链路不可用 |
+| `cause` | `ok` / `命令无效` / `命令错误` / `舵机控制链路不可用` |
+| `duration` | 实际生效的动作时长 |
+| `applied[]` | 实际下发的舵机（`result=0` 时非空） |
+| `skipped[]` | 因越界未执行的舵机及原因 |
+
+**结果码规则**：
+
+- `1`：`servos` 为空，或所有 `position` 都越界；
+- `2`：`servos` 不是数组、`id`/`position` 类型错误、`id` 重复/超出 1–4、`duration` 类型/范围错误；
+- `3`：`/ros_robot_controller/pwm_servo/set_state` 无订阅者或发布失败；
+- `0`：至少一个舵机已成功发布。
+
+**注意事项**：
+
+- `set_state` 是 ROS 话题，没有服务端回执；`result=0` 只表示“已发布”，不表示舵机已经转到位；
+- 多舵机必须放在同一条 `set_state` 消息里，不要拆成多次发布；
+- `position` 是绝对位置，不是相对步进；重复发送同一条命令是幂等的；
+- 连续设置时最后一条生效；
+- 如果舵机正在运动，新命令会覆盖旧目标；
+- 需要确认实际位置时，在 `duration + 0.5s` 后调用 `car/servo/status/query`。
+
+**设备端实现**：`net_mqtt_bridge/car_servo.py` 负责校验/结果，
+`node.py` 创建 `SetPWMServoState` 发布者；`state[].id`、`state[].position` 都是数组。
+
 ---
 
 ## 5. 修改协议的流程（改前必读）
@@ -695,6 +785,27 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 7. 变更记录
+
+### 2026-11-13：新增 car/servo/set 舵机位置设置（V1.2）
+
+**变更类型**：非破坏性增量（协议 v1 主题不变，新增设置资源）。
+
+**变更内容**
+
+- 新增请求 `walle/{t}/{d}/v1/car/servo/set` 与应答 `walle/{t}/{d}/v1/car/servo/result`。
+- `servos[]` 按绝对位置设置，支持单条消息设置多个舵机；`duration` 默认 1.0 秒。
+- 越界规则：全部越界 → `result=1`；部分越界 → 只执行合法项，`result=0`，
+  越界项放入 `skipped[]`。
+- 设备端一次发布 `SetPWMServoState`，不拆成多次；`set_state` 无订阅者时返回 `result=3`。
+- App 端新增 `TopicNames.carServoSet/carServoResult`、`MqttManager.setCarServo(s)`、
+  `MessageRouter` 的 `car/servo/result` 路由与去重。
+- App 订阅主题由 9 条增加到 10 条；设备端订阅由 9 条增加到 10 条。
+
+**影响与兼容性**：新增主题，不影响现有 App/设备；旧版 App 不订阅该结果即可。
+
+**验证方式**：设备端 `test_car_servo.py` 覆盖绝对位置、越界跳过和参数错误；
+`test_protocol.py` 校验主题配对与订阅；App `TopicNamesTest` / `MessageRouterTest`
+覆盖新增主题与路由。
 
 ### 2026-11-13：新增 car/servo/status/query 舵机状态查询（V1.2）
 

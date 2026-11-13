@@ -69,6 +69,10 @@ public class TopicNamesTest {
                 TopicNames.carServoStatusResult(TENANT, DEVICE));
         assertEquals(BASE + "/car/servo/status/query",
                 TopicNames.carServoStatusQuery(TENANT, DEVICE));
+        assertEquals(BASE + "/car/servo/result",
+                TopicNames.carServoResult(TENANT, DEVICE));
+        assertEquals(BASE + "/car/servo/set",
+                TopicNames.carServoSet(TENANT, DEVICE));
     }
 
     @Test
@@ -92,7 +96,7 @@ public class TopicNamesTest {
     @Test
     public void subscriptionsCoverAllResponsesAndAvoidWildcards() {
         String[] subs = TopicNames.responseSubscriptions(TENANT);
-        assertEquals(9, subs.length);
+        assertEquals(10, subs.length);
         for (String s : subs) {
             assertTrue("不应订通配子树: " + s, !s.endsWith("/#"));
             assertTrue("订阅必须以 walle/home/+/v1 开头: " + s, s.startsWith("walle/home/+/v1"));
@@ -101,7 +105,7 @@ public class TopicNamesTest {
         for (String expected : new String[]{
                 "/online", "/alarm", "/discovery/result", "/state/result",
                 "/capability/result", "/video/start/result", "/video/stop/result",
-                "/car/motor/result", "/car/servo/status/result"}) {
+                "/car/motor/result", "/car/servo/status/result", "/car/servo/result"}) {
             assertTrue("缺少订阅: " + expected, joined.contains(expected));
         }
         // 请求类主题不能被订阅，否则会收到自己发出的报文

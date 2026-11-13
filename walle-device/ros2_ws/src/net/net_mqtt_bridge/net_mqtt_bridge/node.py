@@ -43,8 +43,8 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin):
         self.declare_parameter('video_call_timeout', 15.0)
         self.declare_parameter('video_startup_grace', 3.0)
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
-        self.declare_parameter('servo_state_service',
-                               '/ros_robot_controller/pwm_servo/get_state')
+        self.declare_parameter('servo_state_service', '/ros_robot_controller/pwm_servo/get_state')
+        self.declare_parameter('servo_set_topic', '/ros_robot_controller/pwm_servo/set_state')
 
         env_file = self.get_parameter('env_file').value or ''
         if env_file:
@@ -102,9 +102,8 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin):
         self._video_client = self.create_client(
             VideoStreamControl,
             self.get_parameter('video_service').value)
-        self.setup_car_servo_status(
-            self.get_parameter('servo_state_service').value)
-
+        self.setup_car_servo_status(self.get_parameter('servo_state_service').value)
+        self.setup_car_servo_set(self.get_parameter('servo_set_topic').value)
         status_qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -136,6 +135,7 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin):
         self.agent._stop_video_stream = self._stop_video_via_service
         self.agent.handle_car_motor_set = self._handle_car_motor_set
         self.agent.handle_car_servo_status = self._handle_car_servo_status
+        self.agent.handle_car_servo_set = self._handle_car_servo_set
 
         self.get_logger().info(
             'net_mqtt_bridge 启动：device_id=%s tenant=%s video_service=%s'

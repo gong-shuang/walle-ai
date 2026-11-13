@@ -114,6 +114,7 @@ RES_PHONE_AUDIO_SEND_RESULT = "phone/audio/send/result"   # 收到 phone/audio/s
 RES_PHONE_AUDIO_STOP_RESULT = "phone/audio/stop/result"   # 收到 phone/audio/stop 后发布
 RES_CAR_MOTOR_RESULT = "car/motor/result"                 # 收到 car/motor/set 后发布
 RES_CAR_SERVO_STATUS_RESULT = "car/servo/status/result"   # 收到 car/servo/status/query 后发布
+RES_CAR_SERVO_SET_RESULT = "car/servo/result"             # 收到 car/servo/set 后发布
 
 # ---- 主动上报（设备 -> App，不必等查询）----
 RES_ONLINE = "online"                       # retained + 遗嘱
@@ -136,6 +137,14 @@ REQ_PHONE_AUDIO_SEND = "phone/audio/send"     # 手机麦上行：App 开始往 
 REQ_PHONE_AUDIO_STOP = "phone/audio/stop"     # 手机麦上行：App 停止推音频
 REQ_CAR_MOTOR_SET = "car/motor/set"           # 持续控制：最新一条覆盖旧状态
 REQ_CAR_SERVO_STATUS = "car/servo/status/query"   # 查询 PWM 舵机位置/偏移
+REQ_CAR_SERVO_SET = "car/servo/set"              # 设置 PWM 舵机绝对位置
+
+# ---- car/servo/set 常量 ----
+CAR_SERVO_POSITION_MIN = 800
+CAR_SERVO_POSITION_MAX = 2200
+CAR_SERVO_DURATION_MIN = 0.1
+CAR_SERVO_DURATION_MAX = 5.0
+CAR_SERVO_DURATION_DEFAULT = 1.0
 
 # ---- car/servo/status/query 常量 ----
 CAR_SERVO_IDS = (1, 2)              # 当前小车：ID1 上下、ID2 左右
@@ -327,6 +336,7 @@ REQUEST_TO_RESULT = {
     REQ_PHONE_AUDIO_STOP: RES_PHONE_AUDIO_STOP_RESULT,
     REQ_CAR_MOTOR_SET: RES_CAR_MOTOR_RESULT,
     REQ_CAR_SERVO_STATUS: RES_CAR_SERVO_STATUS_RESULT,
+    REQ_CAR_SERVO_SET: RES_CAR_SERVO_SET_RESULT,
 }
 
 # 请求资源 → 处理函数名
@@ -339,6 +349,7 @@ REQUEST_HANDLERS = {
     REQ_PHONE_AUDIO_STOP: "handle_phone_audio_stop",
     REQ_CAR_MOTOR_SET: "handle_car_motor_set",
     REQ_CAR_SERVO_STATUS: "handle_car_servo_status",
+    REQ_CAR_SERVO_SET: "handle_car_servo_set",
 }
 
 # 动作类请求：可能阻塞数秒（等首帧 / 推流宽限期 / 音频启动），单独线程池处理，
@@ -349,7 +360,7 @@ ACTION_REQUESTS = frozenset({
 
 # 实时请求：处理只做校验 + 发布 /cmd_vel，必须在 MQTT 回调线程内立即执行，
 # 不能排进查询/动作队列，否则 200ms 的控制周期会被慢查询拖垮。
-REALTIME_REQUESTS = frozenset({REQ_CAR_MOTOR_SET})
+REALTIME_REQUESTS = frozenset({REQ_CAR_MOTOR_SET, REQ_CAR_SERVO_SET})
 
 # 舵机状态查询：会阻塞数秒（get_state 每个舵机最多 2s），单独一个池，
 # 不能占用 state/capability 查询线程，也不能和推流启动抢动作线程。
@@ -372,6 +383,7 @@ def subscriptions():
         (f"{base}/{REQ_PHONE_AUDIO_STOP}", MQTT_QOS),
         (f"{base}/{REQ_CAR_MOTOR_SET}", MQTT_QOS),
         (f"{base}/{REQ_CAR_SERVO_STATUS}", MQTT_QOS),
+        (f"{base}/{REQ_CAR_SERVO_SET}", MQTT_QOS),
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
     ]
 

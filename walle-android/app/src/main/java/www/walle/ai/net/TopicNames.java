@@ -67,6 +67,8 @@ public final class TopicNames {
     public static final String KIND_CAR_MOTOR = "car/motor/set";
     /** 舵机状态查询失败 */
     public static final String KIND_CAR_SERVO_STATUS = "car/servo/status/query";
+    /** 舵机位置设置失败 */
+    public static final String KIND_CAR_SERVO_SET = "car/servo/set";
 
     // ---------------------------------------------------------------- 清洗
 
@@ -163,6 +165,11 @@ public final class TopicNames {
         return deviceBase(tenant, device) + "/car/servo/status/result";
     }
 
+    /** 舵机位置设置结果（收到 car/servo/set 后发布）。 */
+    public static String carServoResult(String tenant, String device) {
+        return deviceBase(tenant, device) + "/car/servo/result";
+    }
+
     /**
      * App 需要订阅的主题（只订「设备 → App」的响应类，不订请求类）。
      *
@@ -183,6 +190,7 @@ public final class TopicNames {
                 base + "/video/stop/result",
                 base + "/car/motor/result",
                 base + "/car/servo/status/result",
+                base + "/car/servo/result",
         };
     }
 
@@ -218,6 +226,11 @@ public final class TopicNames {
     /** 舵机状态查询（App → 设备）。 */
     public static String carServoStatusQuery(String tenant, String device) {
         return deviceBase(tenant, device) + "/car/servo/status/query";
+    }
+
+    /** 舵机位置设置（App → 设备）。 */
+    public static String carServoSet(String tenant, String device) {
+        return deviceBase(tenant, device) + "/car/servo/set";
     }
 
     /**

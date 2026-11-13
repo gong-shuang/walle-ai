@@ -96,6 +96,7 @@ def test_subscriptions_are_device_scoped_without_wildcards():
     assert base + "/" + agent.REQ_VIDEO_START in topics
     assert base + "/" + agent.REQ_CAR_MOTOR_SET in topics
     assert base + "/" + agent.REQ_CAR_SERVO_STATUS in topics
+    assert base + "/" + agent.REQ_CAR_SERVO_SET in topics
     assert discovery in topics
 
 
@@ -119,3 +120,11 @@ def test_car_servo_status_topics_and_dispatch_registered():
     assert (config.REQUEST_HANDLERS[config.REQ_CAR_SERVO_STATUS]
             == "handle_car_servo_status")
     assert config.REQ_CAR_SERVO_STATUS in config.SERVO_REQUESTS
+
+
+def test_car_servo_set_topics_and_realtime_dispatch_registered():
+    assert (config.REQUEST_TO_RESULT[config.REQ_CAR_SERVO_SET]
+            == config.RES_CAR_SERVO_SET_RESULT)
+    assert (config.REQUEST_HANDLERS[config.REQ_CAR_SERVO_SET]
+            == "handle_car_servo_set")
+    assert config.REQ_CAR_SERVO_SET in config.REALTIME_REQUESTS

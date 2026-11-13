@@ -69,6 +69,9 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         /** car/servo/status/result：舵机状态查询回执 */
         default void onCarServoStatusResult(JSONObject payload) {}
 
+        /** car/servo/result：舵机位置设置回执 */
+        default void onCarServoSetResult(JSONObject payload) {}
+
         /** 发布失败；kind 取值见 {@link TopicNames#KIND_STATE} 等常量 */
         default void onDeliveryError(String kind, String error) {}
     }
@@ -466,6 +469,64 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         return rid;
     }
 
+    /** 设置单个舵机到绝对位置，duration 默认 1.0 秒。 */
+    public String setCarServo(String uuid, int id, int position) {
+        return setCarServos(uuid, new int[]{id}, new int[]{position}, 1.0);
+    }
+
+    /**
+     * 设置一个或多个 PWM 舵机的绝对位置：{@code car/servo/set}。
+     *
+     * <p>position 必须在 800–2200；设备端规则：一个越界、另一个合法时只执行合法项，
+     * 两个都越界才返回 result=1（命令无效）。App 侧只做结构和 duration 校验，越界交给设备端。</p>
+     *
+     * @return 本次 request_id；参数不合法或未选设备时返回空串
+     */
+    public String setCarServos(String uuid, int[] ids, int[] positions, double duration) {
+        if (uuid == null || uuid.isEmpty()) {
+            notifyDeliveryError(TopicNames.KIND_CAR_SERVO_SET, "请先在设备页选择设备");
+            return "";
+        }
+        if (ids == null || positions == null || ids.length == 0
+                || ids.length != positions.length || ids.length > 4) {
+            notifyDeliveryError(TopicNames.KIND_CAR_SERVO_SET, "舵机参数不合法");
+            return "";
+        }
+        if (Double.isNaN(duration) || duration < 0.1 || duration > 5.0) {
+            notifyDeliveryError(TopicNames.KIND_CAR_SERVO_SET, "duration 必须在 0.1–5.0 秒");
+            return "";
+        }
+        boolean[] seen = new boolean[5];
+        JSONArray servos = new JSONArray();
+        for (int i = 0; i < ids.length; i++) {
+            int id = ids[i];
+            if (id < 1 || id > 4 || seen[id]) {
+                notifyDeliveryError(TopicNames.KIND_CAR_SERVO_SET, "舵机 ID 不合法");
+                return "";
+            }
+            seen[id] = true;
+            JSONObject item = new JSONObject();
+            try {
+                item.put("id", id);
+                item.put("position", positions[i]);
+            } catch (JSONException ignore) {
+            }
+            servos.put(item);
+        }
+        final String rid = newRequestId();
+        JSONObject body = new JSONObject();
+        try {
+            body.put("uuid", uuid);
+            body.put("request_id", rid);
+            body.put("servos", servos);
+            body.put("duration", duration);
+        } catch (JSONException ignore) {
+        }
+        client.publish(TopicNames.KIND_CAR_SERVO_SET,
+                TopicNames.carServoSet(tenant, deviceSegment(uuid)), body.toString());
+        return rid;
+    }
+
     /** App 侧先做一次轻量校验，避免明显非法的报文占用 MQTT。 */
     private static boolean isValidCarDrive(double forward, double back,
                                            double left, double right,
@@ -614,6 +675,11 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     @Override
     public void onCarServoStatusResult(JSONObject payload) {
         for (Listener l : listeners) main.post(() -> l.onCarServoStatusResult(payload));
+    }
+
+    @Override
+    public void onCarServoSetResult(JSONObject payload) {
+        for (Listener l : listeners) main.post(() -> l.onCarServoSetResult(payload));
     }
 
     @Override

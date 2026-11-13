@@ -49,6 +49,9 @@ public class MessageRouter {
         /** car/servo/status/result：舵机状态查询回执。 */
         void onCarServoStatusResult(JSONObject payload);
 
+        /** car/servo/result：舵机位置设置回执。 */
+        void onCarServoSetResult(JSONObject payload);
+
         /** 无法识别的主题/资源（默认只打日志）。 */
         default void onIgnored(String topic, String reason) {
         }
@@ -130,6 +133,9 @@ public class MessageRouter {
                 break;
             case "car/servo/status/result":
                 if (!isDuplicate("car/servo/status", json)) sink.onCarServoStatusResult(json);
+                break;
+            case "car/servo/result":
+                if (!isDuplicate("car/servo/set", json)) sink.onCarServoSetResult(json);
                 break;
             default:
                 sink.onIgnored(topic, "未知资源 " + resource);
