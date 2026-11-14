@@ -110,6 +110,7 @@ def _bare_node(encoder):
     node.video_gop = 60
     node.video_bitrate = "1000k"
     node.camera_device = "/dev/video0"
+    node.camera_format = "MJPG"
     node.camera_width = 640
     node.camera_height = 480
     node.ros_image_fps = 10.0
