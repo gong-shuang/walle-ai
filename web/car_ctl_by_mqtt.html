@@ -108,7 +108,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .videoEmpty p{margin:0;max-width:320px;font-size:12px;color:var(--muted);line-height:1.55}
 .videoEmpty .ico{font-size:26px;color:var(--accent);opacity:.55}
 .videoCtrl{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px}
-.videoCtrl .wide{grid-column:1/-1}
+.videoCard .cardHead{display:flex;align-items:center;gap:10px}
+.videoTitle{flex:1;min-width:0}
+.videoCameraSelect{width:320px;max-width:45vw;flex:none}
+.videoCard .cardHead > .btn{flex:none}
 .videoMsg{margin-top:9px;font-size:11.5px;line-height:1.55;color:var(--dim);max-height:64px;overflow:auto;word-break:break-word}
 .videoMsg.ok{color:#9ff0cf}
 .videoMsg.err{color:#ffb3b3}
@@ -190,6 +193,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   .card{padding:15px}
   .carBody{grid-template-columns:1fr}
   .carHalf + .carHalf{border-left:0;border-top:1px solid var(--line);padding-left:0;padding-top:16px}
+  .videoCard .cardHead{flex-wrap:wrap}
+  .videoTitle{flex:1 1 100%}
+  .videoCameraSelect{flex:1 1 auto;width:auto;max-width:none;min-width:0}
 }
 </style>
 </head>
@@ -257,10 +263,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     </section>
     <section class="card videoCard">
       <div class="cardHead">
-        <div>
+        <div class="videoTitle">
           <h2>实时画面</h2>
           <small>video/start|stop → WHEP 拉流</small>
         </div>
+        <select id="cameraSelect" class="input videoCameraSelect"><option value="">摄像头未加载</option></select>
         <button id="btnCapability" class="btn" type="button" style="height:28px;font-size:11px" disabled title="刷新摄像头能力（capability/query）">刷新</button>
       </div>
       <div class="videoWrap">
@@ -271,11 +278,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         </div>
       </div>
       <div class="videoCtrl">
-        <select id="cameraSelect" class="input"><option value="">摄像头未加载</option></select>
-        <input id="roomInput" class="input mono" maxlength="64" placeholder="房间号（1–64 位）">
         <button id="btnVideoStart" class="btn primary">开始推流</button>
-        <button id="btnVideoStop" class="btn">停止推流</button>
-        <button id="btnVideoConnect" class="btn wide">连接画面（WHEP）</button>
+        <button id="btnVideoConnect" class="btn">连接画面（WHEP）</button>
       </div>
       <div id="videoMsg" class="videoMsg">MQTT 未连接</div>
     </section>
@@ -432,7 +436,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   ['deviceSelect', 'connChip', 'connText', 'btnDiscover', 'btnSettings', 'onlineBadge', 'devName', 'devSub',
    'devPills', 'mCpu', 'bCpu', 'mTemp', 'bTemp', 'mMem', 'bMem', 'mUptime', 'bUp', 'dHost', 'dOs', 'dLoad', 'dNet',
    'dDisk', 'dUsb', 'dVideo', 'stateTime', 'autoState', 'btnState', 'btnCapability', 'videoEl',
-   'videoEmpty', 'videoHint', 'cameraSelect', 'roomInput', 'btnVideoStart', 'btnVideoStop', 'btnVideoConnect',
+   'videoEmpty', 'videoHint', 'cameraSelect', 'btnVideoStart', 'btnVideoConnect',
    'videoMsg', 'alarmList', 'btnAlarmClear', 'carStatus', 'servoStatus', 'servoEnable',
    'scrim', 'drawer', 'btnDrawerClose', 'fWsUrl', 'fUser', 'fPass', 'fClientId', 'fKeepalive', 'fDevice',
    'fVideoUrl', 'btnSave']
@@ -797,7 +801,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     el.dVideo.textContent = v.streaming ? ('推流中 · room=' + (v.room_number || '—') + ' · ' + (v.video_device || '—')) : '未推流';
     if (v.streaming && v.room_number) {
       ui.video.room = String(v.room_number);
-      el.roomInput.value = ui.video.room;
     }
     if (v.streaming && v.video_device) ui.video.camera = v.video_device;
     applyVideoUi();
@@ -890,7 +893,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var ok = cams.some(function (c) { return c.node === want; });
     el.cameraSelect.value = ok ? want : cams[0].node;
     ui.video.camera = el.cameraSelect.value;
-    if (!el.roomInput.value) el.roomInput.value = room();
     setVideoMsg('摄像头 ' + cams.length + ' 路；能力：' + ((data.capabilities || []).join(', ') || '—'), null);
   }
   function room() {
@@ -911,15 +913,14 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var connected = !!(ui.video.pc && ui.video.connected);
     var offline = !!(cfg.device && ui.devices[cfg.device] && ui.devices[cfg.device].online === false);
     var can = !!(mqtt && mqtt.connected && cfg.device && ui.uuid && !offline);
-    if (streaming && rm) { ui.video.room = rm; el.roomInput.value = rm; }
-    el.roomInput.readOnly = streaming;
+    if (streaming && rm) { ui.video.room = rm; }
     el.btnVideoStart.className = 'btn ' + (streaming ? '' : 'primary');
     el.btnVideoStart.disabled = streaming || !can;
     el.btnVideoStart.textContent = streaming ? '设备已在推流' : '开始推流';
     el.btnVideoStart.title = streaming ? 'state/result 显示 video.streaming=true，无需重复开始'
       : (offline ? '设备离线，无法推流' : '');
     var connectOn = connected || (streaming && can);
-    el.btnVideoConnect.className = 'btn ' + (connectOn ? 'primary ' : '') + 'wide';
+    el.btnVideoConnect.className = 'btn ' + (connectOn ? 'primary ' : '');
     el.btnVideoConnect.disabled = !connectOn;
     el.btnVideoConnect.textContent = connected ? '断开画面（已连接）' : '连接画面';
     el.btnVideoConnect.title = (!connectOn && !streaming) ? (offline ? '设备离线' : '设备未推流，请先开始推流') : '';
@@ -937,8 +938,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (!ui.uuid) { setVideoMsg('尚未取得设备 uuid', 'err'); return; }
     var cam = el.cameraSelect.value;
     if (!cam) { setVideoMsg('没有可用摄像头（capability/result 为空）', 'err'); return; }
-    var rm = (el.roomInput.value || '').trim();
+    var rm = (ui.video.room || room()).trim();
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(rm)) { setVideoMsg('房间号必须为 1–64 位字母、数字、_ 或 -', 'err'); return; }
+    ui.video.room = rm; cfg.videoRoom = rm; saveCfg();
     var id = rid();
     if (!mqtt.publish(base(cfg.device) + '/video/start/request',
       { uuid: ui.uuid, video_device: cam, room_number: rm, request_id: id })) {
@@ -958,8 +960,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (ui.pendingVideo && data.request_id && data.request_id !== ui.pendingVideo.rid) return;
     if (ui.pendingVideo) { clearTimeout(ui.pendingVideo.timer); ui.pendingVideo = null; }
     if (data.result === 0) {
-      ui.video.room = data.room_number || el.roomInput.value;
-      el.roomInput.value = ui.video.room;
+      ui.video.room = data.room_number || ui.video.room || room();
       cfg.videoRoom = ui.video.room; saveCfg();
       if (data.video_device && data.video_device !== el.cameraSelect.value) {
         el.cameraSelect.value = data.video_device;
@@ -978,7 +979,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function videoStop() {
     if (!mqtt || !mqtt.connected || !cfg.device) { setVideoMsg('MQTT 未连接或未选择设备', 'err'); return; }
     if (!ui.uuid) { setVideoMsg('尚未取得设备 uuid', 'err'); return; }
-    var rm = ui.video.room || el.roomInput.value.trim();
+    var rm = ui.video.room || room();
     var id = rid();
     var payload = { uuid: ui.uuid, request_id: id };
     if (rm) payload.room_number = rm;
@@ -1551,16 +1552,12 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   });
 
   el.btnCapability.addEventListener('click', function () { requestCapability(true); });
-  el.btnVideoStart.addEventListener('click', function () {
-    ui.video.room = el.roomInput.value.trim(); cfg.videoRoom = ui.video.room; saveCfg();
-    videoStart();
-  });
-  el.btnVideoStop.addEventListener('click', videoStop);
+  el.btnVideoStart.addEventListener('click', videoStart);
   el.btnVideoConnect.addEventListener('click', function () {
     if (ui.video.pc) { closeWhep(true); setVideoMsg('已断开 WHEP 会话', null); return; }
-    var rm = (el.roomInput.value || ui.video.room || (ui.state.video && ui.state.video.room_number) || '').trim();
+    var rm = (ui.video.room || (ui.state.video && ui.state.video.room_number) || room()).trim();
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(rm)) { setVideoMsg('请先填写合法房间号，或从 state 中接管已有推流', 'err'); return; }
-    el.roomInput.value = rm; ui.video.room = rm;
+    ui.video.room = rm; cfg.videoRoom = rm; saveCfg();
     startWhep(rm);
   });
   el.cameraSelect.addEventListener('change', function () {
@@ -1633,7 +1630,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     carReleaseAll(true); servoReleaseAll(); closeWhep(true);
   });
 
-  if (cfg.videoRoom && !el.roomInput.value) el.roomInput.value = cfg.videoRoom;
+  if (cfg.videoRoom) ui.video.room = cfg.videoRoom;
   el.videoHint.textContent = '页面不自动拉流。file:// 直接打开时，HTTPS WHEP 可能被 CORS/证书拦截；建议在 web/ 下起本地静态服务。';
   servoSetEnabled(false, '相机方位未启用', null);
   rebuildMqtt(); renderDevices();
