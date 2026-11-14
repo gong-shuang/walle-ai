@@ -24,6 +24,8 @@ import time
 import urllib.error
 import urllib.request
 
+import numpy as np
+
 TAG = "[whep-audio]"
 
 
@@ -59,11 +61,12 @@ def http_sdp(url, sdp, timeout=10):
 
 
 class Player:
-    def __init__(self, url, device, latency, first_frame_timeout):
+    def __init__(self, url, device, latency, first_frame_timeout, gain=1.0):
         self.url = url
         self.device = device or None
         self.latency = latency
         self.first_frame_timeout = first_frame_timeout
+        self.gain = gain
         self.stop = threading.Event()   # 用 threading.Event：信号处理器里 set 是安全的
         self.frames = queue.Queue(maxsize=6)   # 最多积 6 × 20ms ≈ 120ms，超了就丢最旧的
         self.writer = None
@@ -78,6 +81,12 @@ class Player:
         # 听起来几乎没声音，必须按真实样本数截断。
         nbytes = frame.samples * frame.layout.nb_channels * 2
         data = bytes(frame.planes[0])[:nbytes]
+        if self.gain != 1.0:
+            # 手机语音电平比本地播放低 6~10dB（2pin 小喇叭更明显），这里做软件增益；
+            # 用 tanh 软限幅，避免大音量时硬削顶产生刺耳失真
+            arr = np.frombuffer(data, dtype=np.int16).astype(np.float32) * self.gain
+            np.tanh(arr / 32768.0, out=arr)
+            data = (arr * 32767.0).astype(np.int16).tobytes()
         if self.frames.full():
             try:
                 self.frames.get_nowait()
@@ -203,11 +212,13 @@ def main():
     ap.add_argument("--device", default="", help="输出设备名/序号（留空=系统默认）")
     ap.add_argument("--latency", default="low", help="PortAudio latency 档位：low/high 或秒数")
     ap.add_argument("--first-frame-timeout", type=float, default=8.0)
+    ap.add_argument("--gain", type=float, default=1.0,
+                    help="软件增益（1.0=不放大，2.0≈+6dB），手机语音偏小时调大")
     args = ap.parse_args()
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    player = Player(args.url, args.device, args.latency, args.first_frame_timeout)
+    player = Player(args.url, args.device, args.latency, args.first_frame_timeout, args.gain)
 
     def on_signal(*_):
         player.stop.set()
