@@ -97,6 +97,35 @@ public class PlayerActivity extends AppCompatActivity {
     private String micTarget = "";
     private MqttManager mgr;
 
+    // —— 车控摇杆（左下角，car/motor/set）——
+    /** 目标设备：真实 uuid 优先，回退主题键。 */
+    private String carTarget = "";
+    /** 摇杆的线速度，与 Web 测试页保持一致（协议要求 0.5–1.0 m/s）。 */
+    private static final double CAR_SPEED = 0.6;
+    /** 按住期间的重发周期；设备端 500ms 收不到命令会自动停车。 */
+    private static final long CAR_SEND_INTERVAL_MS = 200L;
+    /** 死区：归一化行程小于它视为未操作（内圈可自由晃动但不发指令）。 */
+    private static final float CAR_DEAD_ZONE = 0.18f;
+    /** sin(22.5°)：某个轴的分量占比超过它才参与方向判定，用于区分四向与斜向。 */
+    private static final float CAR_DIAGONAL_SIN = 0.38268f;
+
+    /** 当前摇杆方向（同时只有一个平移、最多一个旋转）。 */
+    private boolean carForward;
+    private boolean carBack;
+    private boolean carRotateLeft;
+    private boolean carRotateRight;
+    /** 是否已有生效方向（用于「松手/回死区才发停止」）。 */
+    private boolean carActive;
+
+    private final Runnable carSendTick = new Runnable() {
+        @Override
+        public void run() {
+            if (!carActive) return;
+            sendCarCommand();
+            mainHandler.postDelayed(this, CAR_SEND_INTERVAL_MS);
+        }
+    };
+
     // region 生命周期
 
     @Override
@@ -152,6 +181,21 @@ public class PlayerActivity extends AppCompatActivity {
         mgr = MqttManager.get(getApplicationContext());
         binding.micButton.setText(R.string.mic_off);
         binding.micButton.setOnClickListener(v -> toggleMic());
+
+        // 车控摇杆：按住期间每 200ms 下发一次，松手立即下发停止
+        carTarget = micTarget;
+        binding.joystick.setListener(new JoystickView.Listener() {
+            @Override
+            public void onJoystickMove(float nx, float ny) {
+                // 注意：必须显式限定外层，否则会递归调用到本方法自身
+                PlayerActivity.this.handleJoystickMove(nx, ny);
+            }
+
+            @Override
+            public void onJoystickRelease() {
+                stopCarControl();
+            }
+        });
 
         // 创建拉流会话（内部负责 EGL / Factory / 渲染器初始化）并开始协商
         binding.firstFrameMask.setAlpha(1f);
@@ -214,6 +258,9 @@ public class PlayerActivity extends AppCompatActivity {
     protected void onDestroy() {
         released = true;
         mainHandler.removeCallbacksAndMessages(null);
+
+        // 退出页面先停车，避免摇杆还按着时车继续动
+        stopCarControl();
 
         // 退出页面 = 退出这个播放会话：麦克风开着就停采集，并通知设备停止拉音频流
         stopMic(true);
@@ -354,7 +401,74 @@ public class PlayerActivity extends AppCompatActivity {
 
     // endregion
 
-    // region 渲染
+    // region 车控摇杆（car/motor/set）
+
+    /**
+     * 摇杆位置 → 方向：上下为前进/后退，左右为左旋/右旋，斜向同时下发。
+     *
+     * <p>用「单轴分量占比」划分 8 个扇区：占比低于 sin(22.5°) 的轴不参与，
+     * 于是 ±22.5° 内是纯前进/后退/旋转，22.5°~67.5° 是斜向，其余是纯旋转。</p>
+     */
+    private void handleJoystickMove(float nx, float ny) {
+        float magnitude = (float) Math.hypot(nx, ny);
+        if (magnitude < CAR_DEAD_ZONE) {
+            stopCarControl();
+            return;
+        }
+        float ax = Math.abs(nx);
+        float ay = Math.abs(ny);
+        boolean forward = ay / magnitude >= CAR_DIAGONAL_SIN && ny < 0;
+        boolean back = ay / magnitude >= CAR_DIAGONAL_SIN && ny > 0;
+        boolean rotateLeft = ax / magnitude >= CAR_DIAGONAL_SIN && nx < 0;
+        boolean rotateRight = ax / magnitude >= CAR_DIAGONAL_SIN && nx > 0;
+
+        boolean changed = forward != carForward || back != carBack
+                || rotateLeft != carRotateLeft || rotateRight != carRotateRight;
+        carForward = forward;
+        carBack = back;
+        carRotateLeft = rotateLeft;
+        carRotateRight = rotateRight;
+
+        // 方向变化（含由静止进入操作）立即下发一次，然后按 200ms 周期重发
+        if (!carActive || changed) {
+            carActive = true;
+            sendCarCommand();
+            mainHandler.removeCallbacks(carSendTick);
+            mainHandler.postDelayed(carSendTick, CAR_SEND_INTERVAL_MS);
+        }
+    }
+
+    /** 松手 / 回到死区 / 退出页面：停发并下发一次停止命令。 */
+    private void stopCarControl() {
+        mainHandler.removeCallbacks(carSendTick);
+        if (!carActive) {
+            clearCarDirection();
+            return;
+        }
+        carActive = false;
+        clearCarDirection();
+        if (mgr != null && !carTarget.isEmpty()) {
+            mgr.stopCarMotorDrive(carTarget);
+        }
+    }
+
+    private void sendCarCommand() {
+        if (mgr == null || carTarget.isEmpty()) return;
+        mgr.sendCarMotorDrive(carTarget,
+                carForward ? CAR_SPEED : 0,
+                carBack ? CAR_SPEED : 0,
+                0, 0,
+                carRotateLeft, carRotateRight);
+    }
+
+    private void clearCarDirection() {
+        carForward = false;
+        carBack = false;
+        carRotateLeft = false;
+        carRotateRight = false;
+    }
+
+    // endregion
 
     private void render(@Nullable PlayerViewModel.UiState ui) {
         if (ui == null || released || binding == null) return;
