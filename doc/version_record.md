@@ -15,17 +15,30 @@
 
 -------
 ## 提交规范
-commit 格式：`type(scope): description`
-- feat: 新功能
-- fix: 缺陷修复
-- docs: 文档变更（README、说明）
-- refactor: 重构代码，不新增功能、不修复 bug
-- style: 代码格式调整，无逻辑改动
-- perf：性能优化
-- test：增加 / 修改测试代码
-- chore: 构建、CI 配置、依赖更新
-- release: 发布新版本
-  所有合并请求（PR）请提交至 dev 分支。
+commit 格式：`type(scope)(client): description`
+type：必填
+  - 新增功能：feat
+  - 缺陷修复：fix
+  - 文档变更：docs
+  - 重构代码：refactor
+  - 代码格式调整：style
+  - 性能优化：perf
+  - 增加 / 修改测试代码：test
+  - 构建、CI 配置、依赖更新：chore
+  - 发布新版本：release
+scope：必填
+  - mqtt：mqtt协议
+  - webrtc：webrtc协议
+  注意：scope项写啥可以，只是代表修改的范围，和type没有关系。
+client：可选
+  - ios：只涉及到ios代码的修改
+  - android：只涉及到android代码的修改
+  - web：只涉及到web代码的修改
+  - device：只涉及到设备端代码的修改
+  - all：所有端的代码都涉及到修改
+  注意，没有修改代码时，client项可以不写。
+
+不可以在main分支提交，修改代码请先提交至 dev 分支，CI通过后，才能合并到main分支。
 
 示例1（单行，一句话描述清楚）：
 ```
