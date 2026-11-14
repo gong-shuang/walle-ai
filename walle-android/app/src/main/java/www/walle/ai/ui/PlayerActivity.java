@@ -126,6 +126,26 @@ public class PlayerActivity extends AppCompatActivity {
         }
     };
 
+    // —— 舵机摇杆（右下角，car/servo/set）——
+    /** 每次步进的舵机位置增量。 */
+    private static final int SERVO_STEP = 100;
+    /** 按住时的重发周期，与舵机 duration=1.0 对齐。 */
+    private static final long SERVO_SEND_INTERVAL_MS = 1000L;
+
+    /** 当前生效的步进量（0 表示该轴不动）。 */
+    private int servoDelta1;
+    private int servoDelta2;
+    private boolean servoActive;
+
+    private final Runnable servoSendTick = new Runnable() {
+        @Override
+        public void run() {
+            if (!servoActive) return;
+            sendServoStep();
+            mainHandler.postDelayed(this, SERVO_SEND_INTERVAL_MS);
+        }
+    };
+
     // region 生命周期
 
     @Override
@@ -197,6 +217,25 @@ public class PlayerActivity extends AppCompatActivity {
             }
         });
 
+        // 控制相机：默认关闭；打开时查询一次舵机位置并缓存到 VM，供后续控制使用
+        binding.servoControlSwitch.setChecked(viewModel.isCameraControlEnabled());
+        binding.servoControlSwitch.setOnCheckedChangeListener(
+                (buttonView, isChecked) -> viewModel.setCameraControlEnabled(isChecked));
+
+        // 舵机摇杆：默认隐藏（收到 status/result 后由 render 显示），按住每 1 秒步进一次
+        binding.servoJoystick.setListener(new JoystickView.Listener() {
+            @Override
+            public void onJoystickMove(float nx, float ny) {
+                // 必须显式限定外层，避免递归到本方法自身
+                PlayerActivity.this.handleServoJoystickMove(nx, ny);
+            }
+
+            @Override
+            public void onJoystickRelease() {
+                stopServoControl();
+            }
+        });
+
         // 创建拉流会话（内部负责 EGL / Factory / 渲染器初始化）并开始协商
         binding.firstFrameMask.setAlpha(1f);
         binding.firstFrameMask.setVisibility(View.VISIBLE);
@@ -213,7 +252,11 @@ public class PlayerActivity extends AppCompatActivity {
                         // 首帧上屏后淡出遮罩
                         mainHandler.postDelayed(() -> binding.firstFrameMask.animate()
                                 .alpha(0f).setDuration(200)
-                                .withEndAction(() -> binding.firstFrameMask.setVisibility(View.GONE))
+                                .withEndAction(() -> {
+                                    binding.firstFrameMask.setVisibility(View.GONE);
+                                    binding.joystick.setVisibility(View.VISIBLE);
+                                    binding.servoControlSwitch.setVisibility(View.VISIBLE);
+                                })
                                 .start(), 400);
                     }
 
@@ -261,6 +304,8 @@ public class PlayerActivity extends AppCompatActivity {
 
         // 退出页面先停车，避免摇杆还按着时车继续动
         stopCarControl();
+        // 舵机摇杆只做步进，退出时停掉定时器即可（舵机保持当前位置）
+        stopServoControl();
 
         // 退出页面 = 退出这个播放会话：麦克风开着就停采集，并通知设备停止拉音频流
         stopMic(true);
@@ -470,12 +515,64 @@ public class PlayerActivity extends AppCompatActivity {
 
     // endregion
 
+    // region 舵机摇杆（car/servo/set）
+
+    /**
+     * 舵机摇杆方向（与车轮摇杆相同的 8 扇区判定）：
+     * 上/下 = 1 号舵机 -/+100，左/右 = 2 号舵机 +/-100，斜向两轴同时生效。
+     */
+    private void handleServoJoystickMove(float nx, float ny) {
+        float magnitude = (float) Math.hypot(nx, ny);
+        if (magnitude < CAR_DEAD_ZONE) {
+            stopServoControl();
+            return;
+        }
+        float ax = Math.abs(nx);
+        float ay = Math.abs(ny);
+        boolean up = ay / magnitude >= CAR_DIAGONAL_SIN && ny < 0;
+        boolean down = ay / magnitude >= CAR_DIAGONAL_SIN && ny > 0;
+        boolean left = ax / magnitude >= CAR_DIAGONAL_SIN && nx < 0;
+        boolean right = ax / magnitude >= CAR_DIAGONAL_SIN && nx > 0;
+
+        int delta1 = up ? -SERVO_STEP : (down ? SERVO_STEP : 0);
+        int delta2 = right ? -SERVO_STEP : (left ? SERVO_STEP : 0);
+        boolean changed = delta1 != servoDelta1 || delta2 != servoDelta2;
+        servoDelta1 = delta1;
+        servoDelta2 = delta2;
+
+        // 方向变化立即步进一次，然后按住期间每 1 秒继续步进
+        if (!servoActive || changed) {
+            servoActive = true;
+            sendServoStep();
+            mainHandler.removeCallbacks(servoSendTick);
+            mainHandler.postDelayed(servoSendTick, SERVO_SEND_INTERVAL_MS);
+        }
+    }
+
+    private void sendServoStep() {
+        if (viewModel != null) viewModel.stepServos(servoDelta1, servoDelta2);
+    }
+
+    /** 松手 / 回到死区：停止步进（舵机保持当前位置，无需下发停止命令）。 */
+    private void stopServoControl() {
+        mainHandler.removeCallbacks(servoSendTick);
+        servoActive = false;
+        servoDelta1 = 0;
+        servoDelta2 = 0;
+    }
+
+    // endregion
+
     private void render(@Nullable PlayerViewModel.UiState ui) {
         if (ui == null || released || binding == null) return;
 
         syncCameraItems(ui.cameras);
 
         binding.spinnerCamera.setVisibility(ui.showSpinner() ? View.VISIBLE : View.GONE);
+
+        // 收到 car/servo/status/result（拿到舵机位置）后才显示右下角舵机摇杆
+        if (!ui.servoReady) stopServoControl();
+        binding.servoJoystick.setVisibility(ui.servoReady ? View.VISIBLE : View.GONE);
 
         int target = ui.selectedIndex;
         if (target >= 0) {
@@ -534,6 +631,8 @@ public class PlayerActivity extends AppCompatActivity {
                     WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.displayCutout());
             // 四个悬浮控件同属顶部一行，整体下移，避免各自偏移导致高低不齐
             binding.topBar.setTranslationY(topInsets.top);
+            // 控制相机开关在 topBar 下方，需跟随同样下移，否则会被状态栏/刘海遮住
+            binding.servoControlSwitch.setTranslationY(topInsets.top);
             return WindowInsetsCompat.CONSUMED;
         });
     }

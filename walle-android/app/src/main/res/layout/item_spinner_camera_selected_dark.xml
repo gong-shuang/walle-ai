@@ -1,13 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- PlayerActivity 横屏全屏里用的选中态：半透明深色卡片内，白字 + 小三角提示可下拉 -->
+<!-- PlayerActivity 横屏全屏里用的选中态：白字 + 小三角提示可下拉。
+     背景与内边距统一由 Spinner 自身的 bg_overlay_scrim 提供，这里不再叠加，避免双层圆角。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_icon_scrim"
     android:gravity="center"
-    android:orientation="horizontal"
-    android:paddingHorizontal="10dp"
-    android:paddingVertical="6dp">
+    android:orientation="horizontal">
 
     <TextView
         android:id="@+id/tvCameraNode"
