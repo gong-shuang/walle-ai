@@ -55,6 +55,9 @@ select.deviceSelect{height:32px;max-width:260px;padding:0 10px;border-radius:9px
 .btn.primary{background:linear-gradient(135deg,rgba(61,220,151,.26),rgba(74,168,255,.18));
   border-color:rgba(61,220,151,.45);color:#d9ffee;font-weight:600}
 .btn.primary:hover{filter:brightness(1.08)}
+.btn.danger{background:linear-gradient(135deg,rgba(255,107,107,.3),rgba(255,107,107,.16));
+  border-color:rgba(255,107,107,.55);color:#ffd9d9;font-weight:600}
+.btn.danger:hover{filter:brightness(1.08)}
 .btn.icon{width:34px;padding:0;display:grid;place-items:center;font-size:15px}
 .btn:disabled{opacity:.45;cursor:not-allowed}
 .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
@@ -278,8 +281,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         </div>
       </div>
       <div class="videoCtrl">
-        <button id="btnVideoStart" class="btn primary">开始推流</button>
-        <button id="btnVideoConnect" class="btn">连接画面（WHEP）</button>
+        <button id="btnVideoAction" class="btn primary">开始推流</button>
+        <button id="btnVideoStop" class="btn" disabled>停止推流</button>
       </div>
       <div id="videoMsg" class="videoMsg">MQTT 未连接</div>
     </section>
@@ -436,7 +439,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   ['deviceSelect', 'connChip', 'connText', 'btnDiscover', 'btnSettings', 'onlineBadge', 'devName', 'devSub',
    'devPills', 'mCpu', 'bCpu', 'mTemp', 'bTemp', 'mMem', 'bMem', 'mUptime', 'bUp', 'dHost', 'dOs', 'dLoad', 'dNet',
    'dDisk', 'dUsb', 'dVideo', 'stateTime', 'autoState', 'btnState', 'btnCapability', 'videoEl',
-   'videoEmpty', 'videoHint', 'cameraSelect', 'btnVideoStart', 'btnVideoConnect',
+   'videoEmpty', 'videoHint', 'cameraSelect', 'btnVideoAction', 'btnVideoStop',
    'videoMsg', 'alarmList', 'btnAlarmClear', 'carStatus', 'servoStatus', 'servoEnable',
    'scrim', 'drawer', 'btnDrawerClose', 'fWsUrl', 'fUser', 'fPass', 'fClientId', 'fKeepalive', 'fDevice',
    'fVideoUrl', 'btnSave']
@@ -914,16 +917,27 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var offline = !!(cfg.device && ui.devices[cfg.device] && ui.devices[cfg.device].online === false);
     var can = !!(mqtt && mqtt.connected && cfg.device && ui.uuid && !offline);
     if (streaming && rm) { ui.video.room = rm; }
-    el.btnVideoStart.className = 'btn ' + (streaming ? '' : 'primary');
-    el.btnVideoStart.disabled = streaming || !can;
-    el.btnVideoStart.textContent = streaming ? '设备已在推流' : '开始推流';
-    el.btnVideoStart.title = streaming ? 'state/result 显示 video.streaming=true，无需重复开始'
-      : (offline ? '设备离线，无法推流' : '');
-    var connectOn = connected || (streaming && can);
-    el.btnVideoConnect.className = 'btn ' + (connectOn ? 'primary ' : '');
-    el.btnVideoConnect.disabled = !connectOn;
-    el.btnVideoConnect.textContent = connected ? '断开画面（已连接）' : '连接画面';
-    el.btnVideoConnect.title = (!connectOn && !streaming) ? (offline ? '设备离线' : '设备未推流，请先开始推流') : '';
+    // 左键：未推流 →「开始推流」；推流中未连接 →「连接画面」；已连接 →「断开画面」
+    if (connected) {
+      el.btnVideoAction.className = 'btn';
+      el.btnVideoAction.disabled = false;
+      el.btnVideoAction.textContent = '断开画面（已连接）';
+      el.btnVideoAction.title = '';
+    } else if (!streaming) {
+      el.btnVideoAction.className = 'btn primary';
+      el.btnVideoAction.disabled = !can;
+      el.btnVideoAction.textContent = '开始推流';
+      el.btnVideoAction.title = offline ? '设备离线，无法推流' : '';
+    } else {
+      el.btnVideoAction.className = 'btn primary';
+      el.btnVideoAction.disabled = !can;
+      el.btnVideoAction.textContent = '连接画面';
+      el.btnVideoAction.title = offline ? '设备离线' : '';
+    }
+    // 右键：固定「停止推流」，未推流时置灰；推流中恢复可点并高亮（红）
+    el.btnVideoStop.disabled = !streaming;
+    el.btnVideoStop.className = 'btn' + (streaming ? ' danger' : '');
+    el.btnVideoStop.title = streaming ? '停止设备推流并关闭本页 WHEP 画面' : '设备未推流，无需停止';
     updateCapabilityButton();
     if (!streaming && !ui.video.pc) el.videoHint.textContent = '设备当前未推流。选择摄像头后点「开始推流」。';
     else if (streaming && !ui.video.pc) el.videoHint.textContent = '设备正在推流' + (rm ? '（room ' + rm + '）' : '') + '，点「连接画面」接管。';
@@ -1552,14 +1566,15 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   });
 
   el.btnCapability.addEventListener('click', function () { requestCapability(true); });
-  el.btnVideoStart.addEventListener('click', videoStart);
-  el.btnVideoConnect.addEventListener('click', function () {
+  el.btnVideoAction.addEventListener('click', function () {
     if (ui.video.pc) { closeWhep(true); setVideoMsg('已断开 WHEP 会话', null); return; }
+    if ((ui.state.video || {}).streaming !== true) { videoStart(); return; }
     var rm = (ui.video.room || (ui.state.video && ui.state.video.room_number) || room()).trim();
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(rm)) { setVideoMsg('请先填写合法房间号，或从 state 中接管已有推流', 'err'); return; }
     ui.video.room = rm; cfg.videoRoom = rm; saveCfg();
     startWhep(rm);
   });
+  el.btnVideoStop.addEventListener('click', videoStop);
   el.cameraSelect.addEventListener('change', function () {
     ui.video.camera = el.cameraSelect.value; cfg.videoCamera = ui.video.camera; saveCfg();
     setVideoMsg('已选择 ' + ui.video.camera + '；点「开始推流」后生效（同一 room 会重启旧流）', null);
