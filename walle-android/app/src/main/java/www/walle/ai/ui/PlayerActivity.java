@@ -418,11 +418,8 @@ public class PlayerActivity extends AppCompatActivity {
         ViewCompat.setOnApplyWindowInsetsListener(binding.getRoot(), (view, insets) -> {
             Insets topInsets = insets.getInsets(
                     WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.displayCutout());
-            Insets navInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
-            binding.backButton.setTranslationY(topInsets.top);
-            binding.spinnerCamera.setTranslationY(topInsets.top);
-            binding.statusText.setTranslationY(-navInsets.bottom);
-            binding.micButton.setTranslationY(-navInsets.bottom);
+            // 四个悬浮控件同属顶部一行，整体下移，避免各自偏移导致高低不齐
+            binding.topBar.setTranslationY(topInsets.top);
             return WindowInsetsCompat.CONSUMED;
         });
     }
