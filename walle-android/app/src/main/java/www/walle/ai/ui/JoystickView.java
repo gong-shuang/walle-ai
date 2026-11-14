@@ -51,6 +51,10 @@ public class JoystickView extends View {
 
     private int activePointerId = -1;
     private boolean dragging;
+    /** true：按下时内圈不跳到触点，而是按拖动增量移动（便于设置安全区）。 */
+    private boolean relativeTouch;
+    private float downX;
+    private float downY;
 
     private ValueAnimator returnAnimator;
 
@@ -78,6 +82,18 @@ public class JoystickView extends View {
 
     public void setListener(@Nullable Listener listener) {
         this.listener = listener;
+    }
+
+    /**
+     * 触摸模式：
+     * <ul>
+     *   <li>默认 false：按下即让内圈跳到触点（适合车轮这类「方向 + 幅度」控制）；</li>
+     *   <li>true：按下时内圈保持居中，之后按拖动增量移动。配合使用方的死区
+     *       可形成安全区——按下后小幅晃动不会产生任何指令。</li>
+     * </ul>
+     */
+    public void setRelativeTouch(boolean relative) {
+        relativeTouch = relative;
     }
 
     @Override
@@ -109,14 +125,25 @@ public class JoystickView extends View {
                 cancelReturnAnimation();
                 activePointerId = event.getPointerId(0);
                 dragging = true;
-                applyTouch(event.getX(), event.getY());
+                downX = event.getX();
+                downY = event.getY();
+                if (!relativeTouch) {
+                    applyTouch(downX, downY);
+                }
                 return true;
             }
             case MotionEvent.ACTION_MOVE: {
                 if (!dragging) return false;
                 int index = event.findPointerIndex(activePointerId);
                 if (index < 0) return false;
-                applyTouch(event.getX(index), event.getY(index));
+                float x = event.getX(index);
+                float y = event.getY(index);
+                if (relativeTouch) {
+                    // 以按下点为原点，内圈从中心开始跟随拖动增量
+                    applyTouch(getWidth() / 2f + (x - downX), getHeight() / 2f + (y - downY));
+                } else {
+                    applyTouch(x, y);
+                }
                 return true;
             }
             case MotionEvent.ACTION_POINTER_UP: {

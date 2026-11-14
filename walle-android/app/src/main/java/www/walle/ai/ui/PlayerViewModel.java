@@ -265,6 +265,8 @@ public class PlayerViewModel extends MqttViewModel {
         // 本地先乐观更新，按住时下一秒在上一目标上继续步进
         if (target1 >= 0) servoPositions[1] = target1;
         if (target2 >= 0) servoPositions[2] = target2;
+        status = describeServoPositions();
+        publish();
         return true;
     }
 
@@ -331,9 +333,9 @@ public class PlayerViewModel extends MqttViewModel {
             if (servoPositions[id] < 0) continue;
             if (sb.length() > 5) sb.append('，');
             if (id == 1) {
-                sb.append("水平").append('=').append(servoPositions[id] - SERVO_DEF);
+                sb.append("垂直").append('=').append(SERVO_DEF - servoPositions[id]);
             }else {
-                sb.append("垂直").append('=').append(servoPositions[id] - SERVO_DEF);
+                sb.append("水平").append('=').append(SERVO_DEF - servoPositions[id]);
             }
         }
         return sb.length() > 5 ? sb.toString() : "未读到舵机位置";

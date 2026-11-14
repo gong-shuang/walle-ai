@@ -136,6 +136,11 @@ public class PlayerActivity extends AppCompatActivity {
     private int servoDelta1;
     private int servoDelta2;
     private boolean servoActive;
+    /**
+     * 舵机摇杆安全区：按下后内圈在最大行程的这个比例内晃动都不发命令。
+     * 比车轮摇杆的死区大，避免「刚按下还没移动」就触发步进。
+     */
+    private static final float SERVO_SAFE_ZONE = 0.35f;
 
     private final Runnable servoSendTick = new Runnable() {
         @Override
@@ -223,6 +228,8 @@ public class PlayerActivity extends AppCompatActivity {
                 (buttonView, isChecked) -> viewModel.setCameraControlEnabled(isChecked));
 
         // 舵机摇杆：默认隐藏（收到 status/result 后由 render 显示），按住每 1 秒步进一次
+        // 用相对拖动模式：按下不跳变，配合安全区避免刚按下就发命令
+        binding.servoJoystick.setRelativeTouch(true);
         binding.servoJoystick.setListener(new JoystickView.Listener() {
             @Override
             public void onJoystickMove(float nx, float ny) {
@@ -523,7 +530,7 @@ public class PlayerActivity extends AppCompatActivity {
      */
     private void handleServoJoystickMove(float nx, float ny) {
         float magnitude = (float) Math.hypot(nx, ny);
-        if (magnitude < CAR_DEAD_ZONE) {
+        if (magnitude < SERVO_SAFE_ZONE) {
             stopServoControl();
             return;
         }
