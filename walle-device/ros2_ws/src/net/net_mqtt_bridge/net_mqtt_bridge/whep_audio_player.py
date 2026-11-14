@@ -73,7 +73,11 @@ class Player:
 
     # ---------------------------------------------------------------- 声卡输出线程
     def _feed(self, frame):
-        data = bytes(frame.planes[0])
+        # PyAV 的 planes[0] 带内存对齐填充：20ms 立体声真实只有 3840 字节，缓冲却可能是
+        # 23040 字节（后 19200 字节全 0）。整块写进声卡等于「20ms 语音 + 100ms 静音」，
+        # 听起来几乎没声音，必须按真实样本数截断。
+        nbytes = frame.samples * frame.layout.nb_channels * 2
+        data = bytes(frame.planes[0])[:nbytes]
         if self.frames.full():
             try:
                 self.frames.get_nowait()
