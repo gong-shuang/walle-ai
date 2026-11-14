@@ -81,6 +81,14 @@ class Player:
         # 听起来几乎没声音，必须按真实样本数截断。
         nbytes = frame.samples * frame.layout.nb_channels * 2
         data = bytes(frame.planes[0])[:nbytes]
+        # A 款扩展板功放 AW87338 是差分输入（INP=HPO_R, INN=HPO_L），输出 ∝(R-L)。
+        # 手机麦克风是物理单声道，但 WHEP 协商常为 stereo 布局且 L==R，差分抵消后声音极小。
+        # 检测到 L==R 时把右声道清零，让差分输入 = -x，音量恢复正常。
+        if frame.layout.nb_channels == 2:
+            arr = np.frombuffer(data, dtype=np.int16).reshape(-1, 2).copy()
+            if np.array_equal(arr[:, 0], arr[:, 1]):
+                arr[:, 1] = 0
+                data = arr.tobytes()
         if self.gain != 1.0:
             # 手机语音电平比本地播放低 6~10dB（2pin 小喇叭更明显），这里做软件增益；
             # 用 tanh 软限幅，避免大音量时硬削顶产生刺耳失真
