@@ -162,7 +162,7 @@
   - 验收：串口卡顿时 `/cmd_vel` 与状态查询仍能及时响应（需实车验证）
 
 - [x] ✅ **P1-3.3 摄像头设备节点配置**
-  - 处理：摄像头不再使用 udev 符号链接，采集参数统一放在 `scripts/etc/walle_camera.conf`（由 `scripts/auto_gen_camera_conf.sh` 交互式生成）；`bringup` 读取 JSON 后分发给 `walle_camera` / `usb_cam` / `video_webrtc_bridge`，`camera_device:=/dev/videoN` 仍可临时覆盖
+  - 处理：摄像头不再使用 udev 符号链接，采集参数统一放在 `scripts/etc/walle_camera.conf`（由 `scripts/auto_gen_camera_conf.sh` 交互式生成）；`bringup` 读取 JSON 后把采集参数传给 `usb_cam`，并把设备与帧率传给 `video_webrtc_bridge`，`camera_device:=/dev/videoN` 仍可临时覆盖
   - 验收：运行脚本选择设备后摄像头正常打开；换相机或换 USB 口时只需重新运行脚本，无需安装 udev 规则
 
 - [x] ✅ **P1-3.4 补齐 `/dev/rrc` udev 规则**
@@ -446,7 +446,7 @@ cd walle-device/scripts && ./start.sh
 
 - 2026-11-13：摄像头采集参数改为 JSON 单一来源 `scripts/etc/walle_camera.conf`，
   由 `scripts/auto_gen_camera_conf.sh` 交互式生成（摄像头、格式、分辨率、帧率、名称）；
-  `bringup` 读取后分发给 `walle_camera` / `usb_cam` / `video_webrtc_bridge`。
+  `bringup` 读取后把采集参数传给 `usb_cam`，并把设备与帧率传给 `video_webrtc_bridge`。
   查找顺序：`camera_conf:=` / `WALLE_CAMERA_CONF` → `/etc/walle-ai/walle_camera.conf`
   （`deploy.sh` 安装）→ `$TURBOPI_HOME/scripts/etc/walle_camera.conf`。配置缺失或
   schema 不合法时摄像头不启动并提示运行脚本，`startup_check` 同步校验。
@@ -500,6 +500,11 @@ cd walle-device/scripts && ./start.sh
   `agent.py` 保留 `RpiMonitor` 组合、启动流程、`--check` 与公共名 re-export，
   `node.py` 改为从 `config` 读写 `DEVICE_ID_FILE` / `DEVICE_ID`。各文件均 < 500 行，
   新增 `test/test_modules.py` 固化模块导入与文件大小约束。
+- 2026-11-15：P2-1.3 摄像头与推流架构还原为 `usb_cam` → `/image_raw` →
+  `video_webrtc_bridge` → H.264/FLV → RTMP；移除 `walle_camera`、摄像头独占、
+  `camera_backend` 与共享内存输入，保留 JSON 摄像头配置和 `mpph264enc`
+  硬件编码能力，`video_gop` 默认值恢复为 60。下列 2026-11-12/13 的
+  `camera_owner` / `camera_backend` / 共享内存记录仅为历史优化过程，已由本项替代。
 - 2026-11-12：P2-1.3 新增 `camera_backend=shm` 分离链路：
   `walle_camera` 独占摄像头并发布 `/image_raw`（10fps），H.264 经
   GStreamer `shmsink wait-for-connection=true` / `shmsrc` 交给

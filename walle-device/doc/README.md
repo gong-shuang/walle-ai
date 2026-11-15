@@ -210,31 +210,27 @@ walle-device/scripts/etc/walle_camera.conf
 3. `$TURBOPI_HOME/scripts/etc/walle_camera.conf`（开发环境）
 
 未找到或 schema 不合法时，`bringup` 会打印错误并提示运行本脚本，摄像头不会启动；
-`startup_check` 也会校验该文件。`bringup` 读取后把设备、格式、分辨率、帧率分发给
-`walle_camera` / `usb_cam` / `video_webrtc_bridge`，三者保持一致。
+`startup_check` 也会校验该文件。`bringup` 读取后把设备、格式、分辨率、帧率传给
+`usb_cam`，并将同一设备与帧率配置传给 `video_webrtc_bridge`。
 
 > `/dev/videoN` 编号可能随 USB 插口变化；换口后重新运行脚本即可，不需要 udev 规则。
 > `camera_device:=/dev/videoN` 仍可临时覆盖配置中的设备节点。
 
-`usb_cam` 后端启动前会校验设备存在、属于 USB 摄像头且支持所选格式/分辨率，失败则跳过启动，避免误开 ISP/编解码节点。
+`usb_cam` 启动前会校验设备存在、属于 USB 摄像头且支持所选格式/分辨率，失败则跳过启动，避免误开 ISP/编解码节点。
 
-### 摄像头后端（auto / shm / gst / usb_cam）
+### 摄像头与推流链路
 
-`bringup.launch.py` 新增 `camera_backend` 参数：
+摄像头固定由 `usb_cam` 独占采集并发布 `/image_raw`，`video_webrtc_bridge`
+订阅该话题，将 ROS 图像帧编码为 H.264 后通过 RTMP 推流到服务器：
 
-- `auto`（默认）：检测到 `mppjpegdec` 时使用 `shm`，否则使用 `usb_cam`（需已生成 `walle_camera.conf`）；
-- `shm`：`walle_camera` 节点独占摄像头并发布 `/image_raw`，H.264 通过 GStreamer 共享内存（`shmsink`/`shmsrc`）交给 `video_webrtc_bridge` 混流推 RTMP，视频只编码一次；
-- `gst`：`video_webrtc_bridge` 独占摄像头，MJPG 经 `mppjpegdec` 硬件解码后分两路：一路按 `ros_image_fps`（默认 10fps）发布 `/image_raw`，一路直接 `mpph264enc` 推流；
-- `usb_cam`：保持原有 usb_cam + `/image_raw` + 推流桥模式。
+```text
+USB Camera → usb_cam → /image_raw → video_webrtc_bridge → H.264/FLV → RTMP
+```
 
-所有后端的采集参数（设备、格式、分辨率、帧率）都来自 `walle_camera.conf`，
-`camera_backend` 只决定由哪个进程打开摄像头以及 H.264 的传输方式。
+正常启动无需指定摄像头后端：
 
 ```bash
-ros2 launch bringup bringup.launch.py                      # RK3588 默认 shm
-ros2 launch bringup bringup.launch.py camera_backend:=gst   # GStreamer 独占
-ros2 launch bringup bringup.launch.py camera_backend:=shm   # 分离 + 共享内存 H.264
-ros2 launch bringup bringup.launch.py camera_backend:=usb_cam
+ros2 launch bringup bringup.launch.py
 ```
 
 ### 视频硬件编码

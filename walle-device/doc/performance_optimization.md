@@ -1,10 +1,21 @@
-# 视频链路性能优化记录
+# 视频链路性能优化记录（历史方案，已还原）
 
 > 平台：Orange Pi 5 Plus（RK3588，Ubuntu 22.04，kernel 6.1.43-rockchip）
 > 摄像头：PSI USB Camera（MJPG，最高 3264x2448@15 / 1920x1080@30 / 1280x720@30）
 > 日期：2026-11-12
+> 状态：2026-11-15 已还原共享内存与摄像头独占方案，下文仅保留历史测试过程和性能数据，不作为当前部署指导。
 
-## 1. 优化前架构
+当前架构固定为：
+
+```text
+USB Camera → usb_cam → /image_raw → video_webrtc_bridge → H.264/FLV → RTMP
+```
+
+`walle_camera`、`camera_owner`、`camera_backend` 和 `shmsink/shmsrc` 已移除；
+`video_webrtc_bridge` 重新订阅 `/image_raw` 并编码推流。JSON 摄像头配置与
+`mpph264enc` 硬件编码能力保留。
+
+## 1. 优化前架构（与当前架构一致）
 
 ```text
 USB Camera (MJPG)
@@ -104,7 +115,7 @@ v4l2src(MJPG)
 | 整机 CPU | 约 15.9% |
 | MPP 错误 | 0（连续 1 分钟） |
 
-### 3.3 第三步：分离进程 + 共享内存 H.264（最终方案）
+### 3.3 第三步：分离进程 + 共享内存 H.264（当时的最终方案，现已还原）
 
 为了同时满足“职责分离”和“低拷贝/低延迟”，拆成两个进程：
 
@@ -144,9 +155,9 @@ video_webrtc_bridge（只混流/推流）
 | 整机 CPU | **约 15.6%**（旧方案约 21%） |
 | MPP 错误 | 0 |
 
-## 4. 架构模式与切换
+## 4. 历史架构模式与切换（已移除）
 
-`bringup.launch.py` 新增 `camera_backend`：
+`bringup.launch.py` 当时新增 `camera_backend`，以下模式和命令现已不可用：
 
 | 模式 | 说明 |
 | --- | --- |
@@ -161,7 +172,7 @@ ros2 launch bringup bringup.launch.py camera_backend:=gst
 ros2 launch bringup bringup.launch.py camera_backend:=usb_cam
 ```
 
-### 4.1 摄像头参数配置（JSON 单一来源）
+### 4.1 摄像头参数配置（JSON，当前仍保留）
 
 采集参数不再写死在 launch 中，由交互式脚本生成：
 
@@ -183,36 +194,32 @@ cd walle-device/scripts
 }
 ```
 
-- `format` 支持 `MJPG`（`mppjpegdec` 硬件解码，推荐）与 `YUYV`（原始 YUV，
-  推流分支需先 `videoconvert` 到 NV12）；
-- `bringup` 读取配置后，把设备、格式、分辨率、帧率分发给 `walle_camera`、
-  `usb_cam` 与 `video_webrtc_bridge`，避免三处配置不一致；
+- `format` 支持 `MJPG` 与 `YUYV`，由 `usb_cam` 按所选格式采集；
+- `bringup` 读取配置后，把设备、格式、分辨率、帧率传给 `usb_cam`，
+  并将设备与帧率同时传给 `video_webrtc_bridge`；
 - 查找顺序：`camera_conf:=` / `WALLE_CAMERA_CONF` →
   `/etc/walle-ai/walle_camera.conf` → `$TURBOPI_HOME/scripts/etc/walle_camera.conf`；
 - 配置缺失或 schema 不合法时摄像头不启动，日志提示运行脚本；
   `startup_check` 也会校验配置和设备节点。
 
-相关参数（`video_webrtc_bridge.yaml`）：
+当前相关参数（`video_webrtc_bridge.yaml`）：
 
-- `camera_device` / `camera_format` / `camera_width` / `camera_height` /
-  `framerate`：由 `walle_camera.conf` 注入，YAML 默认值仅用于单独启动；
-- `ros_image_fps`：`/image_raw` 目标帧率，默认 10；
+- `camera_device` / `framerate`：由 `walle_camera.conf` 注入，YAML 默认值仅用于单独启动；
 - `video_bitrate`：默认 1000k（720p 建议 1500k~2500k）；
-- `video_gop`：默认 30；
-- `shm_socket`：非空时启用共享内存 H.264 输入。
+- `video_gop`：默认 60。
 
-## 5. 结论
+## 5. 历史结论
 
-1. RK3588 上必须使用 GStreamer + MPP（`mppjpegdec` / `mpph264enc`）；ffmpeg 的 V4L2 M2M 编码器在该平台不可用。
+1. RK3588 上优先使用 GStreamer + MPP（`mpph264enc`）硬件编码；ffmpeg 的 V4L2 M2M 编码器在该平台不可用。
 2. 只替换编码器收益有限；真正的瓶颈是“软件 MJPG 解码 + 原始 RGB 多次拷贝 + 多次色彩转换”。
-3. 分离式 + 共享内存 H.264 是当前最优解：
+3. 分离式 + 共享内存 H.264 是当时实测性能最优的方案，已于 2026-11-15 按需求还原：
    - 视频只解码/编码一次；
    - bridge 只做混流和 RTMP，职责清晰；
    - 视频链路 CPU 从约 102% 单核降到约 84%，整机从约 21% 降到约 15.6%；
    - 共享内存传输减少协议栈开销，GOP 30 降低首帧延迟。
 4. H.265 暂不启用：Oryx 5/SRS 5 与 App 侧 WebRTC 均不支持，需要端到端升级后再评估。
 
-## 6. 后续可选优化
+## 6. 历史后续可选优化（已随方案还原）
 
 - 将 `ros_image_fps` 从 10 降到 5，进一步降低 RGB 转换 CPU（代价是 `/image_raw` 帧率下降）；
 - 对 720p/1080p 做画质与 CPU 对比，确认分辨率提升后的码率/CPU 平衡；

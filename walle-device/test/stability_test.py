@@ -33,8 +33,9 @@ DEFAULT_SERVICE = "walle-ai.service"
 DEFAULT_NODES = (
     "ros_robot_controller",
     "mecanum",
-    "video_webrtc_bridge",
+    "usb_cam_node_exe",
     "sonar_controller",
+    "video_webrtc_bridge",
     "net_mqtt_bridge",
     "speech",
     "vocal_detect",
