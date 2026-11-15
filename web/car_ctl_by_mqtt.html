@@ -79,8 +79,9 @@ select.deviceSelect{height:32px;max-width:260px;padding:0 10px;border-radius:9px
 <style>
 .statusCard{order:1}
 .videoCard{order:2}
-.alarmCard{order:3}
-.carCard{order:4}
+.carCard{order:3}
+.recordCard{order:4}
+.alarmCard{order:5}
 .identity{display:flex;gap:14px;align-items:center;padding:13px 14px;border-radius:12px;
   background:rgba(255,255,255,.028);border:1px solid var(--line);margin-bottom:14px}
 .identity .avatar{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;
@@ -184,7 +185,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .drawerFoot .btn{flex:1}
 @media(max-width:1040px){
   .grid{grid-template-columns:1fr}
-  .statusCard,.videoCard,.alarmCard{order:0}
 }
 @media(max-width:720px){
   .shell{padding:16px 14px 30px}
@@ -200,6 +200,50 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   .videoTitle{flex:1 1 100%}
   .videoCameraSelect{flex:1 1 auto;width:auto;max-width:none;min-width:0}
 }
+</style>
+<style>
+/* 录像卡片 */
+.recordActive{display:flex;gap:12px;align-items:center;padding:12px 14px;
+  border-radius:12px;border:1px solid rgba(255,107,107,.35);
+  background:rgba(255,107,107,.06);margin-bottom:12px}
+.recDot{width:10px;height:10px;border-radius:50%;background:var(--danger);flex:none;
+  box-shadow:0 0 0 3px rgba(255,107,107,.18);animation:recPulse 1.6s ease-in-out infinite}
+@keyframes recPulse{0%,100%{opacity:1}50%{opacity:.35}}
+.recInfo{min-width:0;flex:1}
+.recInfo b{display:block;font-size:13px;font-weight:600;word-break:break-all}
+.recInfo p{margin:3px 0 0;font-size:11px;color:var(--dim)}
+.recordCtrl{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px}
+.recordMsg{margin-top:9px;font-size:11.5px;line-height:1.55;color:var(--dim);max-height:48px;overflow:auto;word-break:break-word}
+.recordMsg.ok{color:#9ff0cf}
+.recordMsg.err{color:#ffb3b3}
+.recordListHead{display:flex;align-items:center;justify-content:space-between;
+  margin-top:16px;margin-bottom:8px;font-size:12px;font-weight:600;color:var(--text)}
+.recordQuota{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:11px;color:var(--dim)}
+.quotaBar{flex:1;height:4px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
+.quotaBar i{display:block;height:100%;width:0;border-radius:99px;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .35s}
+.recordList{display:flex;flex-direction:column;gap:8px;max-height:300px;overflow:auto;padding-right:2px}
+.recordItem{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:11px;
+  border:1px solid var(--line);background:rgba(255,255,255,.022)}
+.recordItem .meta{min-width:0;flex:1}
+.recordItem .meta b{display:block;font-size:12px;font-weight:550;word-break:break-all}
+.recordItem .meta p{margin:3px 0 0;font-size:11px;color:var(--dim)}
+.recordItem .actions{display:flex;gap:6px;flex:none}
+.recordItem .actions .btn{height:26px;padding:0 10px;font-size:11px}
+.recordItem.recording{border-color:rgba(255,107,107,.4);background:rgba(255,107,107,.05)}
+.recordItem.recording .meta b{color:#ffd9d9}
+/* 播放器模态 */
+.playerModal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  z-index:42;width:min(920px,92vw);background:var(--bg2);border:1px solid var(--line);
+  border-radius:var(--r);box-shadow:var(--shadow);display:none;flex-direction:column;overflow:hidden}
+.playerModal.show{display:flex}
+.playerHead{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:14px 18px;border-bottom:1px solid var(--line)}
+.playerHead b{font-size:13px;font-weight:600;word-break:break-all;min-width:0;flex:1}
+.playerModal video{display:block;width:100%;max-height:60vh;background:#000}
+.playerFoot{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:10px 18px;border-top:1px solid var(--line);font-size:11px}
+.playerFoot .mono{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
 </style>
 </head>
 <body>
@@ -285,6 +329,41 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         <button id="btnVideoStop" class="btn" disabled>停止推流</button>
       </div>
       <div id="videoMsg" class="videoMsg">MQTT 未连接</div>
+    </section>
+
+    <section class="card recordCard">
+      <div class="cardHead">
+        <div>
+          <h2>本地录像</h2>
+          <small>record/start|stop|list|delete · fMP4 回放</small>
+        </div>
+        <span id="recordBadge" class="badge">未录像</span>
+      </div>
+
+      <div id="recordActive" class="recordActive hide">
+        <div class="recDot"></div>
+        <div class="recInfo">
+          <b id="recFilename">—</b>
+          <p><span id="recStartedAt">—</span> · 已录 <span id="recDuration">0:00</span></p>
+        </div>
+      </div>
+
+      <div class="recordCtrl">
+        <button id="btnRecordStart" class="btn primary">开始录像</button>
+        <button id="btnRecordStop" class="btn" disabled>停止录像</button>
+      </div>
+      <div id="recordMsg" class="recordMsg">MQTT 未连接</div>
+
+      <div class="recordListHead">
+        <span>录像文件</span>
+        <button id="btnRecordList" class="btn" style="height:26px;font-size:11px">刷新列表</button>
+      </div>
+      <div class="recordQuota">
+        <div class="quotaBar"><i id="recQuotaBar"></i></div>
+        <div class="quotaText"><span id="recUsed">—</span> / <span id="recLimit">—</span></div>
+      </div>
+
+      <div id="recordList" class="recordList"><div class="emptyState">尚未查询</div></div>
     </section>
 
     <section class="card alarmCard">
@@ -395,6 +474,20 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     <button id="btnSave" class="btn primary">保存并重连</button>
   </div>
 </aside>
+
+<div id="playerScrim" class="scrim"></div>
+<div id="playerModal" class="playerModal">
+  <div class="playerHead">
+    <b id="playerTitle">—</b>
+    <button id="btnPlayerClose" class="btn icon">✕</button>
+  </div>
+  <video id="playerVideo" controls playsinline></video>
+  <div class="playerFoot">
+    <a id="playerDownload" class="btn" download>下载</a>
+    <span id="playerUrl" class="mono"></span>
+  </div>
+</div>
+
 <script>
 (function () {
   'use strict';
@@ -442,7 +535,12 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
    'videoEmpty', 'videoHint', 'cameraSelect', 'btnVideoAction', 'btnVideoStop',
    'videoMsg', 'alarmList', 'btnAlarmClear', 'carStatus', 'servoStatus', 'servoEnable',
    'scrim', 'drawer', 'btnDrawerClose', 'fWsUrl', 'fUser', 'fPass', 'fClientId', 'fKeepalive', 'fDevice',
-   'fVideoUrl', 'btnSave']
+   'fVideoUrl', 'btnSave',
+   'recordBadge', 'recordActive', 'recFilename', 'recStartedAt', 'recDuration',
+   'btnRecordStart', 'btnRecordStop', 'recordMsg', 'btnRecordList',
+   'recQuotaBar', 'recUsed', 'recLimit', 'recordList',
+   'playerScrim', 'playerModal', 'playerTitle', 'playerVideo', 'playerUrl',
+   'playerDownload', 'btnPlayerClose']
     .forEach(function (k) { el[k] = document.getElementById(k); });
 
   var ui = { online: false, uuid: '', devices: {}, state: {}, cap: {}, pendingVideo: null,
@@ -451,6 +549,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     car: { held: {}, timer: null, pendingRid: '', wasActive: false },
     servo: { enabled: false, held: {}, pos: { 1: null, 2: null }, timer: null,
       queryTimer: null, pendingQueryRid: '', pendingSetRid: '' },
+    record: { recording: false, filename: '', startedAt: '', startedTs: 0,
+      list: [], usedBytes: 0, limitBytes: 0, durationTimer: null,
+      pendingStart: null, pendingStop: null, pendingList: null, pendingDelete: null },
     autoTimer: null, statePending: null, offline: {} };
   var reconnectTimer = null, mqtt;
   var RUNTIME_SUFFIX = Math.random().toString(16).slice(2, 6);
@@ -574,7 +675,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function discoveryTopic() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/v1/discovery/query'; }
   var SUBS = ['online', 'discovery/result', 'state/result', 'capability/result',
     'video/start/result', 'video/stop/result', 'car/motor/result',
-    'car/servo/status/result', 'car/servo/result', 'alarm'];
+    'car/servo/status/result', 'car/servo/result', 'alarm',
+    'record/start/result', 'record/stop/result',
+    'record/list/result', 'record/delete/result'];
 
   function setConn(kind, text) {
     el.connChip.className = 'chip ' + (kind === 'on' ? 'on' : 'bad');
@@ -604,6 +707,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
           if (ui.pendingCap && ui.pendingCap.timer) clearTimeout(ui.pendingCap.timer);
           ui.pendingCap = null;
           updateCapabilityButton(false);
+          clearRecPending();
+          setRecMsg('MQTT 已断开', 'err');
+          applyRecordUi();
           scheduleReconnect();
         }
       },
@@ -621,6 +727,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     else if (/\/car\/motor\/result$/.test(topic)) onCarMotorResult(dev, data);
     else if (/\/car\/servo\/status\/result$/.test(topic)) onCarServoStatusResult(dev, data);
     else if (/\/car\/servo\/result$/.test(topic)) onCarServoSetResult(dev, data);
+    else if (/\/record\/start\/result$/.test(topic)) onRecordStart(dev, data);
+    else if (/\/record\/stop\/result$/.test(topic)) onRecordStop(dev, data);
+    else if (/\/record\/list\/result$/.test(topic)) onRecordList(dev, data);
+    else if (/\/record\/delete\/result$/.test(topic)) onRecordDelete(dev, data);
     else if (/\/alarm$/.test(topic)) onAlarm(dev, data);
   }
   function devOf(topic) {
@@ -648,11 +758,17 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       ui.online = data.online === true;
       el.onlineBadge.className = 'badge ' + (ui.online ? 'ok' : 'bad');
       el.onlineBadge.textContent = ui.online ? '在线' : '离线';
-      if (!ui.online) { carReleaseAll(false); servoDisable('设备离线'); }
+      if (!ui.online) {
+        carReleaseAll(false); servoDisable('设备离线');
+        clearRecPending(); stopRecDurationTimer();
+        ui.record.recording = false;
+        applyRecordUi();
+      }
       if (data.uuid) ui.uuid = data.uuid;
       if (ui.online && (!wasOnline || wasUuid !== ui.uuid)) {
         queryState();
         requestCapability();
+        recordList();
       }
       if (ui.uuid && carHasActive()) { carEnsureLoop(); carSendNow(); }
       if (ui.online && ui.uuid && ui.servo.enabled
@@ -705,6 +821,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (!dev) return;
     carReleaseAll(true);
     servoDisable('设备已切换');
+    closePlayer();
+    resetRecordState();
     cfg.device = dev; saveCfg();
     var info = ui.devices[dev] || {};
     ui.deviceInfo = info;
@@ -718,6 +836,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (info.model) addPill(info.model);
     if (info.online) addPill('online');
     queryState(); requestCapability(); applyVideoUi();
+    if (info.online) recordList();
   }
   function addPill(text) {
     var s = document.createElement('span'); s.className = 'badge'; s.textContent = text;
@@ -1043,6 +1162,301 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     item.appendChild(mark); item.appendChild(txt); item.appendChild(time);
     el.alarmList.insertBefore(item, el.alarmList.firstChild);
     while (el.alarmList.children.length > 200) el.alarmList.removeChild(el.alarmList.lastChild);
+  }
+
+  // ---------------------------------------------------------------- 录像
+  var REC_WAIT_MS = 10000, REC_LIST_WAIT_MS = 5000;
+  function setRecMsg(text, kind) {
+    el.recordMsg.textContent = text;
+    el.recordMsg.className = 'recordMsg' + (kind ? ' ' + kind : '');
+  }
+  function recCanOperate() {
+    var offline = !!(cfg.device && ui.devices[cfg.device] && ui.devices[cfg.device].online === false);
+    return !!(mqtt && mqtt.connected && cfg.device && ui.uuid && !offline);
+  }
+  function applyRecordUi() {
+    var recording = ui.record.recording;
+    el.recordBadge.className = 'badge' + (recording ? ' bad' : '');
+    el.recordBadge.textContent = recording ? '录像中' : '未录像';
+    el.recordActive.classList.toggle('hide', !recording);
+    if (recording) {
+      el.recFilename.textContent  = ui.record.filename || '—';
+      el.recStartedAt.textContent = ui.record.startedAt || '—';
+    }
+    var can = recCanOperate();
+    el.btnRecordStart.disabled = !can || recording || !!ui.record.pendingStart;
+    el.btnRecordStop.disabled  = !can || !recording || !!ui.record.pendingStop;
+    el.btnRecordStop.className = 'btn' + (recording ? ' danger' : '');
+    el.btnRecordList.disabled  = !can || !!ui.record.pendingList;
+  }
+  function startRecDurationTimer() {
+    stopRecDurationTimer();
+    ui.record.durationTimer = setInterval(function () {
+      if (!ui.record.recording || !ui.record.startedTs) return;
+      var sec = Math.max(0, Math.floor(Date.now() / 1000 - ui.record.startedTs));
+      el.recDuration.textContent = fmtRecDur(sec);
+    }, 1000);
+  }
+  function stopRecDurationTimer() {
+    if (ui.record.durationTimer) { clearInterval(ui.record.durationTimer); ui.record.durationTimer = null; }
+  }
+  function fmtRecDur(sec) {
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
+  }
+  function fmtSize(bytes) {
+    if (bytes == null || bytes < 0) return '—';
+    var u = ['B', 'KB', 'MB', 'GB', 'TB'], i = 0, n = Number(bytes);
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (Math.round(n * 10) / 10) + ' ' + u[i];
+  }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function clearRecPending() {
+    ['pendingStart', 'pendingStop', 'pendingList', 'pendingDelete'].forEach(function (k) {
+      var p = ui.record[k];
+      if (p && p.timer) clearTimeout(p.timer);
+      ui.record[k] = null;
+    });
+  }
+  function resetRecordState() {
+    clearRecPending();
+    stopRecDurationTimer();
+    ui.record.recording = false;
+    ui.record.filename = '';
+    ui.record.startedAt = '';
+    ui.record.startedTs = 0;
+    ui.record.list = [];
+    ui.record.usedBytes = 0;
+    ui.record.limitBytes = 0;
+    el.recordList.innerHTML = '<div class="emptyState">尚未查询</div>';
+    el.recQuotaBar.style.width = '0%';
+    el.recUsed.textContent = '—';
+    el.recLimit.textContent = '—';
+    el.recDuration.textContent = '0:00';
+    applyRecordUi();
+  }
+
+  // ---------- 开始录像 ----------
+  function recordStart() {
+    if (!mqtt || !mqtt.connected || !cfg.device) { setRecMsg('MQTT 未连接或未选择设备', 'err'); return; }
+    if (!ui.uuid) { setRecMsg('尚未取得设备 uuid', 'err'); return; }
+    if (ui.record.recording) { setRecMsg('已在录像中，无需重复开始', 'err'); return; }
+    if (ui.record.pendingStart) return;
+    var id = rid();
+    if (!mqtt.publish(base(cfg.device) + '/record/start/request',
+      { uuid: ui.uuid, request_id: id })) {
+      setRecMsg('record/start/request 发送失败', 'err'); return;
+    }
+    setRecMsg('已请求开始录像，等待 record/start/result…', null);
+    ui.record.pendingStart = { rid: id, timer: setTimeout(function () {
+      ui.record.pendingStart = null;
+      setRecMsg('等待 record/start/result 超时（10s）', 'err');
+      applyRecordUi();
+    }, REC_WAIT_MS) };
+    applyRecordUi();
+  }
+  function onRecordStart(dev, data) {
+    if (dev !== cfg.device) return;
+    if (ui.record.pendingStart && data.request_id && data.request_id !== ui.record.pendingStart.rid) return;
+    if (ui.record.pendingStart) { clearTimeout(ui.record.pendingStart.timer); ui.record.pendingStart = null; }
+    if (data.result === 0) {
+      ui.record.recording = true;
+      ui.record.filename  = data.filename || '';
+      ui.record.startedAt = data.started_at || '';
+      ui.record.startedTs = data.started_ts || (Date.now() / 1000);
+      el.recDuration.textContent = '0:00';
+      startRecDurationTimer();
+      setRecMsg('录像已开始：' + ui.record.filename, 'ok');
+      applyRecordUi();
+      recordList();  // 开始录像后自动刷新列表
+    } else {
+      var reasons = { '-1': '已在录制', '-3': '磁盘空间不足', '-4': '执行失败' };
+      setRecMsg('开始录像失败：' + (reasons[data.result] || data.cause || ('result=' + data.result)), 'err');
+      applyRecordUi();
+    }
+  }
+
+  // ---------- 停止录像 ----------
+  function recordStop() {
+    if (!mqtt || !mqtt.connected || !cfg.device) { setRecMsg('MQTT 未连接或未选择设备', 'err'); return; }
+    if (!ui.uuid) { setRecMsg('尚未取得设备 uuid', 'err'); return; }
+    if (ui.record.pendingStop) return;
+    var id = rid();
+    if (!mqtt.publish(base(cfg.device) + '/record/stop/request',
+      { uuid: ui.uuid, request_id: id })) {
+      setRecMsg('record/stop/request 发送失败', 'err'); return;
+    }
+    setRecMsg('已请求停止录像…', null);
+    ui.record.pendingStop = { rid: id, timer: setTimeout(function () {
+      ui.record.pendingStop = null;
+      setRecMsg('等待 record/stop/result 超时（10s）', 'err');
+      applyRecordUi();
+    }, REC_WAIT_MS) };
+    applyRecordUi();
+  }
+  function onRecordStop(dev, data) {
+    if (dev !== cfg.device) return;
+    if (ui.record.pendingStop && data.request_id && data.request_id !== ui.record.pendingStop.rid) return;
+    if (ui.record.pendingStop) { clearTimeout(ui.record.pendingStop.timer); ui.record.pendingStop = null; }
+    if (data.result === 0) {
+      stopRecDurationTimer();
+      ui.record.recording = false;
+      ui.record.filename = '';
+      ui.record.startedAt = '';
+      ui.record.startedTs = 0;
+      setRecMsg('录像已停止' + (data.filename ? '：' + data.filename : ''), 'ok');
+      applyRecordUi();
+      recordList();  // 停止后刷新列表
+    } else {
+      var reasons = { '-2': '当前未录制', '-4': '执行失败' };
+      setRecMsg('停止录像失败：' + (reasons[data.result] || data.cause || ('result=' + data.result)), 'err');
+      applyRecordUi();
+    }
+  }
+
+  // ---------- 录像列表 ----------
+  function recordList() {
+    if (!mqtt || !mqtt.connected || !cfg.device || !ui.uuid) {
+      setRecMsg('MQTT 未连接 / 未选设备 / 缺 uuid，无法查询', 'err'); return;
+    }
+    if (ui.record.pendingList) return;
+    var id = rid();
+    if (!mqtt.publish(base(cfg.device) + '/record/list/query',
+      { uuid: ui.uuid, request_id: id })) {
+      setRecMsg('record/list/query 发送失败', 'err'); return;
+    }
+    ui.record.pendingList = { rid: id, timer: setTimeout(function () {
+      ui.record.pendingList = null;
+      setRecMsg('等待 record/list/result 超时（5s）', 'err');
+      applyRecordUi();
+    }, REC_LIST_WAIT_MS) };
+    applyRecordUi();
+  }
+  function onRecordList(dev, data) {
+    if (dev !== cfg.device) return;
+    if (ui.record.pendingList && data.request_id && data.request_id !== ui.record.pendingList.rid) return;
+    if (ui.record.pendingList) { clearTimeout(ui.record.pendingList.timer); ui.record.pendingList = null; }
+    if (data.result !== 0) {
+      setRecMsg('查询录像列表失败：' + (data.cause || ('result=' + data.result)), 'err');
+      applyRecordUi(); return;
+    }
+    ui.record.list = data.records || [];
+    ui.record.usedBytes  = data.used_bytes  || 0;
+    ui.record.limitBytes = data.limit_bytes || 0;
+    // 与服务端同步当前录像状态（防止 web 端状态漂移，例如其他客户端操作）
+    var cur = ui.record.list.filter(function (r) { return r && r.recording === true; })[0];
+    if (cur && !ui.record.recording) {
+      ui.record.recording = true;
+      ui.record.filename  = cur.filename || '';
+      ui.record.startedAt = cur.created_at || '';
+      ui.record.startedTs = cur.created_ts || (Date.now() / 1000);
+      startRecDurationTimer();
+    } else if (!cur && ui.record.recording && !ui.record.pendingStop) {
+      stopRecDurationTimer();
+      ui.record.recording = false;
+      ui.record.filename = '';
+      ui.record.startedAt = '';
+      ui.record.startedTs = 0;
+    }
+    renderRecordList();
+    applyRecordUi();
+  }
+  function renderRecordList() {
+    var list = ui.record.list || [];
+    el.recordList.innerHTML = '';
+    if (!list.length) {
+      el.recordList.innerHTML = '<div class="emptyState">暂无录像</div>';
+    } else {
+      list.slice().sort(function (a, b) {
+        return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+      }).forEach(function (r) {
+        var isCur = ui.record.recording && r.filename === ui.record.filename;
+        var item = document.createElement('div');
+        item.className = 'recordItem' + (isCur ? ' recording' : '');
+        var sizeText = fmtSize(r.size_bytes);
+        var durText  = r.duration_sec ? fmtRecDur(r.duration_sec) : '';
+        item.innerHTML =
+          '<div class="meta">' +
+            '<b>' + (isCur ? '● ' : '') + escapeHtml(r.filename) + '</b>' +
+            '<p>' + escapeHtml(r.created_at || '—') +
+              ' · ' + sizeText +
+              (durText ? ' · ' + durText : '') + '</p>' +
+          '</div>' +
+          '<div class="actions">' +
+            '<button class="btn" data-act="play">播放</button>' +
+            '<button class="btn danger" data-act="del"' + (isCur ? ' disabled' : '') + '>删除</button>' +
+          '</div>';
+        item.querySelector('[data-act=play]').addEventListener('click', function () {
+          playRecord(r.filename, r.play_url);
+        });
+        var delBtn = item.querySelector('[data-act=del]');
+        if (!isCur) {
+          delBtn.addEventListener('click', function () { recordDelete(r.filename); });
+        }
+        el.recordList.appendChild(item);
+      });
+    }
+    var pct = ui.record.limitBytes > 0 ? (ui.record.usedBytes / ui.record.limitBytes * 100) : 0;
+    el.recQuotaBar.style.width = Math.min(100, pct) + '%';
+    el.recUsed.textContent  = fmtSize(ui.record.usedBytes);
+    el.recLimit.textContent = fmtSize(ui.record.limitBytes);
+  }
+
+  // ---------- 删除录像 ----------
+  function recordDelete(filename) {
+    if (!confirm('确定删除 ' + filename + ' ？此操作不可恢复。')) return;
+    if (!mqtt || !mqtt.connected || !cfg.device || !ui.uuid) {
+      setRecMsg('MQTT 未连接 / 未选设备 / 缺 uuid', 'err'); return;
+    }
+    if (ui.record.pendingDelete) return;
+    var id = rid();
+    if (!mqtt.publish(base(cfg.device) + '/record/delete/request',
+      { uuid: ui.uuid, request_id: id, filename: filename })) {
+      setRecMsg('record/delete/request 发送失败', 'err'); return;
+    }
+    setRecMsg('正在删除 ' + filename + ' …', null);
+    ui.record.pendingDelete = { rid: id, filename: filename, timer: setTimeout(function () {
+      ui.record.pendingDelete = null;
+      setRecMsg('等待 record/delete/result 超时（5s）', 'err');
+    }, REC_LIST_WAIT_MS) };
+  }
+  function onRecordDelete(dev, data) {
+    if (dev !== cfg.device) return;
+    if (ui.record.pendingDelete && data.request_id && data.request_id !== ui.record.pendingDelete.rid) return;
+    var fname = ui.record.pendingDelete ? ui.record.pendingDelete.filename : (data.filename || '');
+    if (ui.record.pendingDelete) { clearTimeout(ui.record.pendingDelete.timer); ui.record.pendingDelete = null; }
+    if (data.result === 0) {
+      setRecMsg('已删除：' + fname, 'ok');
+      recordList();
+    } else {
+      var reasons = { '-1': '文件不存在', '-2': '正在录制不可删', '-3': '非法路径', '-4': '执行失败' };
+      setRecMsg('删除失败：' + (reasons[data.result] || data.cause || ('result=' + data.result)), 'err');
+    }
+  }
+
+  // ---------- 播放录像 ----------
+  function playRecord(filename, playUrl) {
+    if (!playUrl) { setRecMsg('该录像缺少 play_url，无法播放', 'err'); return; }
+    el.playerTitle.textContent = filename || '—';
+    el.playerVideo.src = playUrl;
+    el.playerDownload.href = playUrl;
+    el.playerDownload.setAttribute('download', filename || 'record.fmp4');
+    el.playerUrl.textContent = playUrl;
+    el.playerScrim.classList.add('show');
+    el.playerModal.classList.add('show');
+    var p = el.playerVideo.play();
+    if (p && p.catch) p.catch(function () { /* 自动播放被浏览器拦截可忽略，用户可手动点播放 */ });
+  }
+  function closePlayer() {
+    try { el.playerVideo.pause(); } catch (e) {}
+    el.playerVideo.removeAttribute('src');
+    el.playerVideo.load();
+    el.playerScrim.classList.remove('show');
+    el.playerModal.classList.remove('show');
   }
 
   // ---------------------------------------------------------------- 车控
@@ -1586,6 +2000,16 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   });
   el.btnAlarmClear.addEventListener('click', function () {
     el.alarmList.innerHTML = '<div class="emptyState">暂无告警</div>';
+  });
+
+  // 录像控制按钮
+  el.btnRecordStart.addEventListener('click', recordStart);
+  el.btnRecordStop.addEventListener('click', recordStop);
+  el.btnRecordList.addEventListener('click', recordList);
+  el.btnPlayerClose.addEventListener('click', closePlayer);
+  el.playerScrim.addEventListener('click', closePlayer);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && el.playerModal.classList.contains('show')) closePlayer();
   });
 
   Array.prototype.forEach.call(document.querySelectorAll('.carKey'), function (btn) {
