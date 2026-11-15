@@ -46,10 +46,17 @@ class CameraShmNode(Node):
         self.shm_socket = self.declare_parameter(
             "shm_socket", "/tmp/walle-video.sock").value
         self.image_topic = self.declare_parameter("image_topic", "/image_raw").value
+        # 无帧看门狗：v4l2src/MPP/编码链卡死时 GStreamer 不会报 bus error，
+        # 只能靠长时间没有新帧来判断并重建管道
+        self.frame_timeout = float(
+            self.declare_parameter("frame_timeout", 5.0).value)
 
         self._pipeline = None
         self._lock = threading.Lock()
         self._restarting = False
+        self._last_sample_ts = time.monotonic()
+        self._last_encoded_ts = time.monotonic()
+        self._shm_client = False
         self._image_pub = self.create_publisher(
             Image, self.image_topic, QoSProfile(
                 depth=2,
@@ -99,7 +106,11 @@ class CameraShmNode(Node):
             encode_pre = ""
         encode = (
             "mpph264enc bps=%d rc-mode=cbr gop=%d ! h264parse ! "
-            "shmsink socket-path=%s sync=false wait-for-connection=true"
+            # 必须保持 wait-for-connection=true（默认值）：shmsink 只在有客户端
+            # 连接时才下发 caps，设成 false 时客户端永远收不到 caps，
+            # h264parse 会一直等待、一帧都不输出（实测 0 帧）。
+            # 断开后阻塞在这里也不会反压摄像头：上一级 queue 是 leaky 的。
+            "shmsink name=shm_sink socket-path=%s sync=false"
             % (bps, max(self.gop, 1), self.shm_socket)
         )
         return (
@@ -110,7 +121,9 @@ class CameraShmNode(Node):
             + "videoconvert ! video/x-raw,format=RGB ! "
             + "appsink name=ros_sink emit-signals=true max-buffers=1 "
             + "drop=true sync=false "
-            + "t. ! queue max-size-buffers=2 ! "
+            # leaky=downstream：推流分支任何卡顿（客户端消失/编码卡死）
+            # 都不能反压 tee，否则整个摄像头管道（含 /image_raw）会一起卡死
+            + "t. ! queue max-size-buffers=2 leaky=downstream ! "
             + encode_pre
             + encode
         )
@@ -123,6 +136,16 @@ class CameraShmNode(Node):
             return False
         sink = pipeline.get_by_name("ros_sink")
         sink.connect("new-sample", self._on_sample)
+        shm_sink = pipeline.get_by_name("shm_sink")
+        if shm_sink is not None:
+            pad = shm_sink.get_static_pad("sink")
+            if pad is not None:
+                pad.add_probe(Gst.PadProbeType.BUFFER, self._on_encoded_buffer)
+            # 没有客户端时 shmsink 会阻塞等待（wait-for-connection=true），
+            # 编码分支本来就不出帧，看门狗不能把它当成卡死
+            shm_sink.connect("client-connected", self._on_shm_client_connected)
+            shm_sink.connect("client-disconnected", self._on_shm_client_disconnected)
+        self._shm_client = False
         with self._lock:
             self._pipeline = pipeline
         if pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
@@ -132,12 +155,40 @@ class CameraShmNode(Node):
                 self._pipeline = None
             return False
         self.get_logger().info("摄像头管道已启动，H.264 写入 %s" % self.shm_socket)
+        self._last_sample_ts = time.monotonic()
+        self._last_encoded_ts = time.monotonic()
         return True
+
+    def _on_encoded_buffer(self, pad, info):
+        self._last_encoded_ts = time.monotonic()
+        return Gst.PadProbeReturn.OK
+
+    def _on_shm_client_connected(self, sink, client_id):
+        self._shm_client = True
+        self._last_encoded_ts = time.monotonic()
+        self.get_logger().info("推流客户端已连接共享内存（id=%s）" % client_id)
+
+    def _on_shm_client_disconnected(self, sink, client_id):
+        self._shm_client = False
+        self.get_logger().info(
+            "推流客户端已断开共享内存（id=%s），重建管道以重新下发 caps" % client_id)
+        # shmsink 只在管道首次出帧时把 caps 写入共享内存，之后的客户端只能拿到
+        # 裸 buffer、拿不到 caps，h264parse 会一直等待（表现为第二次推流黑屏）。
+        # 唯一可靠的解法是断流后重建管道，让新管道的 caps 回到写入起点。
+        # 注意：这里是 GStreamer 流线程，不能直接改管道状态（会死锁），
+        # 交给独立线程延迟处理
+        threading.Thread(
+            target=self._restart_after_disconnect, daemon=True).start()
+
+    def _restart_after_disconnect(self):
+        time.sleep(0.1)
+        self._schedule_restart(delay=0.0)
 
     def _on_sample(self, appsink):
         sample = appsink.emit("pull-sample")
         if sample is None:
             return Gst.FlowReturn.OK
+        self._last_sample_ts = time.monotonic()
         buf = sample.get_buffer()
         caps = sample.get_caps()
         if buf is None or caps is None:
@@ -180,8 +231,21 @@ class CameraShmNode(Node):
                     self.get_logger().warning("摄像头管道 EOS，准备重启")
                 self._schedule_restart()
                 return
+        # 无帧看门狗：管道线程卡死（无 bus error）时只能靠出帧超时发现。
+        # /image_raw 分支必须一直有帧；H.264 分支只有客户端连接时才应该出帧，
+        # 没有客户端时 shmsink 会阻塞（正常现象），不能误判
+        if self.frame_timeout > 0:
+            idle = time.monotonic() - self._last_sample_ts
+            if self._shm_client:
+                idle = max(idle, time.monotonic() - self._last_encoded_ts)
+            if idle > self.frame_timeout:
+                self.get_logger().error(
+                    "摄像头已 %.1fs 没有输出帧，重建管道" % idle)
+                self._last_sample_ts = time.monotonic()
+                self._last_encoded_ts = time.monotonic()
+                self._schedule_restart()
 
-    def _schedule_restart(self):
+    def _schedule_restart(self, delay=2.0):
         with self._lock:
             if self._restarting:
                 return
@@ -190,12 +254,13 @@ class CameraShmNode(Node):
             self._pipeline = None
         if pipeline is not None:
             pipeline.set_state(Gst.State.NULL)
-        threading.Thread(target=self._restart, daemon=True).start()
+        threading.Thread(target=self._restart, args=(delay,), daemon=True).start()
 
-    def _restart(self):
+    def _restart(self, delay=2.0):
         try:
             while rclpy.ok():
-                time.sleep(2.0)
+                time.sleep(delay)
+                delay = 2.0
                 if self._start_pipeline():
                     return
         finally:

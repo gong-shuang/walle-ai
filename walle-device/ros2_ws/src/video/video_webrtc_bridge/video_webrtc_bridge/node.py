@@ -13,6 +13,7 @@ App 继续用 WHEP 拉流。停止指令或 MQTT 网关心跳丢失时自动停�
 
 import os
 import re
+import signal
 import subprocess
 import tempfile
 import threading
@@ -336,6 +337,10 @@ class VideoWebrtcBridge(Node):
             self.declare_parameter("audio_probe_timeout", 3.0).value)
 
         self.startup_grace = float(self.declare_parameter("startup_grace", 3.0).value)
+        # 启动宽限期只保证进程没退出；shm 模式下 shmsrc 卡住时进程也不会退出，
+        # 必须再确认 rtmpsink 真的连上了媒体服务器（收到首帧后才会建连）
+        self.media_connect_timeout = float(
+            self.declare_parameter("media_connect_timeout", 8.0).value)
         self.first_frame_timeout = float(
             self.declare_parameter("first_frame_timeout", 3.0).value)
         self.log_dir = self.declare_parameter(
@@ -443,6 +448,59 @@ class VideoWebrtcBridge(Node):
 
     def _mask_url(self, url):
         return re.sub(r"(secret=)[^&]+", r"\1***", url or "")
+
+    @staticmethod
+    def _pid_socket_inodes(pid):
+        inodes = set()
+        base = "/proc/%d/fd" % pid
+        try:
+            names = os.listdir(base)
+        except OSError:
+            return inodes
+        for name in names:
+            try:
+                link = os.readlink(os.path.join(base, name))
+            except OSError:
+                continue
+            if link.startswith("socket:[") and link.endswith("]"):
+                inodes.add(link[len("socket:["):-1])
+        return inodes
+
+    @staticmethod
+    def _pid_tcp_remote_ports(pid):
+        """返回进程持有的 TCP 套接字对端端口（4 位大写十六进制）。"""
+        inodes = VideoWebrtcBridge._pid_socket_inodes(pid)
+        if not inodes:
+            return set()
+        ports = set()
+        for name in ("tcp", "tcp6"):
+            try:
+                with open("/proc/%d/net/%s" % (pid, name), encoding="ascii") as f:
+                    next(f, None)
+                    for line in f:
+                        cols = line.split()
+                        if len(cols) < 10 or cols[9] not in inodes:
+                            continue
+                        ports.add(cols[2].rsplit(":", 1)[-1].upper())
+            except OSError:
+                continue
+        return ports
+
+    def _wait_rtmp_connected(self, proc, timeout):
+        """等 rtmpsink 真正连上媒体服务器（rtmpsink 在收到首帧后才建连）。
+
+        shm 模式下摄像头管道卡死时 gst-launch 仍会存活，只看进程是否退出
+        会把这种“假成功”当成推流成功，所以要用 TCP 连接做二次确认。
+        """
+        port = "%04X" % 1935
+        deadline = time.monotonic() + max(timeout, 0.0)
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                return False
+            if port in self._pid_tcp_remote_ports(proc.pid):
+                return True
+            time.sleep(0.1)
+        return False
 
     def _rtmp_secret_ready(self):
         return bool(self.media_host and self.media_secret)
@@ -785,6 +843,12 @@ class VideoWebrtcBridge(Node):
             return self._start_owned_stream(
                 room, device, url, audio, width, height,
                 prev_room, prev_device, response)
+        # 停流后 walle_camera 会重建管道（约 0.4s 内 shm socket 不可用），
+        # 紧接着 start 时先等它恢复，避免 shmsrc 直接连不上
+        if self.shm_socket:
+            settle = 0.8 - (time.time() - getattr(self, "_last_stop_ts", 0.0))
+            if settle > 0:
+                time.sleep(settle)
         if self.shm_socket:
             cmd = self._build_h264_cmd(url, audio)
         else:
@@ -873,6 +937,28 @@ class VideoWebrtcBridge(Node):
             response.action = "failed"
             response.error = "%s 退出码 %s（日志: %s）%s" % (
                 program, code, sink.path, (": " + tail) if tail else "")
+            return response
+
+        # shm 模式下 shmsrc 卡住时 gst-launch 不会退出，必须确认真的建连了
+        if self.shm_socket and not self._wait_rtmp_connected(
+                proc, self.media_connect_timeout):
+            writer_stop.set()
+            if writer is not None:
+                writer.join(timeout=1.0)
+            self._terminate_process(proc)
+            time.sleep(0.2)
+            tail = sink.error_line()
+            self._reset_stream(stream_id)
+            sink.close()
+            response.result = -2
+            response.cause = "命令执行失败"
+            response.action = "failed"
+            response.error = (
+                "推流 %.1fs 内未连上媒体服务器，编码链没有产出帧"
+                "（检查摄像头/共享内存管道 %s）%s"
+                % (self.media_connect_timeout, self.shm_socket,
+                   (": " + tail) if tail else ""))
+            self.get_logger().error("推流启动失败：%s" % response.error)
             return response
 
         watch = threading.Thread(
@@ -1107,6 +1193,7 @@ class VideoWebrtcBridge(Node):
             self._stream_bin = None
             self._stream_pad = None
         self._reset_stream(stream_id)
+        self._last_stop_ts = time.time()
         self._publish_status()
         self.get_logger().info(
             "已停止推流%s（room=%s, pid=%s）"
@@ -1145,7 +1232,8 @@ class VideoWebrtcBridge(Node):
     def _build_h264_cmd(self, url, audio):
         """从 walle_camera 的 shmsink 读取 H.264，只做混流和推流。"""
         cmd = [
-            "gst-launch-1.0", "-q", "-e",
+            # 不加 -q：错误信息要落到日志里，否则失败时日志只有一行 header
+            "gst-launch-1.0", "-e",
             "shmsrc", "socket-path=%s" % self.shm_socket, "is-live=true",
             "!", "h264parse",
             "!", "queue",
@@ -1181,7 +1269,8 @@ class VideoWebrtcBridge(Node):
         fps = max(int(round(self.framerate)), 1)
         video_bps = bitrate_to_bps(self.video_bitrate, 1000 * 1000)
         cmd = [
-            "gst-launch-1.0", "-q", "-e",
+            # 不加 -q：错误信息要落到日志里，否则失败时日志只有一行 header
+            "gst-launch-1.0", "-e",
             "fdsrc", "fd=0",
             "!", "rawvideoparse", "format=rgb",
             "width=%d" % width, "height=%d" % height, "framerate=%d/1" % fps,
@@ -1350,6 +1439,41 @@ class VideoWebrtcBridge(Node):
             self._audio = self._empty_audio()
             return meta
 
+    def _terminate_process(self, proc):
+        """停流收尾：先 SIGINT 让 gst-launch/ffmpeg 走 EOS 正常关闭，再逐级升级。
+
+        直接 SIGTERM 会打断 gst-launch（-e 只在 SIGINT 时发 EOS），
+        shmsink 侧会看到客户端异常消失，容易留下卡死的推流分支。
+        """
+        if proc is None or proc.poll() is not None:
+            return
+        # 先关 stdin 让编码进程读到 EOF 并自行收尾
+        try:
+            if proc.stdin is not None:
+                proc.stdin.close()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            proc.send_signal(signal.SIGINT)
+            proc.wait(timeout=3)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+        except Exception:  # noqa: BLE001
+            self.get_logger().exception("停止推流进程失败")
+            return
+        try:
+            proc.terminate()
+            proc.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                proc.wait(timeout=1)
+            except Exception:  # noqa: BLE001
+                pass
+        except Exception:  # noqa: BLE001
+            pass
+
     def _stop_stream(self, reason=""):
         if self.camera_owner:
             return self._stop_owned_stream(reason)
@@ -1365,35 +1489,20 @@ class VideoWebrtcBridge(Node):
                 "pid": int(proc.pid) if proc else 0,
             }
         if proc is None or proc.poll() is not None:
+            self._last_stop_ts = time.time()
             self._reset_stream(stream_id)
             return False
         proc._intentional_stop = True
         if writer_stop is not None:
             writer_stop.set()
-        # 先关 stdin 让编码进程读到 EOF 并自行收尾；只发 SIGTERM 时它可能
-        # 阻塞在 read(stdin) 上，3 秒后只能被 SIGKILL。
-        try:
-            if proc.stdin is not None:
-                proc.stdin.close()
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            proc.terminate()
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            try:
-                proc.wait(timeout=1)
-            except Exception:  # noqa: BLE001
-                pass
-        except Exception:  # noqa: BLE001
-            self.get_logger().exception("停止推流进程失败")
+        self._terminate_process(proc)
         if writer is not None and writer.is_alive():
             writer.join(timeout=1.0)
         # 让看护线程先完成清理和日志（它负责打印“推流已按要求停止”）
         if watch is not None and watch.is_alive() and watch is not threading.current_thread():
             watch.join(timeout=1.5)
         self._reset_stream(stream_id)
+        self._last_stop_ts = time.time()
         self._publish_status()
         self.get_logger().info(
             "已停止推流%s（room=%s, pid=%s）"
