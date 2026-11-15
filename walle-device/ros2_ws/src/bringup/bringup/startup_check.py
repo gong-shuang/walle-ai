@@ -30,6 +30,7 @@ OPTIONAL_NODES = (
     'vocal_detect',
     'agent_process',
     'tts_node',
+    'record_video_node',
 )
 STARTUP_TIMEOUT = 30.0
 
@@ -72,9 +73,9 @@ class StartupCheckNode(Node):
         self.get_logger().info(
             '摄像头配置：%s（%s）'
             % (conf_path, api.describe_camera_conf(conf)))
-        if not os.path.exists(conf['device']):
-            self.get_logger().warning(
-                '摄像头设备 %s 当前不存在' % conf['device'])
+        device = conf.get('camera', {}).get('device', '')
+        if device and not os.path.exists(device):
+            self.get_logger().warning('摄像头设备 %s 当前不存在' % device)
 
     def check_ready(self):
         if self.done:

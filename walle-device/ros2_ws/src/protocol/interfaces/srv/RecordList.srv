@@ -1,0 +1,7 @@
+# 查询录像列表
+---
+int32 result           # 0 成功 / -4 执行失败
+string cause
+RecordInfo[] records
+int64 used_bytes       # 录像目录已用空间（字节）
+int64 limit_bytes      # 录像目录空间上限（字节）

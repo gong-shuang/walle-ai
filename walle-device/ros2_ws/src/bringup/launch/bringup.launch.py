@@ -99,9 +99,11 @@ def launch_setup(context):
         camera_conf, camera_conf_path, camera_conf_error = \
             camera_conf_api.load_camera_conf(camera_conf_arg or None)
     if camera_conf is not None and camera_device_arg:
-        if camera_device_arg != camera_conf['device']:
-            camera_conf = dict(camera_conf, device=camera_device_arg)
-    device = (camera_conf['device'] if camera_conf is not None
+        cam = camera_conf.get('camera', {})
+        if camera_device_arg != cam.get('device'):
+            camera_conf['camera'] = dict(cam, device=camera_device_arg)
+    cam = camera_conf.get('camera', {}) if camera_conf else {}
+    device = (cam.get('device') if camera_conf is not None
               else camera_device_arg or '/dev/video0')
     if camera_conf is not None:
         note = ''
@@ -123,10 +125,10 @@ def launch_setup(context):
                 os.path.join(walle_video_package_path, 'launch/usb_cam.launch.py')),
             launch_arguments={
                 'camera_device': device,
-                'camera_format': camera_conf['format'],
-                'camera_width': str(camera_conf['width']),
-                'camera_height': str(camera_conf['height']),
-                'camera_framerate': str(camera_conf['framerate']),
+                'camera_format': cam.get('format', 'MJPG'),
+                'camera_width': str(cam.get('width', 1280)),
+                'camera_height': str(cam.get('height', 720)),
+                'camera_framerate': str(cam.get('framerate', 30)),
             }.items(),
         )
 
@@ -137,7 +139,26 @@ def launch_setup(context):
                          'launch/video_webrtc_bridge.launch.py')),
         launch_arguments={
             'camera_device': device,
-            'framerate': str(camera_conf['framerate']) if camera_conf else '30.0',
+            'framerate': str(cam.get('framerate', 30.0)) if camera_conf else '30.0',
+        }.items(),
+    )
+
+    # 启动本地录像节点（订阅 /image_raw -> fMP4 落盘）
+    record_video_package_path = get_package_share_directory('record_video')
+    rec = camera_conf.get('record', {}) if camera_conf else {}
+    record_video_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(record_video_package_path,
+                         'launch/record_video.launch.py')),
+        launch_arguments={
+            'camera_device': device,
+            'width': str(cam.get('width', 1280)),
+            'height': str(cam.get('height', 720)),
+            'framerate': str(cam.get('framerate', 30.0)),
+            'storage_path': rec.get('storage_path', ''),
+            'storage_limit_gb': str(rec.get('storage_limit_gb', 16.0)),
+            'segment_duration_sec': str(rec.get('segment_duration_sec', 3600)),
+            'auto_record': str(rec.get('auto_record', True)).lower(),
         }.items(),
     )
 
@@ -181,8 +202,9 @@ def launch_setup(context):
     start_services = TimerAction(
         period=6.0,
         actions=[
-            LogInfo(msg='[bringup] 阶段 3/4：启动视频桥、语音与大模型'),
+            LogInfo(msg='[bringup] 阶段 3/4：启动视频桥、录像、语音与大模型'),
             video_webrtc_bridge_launch,
+            record_video_launch,
             speech_recognition_launch,
             large_models_launch,
         ],

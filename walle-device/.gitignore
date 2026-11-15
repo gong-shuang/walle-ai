@@ -3,6 +3,7 @@
 */install/
 */__pycache__/
 *.pyc
+data/
 
 # ---------- 环境变量 / 密钥 ----------
 # 只提交 *.example 模板，真实配置（walle-ai.conf / walle_camera.conf）不入库

@@ -1,0 +1,10 @@
+# 录像控制：开始 / 停止
+string action          # "start" / "stop"
+string filename        # start 可空（自动生成 rec_<时间>.fmp4）；stop 可空
+int32 segment_sec      # start 可选覆盖单文件时长，0=使用配置
+---
+int32 result           # 0 成功 / -1 已在录制 / -2 当前未录制 / -3 磁盘空间不足 / -4 执行失败
+string cause           # ok / 已在录制 / 当前未录制 / 磁盘空间不足 / 执行失败
+string filename        # 实际生成的文件名（start）或停止的文件名（stop）
+string started_at
+float64 started_ts

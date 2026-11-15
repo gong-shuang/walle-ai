@@ -30,9 +30,9 @@ from interfaces.srv import VideoStreamControl
 
 import net_mqtt_bridge.car_motor as car_motor
 from net_mqtt_bridge.car_servo import CarServoStatusNodeMixin
+from net_mqtt_bridge.record import RecordNodeMixin
 
-
-class NetMqttBridge(Node, CarServoStatusNodeMixin):
+class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin):
     def __init__(self):
         super().__init__('net_mqtt_bridge')
 
@@ -92,16 +92,16 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin):
 
         self._agent_mod = agent
         self.agent = agent.RpiMonitor()
-
         self._video_status_msg = None
         self._status_lock = threading.Lock()
         self._shutting_down = False
         self._agent_thread = None
         self._last_heartbeat_log = 0.0
-
         self._video_client = self.create_client(
             VideoStreamControl,
             self.get_parameter('video_service').value)
+        # 录像服务客户端
+        self.setup_record_clients()
         self.setup_car_servo_status(self.get_parameter('servo_state_service').value)
         self.setup_car_servo_set(self.get_parameter('servo_set_topic').value)
         status_qos = QoSProfile(
@@ -136,12 +136,14 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin):
         self.agent.handle_car_motor_set = self._handle_car_motor_set
         self.agent.handle_car_servo_status = self._handle_car_servo_status
         self.agent.handle_car_servo_set = self._handle_car_servo_set
-
+        self.agent.handle_record_start = self._handle_record_start
+        self.agent.handle_record_stop = self._handle_record_stop
+        self.agent.handle_record_list = self._handle_record_list
+        self.agent.handle_record_delete = self._handle_record_delete
         self.get_logger().info(
             'net_mqtt_bridge 启动：device_id=%s tenant=%s video_service=%s'
             % (config.DEVICE_ID, agent.sanitize_segment(config.MQTT_TENANT),
                self.get_parameter('video_service').value))
-
     # ------------------------------------------------------------------ 生命周期
     def start_agent(self):
         self._agent_thread = threading.Thread(
@@ -466,7 +468,6 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin):
         resp = self._call_video(srv_req)
         return bool(resp is not None and resp.result == 0 and resp.stopped)
 
-
 def main(args=None):
     logging.basicConfig(
         level=logging.INFO,
@@ -493,7 +494,6 @@ def main(args=None):
             node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()

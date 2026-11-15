@@ -120,11 +120,11 @@ ui_input() {
 }
 
 ui_confirm() {
-    local title="$1" text="$2"
+    local title="$1" text="$2" height="${3:-16}"
     if [[ "$ui" == "whiptail" ]]; then
-        whiptail --title "$title" --yesno "$text" 16 78
+        whiptail --title "$title" --yesno "$text" "$height" 78
     elif [[ "$ui" == "dialog" ]]; then
-        dialog --title "$title" --yesno "$text" 16 78
+        dialog --title "$title" --yesno "$text" "$height" 78
     else
         local answer
         read -r -p "$text [Y/n]: " answer
@@ -148,6 +148,53 @@ pick() {
     if ! value="$(ui_menu "$@")"; then
         echo "已取消，未写入配置。" >&2
         exit 1
+    fi
+    printf '%s\n' "$value"
+}
+
+# 与 pick 相同，但菜单不显示 tag 列（只显示描述）。返回值仍是 tag。
+# 适用于 tag 是内部值（如秒数）不适合展示给用户的场景。
+pick_notags() {
+    local title="$1" prompt="$2"
+    shift 2
+    local value
+    if [[ "$ui" == "whiptail" ]]; then
+        if ! value="$(whiptail --notags --title "$title" --menu "$prompt" \
+                20 78 12 "$@" 3>&1 1>&2 2>&3)"; then
+            echo "已取消，未写入配置。" >&2
+            exit 1
+        fi
+    elif [[ "$ui" == "dialog" ]]; then
+        if ! value="$(dialog --no-tags --stdout --title "$title" --menu "$prompt" \
+                20 78 12 "$@")"; then
+            echo "已取消，未写入配置。" >&2
+            exit 1
+        fi
+    else
+        # 纯文本：仅显示序号 + 描述，不显示 tag
+        local -a tags=() descs=()
+        while [[ $# -gt 0 ]]; do
+            tags+=("$1"); descs+=("${2:-}"); shift 2
+        done
+        {
+            echo
+            echo "== $title =="
+            echo "$prompt"
+            local i
+            for i in "${!tags[@]}"; do
+                printf '  %2d) %s\n' "$((i + 1))" "${descs[$i]}"
+            done
+        } >&2
+        local choice
+        while true; do
+            read -r -p "请输入序号 [1-${#tags[@]}]: " choice
+            if [[ "$choice" =~ ^[0-9]+$ ]] &&
+               ((choice >= 1 && choice <= ${#tags[@]})); then
+                value="${tags[$((choice - 1))]}"
+                break
+            fi
+            echo "无效选择：$choice" >&2
+        done
     fi
     printf '%s\n' "$value"
 }
@@ -330,37 +377,147 @@ while true; do
     ui_msg "名称无效" "名称只能包含字母、数字、下划线、短横线。"
 done
 
-summary="设备:   $device
+# ---------- 3.5 录像配置 ----------
+# 录像存储根目录：walle-device/data（script_dir 的上一级）
+walle_home="$(cd "$script_dir/.." && pwd)"
+data_root="$walle_home/data"
+
+# 3.5.1 录像目录名
+default_dir_name="recordings"
+while true; do
+    dir_name="$(ask "录像目录名" \
+        "请输入录像目录名（只能包含字母、数字、下划线、短横线）：" "$default_dir_name")"
+    if [[ "$dir_name" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        break
+    fi
+    ui_msg "名称无效" "目录名只能包含字母、数字、下划线、短横线。"
+done
+storage_path="$data_root/$dir_name"
+
+# 3.5.2 存储空间上限
+# 先确保 data_root 存在（否则 df 会因路径不存在返回非 0，在 set -e 下让脚本退出）
+mkdir -p "$data_root" 2>/dev/null || true
+# 取 data_root 所在分区的剩余空间（KB）。|| true 防止 df 异常时脚本退出。
+free_kb="$(df -Pk "$data_root" 2>/dev/null | awk 'NR==2{print $4}' || true)"
+if [[ -z "$free_kb" || ! "$free_kb" =~ ^[0-9]+$ ]]; then
+    # 兜底：仍取不到则用脚本所在分区
+    free_kb="$(df -Pk "$script_dir" 2>/dev/null | awk 'NR==2{print $4}' || true)"
+fi
+if [[ -z "$free_kb" || ! "$free_kb" =~ ^[0-9]+$ ]]; then
+    free_kb=0
+fi
+free_gb_raw=$(( free_kb / 1024 / 1024 ))
+free_gb_frac=$(( (free_kb * 10 / 1024 / 1024) % 10 ))
+free_gb="${free_gb_raw}.${free_gb_frac}"
+
+record_enabled=true
+limit_gb=""
+if (( free_kb < 6 * 1024 * 1024 )); then
+    ui_msg "录像空间不足" \
+        "磁盘剩余空间仅 ${free_gb} GB，低于 6 GB 最低要求，不支持录像。"
+    record_enabled=false
+    limit_gb="3"
+else
+    # 上限范围：3 GB ~ floor(剩余空间/2)
+    max_limit=$(( free_kb / 2 / 1024 / 1024 ))
+    (( max_limit < 3 )) && max_limit=3
+    default_limit=16
+    (( default_limit > max_limit )) && default_limit=$max_limit
+    while true; do
+        limit_input="$(ask "存储空间上限" \
+            "检测到磁盘剩余空间：${free_gb} GB
+可设置范围：3 GB ~ ${max_limit} GB
+
+请输入存储空间上限(GB)：" "$default_limit")"
+        if [[ "$limit_input" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            # 用 python3 做浮点比较，避免 bash 浮点麻烦
+            valid="$(python3 -c "
+v=float('$limit_input')
+print('ok' if 3.0 <= v <= $max_limit else 'bad')" 2>/dev/null)"
+            if [[ "$valid" == "ok" ]]; then
+                limit_gb="$limit_input"
+                break
+            fi
+        fi
+        ui_msg "无效输入" "请输入 3 ~ ${max_limit} 之间的数字。"
+    done
+fi
+
+# 3.5.3 单文件录像时长
+seg_menu=(
+    "1800" "30 分钟"
+    "3600" "1 小时（推荐）"
+    "7200" "2 小时"
+)
+segment_sec="$(pick_notags "单文件录像时长" \
+    "请选择每个录像文件的最大时长：" "${seg_menu[@]}")"
+
+# 3.5.4 自动录像（whiptail/dialog/纯文本均默认“是”）
+auto_record=true
+if ! ui_confirm "自动录像" \
+    "Walle 服务启动成功后，是否自动开始录像？
+
+默认：是。选择“否”时，可通过 Web/App 手动开始录像。"; then
+    auto_record=false
+fi
+
+record_summary="录像功能: 禁用（磁盘不足）"
+if [[ "$record_enabled" == "true" ]]; then
+    record_summary="录像功能: 启用
+存储路径: $storage_path
+存储空间上限: ${limit_gb} GB
+单文件时长: $((segment_sec / 60)) 分钟
+是否自动录像: $([[ "$auto_record" == "true" ]] && echo 是 || echo 否)"
+fi
+
+summary="
+── 摄像头 ──
+设备:   $device
 格式:   $format
 分辨率: ${width}x${height}
 帧率:   ${fps} fps
 名称:   $name
-输出:   $output"
-if ! ui_confirm "确认写入配置" "$summary"; then
+── 录像 ──
+$record_summary"
+if ! ui_confirm "确认写入配置" "$summary" 20; then
     echo "已取消，未写入配置。" >&2
     exit 0
 fi
 
-# ---------- 4. 原子写入 JSON ----------
+# ---------- 4. 原子写入 JSON（schema_version=1，camera / record 分块） ----------
 mkdir -p "$(dirname "$output")"
 tmp="$(mktemp "${output}.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
-python3 - "$tmp" "$name" "$device" "$format" "$width" "$height" "$fps" <<'PY'
+python3 - "$tmp" "$name" "$device" "$format" "$width" "$height" "$fps" \
+    "$record_enabled" "$dir_name" "$storage_path" "$limit_gb" "$segment_sec" \
+    "$auto_record" <<'PY'
 import json
 import sys
 
-path, name, device, fmt, width, height, fps = sys.argv[1:8]
+(path, name, device, fmt, width, height, fps,
+ enabled, dir_name, storage_path, limit_gb, segment_sec,
+ auto_record) = sys.argv[1:14]
 fps_value = float(fps)
 if fps_value.is_integer():
     fps_value = int(fps_value)
 data = {
     "schema_version": 1,
-    "name": name,
-    "device": device,
-    "format": fmt,
-    "width": int(width),
-    "height": int(height),
-    "framerate": fps_value,
+    "camera": {
+        "name": name,
+        "device": device,
+        "format": fmt,
+        "width": int(width),
+        "height": int(height),
+        "framerate": fps_value,
+    },
+    "record": {
+        "enabled": enabled == "true",
+        "dir_name": dir_name,
+        "storage_path": storage_path,
+        "storage_limit_gb": float(limit_gb),
+        "segment_duration_sec": int(segment_sec),
+        "auto_record": auto_record == "true",
+    },
 }
 with open(path, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)

@@ -1,0 +1,14 @@
+# record_video_node 默认参数（实际由 bringup.launch.py 从 walle_camera.conf 注入）
+record_video:
+  ros__parameters:
+    camera_device: /dev/video0
+    width: 1280
+    height: 720
+    framerate: 30.0
+    storage_path: /home/orangepi/walle-ai/walle-device/data/recordings
+    storage_limit_gb: 16.0
+    segment_duration_sec: 3600
+    auto_record: true
+    min_free_space_gb: 6.0
+    bitrate: 2M
+    http_port: 8088

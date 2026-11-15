@@ -1,11 +1,11 @@
-# MQTT 协议约定（文档版本 v1.2）
+# MQTT 协议约定（文档版本 v1.3）
 
 > 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`；ROS2 车控为
 > `walle-device/ros2_ws/src/net/net_mqtt_bridge`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
 > - 与设备通信的，用来控制小车的协议版本：v1  （记录每个协议的版本，用来兼容旧版本） 
-> - 本文档的版本：v1.2 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.3 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -50,9 +50,15 @@ walle/{tenant}/{device}/v1/{resource}
 | 11 | 电机持续控制 | `walle/{t}/{d}/v1/car/motor/set` | `walle/{t}/{d}/v1/car/motor/result` | 持续控制（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车 |
 | 12 | 舵机状态查询 | `walle/{t}/{d}/v1/car/servo/status/query` | `walle/{t}/{d}/v1/car/servo/status/result` | 请求-应答 | v1.2 | 默认只读位置，不读 offset |
 | 13 | 舵机位置设置 | `walle/{t}/{d}/v1/car/servo/set` | `walle/{t}/{d}/v1/car/servo/result` | 请求-应答 | v1.2 | 绝对位置；单舵机越界只跳过该舵机 |
+| 14 | 开始录像 | `walle/{t}/{d}/v1/record/start/request` | `walle/{t}/{d}/v1/record/start/result` | 请求-应答 | v1.3 | 本地 fMP4 落盘 |
+| 15 | 停止录像 | `walle/{t}/{d}/v1/record/stop/request` | `walle/{t}/{d}/v1/record/stop/result` | 请求-应答 | v1.3 | 停止当前录像会话 |
+| 16 | 录像列表 | `walle/{t}/{d}/v1/record/list/query` | `walle/{t}/{d}/v1/record/list/result` | 请求-应答 | v1.3 | 返回历史录像与播放地址 |
+| 17 | 删除录像 | `walle/{t}/{d}/v1/record/delete/request` | `walle/{t}/{d}/v1/record/delete/result` | 请求-应答 | v1.3 | 删除指定录像文件 |
 
 > `{t}` = tenant，`{d}` = device_id。
 > 8/9 只承载「开/关」控制，音频本身走独立 RTMP（§4.8）。
+> 14–17 录像由 `record_video_node` 订阅 `/image_raw` 编码为 fMP4 落盘，播放通过设备内置 HTTP 服务
+> `http://{device_ip}:8088/recordings/<filename>.fmp4` 提供。
 
 ---
 
@@ -755,6 +761,229 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 ---
 
+### 4.13 开始录像 record/start/request → record/start/result（V1.3）
+
+**作用**：让设备端开始本地录像。`record_video_node` 订阅 `/image_raw`，通过 ffmpeg
+编码为 H.264 并封装为 **fragmented MP4（fMP4）** 落盘到 `walle-device/data/recordings/`。
+
+- 请求：`walle/{t}/{d}/v1/record/start/request`
+- 应答：`walle/{t}/{d}/v1/record/start/result`
+- 请求不 retained，QoS1；应答只在收到请求后发布。
+
+**请求字段**：
+
+```json
+{
+  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "request_id": "r1",
+  "segment_sec": 3600
+}
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `uuid` | 是 | 不匹配静默忽略 |
+| `request_id` | 是 | 原样回显 |
+| `segment_sec` | 否 | 单文件录像时长（秒），0 或省略=使用配置默认值（3600） |
+
+**应答字段**：
+
+```json
+{
+  "result": 0,
+  "cause": "ok",
+  "request_id": "r1",
+  "filename": "rec_20261115_143000.fmp4",
+  "started_at": "2026-11-15 14:30:00",
+  "started_ts": 1763187000.0,
+  "play_url": "http://192.168.1.10:8088/recordings/rec_20261115_143000.fmp4",
+  "device_id": "666feb85d43410b2",
+  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "hostname": "orangepi5plus",
+  "ip": "192.168.1.10",
+  "timestamp": 1763187000,
+  "datetime": "2026-11-15 14:30:00"
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `result` | `0` 成功 / `-1` 已在录制 / `-3` 磁盘空间不足 / `-4` 执行失败 |
+| `cause` | `ok` / `已在录制` / `磁盘空间不足` / `执行失败` |
+| `filename` | 自动生成的录像文件名 `rec_YYYYMMDD_HHMMSS.fmp4` |
+| `started_at` | 录像开始的本地时间字符串 |
+| `started_ts` | 录像开始的 Unix 时间戳 |
+| `play_url` | 录像文件的 HTTP 播放地址（`http://{device_ip}:8088/recordings/<filename>`） |
+
+**结果码规则**：
+- `0`：已启动录像；
+- `-1`：已有录像会话在进行，不重复启动；
+- `-3`：磁盘剩余空间低于 6GB 最低要求，拒绝录像；
+- `-4`：`record_video_node` 服务不可用或启动 ffmpeg 失败。
+
+**注意事项**：
+- 录像文件采用 fMP4（`+frag_keyframe+empty_moov+default_base_moof`），
+  每个关键帧一个 fragment，**录制中断后已写入部分仍可播放**；
+- 达到 `segment_sec` 后自动切到新文件（旧文件保留），同一会话连续分片；
+- 录像目录超过存储上限（默认 16GB）时，自动按时间 FIFO 回收最旧文件；
+- 播放通过设备内置 HTTP 服务（默认端口 8088），仅服务 `data/recordings/` 下的 `.fmp4` 文件。
+
+**设备端实现**：`record_video/node.py` 提供 `/record_video/control` 服务；
+`net_mqtt_bridge/record.py`（RecordNodeMixin）调用服务并发布 MQTT 应答。
+
+---
+
+### 4.14 停止录像 record/stop/request → record/stop/result（V1.3）
+
+**作用**：停止当前录像会话，优雅关闭 ffmpeg 并写入文件尾部。
+
+- 请求：`walle/{t}/{d}/v1/record/stop/request`
+- 应答：`walle/{t}/{d}/v1/record/stop/result`
+
+**请求字段**：
+
+```json
+{
+  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "request_id": "r2"
+}
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `uuid` | 是 | 不匹配静默忽略 |
+| `request_id` | 是 | 原样回显 |
+
+**应答字段**：
+
+```json
+{
+  "result": 0,
+  "cause": "ok",
+  "request_id": "r2",
+  "filename": "rec_20261115_143000.fmp4",
+  "device_id": "666feb85d43410b2",
+  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "hostname": "orangepi5plus",
+  "ip": "192.168.1.10",
+  "timestamp": 1763190600,
+  "datetime": "2026-11-15 15:30:00"
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `result` | `0` 成功 / `-2` 当前未录制 / `-4` 执行失败 |
+| `cause` | `ok` / `当前未录制` / `执行失败` |
+| `filename` | 被停止的当前录像文件名 |
+
+---
+
+### 4.15 录像列表 record/list/query → record/list/result（V1.3）
+
+**作用**：查询设备本地已保存的录像文件列表，含播放地址。
+
+- 请求：`walle/{t}/{d}/v1/record/list/query`
+- 应答：`walle/{t}/{d}/v1/record/list/result`
+
+**请求字段**：
+
+```json
+{
+  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "request_id": "r3"
+}
+```
+
+**应答字段**：
+
+```json
+{
+  "result": 0,
+  "cause": "ok",
+  "request_id": "r3",
+  "records": [
+    {
+      "filename": "rec_20261115_143000.fmp4",
+      "size_bytes": 125829120,
+      "created_at": "2026-11-15 14:30:00",
+      "duration_sec": 3600,
+      "play_url": "http://192.168.1.10:8088/recordings/rec_20261115_143000.fmp4"
+    }
+  ],
+  "used_bytes": 125829120,
+  "limit_bytes": 17179869184,
+  "device_id": "666feb85d43410b2",
+  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "hostname": "orangepi5plus",
+  "ip": "192.168.1.10",
+  "timestamp": 1763190600,
+  "datetime": "2026-11-15 15:30:00"
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `records[].filename` | 录像文件名 |
+| `records[].size_bytes` | 文件大小（字节） |
+| `records[].created_at` | 文件创建时间 |
+| `records[].duration_sec` | 录像时长（秒），历史文件按码率估算 |
+| `records[].play_url` | HTTP 播放地址，App 可直接用 `<video src>` 播放 |
+| `used_bytes` | 录像目录已用空间（字节） |
+| `limit_bytes` | 录像目录空间上限（字节） |
+
+---
+
+### 4.16 删除录像 record/delete/request → record/delete/result（V1.3）
+
+**作用**：删除指定的录像文件。正在录制的文件不可删除。
+
+- 请求：`walle/{t}/{d}/v1/record/delete/request`
+- 应答：`walle/{t}/{d}/v1/record/delete/result`
+
+**请求字段**：
+
+```json
+{
+  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "request_id": "r4",
+  "filename": "rec_20261115_143000.fmp4"
+}
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `uuid` | 是 | 不匹配静默忽略 |
+| `request_id` | 是 | 原样回显 |
+| `filename` | 是 | 要删除的文件名（仅文件名，不含路径；必须匹配 `rec_\d{8}_\d{6}\.fmp4`） |
+
+**应答字段**：
+
+```json
+{
+  "result": 0,
+  "cause": "ok",
+  "request_id": "r4",
+  "filename": "rec_20261115_143000.fmp4",
+  "device_id": "666feb85d43410b2",
+  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "hostname": "orangepi5plus",
+  "ip": "192.168.1.10",
+  "timestamp": 1763190600,
+  "datetime": "2026-11-15 15:30:00"
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `result` | `0` 成功 / `-1` 文件不存在 / `-2` 正在录制不可删 / `-3` 非法路径 / `-4` 执行失败 |
+| `cause` | 对应原因说明 |
+
+**安全**：文件名白名单 `^rec_\d{8}_\d{6}\.fmp4$`，删除前校验真实路径在 `data/recordings/`
+目录内，防止路径穿越。
+
+---
+
 ## 5. 修改协议的流程（改前必读）
 
 1. **先改本文档**，让文档成为讨论与评审的载体。
@@ -785,6 +1014,34 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 7. 变更记录
+
+### 2026-11-15：新增录像 record/start|stop|list|delete（V1.3）
+
+**变更类型**：非破坏性增量（协议 v1 主题不变，新增 4 组录像主题）。
+
+**变更内容**
+
+- 新增 4 组请求-应答主题（均为 V1.3）：
+  - `record/start/request` → `record/start/result`：开始本地录像；
+  - `record/stop/request` → `record/stop/result`：停止当前录像；
+  - `record/list/query` → `record/list/result`：查询录像列表与播放地址；
+  - `record/delete/request` → `record/delete/result`：删除指定录像文件。
+- 设备端新增 ROS 包 `record_video`，`record_video_node` 订阅 `/image_raw`，
+  通过 ffmpeg 编码 H.264 + fMP4 封装落盘（`+frag_keyframe+empty_moov+default_base_moof`），
+  支持自动分片、FIFO 空间回收、断电可恢复。
+- 录像文件命名 `rec_YYYYMMDD_HHMMSS.fmp4`，存储于 `walle-device/data/recordings/`，
+  存储空间上限与单文件时长由 `walle_camera.conf` 的 `record` 块配置。
+- 设备内置 HTTP 静态服务（默认端口 8088）提供 `GET /recordings/<file>.fmp4` 播放，
+  文件名白名单防路径穿越。
+- `walle_camera.conf` 升级到 `schema_version=2`，`camera` 与 `record` 分块存储，
+  旧 v1 扁平格式由 `camera_conf.py` 自动兼容。
+- `auto_gen_camera_conf.sh` 在摄像头配置后追加录像参数交互（目录名、存储上限、单文件时长）。
+
+**影响与兼容性**：新增主题，不影响现有 App/设备；旧版 App 不订阅录像结果即可。
+`walle_camera.conf` v1 格式自动兼容，无需手动迁移。
+
+**验证方式**：设备端 `record_video` 包编译通过；`net_mqtt_bridge/test/test_protocol.py`
+校验主题配对与订阅清单；MQTT 客户端发布 `record/list/query` 应返回录像列表。
 
 ### 2026-11-13：新增 car/servo/set 舵机位置设置（V1.2）
 

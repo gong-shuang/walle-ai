@@ -1,9 +1,18 @@
 {
   "schema_version": 1,
-  "name": "front_camera",
-  "device": "/dev/video0",
-  "format": "MJPG",
-  "width": 640,
-  "height": 480,
-  "framerate": 30
+  "camera": {
+    "name": "front_camera",
+    "device": "/dev/video0",
+    "format": "MJPG",
+    "width": 640,
+    "height": 480,
+    "framerate": 30
+  },
+  "record": {
+    "enabled": true,
+    "dir_name": "recordings",
+    "storage_path": "/path/to/walle-device/data/recordings",
+    "storage_limit_gb": 16.0,
+    "segment_duration_sec": 3600
+  }
 }

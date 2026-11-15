@@ -115,6 +115,10 @@ RES_PHONE_AUDIO_STOP_RESULT = "phone/audio/stop/result"   # 收到 phone/audio/s
 RES_CAR_MOTOR_RESULT = "car/motor/result"                 # 收到 car/motor/set 后发布
 RES_CAR_SERVO_STATUS_RESULT = "car/servo/status/result"   # 收到 car/servo/status/query 后发布
 RES_CAR_SERVO_SET_RESULT = "car/servo/result"             # 收到 car/servo/set 后发布
+RES_RECORD_START_RESULT = "record/start/result"           # 收到 record/start/request 后发布
+RES_RECORD_STOP_RESULT = "record/stop/result"             # 收到 record/stop/request 后发布
+RES_RECORD_LIST_RESULT = "record/list/result"             # 收到 record/list/query 后发布
+RES_RECORD_DELETE_RESULT = "record/delete/result"         # 收到 record/delete/request 后发布
 
 # ---- 主动上报（设备 -> App，不必等查询）----
 RES_ONLINE = "online"                       # retained + 遗嘱
@@ -138,6 +142,10 @@ REQ_PHONE_AUDIO_STOP = "phone/audio/stop"     # 手机麦上行：App 停止推�
 REQ_CAR_MOTOR_SET = "car/motor/set"           # 持续控制：最新一条覆盖旧状态
 REQ_CAR_SERVO_STATUS = "car/servo/status/query"   # 查询 PWM 舵机位置/偏移
 REQ_CAR_SERVO_SET = "car/servo/set"              # 设置 PWM 舵机绝对位置
+REQ_RECORD_START = "record/start/request"        # 开始录像
+REQ_RECORD_STOP = "record/stop/request"          # 停止录像
+REQ_RECORD_LIST = "record/list/query"            # 查询录像列表
+REQ_RECORD_DELETE = "record/delete/request"      # 删除录像文件
 
 # ---- car/servo/set 常量 ----
 CAR_SERVO_POSITION_MIN = 800
@@ -337,6 +345,10 @@ REQUEST_TO_RESULT = {
     REQ_CAR_MOTOR_SET: RES_CAR_MOTOR_RESULT,
     REQ_CAR_SERVO_STATUS: RES_CAR_SERVO_STATUS_RESULT,
     REQ_CAR_SERVO_SET: RES_CAR_SERVO_SET_RESULT,
+    REQ_RECORD_START: RES_RECORD_START_RESULT,
+    REQ_RECORD_STOP: RES_RECORD_STOP_RESULT,
+    REQ_RECORD_LIST: RES_RECORD_LIST_RESULT,
+    REQ_RECORD_DELETE: RES_RECORD_DELETE_RESULT,
 }
 
 # 请求资源 → 处理函数名
@@ -350,12 +362,17 @@ REQUEST_HANDLERS = {
     REQ_CAR_MOTOR_SET: "handle_car_motor_set",
     REQ_CAR_SERVO_STATUS: "handle_car_servo_status",
     REQ_CAR_SERVO_SET: "handle_car_servo_set",
+    REQ_RECORD_START: "handle_record_start",
+    REQ_RECORD_STOP: "handle_record_stop",
+    REQ_RECORD_LIST: "handle_record_list",
+    REQ_RECORD_DELETE: "handle_record_delete",
 }
 
 # 动作类请求：可能阻塞数秒（等首帧 / 推流宽限期 / 音频启动），单独线程池处理，
 # 避免占满查询线程（P2-1.4）
 ACTION_REQUESTS = frozenset({
     REQ_VIDEO_START, REQ_VIDEO_STOP, REQ_PHONE_AUDIO_SEND, REQ_PHONE_AUDIO_STOP,
+    REQ_RECORD_START, REQ_RECORD_STOP, REQ_RECORD_DELETE,
 })
 
 # 实时请求：处理只做校验 + 发布 /cmd_vel，必须在 MQTT 回调线程内立即执行，
@@ -384,6 +401,10 @@ def subscriptions():
         (f"{base}/{REQ_CAR_MOTOR_SET}", MQTT_QOS),
         (f"{base}/{REQ_CAR_SERVO_STATUS}", MQTT_QOS),
         (f"{base}/{REQ_CAR_SERVO_SET}", MQTT_QOS),
+        (f"{base}/{REQ_RECORD_START}", MQTT_QOS),
+        (f"{base}/{REQ_RECORD_STOP}", MQTT_QOS),
+        (f"{base}/{REQ_RECORD_LIST}", MQTT_QOS),
+        (f"{base}/{REQ_RECORD_DELETE}", MQTT_QOS),
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
     ]
 

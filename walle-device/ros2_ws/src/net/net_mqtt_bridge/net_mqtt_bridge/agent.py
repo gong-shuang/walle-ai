@@ -111,6 +111,7 @@ from .media import rtmp_secret_ready  # noqa: F401
 from .monitor import MonitorMixin, scan_usb_devices
 from .phone_audio import PhoneAudioMixin
 from .protocol import ProtocolMixin
+from .record import RecordMixin
 from .video import VideoMixin
 
 
@@ -124,8 +125,8 @@ def __getattr__(name):
 
 
 class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
-                 PhoneAudioMixin, CarMotorMixin, CarServoMixin):
-    """设备代理：组合协议、监控、能力、推流、手机音频、车控与舵机状态能力。"""
+                 RecordMixin, PhoneAudioMixin, CarMotorMixin, CarServoMixin):
+    """设备代理：组合协议、监控、能力、推流、录像、手机音频、车控与舵机状态能力。"""
 
     def __init__(self):
         self.client = None
