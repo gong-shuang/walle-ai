@@ -60,7 +60,6 @@ select.deviceSelect{height:32px;max-width:260px;padding:0 10px;border-radius:9px
 .btn.danger:hover{filter:brightness(1.08)}
 .btn.icon{width:34px;padding:0;display:grid;place-items:center;font-size:15px}
 .btn:disabled{opacity:.45;cursor:not-allowed}
-.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
 .card{min-width:0;background:linear-gradient(180deg,rgba(21,27,38,.92),rgba(17,22,31,.92));
   border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:18px}
 .cardHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
@@ -79,7 +78,6 @@ select.deviceSelect{height:32px;max-width:260px;padding:0 10px;border-radius:9px
 <style>
 .statusCard{order:1}
 .videoCard{order:2}
-.carCard{order:3}
 .recordCard{order:4}
 .alarmCard{order:5}
 .identity{display:flex;gap:14px;align-items:center;padding:13px 14px;border-radius:12px;
@@ -111,11 +109,19 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   text-align:center;padding:16px;background:radial-gradient(circle at 50% 40%,rgba(61,220,151,.07),rgba(4,7,11,.94))}
 .videoEmpty p{margin:0;max-width:320px;font-size:12px;color:var(--muted);line-height:1.55}
 .videoEmpty .ico{font-size:26px;color:var(--accent);opacity:.55}
-.videoCtrl{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:10px}
+/* 实时画面：视频居中放大，按钮与提示文字放右侧 */
+.videoStage{display:flex;gap:16px;align-items:center;justify-content:center}
+.videoStage .videoWrap{flex:1 1 auto;max-width:1100px;min-width:0}
+.videoSide{width:190px;flex:none;display:flex;flex-direction:column;gap:9px}
+.videoSideMain{margin:auto 0;display:flex;flex-direction:column;gap:9px}
+.videoSide .btn{width:100%}
+.videoSide .videoMsg{margin-top:2px;max-height:200px}
+/* 实时画面与车辆控制之间的亮色分隔线 */
+.videoSplit{height:2px;margin:18px 0 14px;border-radius:2px;
+  background:linear-gradient(90deg,rgba(61,220,151,0),rgba(61,220,151,.9) 18%,rgba(74,168,255,.9) 82%,rgba(74,168,255,0));
+  box-shadow:0 0 12px rgba(61,220,151,.45)}
 .videoCard .cardHead{display:flex;align-items:center;gap:10px}
 .videoTitle{flex:1;min-width:0}
-.videoCameraSelect{width:320px;max-width:45vw;flex:none}
-.videoCard .cardHead > .btn{flex:none}
 .videoMsg{margin-top:9px;font-size:11.5px;line-height:1.55;color:var(--dim);max-height:64px;overflow:auto;word-break:break-word}
 .videoMsg.ok{color:#9ff0cf}
 .videoMsg.err{color:#ffb3b3}
@@ -129,11 +135,12 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .alarmItem b{display:block;font-size:12px;font-weight:550;color:var(--text);word-break:break-word}
 .alarmItem p{margin:3px 0 0;font-size:11px;color:var(--dim)}
 .alarmItem time{flex:none;font-size:10.5px;color:var(--dim);white-space:nowrap}
-.carBody{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:start}
-.carHalf{min-width:0}
+.carBody{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:center}
+/* 车辆控制：横向排布（键盘左、状态/说明右），压缩卡片高度 */
+.carHalf{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;gap:4px 16px;align-items:center}
 .carHalf + .carHalf{border-left:1px solid var(--line);padding-left:24px}
-.carHalfHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;font-size:12px;font-weight:600;color:var(--text)}
-.carPad{display:grid;grid-template-columns:repeat(3,64px);grid-template-rows:repeat(2,64px);gap:12px;justify-content:start}
+.carHalfHead{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;font-size:12px;font-weight:600;color:var(--text)}
+.carPad{grid-column:1;grid-row:2 / 4;display:grid;grid-template-columns:repeat(3,54px);grid-template-rows:repeat(2,54px);gap:9px;justify-content:start}
 .carKey,.servoKey{
   border:1px solid var(--line2);border-radius:14px;
   background:linear-gradient(180deg,#1b2433,#121923);
@@ -163,10 +170,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .switch input:checked + .slider{background:rgba(61,220,151,.22);border-color:rgba(61,220,151,.55)}
 .switch input:checked + .slider:before{transform:translateX(18px);background:var(--accent)}
 .carInfo{min-width:0}
-.carStatus{font-size:12px;color:var(--muted);word-break:break-all;min-height:18px;margin-top:10px}
+.carStatus{grid-column:2;grid-row:2;align-self:end;font-size:12px;color:var(--muted);word-break:break-all;min-height:18px;margin-top:0}
 .carStatus.ok{color:#9ff0cf}
 .carStatus.err{color:#ffb3b3}
-.carLegend{margin-top:8px;font-size:11px;line-height:1.8;color:var(--dim)}
+.carLegend{grid-column:2;grid-row:3;align-self:start;margin-top:0;font-size:11px;line-height:1.8;color:var(--dim)}
 .carLegend b{color:var(--muted);font-weight:600}
 .emptyState{padding:26px 10px;text-align:center;font-size:12px;color:var(--dim)}
 .scrim{position:fixed;inset:0;z-index:40;background:rgba(3,5,8,.62);backdrop-filter:blur(3px);opacity:0;pointer-events:none;transition:opacity .2s}
@@ -183,9 +190,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .field .hint{font-size:10.5px;line-height:1.55;color:var(--dim)}
 .drawerFoot{display:flex;gap:9px;padding:14px 20px;border-top:1px solid var(--line);background:rgba(255,255,255,.02)}
 .drawerFoot .btn{flex:1}
-@media(max-width:1040px){
-  .grid{grid-template-columns:1fr}
-}
 @media(max-width:720px){
   .shell{padding:16px 14px 30px}
   .topbar{margin:0 -14px 16px;padding:12px 14px}
@@ -198,7 +202,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   .carHalf + .carHalf{border-left:0;border-top:1px solid var(--line);padding-left:0;padding-top:16px}
   .videoCard .cardHead{flex-wrap:wrap}
   .videoTitle{flex:1 1 100%}
-  .videoCameraSelect{flex:1 1 auto;width:auto;max-width:none;min-width:0}
+  .videoStage{flex-direction:column;align-items:stretch}
+  .videoSide{width:100%}
+  .videoSideMain{flex-direction:row;flex-wrap:wrap}
+  .videoSideMain .btn{width:auto;flex:1 1 45%}
+  .videoSideMain .videoMsg{flex:1 1 100%;max-height:120px}
 }
 </style>
 <style>
@@ -394,9 +402,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         <div class="detail"><span>系统</span><b id="dOs">—</b></div>
         <div class="detail"><span>负载 1/5/15m</span><b id="dLoad">—</b></div>
         <div class="detail"><span>网络 下行/上行</span><b id="dNet">—</b></div>
-        <div class="detail"><span>磁盘（根分区）</span><b id="dDisk">—</b></div>
+        <div class="detail"><span>磁盘（聚合）</span><b id="dDisk">—</b></div>
         <div class="detail"><span>USB 设备</span><b id="dUsb">—</b></div>
         <div class="detail"><span>视频推流</span><b id="dVideo">—</b></div>
+        <div class="detail"><span>录像状态</span><b id="dRec">—</b></div>
       </div>
 
       <div class="cardFoot">
@@ -413,21 +422,69 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
           <h2>实时画面</h2>
           <small>video/start|stop → WHEP 拉流</small>
         </div>
-        <select id="cameraSelect" class="input videoCameraSelect"><option value="">摄像头未加载</option></select>
-        <button id="btnCapability" class="btn" type="button" style="height:28px;font-size:11px" disabled title="刷新摄像头能力（capability/query）">刷新</button>
       </div>
-      <div class="videoWrap">
-        <video id="videoEl" muted autoplay playsinline></video>
-        <div id="videoEmpty" class="videoEmpty">
-          <div class="ico">◎</div>
-          <p id="videoHint">页面不自动拉流。连接 MQTT 并选择设备后可开始推流或接管已有画面。</p>
+      <div class="videoStage">
+        <div class="videoWrap">
+          <video id="videoEl" muted autoplay playsinline></video>
+          <div id="videoEmpty" class="videoEmpty">
+            <div class="ico">◎</div>
+            <p id="videoHint">页面不自动拉流。连接 MQTT 并选择设备后可开始推流或接管已有画面。</p>
+          </div>
+        </div>
+        <div class="videoSide">
+          <button id="btnCapability" class="btn" type="button" disabled title="查询视频流状态（state/query）">刷新</button>
+          <div class="videoSideMain">
+            <button id="btnVideoAction" class="btn primary">开始推流</button>
+            <button id="btnVideoStop" class="btn" disabled>停止推流</button>
+            <div id="videoMsg" class="videoMsg">MQTT 未连接</div>
+          </div>
         </div>
       </div>
-      <div class="videoCtrl">
-        <button id="btnVideoAction" class="btn primary">开始推流</button>
-        <button id="btnVideoStop" class="btn" disabled>停止推流</button>
+
+      <div class="videoSplit"></div>
+
+      <div class="carBody">
+        <div class="carHalf">
+          <div class="carHalfHead"><span>车轮控制</span><span class="badge">0.6 m/s</span></div>
+          <div class="carPad">
+            <span class="carGap" aria-hidden="true"></span>
+            <button class="carKey" type="button" data-car-key="w" aria-label="前进">w</button>
+            <span class="carGap" aria-hidden="true"></span>
+            <button class="carKey rot" type="button" data-car-key="a" aria-label="左旋转">a</button>
+            <button class="carKey" type="button" data-car-key="s" aria-label="后退">s</button>
+            <button class="carKey rot" type="button" data-car-key="d" aria-label="右旋转">d</button>
+          </div>
+          <div id="carStatus" class="carStatus">MQTT 未连接</div>
+          <div class="carLegend">
+            <div><b>w</b> 前进 · <b>s</b> 后退</div>
+            <div><b>a</b> 左旋转 · <b>d</b> 右旋转</div>
+            <div>可同时按住一个移动键 + 一个旋转键；松开立即停车。</div>
+          </div>
+        </div>
+        <div class="carHalf">
+          <div class="carHalfHead">
+            <span>相机方位</span>
+            <label class="switch" title="启用相机方位控制">
+              <input type="checkbox" id="servoEnable">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="carPad">
+            <span class="carGap" aria-hidden="true"></span>
+            <button class="servoKey" type="button" data-servo-dir="up" aria-label="上" disabled>↑</button>
+            <span class="carGap" aria-hidden="true"></span>
+            <button class="servoKey" type="button" data-servo-dir="left" aria-label="左" disabled>←</button>
+            <button class="servoKey" type="button" data-servo-dir="down" aria-label="下" disabled>↓</button>
+            <button class="servoKey" type="button" data-servo-dir="right" aria-label="右" disabled>→</button>
+          </div>
+          <div id="servoStatus" class="carStatus">相机方位未启用</div>
+          <div class="carLegend">
+            <div>打开开关后先查询舵机位置</div>
+            <div><b>↑/↓</b> 1号舵机 · <b>←/→</b> 2号舵机</div>
+            <div>按住每 1 秒步进 100；到 800/2200 自动置灰。</div>
+          </div>
+        </div>
       </div>
-      <div id="videoMsg" class="videoMsg">MQTT 未连接</div>
     </section>
 
     <section class="card recordCard" data-tab-target="video-record">
@@ -474,57 +531,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         <button id="btnAlarmClear" class="btn" style="height:28px;font-size:11px">清空</button>
       </div>
       <div id="alarmList" class="alarmList"><div class="emptyState">暂无告警</div></div>
-    </section>
-    <section class="card carCard" data-tab-target="video-monitor">
-      <div class="cardHead">
-        <div>
-          <h2>车辆控制</h2>
-          <small>车轮 / 相机方位 · 按住持续下发</small>
-        </div>
-        <span class="badge">0.6 m/s</span>
-      </div>
-      <div class="carBody">
-        <div class="carHalf">
-          <div class="carHalfHead"><span>车轮控制</span></div>
-          <div class="carPad">
-            <span class="carGap" aria-hidden="true"></span>
-            <button class="carKey" type="button" data-car-key="w" aria-label="前进">w</button>
-            <span class="carGap" aria-hidden="true"></span>
-            <button class="carKey rot" type="button" data-car-key="a" aria-label="左旋转">a</button>
-            <button class="carKey" type="button" data-car-key="s" aria-label="后退">s</button>
-            <button class="carKey rot" type="button" data-car-key="d" aria-label="右旋转">d</button>
-          </div>
-          <div id="carStatus" class="carStatus">MQTT 未连接</div>
-          <div class="carLegend">
-            <div><b>w</b> 前进 · <b>s</b> 后退</div>
-            <div><b>a</b> 左旋转 · <b>d</b> 右旋转</div>
-            <div>可同时按住一个移动键 + 一个旋转键；松开立即停车。</div>
-          </div>
-        </div>
-        <div class="carHalf">
-          <div class="carHalfHead">
-            <span>相机方位</span>
-            <label class="switch" title="启用相机方位控制">
-              <input type="checkbox" id="servoEnable">
-              <span class="slider"></span>
-            </label>
-          </div>
-          <div class="carPad">
-            <span class="carGap" aria-hidden="true"></span>
-            <button class="servoKey" type="button" data-servo-dir="up" aria-label="上" disabled>↑</button>
-            <span class="carGap" aria-hidden="true"></span>
-            <button class="servoKey" type="button" data-servo-dir="left" aria-label="左" disabled>←</button>
-            <button class="servoKey" type="button" data-servo-dir="down" aria-label="下" disabled>↓</button>
-            <button class="servoKey" type="button" data-servo-dir="right" aria-label="右" disabled>→</button>
-          </div>
-          <div id="servoStatus" class="carStatus">相机方位未启用</div>
-          <div class="carLegend">
-            <div>打开开关后先查询舵机位置</div>
-            <div><b>↑/↓</b> 1号舵机 · <b>←/→</b> 2号舵机</div>
-            <div>按住每 1 秒步进 100；到 800/2200 自动置灰。</div>
-          </div>
-        </div>
-      </div>
     </section>
     </main><!-- /mainArea -->
   </div><!-- /layout -->
@@ -603,8 +609,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     prefix: 'walle',
     device: '',
     videoUrl: 'https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream={room}',
-    videoRoom: '',
-    videoCamera: ''
+    videoRoom: ''
   };
   var cfg = loadCfg();
   function loadCfg() {
@@ -632,8 +637,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   var el = {};
   ['deviceSelect', 'connChip', 'connText', 'btnDiscover', 'btnSettings', 'onlineBadge', 'devName', 'devSub',
    'devPills', 'mCpu', 'bCpu', 'mTemp', 'bTemp', 'mMem', 'bMem', 'mUptime', 'bUp', 'dHost', 'dOs', 'dLoad', 'dNet',
-   'dDisk', 'dUsb', 'dVideo', 'stateTime', 'autoState', 'btnState', 'btnCapability', 'videoEl',
-   'videoEmpty', 'videoHint', 'cameraSelect', 'btnVideoAction', 'btnVideoStop',
+   'dDisk', 'dUsb', 'dVideo', 'dRec', 'stateTime', 'autoState', 'btnState', 'btnCapability', 'videoEl',
+   'videoEmpty', 'videoHint', 'btnVideoAction', 'btnVideoStop',
    'videoMsg', 'alarmList', 'btnAlarmClear', 'carStatus', 'servoStatus', 'servoEnable',
    'scrim', 'drawer', 'btnDrawerClose', 'fWsUrl', 'fUser', 'fPass', 'fClientId', 'fKeepalive', 'fDevice',
    'fVideoUrl', 'btnSave',
@@ -645,7 +650,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     .forEach(function (k) { el[k] = document.getElementById(k); });
 
   var ui = { online: false, uuid: '', devices: {}, state: {}, cap: {}, pendingVideo: null,
-    pendingCap: null, pendingVideoStop: null, discoveryRid: '',
+    pendingCap: null, pendingVideoStop: null, discoveryRid: '', videoRefreshing: false,
     video: { pc: null, location: '', room: '', camera: '', lastAlarmKey: '', connected: false, uiStreaming: null },
     car: { held: {}, timer: null, pendingRid: '', wasActive: false },
     servo: { enabled: false, held: {}, pos: { 1: null, 2: null }, timer: null,
@@ -809,7 +814,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
           servoDisable('MQTT 已断开');
           if (ui.pendingCap && ui.pendingCap.timer) clearTimeout(ui.pendingCap.timer);
           ui.pendingCap = null;
-          updateCapabilityButton(false);
+          updateVideoRefreshButton();
           clearRecPending();
           setRecMsg('MQTT 已断开', 'err');
           applyRecordUi();
@@ -958,10 +963,12 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     }
   }
   function stateFail(text) {
+    var cb = ui.statePending && ui.statePending.onDone;
     if (ui.statePending) { clearTimeout(ui.statePending.timer); ui.statePending = null; }
     stateReset(text, true);
+    if (cb) cb(null);
   }
-  function queryState(manual) {
+  function queryState(manual, cb) {
     if (!mqtt || !mqtt.connected) { if (manual) stateFail('MQTT 未连接，无法查询'); return; }
     if (!cfg.device) { if (manual) stateFail('未选择设备'); return; }
     if (ui.offline[cfg.device]) { if (manual) stateFail('设备离线，无法查询'); return; }
@@ -969,9 +976,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (ui.statePending) {
       // 已有查询在途（自动刷新/上一次点击）：共用同一次请求，不互相打断
       if (manual) { el.btnState.disabled = true; el.btnState.textContent = '查询中…'; }
+      if (cb) ui.statePending.onDone = cb;
       return;
     }
-    var p = { rid: '', tries: 0, timer: null };
+    var p = { rid: '', tries: 0, timer: null, onDone: cb || null };
     ui.statePending = p;
     el.btnState.disabled = true;
     el.btnState.textContent = '查询中…';
@@ -994,6 +1002,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (dev !== cfg.device) return;
     // 只认本次请求的应答：request_id 不匹配 = 其他客户端（如 App）的查询结果，一律丢弃
     if (!ui.statePending || !data.request_id || data.request_id !== ui.statePending.rid) return;
+    var cb = ui.statePending.onDone;
     clearTimeout(ui.statePending.timer);
     ui.statePending = null;
     ui.state = data;
@@ -1001,29 +1010,34 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var ts = data.datetime && data.datetime.indexOf(' ') > 0 ? data.datetime.slice(11) : nowTime();
     stateReset('更新于 ' + ts, false);
     renderState();
+    if (cb) cb(data);
   }
   function renderState() {
     var s = ui.state || {}, cpu = s.cpu || {}, mem = s.memory || {}, sys = s.system || {};
-    if (s.online === false) { el.onlineBadge.className = 'badge bad'; el.onlineBadge.textContent = '离线'; }
-    else if (s.online !== undefined) { el.onlineBadge.className = 'badge ok'; el.onlineBadge.textContent = '在线'; }
+    // state/result 不再带 online 字段，在线状态取设备列表（online/discovery）的结果
+    var online = (ui.devices[cfg.device] || {}).online !== false;
+    el.onlineBadge.className = 'badge ' + (online ? 'ok' : 'bad');
+    el.onlineBadge.textContent = online ? '在线' : '离线';
     el.mCpu.innerHTML = (cpu.percent == null ? '—' : Math.round(cpu.percent) + '%') + (cpu.count_logical ? ' <small>' + cpu.count_logical + ' 核</small>' : '');
     el.bCpu.style.width = Math.max(0, Math.min(100, cpu.percent || 0)) + '%';
     el.mTemp.innerHTML = (cpu.temperature_c == null ? '—' : Number(cpu.temperature_c).toFixed(1) + '°C');
     el.bTemp.style.width = Math.max(0, Math.min(100, ((Number(cpu.temperature_c) || 0) / 85) * 100)) + '%';
     el.bTemp.style.background = Number(cpu.temperature_c) >= 75 ? 'linear-gradient(90deg,#f5b45a,#ff6b6b)' : '';
-    el.mMem.innerHTML = (mem.percent == null ? '—' : Math.round(mem.percent) + '%') + (mem.total_human ? ' <small>' + mem.total_human + '</small>' : '');
+    el.mMem.innerHTML = (mem.percent == null ? '—' : Math.round(mem.percent) + '%') + (mem.total_bytes ? ' <small>' + fmtSize(mem.total_bytes) + '</small>' : '');
     el.bMem.style.width = Math.max(0, Math.min(100, mem.percent || 0)) + '%';
-    el.mUptime.textContent = s.uptime_human || (s.uptime_seconds != null ? fmtDur(s.uptime_seconds) : '—');
+    el.mUptime.textContent = s.uptime_seconds != null ? fmtDur(s.uptime_seconds) : '—';
     el.bUp.style.width = '100%';
-    el.dHost.textContent = [sys.hostname || s.hostname, s.ip].filter(Boolean).join(' / ') || '—';
-    el.dOs.textContent = [sys.name || sys.os, sys.kernel, sys.arch].filter(Boolean).join(' · ') || '—';
+    el.dHost.textContent = [s.hostname, s.ip].filter(Boolean).join(' / ') || '—';
+    el.dOs.textContent = [sys.os, sys.kernel, sys.machine].filter(Boolean).join(' · ') || '—';
     el.dLoad.textContent = [cpu.load_avg_1m, cpu.load_avg_5m, cpu.load_avg_15m].map(fmtNum).filter(Boolean).join(' / ') || '—';
     var net = s.network || {};
-    el.dNet.textContent = (net.total_rx_rate || fmtBytes(net.total_rx_bytes_per_sec)) && (net.total_tx_rate || fmtBytes(net.total_tx_bytes_per_sec))
-      ? (net.total_rx_rate || fmtBytes(net.total_rx_bytes_per_sec)) + ' / ' + (net.total_tx_rate || fmtBytes(net.total_tx_bytes_per_sec)) : '—';
-    var mounts = (s.disk && s.disk.mounts) || [];
-    var root = mounts.filter(function (m) { return m.mountpoint === '/' || m.mount === '/'; })[0] || mounts[0];
-    el.dDisk.textContent = root ? ((root.percent == null ? '' : root.percent + '% · ') + (root.used_human || '') + ' / ' + (root.total_human || '')) : '—';
+    var rx = fmtBytes(net.total_rx_bytes_per_sec), tx = fmtBytes(net.total_tx_bytes_per_sec);
+    el.dNet.textContent = (rx && tx) ? rx + ' / ' + tx : '—';
+    // V1.4 起 disk 为聚合总量（total_bytes/used_bytes/percent），不再是 mounts[]
+    var disk = s.disk || {};
+    var dTotal = fmtSize(disk.total_bytes), dUsed = fmtSize(disk.used_bytes);
+    el.dDisk.textContent = (disk.percent == null && !dTotal) ? '—'
+      : (Math.round(disk.percent || 0) + '%' + (dTotal ? ' · ' + dUsed + ' / ' + dTotal : ''));
     el.dUsb.textContent = s.usb ? ((s.usb.count || 0) + ' 个设备') : '—';
     var v = s.video || {};
     el.dVideo.textContent = v.streaming ? ('推流中 · room=' + (v.room_number || '—') + ' · ' + (v.video_device || '—')) : '未推流';
@@ -1031,6 +1045,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       ui.video.room = String(v.room_number);
     }
     if (v.streaming && v.video_device) ui.video.camera = v.video_device;
+    // recording 分组：enable=录像功能是否开启，recording=是否正在录像
+    var rec = s.recording || {};
+    el.dRec.textContent = rec.enable === false ? '功能未开启' : (rec.recording ? '录像中' : '空闲');
     applyVideoUi();
   }
   function fmtDur(sec) {
@@ -1038,61 +1055,43 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     return (d ? d + 'd ' : '') + h + 'h ' + m + 'm';
   }
   function fmtNum(n) { return n == null ? '' : (Math.round(n * 100) / 100).toString(); }
-  function fmtBytes(n) {
+  function fmtSize(n) {
     if (n == null) return '';
-    var u = ['B/s', 'KB/s', 'MB/s', 'GB/s'], i = 0;
+    var u = ['B', 'KB', 'MB', 'GB', 'TB'], i = 0;
     while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
     return (Math.round(n * 10) / 10) + ' ' + u[i];
   }
+  function fmtBytes(n) { return n == null ? '' : fmtSize(n) + '/s'; }
 
   var CAP_WAIT_MS = 5000;
   function canQueryCapability() {
     var offline = !!(cfg.device && ui.devices[cfg.device] && ui.devices[cfg.device].online === false);
     return !!(mqtt && mqtt.connected && cfg.device && ui.uuid && !offline);
   }
-  function updateCapabilityButton(busy) {
+  function updateVideoRefreshButton() {
     if (!el.btnCapability) return;
-    if (busy === undefined) busy = !!ui.pendingCap;
     var can = canQueryCapability();
-    el.btnCapability.disabled = busy || !can;
-    el.btnCapability.textContent = busy ? '刷新中…' : '刷新';
+    el.btnCapability.disabled = !!ui.videoRefreshing || !can;
+    el.btnCapability.textContent = ui.videoRefreshing ? '刷新中…' : '刷新';
     el.btnCapability.title = can
-      ? '重新查询摄像头能力（capability/query）'
+      ? '查询视频流状态（state/query）并校正按钮与提示'
       : 'MQTT 未连接 / 设备离线 / 缺少 uuid';
   }
-  function requestCapability(manual) {
-    if (!mqtt || !mqtt.connected || !cfg.device) {
-      if (manual) setVideoMsg('MQTT 未连接或未选择设备，无法刷新摄像头', 'err');
-      updateCapabilityButton(false);
-      return false;
-    }
-    if (!ui.uuid) {
-      if (manual) setVideoMsg('缺少设备 uuid（等待 online/discovery 回填）', 'err');
-      updateCapabilityButton(false);
-      return false;
-    }
-    if (ui.devices[cfg.device] && ui.devices[cfg.device].online === false) {
-      if (manual) setVideoMsg('设备离线，无法刷新摄像头', 'err');
-      updateCapabilityButton(false);
-      return false;
-    }
+  function requestCapability() {
+    if (!mqtt || !mqtt.connected || !cfg.device) return false;
+    if (!ui.uuid) return false;
+    if (ui.devices[cfg.device] && ui.devices[cfg.device].online === false) return false;
     if (ui.pendingCap && ui.pendingCap.timer) clearTimeout(ui.pendingCap.timer);
     var id = rid();
     var p = { rid: id, timer: null };
     p.timer = setTimeout(function () {
       if (ui.pendingCap !== p) return;
       ui.pendingCap = null;
-      updateCapabilityButton(false);
-      if (manual) setVideoMsg('等待 capability/result 超时（5s）', 'err');
     }, CAP_WAIT_MS);
     ui.pendingCap = p;
-    updateCapabilityButton(true);
-    if (manual) setVideoMsg('正在查询摄像头能力（capability/query）…', null);
     if (!mqtt.publish(base(cfg.device) + '/capability/query', { uuid: ui.uuid, request_id: id })) {
       clearTimeout(p.timer);
       ui.pendingCap = null;
-      updateCapabilityButton(false);
-      if (manual) setVideoMsg('capability/query 发送失败', 'err');
       return false;
     }
     return true;
@@ -1102,26 +1101,15 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (ui.pendingCap && data.request_id && data.request_id !== ui.pendingCap.rid) return;
     if (ui.pendingCap && ui.pendingCap.timer) clearTimeout(ui.pendingCap.timer);
     ui.pendingCap = null;
-    updateCapabilityButton(false);
     ui.cap = data;
+    // capability/query 仍在连接/切换设备时下发，但结果不再回显到画面提示区
     var cams = (data.cameras || []).filter(function (c) { return c && c.node; });
-    el.cameraSelect.innerHTML = '';
     if (!cams.length) {
-      var o = document.createElement('option'); o.value = ''; o.textContent = '未发现摄像头';
-      el.cameraSelect.appendChild(o);
-      setVideoMsg('未发现摄像头（capability/result 为空）', 'err');
+      ui.video.camera = '';
       return;
     }
-    cams.forEach(function (c) {
-      var op = document.createElement('option'); op.value = c.node;
-      op.textContent = c.node + (c.name ? ' · ' + c.name : '');
-      el.cameraSelect.appendChild(op);
-    });
-    var want = ui.state.video && ui.state.video.video_device || ui.video.camera || cams[0].node;
-    var ok = cams.some(function (c) { return c.node === want; });
-    el.cameraSelect.value = ok ? want : cams[0].node;
-    ui.video.camera = el.cameraSelect.value;
-    setVideoMsg('摄像头 ' + cams.length + ' 路；能力：' + ((data.capabilities || []).join(', ') || '—'), null);
+    var want = (ui.state.video && ui.state.video.video_device) || ui.video.camera || cams[0].node;
+    ui.video.camera = cams.some(function (c) { return c.node === want; }) ? want : cams[0].node;
   }
   function room() {
     if (ui.video.room) return ui.video.room;
@@ -1146,7 +1134,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (connected) {
       el.btnVideoAction.className = 'btn';
       el.btnVideoAction.disabled = false;
-      el.btnVideoAction.textContent = '断开画面（已连接）';
+      el.btnVideoAction.textContent = '断开连接';
       el.btnVideoAction.title = '';
     } else if (!streaming) {
       el.btnVideoAction.className = 'btn primary';
@@ -1163,7 +1151,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     el.btnVideoStop.disabled = !streaming;
     el.btnVideoStop.className = 'btn' + (streaming ? ' danger' : '');
     el.btnVideoStop.title = streaming ? '停止设备推流并关闭本页 WHEP 画面' : '设备未推流，无需停止';
-    updateCapabilityButton();
+    updateVideoRefreshButton();
     if (!streaming && !ui.video.pc) el.videoHint.textContent = '设备当前未推流。选择摄像头后点「开始推流」。';
     else if (streaming && !ui.video.pc) el.videoHint.textContent = '设备正在推流' + (rm ? '（room ' + rm + '）' : '') + '，点「连接画面」接管。';
     if (ui.video.uiStreaming !== streaming) {
@@ -1171,11 +1159,51 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       if (!ui.video.pc) setVideoMsg(streaming ? '设备已在推流' + (rm ? '（room ' + rm + '）' : '') : '设备未推流，先「开始推流」', streaming ? 'ok' : null);
     }
   }
+  // 刷新按钮：查一次 state，用 state/result.video 校正按钮与提示
+  function refreshVideoState() {
+    if (!mqtt || !mqtt.connected) { setVideoMsg('MQTT 未连接，无法刷新画面状态', 'err'); return; }
+    if (!cfg.device) { setVideoMsg('未选择设备，无法刷新画面状态', 'err'); return; }
+    if (!ui.uuid) { setVideoMsg('缺少设备 uuid（等待 online/discovery 回填）', 'err'); return; }
+    if (ui.offline[cfg.device] || (ui.devices[cfg.device] && ui.devices[cfg.device].online === false)) { setVideoMsg('设备离线，无法刷新画面状态', 'err'); return; }
+    if (ui.videoRefreshing) return;
+    ui.videoRefreshing = true;
+    updateVideoRefreshButton();
+    setVideoMsg('正在查询视频流状态（state/query）…', null);
+    queryState(false, function (data) {
+      ui.videoRefreshing = false;
+      updateVideoRefreshButton();
+      if (!data) { setVideoMsg('刷新失败：未收到 state/result', 'err'); return; }
+      reconcileVideoState();
+    });
+  }
+  // 用 state/result.video 校正本页按钮状态与「停止推流」下方的提示文字
+  function reconcileVideoState() {
+    var v = (ui.state && ui.state.video) || {};
+    var streaming = v.streaming === true;
+    var devRoom = streaming && v.room_number ? String(v.room_number) : '';
+    var connected = !!(ui.video.pc && ui.video.connected);
+    var uiRoom = ui.video.room ? String(ui.video.room) : '';
+    if (!streaming) {
+      // 设备已停止推流：清掉本页残留画面，按钮回到「开始推流」
+      if (ui.video.pc) closeWhep(true);
+      ui.video.room = '';
+      ui.video.uiStreaming = false;
+      applyVideoUi();
+      setVideoMsg('设备未推流，状态已同步；点「开始推流」启动', 'ok');
+      return;
+    }
+    // 设备在推流，但本页连的是旧房间：先断开，再按新房间接管
+    if (connected && uiRoom && uiRoom !== devRoom) closeWhep(true);
+    ui.video.room = devRoom;
+    applyVideoUi();
+    if (ui.video.pc && ui.video.connected) setVideoMsg('画面与设备一致：推流中 · room ' + devRoom, 'ok');
+    else setVideoMsg('设备正在推流（room ' + devRoom + '），点「连接画面」接管', 'ok');
+  }
   function videoStart() {
     if ((ui.state.video || {}).streaming === true) { setVideoMsg('设备已在推流，无需重复开始；请直接连接画面', 'ok'); applyVideoUi(); return; }
     if (!mqtt || !mqtt.connected || !cfg.device) { setVideoMsg('MQTT 未连接或未选择设备', 'err'); return; }
     if (!ui.uuid) { setVideoMsg('尚未取得设备 uuid', 'err'); return; }
-    var cam = el.cameraSelect.value;
+    var cam = ui.video.camera || ((ui.cap.cameras || []).filter(function (c) { return c && c.node; })[0] || {}).node;
     if (!cam) { setVideoMsg('没有可用摄像头（capability/result 为空）', 'err'); return; }
     var rm = (ui.video.room || room()).trim();
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(rm)) { setVideoMsg('房间号必须为 1–64 位字母、数字、_ 或 -', 'err'); return; }
@@ -1201,11 +1229,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (data.result === 0) {
       ui.video.room = data.room_number || ui.video.room || room();
       cfg.videoRoom = ui.video.room; saveCfg();
-      if (data.video_device && data.video_device !== el.cameraSelect.value) {
-        el.cameraSelect.value = data.video_device;
-      }
+      if (data.video_device) ui.video.camera = data.video_device;
       ui.state.video = { streaming: true, room_number: ui.video.room,
-        video_device: data.video_device || el.cameraSelect.value };
+        video_device: data.video_device || ui.video.camera };
       applyVideoUi();
       setVideoMsg('推流成功（' + (data.action || 'started') + ' · room ' + ui.video.room + '）。点「连接画面」开始拉流。', 'ok');
       queryState();
@@ -2197,7 +2223,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (el.autoState.checked) ui.autoTimer = setInterval(queryState, 10000);
   });
 
-  el.btnCapability.addEventListener('click', function () { requestCapability(true); });
+  el.btnCapability.addEventListener('click', refreshVideoState);
   el.btnVideoAction.addEventListener('click', function () {
     if (ui.video.pc) { closeWhep(true); setVideoMsg('已断开 WHEP 会话', null); return; }
     if ((ui.state.video || {}).streaming !== true) { videoStart(); return; }
@@ -2207,10 +2233,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     startWhep(rm);
   });
   el.btnVideoStop.addEventListener('click', videoStop);
-  el.cameraSelect.addEventListener('change', function () {
-    ui.video.camera = el.cameraSelect.value; cfg.videoCamera = ui.video.camera; saveCfg();
-    setVideoMsg('已选择 ' + ui.video.camera + '；点「开始推流」后生效（同一 room 会重启旧流）', null);
-  });
   el.videoEl.addEventListener('playing', function () {
     el.videoEmpty.classList.add('hide');
     ui.video.connected = true; applyVideoUi();
@@ -2301,19 +2323,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       if (panel) panel.appendChild(sec);
     });
 
-    // 2) video-monitor tabPanel 内需要 grid 包裹 videoCard + carCard
-    var vmPanel = document.querySelector('.tabPanel[data-tab="video-monitor"]');
-    if (vmPanel) {
-      var grid = document.createElement('div');
-      grid.className = 'grid';
-      var videoCard = vmPanel.querySelector('.videoCard');
-      var carCard = vmPanel.querySelector('.carCard');
-      if (videoCard) grid.appendChild(videoCard);
-      if (carCard) grid.appendChild(carCard);
-      vmPanel.appendChild(grid);
-    }
-
-    // 3) 侧边栏切换
+    // 2) 侧边栏切换
     var navItems = document.querySelectorAll('.sideNavItem');
     var tabPanels = document.querySelectorAll('.tabPanel');
     function switchTab(name) {
