@@ -40,7 +40,7 @@ walle/{tenant}/{device}/v1/{resource}
 | 1 | 上线/下线 | — | `walle/{t}/{d}/v1/online` | 主动上报（retained + LWT） | v1.1 | v1.1最小化json报文 |
 | 2 | 设备发现 | `walle/{t}/v1/discovery/query` | `walle/{t}/{d}/v1/discovery/result` | 请求-应答（按需、限频） | v1.1 | v1.1最小化json报文 |
 | 3 | 状态查询 | `walle/{t}/{d}/v1/state/query` | `walle/{t}/{d}/v1/state/result` | 请求-应答 | v1.4 | v1.4精简json报文 |
-| 4 | 设备能力 | `walle/{t}/{d}/v1/capability/query` | `walle/{t}/{d}/v1/capability/result` | 请求-应答 | v1.0 |  |
+| 4 | 设备能力 | `walle/{t}/{d}/v1/capability/query` | `walle/{t}/{d}/v1/capability/result` | 请求-应答 | v1.4 | cameras 去掉 formats |
 | 5 | 开始推流 | `walle/{t}/{d}/v1/video/start/request` | `walle/{t}/{d}/v1/video/start/result` | 请求-应答 | v1.0 |  |
 | 6 | 停止推流 | `walle/{t}/{d}/v1/video/stop/request` | `walle/{t}/{d}/v1/video/stop/result` | 请求-应答 | v1.0 |  |
 | 7 | 告警 | — | `walle/{t}/{d}/v1/alarm` | 主动上报 | v1.0 |  |
@@ -305,10 +305,15 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 （缺分组归空、异常数值归一为 null 等）。**状态是实时查询数据，不落盘**
 （N11 曾落盘又 revert，决策见 git 历史）。
 
-### 4.4 设备能力 capability/query → capability/result（V1.0）
+### 4.4 设备能力 capability/query → capability/result（V1.4）
 
 **作用**：枚举设备端外设能力——摄像头（v4l2）、麦克风/音响（PulseAudio）等，供控制页
 展示与选择。早期只查摄像头，任务 4 起升级为通用能力查询（旧主题已彻底删除，无兼容层）。
+
+**V1.4 变更（报文精简）**：`cameras[]` 去掉 `formats` 字段（格式/分辨率/帧率明细），
+仅保留 `node`、`name`、`detail`、`format_count`、`resolution_count`、`max_resolution`。
+`summary.total_formats` / `total_resolutions` 仍保留作为聚合统计。
+**App 端若解析了 `cameras[].formats` 需同步调整。**
 
 - 请求：`walle/{t}/{d}/v1/capability/query`，字段 `{uuid, request_id}`
 - 应答：`walle/{t}/{d}/v1/capability/result`
@@ -318,13 +323,14 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 | 字段 | 说明 |
 |---|---|
 | `capability` | 固定 `"device"` |
-| `capabilities[]` | 能力标签，按探测结果条件出现：`system_status` 恒有；有摄像头加 `camera_video_capture`；`VIDEO_ENABLE` 开启加 `rtmp_push`；音频可用分别加 `audio_capture` / `audio_playback` |
-| `camera_count` / `cameras[]` | 摄像头列表，每项含 `node`（如 `/dev/video0`）、格式/分辨率/帧率明细、`format_count`、`resolution_count`；无 `node` 的条目 App 侧会过滤 |
+| `capabilities[]` | 能力标签，按探测结果条件出现：`system_status` 恒有；有摄像头加 `camera_video_capture`；`VIDEO_ENABLE` 开启加 `rtmp_push`；音频可用分别加 `audio_capture` / `audio_playback`；`RECORD_ENABLED` 为真加 `recording` |
+| `camera_count` / `cameras[]` | 摄像头列表，每项含 `node`（如 `/dev/video0`）、`name`、`detail`、`format_count`、`resolution_count`、`max_resolution`；无 `node` 的条目 App 侧会过滤 |
 | `audio.capture` | 麦克风：`{available, device, sources[], reason}`；`device` 为默认录音源（通常 `default`），不可用时 `reason` 给出原因 |
 | `audio.playback` | 音响：`{available, device, sinks[], volume_percent, muted, reason}`；`volume_percent` 未知为 null（App 归一为 -1） |
+| `recording` | 录像能力：`{enable}`，`enable` 取自 `walle_camera.conf` 的 `record.enabled`，`true` 表示设备开启了录像功能，App 应展示录像入口 |
 | `summary` | 聚合统计：`total_cameras`、`total_formats`、`total_resolutions`、`audio_sources`、`audio_sinks`、`probe_cost_ms` |
-| `probe` | `{tool: "v4l2-ctl + pactl", error, audio_error}`：`error` / `audio_error` 非 null 分别表示视频 / 音频探测失败（含 CAM_ENABLE=False 的提示）；`pending=true` 表示首次探测尚未完成（见下） |
-| `cache` | `{source: "cache" \| "pending", age_sec, ttl_sec}`：本次应答来自缓存（附缓存年龄）还是首次探测未完成时的占位 |
+| `probe` | 探测元信息：`{tool, error, audio_error, pending}`。`tool` 固定 `"v4l2-ctl + pactl"`；`error` 非 null 表示摄像头探测失败（含 CAM_ENABLE=False 的提示）；`audio_error` 非 null 表示麦克风或音响探测失败；`pending=true` 表示首次探测尚未完成 |
+| `cache` | 缓存元信息：`{source, age_sec, ttl_sec}`。`source="cache"` 表示本次应答来自后台刷新缓存，`age_sec` 为缓存年龄秒数；`source="pending"` 表示首次探测尚未完成，返回占位报文 |
 | `request_id` 及公共字段 | — |
 
 **能力缓存（设备端）**：`v4l2-ctl` / `pactl` 探测耗时可达数秒，设备端由后台线程
