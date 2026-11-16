@@ -1404,7 +1404,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       startRecDurationTimer();
       setRecMsg('录像已开始：' + ui.record.filename, 'ok');
       applyRecordUi();
-      recordList();  // 开始录像后自动刷新列表
+      // 设备刚创建录像文件，立即查询可能拿到旧状态；延迟 1s 再刷新列表
+      setTimeout(recordList, 1000);
     } else {
       var reasons = { '-1': '已在录制', '-3': '磁盘空间不足', '-4': '执行失败' };
       setRecMsg('开始录像失败：' + (reasons[data.result] || data.cause || ('result=' + data.result)), 'err');
