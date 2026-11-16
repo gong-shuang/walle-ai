@@ -12,6 +12,7 @@ import psutil
 
 from . import config
 from .identity import (get_pi_model, human_rate, human_size, now_str, now_ts)
+from .record import RECORD_ENABLED
 
 
 def get_cpu_temp():
@@ -40,6 +41,11 @@ def scan_usb_devices():
     扫描当前 USB 设备列表。
     返回 {sysfs名: 设备信息}，如 {"1-1.2": {...}}。
     只读取 sysfs，不依赖 lsusb / pyudev。
+
+    只统计"用户视角的 USB 设备"：
+      - 跳过 root hub（usbN 节点，主板 USB 控制器本身）；
+      - 跳过 Hub 类设备（bDeviceClass=09，含板载/外接 Hub），
+        Hub 下面挂的设备会作为独立节点出现，不受影响。
     """
     devices = {}
     if not config.USB_SYSFS.exists():
@@ -47,6 +53,9 @@ def scan_usb_devices():
     for dev_path in sorted(config.USB_SYSFS.iterdir()):
         if not dev_path.is_dir() or ":" in dev_path.name:
             # 带冒号的是接口（如 1-1.2:1.0），跳过；只看设备节点
+            continue
+        if dev_path.name.startswith("usb"):
+            # usbN 是根控制器（root hub），不是外接设备
             continue
 
         def read(name):
@@ -58,6 +67,9 @@ def scan_usb_devices():
         vid = read("idVendor")
         if not vid:
             # 没有 idVendor 的条目忽略（通常是控制器占位节点）
+            continue
+        if (read("bDeviceClass") or "").lower() == "09":
+            # Hub 本身不算插入设备（USB 规范设备类 09 = Hub）
             continue
         # 顺便找出该 USB 设备下挂的块设备节点（如 U 盘 /dev/sda1）
         block_nodes = []
@@ -112,16 +124,25 @@ def calc_net_rates(prev, elapsed):
 
 
 def disk_mounts():
-    """所有真实磁盘挂载点的使用情况"""
-    mounts = []
+    """所有真实磁盘挂载点的使用情况。
+
+    - 排除 zram（内存压缩盘，不是磁盘，如 Armbian 的 /var/log）；
+    - 同一设备只算一次（log2ram 等会把根分区再挂到 /var/log.hdd，
+      不去重会让总量翻倍）；同设备优先保留 "/" 挂载点。
+    """
+    mounts = {}
     for part in psutil.disk_partitions(all=False):
         if part.fstype in config.SKIP_FSTYPE or part.mountpoint.startswith(("/snap/", "/proc", "/sys")):
+            continue
+        if part.device.startswith("/dev/zram"):
+            continue
+        if part.device in mounts and mounts[part.device]["mount"] == "/":
             continue
         try:
             u = psutil.disk_usage(part.mountpoint)
         except OSError:
             continue
-        mounts.append({
+        mounts[part.device] = {
             "mount": part.mountpoint,
             "device": part.device,
             "fstype": part.fstype,
@@ -132,8 +153,8 @@ def disk_mounts():
             "total_human": human_size(u.total),
             "used_human": human_size(u.used),
             "free_human": human_size(u.free),
-        })
-    return mounts
+        }
+    return list(mounts.values())
 
 
 class MonitorMixin:
@@ -214,21 +235,26 @@ class MonitorMixin:
             cores, per_iface, total_rx, total_tx, interval, sampled_at = sample
 
         vm = psutil.virtual_memory()
-        sw = None
-        try:
-            sw = psutil.swap_memory()
-        except OSError:
-            sw = None
         try:
             load1, load5, load15 = os.getloadavg()
         except (OSError, AttributeError):
             load1 = load5 = load15 = None
-        try:
-            freq = psutil.cpu_freq()
-        except (OSError, RuntimeError, SystemError):
-            freq = None
         # USB 列表由 monitor_loop 的 check_usb 每轮刷新，查询直接复用（≤1 个采样周期）
+        # scan_usb_devices 只收集真正插了设备的节点，空接口本来就不会出现
         usb = dict(self.usb_state)
+        # 磁盘聚合总量：不再逐 mount 上报，App 只看总容量/已用/剩余
+        mounts = disk_mounts()
+        disk_total = sum(m["total_bytes"] for m in mounts)
+        disk_used = sum(m["used_bytes"] for m in mounts)
+        disk_free = sum(m["free_bytes"] for m in mounts)
+        # 录像状态由 node.py 在 record start/stop 应答后维护；独立运行/测试时缺省为未录像
+        # enable 来自 walle_camera.conf 的 record.enabled（配置关闭时 App 隐藏录像入口）
+        state = getattr(self, "recording_state", None) or {}
+        recording = {
+            "enable": RECORD_ENABLED,
+            "recording": bool(state.get("recording")),
+            "filename": state.get("filename"),
+        }
 
         return {
             "device_id": config.DEVICE_ID,
@@ -252,19 +278,13 @@ class MonitorMixin:
             },
             "cpu": {
                 "percent": round(sum(cores) / len(cores), 1),
-                "per_core_percent": cores,
                 "count_logical": psutil.cpu_count(logical=True),
                 "count_physical": psutil.cpu_count(logical=False),
                 "load_avg_1m": round(load1, 2) if load1 is not None else None,
                 "load_avg_5m": round(load5, 2) if load5 is not None else None,
                 "load_avg_15m": round(load15, 2) if load15 is not None else None,
-                "frequency_mhz": {
-                    "current": round(freq.current, 1) if freq else None,
-                    "min": round(freq.min, 1) if freq and freq.min else None,
-                    "max": round(freq.max, 1) if freq and freq.max else None,
-                },
                 "temperature_c": get_cpu_temp(),
-                "sample_interval_sec": interval,
+                "sample_interval_sec": round(interval, 2),
             },
             "memory": {
                 "percent": vm.percent,
@@ -272,32 +292,23 @@ class MonitorMixin:
                 "used_bytes": vm.used,
                 "available_bytes": vm.available,
                 "free_bytes": vm.free,
-                "total_human": human_size(vm.total),
-                "used_human": human_size(vm.used),
-                "available_human": human_size(vm.available),
-                "swap": ({
-                    "percent": sw.percent,
-                    "total_bytes": sw.total,
-                    "used_bytes": sw.used,
-                    "total_human": human_size(sw.total),
-                    "used_human": human_size(sw.used),
-                } if sw is not None else None),
             },
             "disk": {
-                "mounts": disk_mounts(),
+                "total_bytes": disk_total,
+                "used_bytes": disk_used,
+                "free_bytes": disk_free,
+                "percent": round(disk_used / disk_total * 100, 1) if disk_total else 0.0,
             },
             "network": {
                 "sample_interval_sec": round(interval, 2),
                 "total_rx_bytes_per_sec": round(total_rx, 1),
                 "total_tx_bytes_per_sec": round(total_tx, 1),
-                "total_rx_rate": human_rate(total_rx),
-                "total_tx_rate": human_rate(total_tx),
-                "interfaces": per_iface,
             },
             "usb": {
                 "count": len(usb),
                 "devices": list(usb.values()),
             },
+            "recording": recording,
             "video": self._video_status(),
             "alarms": {
                 "active": sorted(self.active_alarms),
@@ -307,7 +318,6 @@ class MonitorMixin:
                     "disk_percent": config.THRESH_DISK,
                     "temperature_c": config.THRESH_TEMP,
                     "network_bytes_per_sec": config.THRESH_NET_BPS,
-                    "network_rate_human": human_rate(config.THRESH_NET_BPS),
                 },
             },
         }

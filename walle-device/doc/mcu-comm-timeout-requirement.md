@@ -74,7 +74,7 @@ void safety_loop(void) {              /* 建议 10ms 周期 */
 | # | 场景 | 操作 | 期望 |
 | --- | --- | --- | --- |
 | 1 | 正常链路 | 上位机以 10–20Hz 连续发速度 | 持续转动，不触发超时 |
-| 2 | 停发指令 | `python3 tools/test_mcu_timeout.py --speed 20 --pulse 0.3` | 停止发送后 0.5s 内停转 |
+| 2 | 停发指令 | `python3 test/test_mcu_timeout.py --speed 20 --pulse 0.3` | 停止发送后 0.5s 内停转 |
 | 3 | 杀进程 | 运行 bringup 使轮子转动，`kill -9` 上位机进程 | 0.5s 内停转 |
 | 4 | 整机断电 | 直接断开树莓派电源 | 0.5s 内停转 |
 | 5 | 干扰帧 | 只发舵机 / OLED / RGB，不发电机帧 | 保持停止，不误启动 |

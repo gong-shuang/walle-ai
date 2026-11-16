@@ -10,6 +10,7 @@ from . import config
 from .audio import probe_audio_capture, probe_audio_playback
 from .identity import now_str, now_ts
 from .media import list_cameras
+from .record import RECORD_ENABLED
 
 
 class CapabilityMixin:
@@ -36,6 +37,8 @@ class CapabilityMixin:
             capabilities.append("audio_capture")
         if playback["available"]:
             capabilities.append("audio_playback")
+        if RECORD_ENABLED:
+            capabilities.append("recording")
 
         return {
             "device_id": config.DEVICE_ID,
@@ -49,6 +52,9 @@ class CapabilityMixin:
             "audio": {
                 "capture": capture,
                 "playback": playback,
+            },
+            "recording": {
+                "enable": RECORD_ENABLED,
             },
             "summary": {
                 "total_cameras": len(cameras),
@@ -122,10 +128,14 @@ class CapabilityMixin:
             "hostname": config.HOSTNAME,
             "ip": self.lan_ip,
             "capability": "device",
-            "capabilities": ["system_status"],
+            "capabilities": (["system_status", "recording"]
+                             if RECORD_ENABLED else ["system_status"]),
             "camera_count": 0,
             "cameras": [],
             "audio": {"capture": empty_capture, "playback": empty_playback},
+            "recording": {
+                "enable": RECORD_ENABLED,
+            },
             "summary": {
                 "total_cameras": 0,
                 "total_formats": 0,

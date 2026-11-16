@@ -1,0 +1,3 @@
+# Walle 串口映射：香橙派5 主控板
+# 将 /dev/ttyS6（SoC UART）固定为 /dev/wi_uart
+KERNEL=="ttyS6", SUBSYSTEM=="tty", SYMLINK+="wi_uart", GROUP="dialout", MODE="0660"

@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""P2-1.3：H.264 编码器选择与硬件 M2M 探测测试。"""
+"""P2-1.3：H.264 编码器选择与硬件编码探测测试。"""
 
 import pytest
 
 from video_webrtc_bridge import node as video_node
 from video_webrtc_bridge.node import (
     HW_H264_ENCODER,
+    MPP_H264_ENCODER,
     SOFTWARE_H264_ENCODER,
     VideoWebrtcBridge,
+    bitrate_to_bps,
     probe_hw_h264_encoder,
+    probe_mpp_h264_encoder,
     select_encoder,
 )
 
@@ -25,6 +28,29 @@ from video_webrtc_bridge.node import (
 ])
 def test_select_encoder(preference, hw_available, expected):
     assert select_encoder(preference, hw_available) == expected
+
+
+@pytest.mark.parametrize("preference,hw_available,mpp_available,expected", [
+    ("auto", True, True, MPP_H264_ENCODER),
+    ("auto", False, True, MPP_H264_ENCODER),
+    ("auto", True, False, HW_H264_ENCODER),
+    ("mpph264enc", True, True, MPP_H264_ENCODER),
+    ("mpph264enc", False, False, SOFTWARE_H264_ENCODER),
+])
+def test_select_encoder_prefers_mpp(preference, hw_available, mpp_available, expected):
+    assert select_encoder(preference, hw_available, mpp_available) == expected
+
+
+@pytest.mark.parametrize("value,default,expected", [
+    ("1000k", 1, 1000000),
+    ("2M", 1, 2000000),
+    ("128k", 1, 128000),
+    ("96000", 1, 96000),
+    ("", 123, 123),
+    ("bad", 456, 456),
+])
+def test_bitrate_to_bps(value, default, expected):
+    assert bitrate_to_bps(value, default) == expected
 
 
 class _Proc:
@@ -59,8 +85,25 @@ def test_probe_hw_encoder_without_ffmpeg(monkeypatch):
     assert "ffmpeg" in reason
 
 
+def test_probe_mpp_encoder_ok(monkeypatch):
+    monkeypatch.setattr(video_node.subprocess, "run", lambda *a, **k: _Proc(0))
+    ok, reason = probe_mpp_h264_encoder()
+    assert ok is True
+    assert reason is None
+
+
+def test_probe_mpp_encoder_without_gst_launch(monkeypatch):
+    def _raise(*_args, **_kwargs):
+        raise FileNotFoundError("gst-launch-1.0")
+
+    monkeypatch.setattr(video_node.subprocess, "run", _raise)
+    ok, reason = probe_mpp_h264_encoder()
+    assert ok is False
+    assert "gst-launch-1.0" in reason
+
+
 def _bare_node(encoder):
-    """只填 _build_ffmpeg_cmd 需要的属性，不初始化 rclpy 节点。"""
+    """只填构建命令需要的属性，不初始化 rclpy 节点。"""
     node = object.__new__(VideoWebrtcBridge)
     node.framerate = 30.0
     node.video_preset = "ultrafast"
@@ -94,3 +137,37 @@ def test_build_cmd_hardware_encoder_has_no_preset():
     assert "-preset" not in cmd
     assert "-tune" not in cmd
     assert "-b:v" in cmd and "1000k" in cmd
+
+
+def test_build_gst_cmd_video_only():
+    cmd = _bare_node(MPP_H264_ENCODER)._build_gst_cmd(
+        640, 480, "rtmp://example/live/room", {"available": False})
+    assert cmd[:2] == ["gst-launch-1.0", "-q"]
+    assert "fdsrc" in cmd and "rawvideoparse" in cmd
+    assert "format=rgb" in cmd
+    assert "videoconvert" in cmd
+    assert "mpph264enc" in cmd
+    assert "bps=1000000" in cmd
+    assert "rc-mode=cbr" in cmd
+    assert "gop=60" in cmd
+    assert "flvmux" in cmd and "rtmpsink" in cmd
+    assert "location=rtmp://example/live/room" in cmd
+    assert "pulsesrc" not in cmd
+
+
+def test_build_gst_cmd_with_audio():
+    cmd = _bare_node(MPP_H264_ENCODER)._build_gst_cmd(
+        640, 480, "rtmp://example/live/room",
+        {"available": True, "device": "default"})
+    assert "pulsesrc" in cmd
+    # "default" 是 ffmpeg 写法，pulsesrc 需省略 device 用默认源
+    assert "device=default" not in cmd
+    assert "voaacenc" in cmd and "bitrate=128000" in cmd
+    assert cmd[-1] == "mux."
+
+
+def test_build_gst_cmd_with_named_audio_device():
+    cmd = _bare_node(MPP_H264_ENCODER)._build_gst_cmd(
+        640, 480, "rtmp://example/live/room",
+        {"available": True, "device": "alsa_input.usb-mic"})
+    assert "device=alsa_input.usb-mic" in cmd

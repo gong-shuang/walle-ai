@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 """video_webrtc_bridge
 
-订阅 /image_raw，收到开始推流指令后把 RGB 帧通过管道送给 ffmpeg，编码为 H.264
-并推 RTMP 到 Oryx/SRS；App 继续用 WHEP 拉流。停止指令或 MQTT 网关心跳丢失时自动停流。
+订阅 /image_raw，收到开始推流指令后把 RGB 帧通过管道送进编码进程，编码为 H.264
+（优先 Rockchip MPP 硬件编码，回退 ffmpeg/libx264）并推 RTMP 到 Oryx/SRS；
+App 继续用 WHEP 拉流。停止指令或 MQTT 网关心跳丢失时自动停流。
 
 对外接口：
   服务  /video_webrtc_bridge/stream_control   interfaces/srv/VideoStreamControl
@@ -32,10 +33,11 @@ from interfaces.srv import VideoStreamControl
 
 DEFAULT_ROOM_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 
-# H.264 编码器（P2-1.3）：auto 优先硬件 V4L2 M2M，不可用时回退软件 libx264
+# H.264 编码器（P2-1.3）：auto 优先 Rockchip MPP 硬件编码，其次 V4L2 M2M，最后 libx264
+MPP_H264_ENCODER = "mpph264enc"
 HW_H264_ENCODER = "h264_v4l2m2m"
 SOFTWARE_H264_ENCODER = "libx264"
-ENCODER_CHOICES = ("auto", SOFTWARE_H264_ENCODER, HW_H264_ENCODER)
+ENCODER_CHOICES = ("auto", MPP_H264_ENCODER, SOFTWARE_H264_ENCODER, HW_H264_ENCODER)
 
 
 def valid_room_number(room, pattern=DEFAULT_ROOM_PATTERN):
@@ -47,20 +49,71 @@ def valid_room_number(room, pattern=DEFAULT_ROOM_PATTERN):
     return re.fullmatch(pattern, room or "") is not None
 
 
-def select_encoder(preference, hw_available):
+def select_encoder(preference, hw_available, mpp_available=False):
     """按配置与硬件探测结果选择 H.264 编码器。
 
     preference:
-      auto           有可用硬件编码器就用 h264_v4l2m2m，否则 libx264
+      auto           优先 mpph264enc（Rockchip MPP），其次 h264_v4l2m2m，最后 libx264
+      mpph264enc     强制 GStreamer MPP，不可用时回退 libx264
+      h264_v4l2m2m   强制 ffmpeg V4L2 M2M，不可用时回退 libx264
       libx264        强制软件编码
-      h264_v4l2m2m   强制硬件，但硬件不可用时仍回退 libx264（避免推流直接失败）
     """
     pref = (preference or "auto").strip().lower()
     if pref == SOFTWARE_H264_ENCODER:
         return SOFTWARE_H264_ENCODER
+    if mpp_available and pref in ("auto", MPP_H264_ENCODER):
+        return MPP_H264_ENCODER
     if hw_available and pref in ("auto", HW_H264_ENCODER):
         return HW_H264_ENCODER
     return SOFTWARE_H264_ENCODER
+
+
+def bitrate_to_bps(value, default_bps):
+    """把 ``1000k`` / ``2M`` 这类码率配置转成 bps 整数。"""
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([kKmM]?)\s*", str(value or ""))
+    if not match:
+        return default_bps
+    bps = float(match.group(1))
+    unit = match.group(2).lower()
+    if unit == "k":
+        bps *= 1000
+    elif unit == "m":
+        bps *= 1000 * 1000
+    return max(int(bps), 1)
+
+
+def probe_mpp_h264_encoder(timeout=8.0):
+    """用一次 320x240、10 帧的试编码判断 Rockchip MPP 硬件编码器是否可用。
+
+    Orange Pi 5 Plus（RK3588）的编码器走 MPP（/dev/mpp_service），
+    对应 GStreamer 元素 mpph264enc；ffmpeg 的 h264_v4l2m2m 在该平台
+    找不到 V4L2 M2M 设备。返回 (可用, 原因)。
+    """
+    cmd = [
+        "gst-launch-1.0", "-q",
+        "videotestsrc", "num-buffers=10",
+        "!", "video/x-raw,width=320,height=240,framerate=30/1,format=NV12",
+        "!", "mpph264enc", "!", "fakesink",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            timeout=timeout,
+        )
+    except FileNotFoundError:
+        return False, "未安装 gst-launch-1.0（sudo apt install -y gstreamer1.0-tools）"
+    except subprocess.TimeoutExpired:
+        return False, "MPP 硬件编码试编码超时（>%.1fs）" % timeout
+    except Exception as exc:  # noqa: BLE001
+        return False, "MPP 硬件编码试编码失败: %s" % exc
+    if proc.returncode == 0:
+        return True, None
+    lines = [ln.strip() for ln in
+             (proc.stdout or b"").decode("utf-8", "replace").splitlines()
+             if ln.strip()]
+    detail = lines[-1][:200] if lines else "退出码 %s" % proc.returncode
+    return False, detail
 
 
 def probe_hw_h264_encoder(timeout=8.0):
@@ -238,7 +291,7 @@ class VideoWebrtcBridge(Node):
         self.video_bitrate = self.declare_parameter("video_bitrate", "1000k").value
         self.video_gop = int(self.declare_parameter("video_gop", 60).value)
         self.video_preset = self.declare_parameter("video_preset", "ultrafast").value
-        # auto / libx264 / h264_v4l2m2m；auto 时启动探测硬件编码器，未知值按 auto
+        # auto / mpph264enc / libx264 / h264_v4l2m2m；auto 时启动探测，未知值按 auto
         self.video_encoder = self.declare_parameter("video_encoder", "auto").value
         self._encoder = None
 
@@ -479,8 +532,14 @@ class VideoWebrtcBridge(Node):
             width, height = self._frame_size
 
         audio = self._detect_microphone()
+        if (self._select_encoder() == MPP_H264_ENCODER
+                and audio.get("available")
+                and (self.audio_codec or "").lower() != "aac"):
+            audio["available"] = False
+            audio["reason"] = "GStreamer MPP 后端音频编码仅支持 aac"
         url = self._build_rtmp_url(room)
-        cmd = self._build_ffmpeg_cmd(width, height, url, audio)
+        cmd = self._build_stream_cmd(width, height, url, audio)
+        program = os.path.basename(cmd[0])
         masked_url = self._mask_url(url)
         command_text = " ".join(cmd).replace(url, masked_url)
         started_at = _now_str()
@@ -505,14 +564,14 @@ class VideoWebrtcBridge(Node):
             response.result = -2
             response.cause = "命令执行失败"
             response.action = "failed"
-            response.error = "未安装 ffmpeg，请执行: sudo apt install -y ffmpeg"
+            response.error = "未安装 %s（ffmpeg 或 gstreamer1.0-tools）" % program
             return response
         except Exception as exc:  # noqa: BLE001
             sink.close()
             response.result = -2
             response.cause = "命令执行失败"
             response.action = "failed"
-            response.error = "启动 ffmpeg 失败: %s" % exc
+            response.error = "启动 %s 失败: %s" % (program, exc)
             return response
 
         threading.Thread(
@@ -558,8 +617,8 @@ class VideoWebrtcBridge(Node):
             response.result = -2
             response.cause = "命令执行失败"
             response.action = "failed"
-            response.error = "ffmpeg 退出码 %s（日志: %s）%s" % (
-                code, sink.path, (": " + tail) if tail else "")
+            response.error = "%s 退出码 %s（日志: %s）%s" % (
+                program, code, sink.path, (": " + tail) if tail else "")
             return response
 
         watch = threading.Thread(
@@ -639,7 +698,7 @@ class VideoWebrtcBridge(Node):
 
     # ------------------------------------------------------------------ 推流进程
     def _select_encoder(self):
-        """选择 H.264 编码器并缓存（P2-1.3：auto 优先硬件，失败回退 libx264）。"""
+        """选择 H.264 编码器并缓存（auto 优先 MPP，其次 M2M，最后 libx264）。"""
         if self._encoder is not None:
             return self._encoder
         pref = (self.video_encoder or "auto").strip().lower()
@@ -647,18 +706,67 @@ class VideoWebrtcBridge(Node):
             self.get_logger().warning(
                 "未知 video_encoder=%s，按 auto 处理" % self.video_encoder)
             pref = "auto"
-        hw_ok, reason = False, "未探测"
-        if pref in ("auto", HW_H264_ENCODER):
-            hw_ok, reason = probe_hw_h264_encoder()
-        encoder = select_encoder(pref, hw_ok)
-        if encoder == HW_H264_ENCODER:
+        mpp_ok, mpp_reason = False, "未探测"
+        hw_ok, hw_reason = False, "未探测"
+        if pref in ("auto", MPP_H264_ENCODER):
+            mpp_ok, mpp_reason = probe_mpp_h264_encoder()
+        if not mpp_ok and pref in ("auto", HW_H264_ENCODER):
+            hw_ok, hw_reason = probe_hw_h264_encoder()
+        encoder = select_encoder(pref, hw_ok, mpp_ok)
+        if encoder == MPP_H264_ENCODER:
+            self.get_logger().info(
+                "视频编码器: mpph264enc（GStreamer/Rockchip MPP 硬件编码）")
+        elif encoder == HW_H264_ENCODER:
             self.get_logger().info("视频编码器: h264_v4l2m2m（V4L2 M2M 硬件编码）")
         else:
             self.get_logger().info(
-                "视频编码器: libx264（软件编码；硬件 M2M 不可用：%s）"
-                % (reason or "未启用"))
+                "视频编码器: libx264（软件编码；MPP 不可用：%s；V4L2 M2M 不可用：%s）"
+                % (mpp_reason or "未启用", hw_reason or "未启用"))
         self._encoder = encoder
         return encoder
+
+    def _build_stream_cmd(self, width, height, url, audio):
+        if self._select_encoder() == MPP_H264_ENCODER:
+            return self._build_gst_cmd(width, height, url, audio)
+        return self._build_ffmpeg_cmd(width, height, url, audio)
+
+    def _build_gst_cmd(self, width, height, url, audio):
+        """GStreamer + Rockchip MPP：stdin RGB 帧 -> mpph264enc -> RTMP。"""
+        fps = max(int(round(self.framerate)), 1)
+        video_bps = bitrate_to_bps(self.video_bitrate, 1000 * 1000)
+        cmd = [
+            "gst-launch-1.0", "-q", "-e",
+            "fdsrc", "fd=0",
+            "!", "rawvideoparse", "format=rgb",
+            "width=%d" % width, "height=%d" % height, "framerate=%d/1" % fps,
+            "!", "videoconvert",
+            "!", "video/x-raw,format=NV12",
+            "!", "mpph264enc", "bps=%d" % video_bps, "rc-mode=cbr",
+            "gop=%d" % max(int(self.video_gop), 1),
+            "!", "h264parse",
+            "!", "queue",
+            "!", "flvmux", "name=mux", "streamable=true",
+            "!", "queue",
+            "!", "rtmpsink", "location=%s" % url,
+        ]
+        if audio.get("available"):
+            audio_bps = bitrate_to_bps(self.audio_bitrate, 128 * 1000)
+            audio_dev = (audio.get("device") or self.audio_device or "").strip()
+            audio_src = ["pulsesrc"]
+            # pulsesrc 的 device 必须是 PulseAudio 源名称；"default" 是
+            # ffmpeg 的写法，传给 pulsesrc 会报 No such entity，留空用默认源。
+            if audio_dev and audio_dev.lower() != "default":
+                audio_src.append("device=%s" % audio_dev)
+            cmd += audio_src + [
+                "!", "audioconvert",
+                "!", "audioresample",
+                "!", "audio/x-raw,rate=44100,channels=2",
+                "!", "voaacenc", "bitrate=%d" % audio_bps,
+                "!", "aacparse",
+                "!", "queue",
+                "!", "mux.",
+            ]
+        return cmd
 
     def _build_ffmpeg_cmd(self, width, height, url, audio):
         fps = int(round(self.framerate))
@@ -813,7 +921,7 @@ class VideoWebrtcBridge(Node):
         proc._intentional_stop = True
         if writer_stop is not None:
             writer_stop.set()
-        # 先关 stdin 让 ffmpeg 读到 EOF 并自行收尾；只发 SIGTERM 时它可能
+        # 先关 stdin 让编码进程读到 EOF 并自行收尾；只发 SIGTERM 时它可能
         # 阻塞在 read(stdin) 上，3 秒后只能被 SIGKILL。
         try:
             if proc.stdin is not None:

@@ -1,3 +1,4 @@
+import importlib.util
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -22,6 +23,18 @@ def _version_banner():
         os.environ.get('WALLE_VERSION_NAME', 'unknown'),
         os.environ.get('WALLE_VERSION_NUM', 'unknown'),
         os.environ.get('WALLE_VERSION_DATE', 'unknown'))
+
+
+def _camera_conf_module():
+    """按文件加载 camera_conf.py（symlink-install 下 bringup 包不可直接 import）。"""
+    path = os.path.join(get_package_share_directory('bringup'),
+                        'camera_conf.py')
+    spec = importlib.util.spec_from_file_location('walle_camera_conf', path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError('无法加载 %s' % path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def launch_setup(context):
@@ -71,17 +84,88 @@ def launch_setup(context):
                          'launch/net_mqtt_bridge.launch.py')),
     )
 
-    # 启动摄像头相关节点
-    usb_cam_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(walle_video_package_path, 'launch/usb_cam.launch.py')),
-    )
+    # 摄像头参数唯一来源：scripts/auto_gen_camera_conf.sh 生成的 JSON。
+    # camera_device:= 仅用于临时覆盖，正常部署不再手改 YAML。
+    camera_conf_arg = LaunchConfiguration('camera_conf').perform(context).strip()
+    camera_device_arg = LaunchConfiguration('camera_device').perform(
+        context).strip()
+    try:
+        camera_conf_api = _camera_conf_module()
+    except Exception as exc:  # noqa: BLE001
+        camera_conf_api = None
+        camera_conf, camera_conf_path = None, None
+        camera_conf_error = '加载 camera_conf.py 失败：%s' % exc
+    if camera_conf_api is not None:
+        camera_conf, camera_conf_path, camera_conf_error = \
+            camera_conf_api.load_camera_conf(camera_conf_arg or None)
+    if camera_conf is not None and camera_device_arg:
+        cam = camera_conf.get('camera', {})
+        if camera_device_arg != cam.get('device'):
+            camera_conf['camera'] = dict(cam, device=camera_device_arg)
+    cam = camera_conf.get('camera', {}) if camera_conf else {}
+    device = (cam.get('device') if camera_conf is not None
+              else camera_device_arg or '/dev/video0')
+    if camera_conf is not None:
+        note = ''
+        if not os.path.exists(device):
+            note = '；警告：设备节点 %s 当前不存在（插好摄像头后重启）' % device
+        config_log = LogInfo(
+            msg='[bringup] 摄像头配置：%s（%s）%s'
+                % (camera_conf_path,
+                   camera_conf_api.describe_camera_conf(camera_conf), note))
+    else:
+        config_log = LogInfo(
+            msg='[bringup] 摄像头配置不可用：%s' % camera_conf_error)
+
+    # 摄像头固定由 usb_cam 采集并发布 /image_raw。
+    usb_cam_launch = None
+    if camera_conf is not None:
+        usb_cam_launch = IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(walle_video_package_path, 'launch/usb_cam.launch.py')),
+            launch_arguments={
+                'camera_device': device,
+                'camera_format': cam.get('format', 'MJPG'),
+                'camera_width': str(cam.get('width', 1280)),
+                'camera_height': str(cam.get('height', 720)),
+                'camera_framerate': str(cam.get('framerate', 30)),
+            }.items(),
+        )
 
     # 启动 /image_raw -> RTMP/WebRTC 推流桥
     video_webrtc_bridge_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(video_webrtc_bridge_package_path,
                          'launch/video_webrtc_bridge.launch.py')),
+        launch_arguments={
+            'camera_device': device,
+            'framerate': str(cam.get('framerate', 30.0)) if camera_conf else '30.0',
+        }.items(),
+    )
+
+    # 启动本地录像节点（订阅 /image_raw -> fMP4 落盘）
+    record_video_package_path = get_package_share_directory('record_video')
+    rec = camera_conf.get('record', {}) if camera_conf else {}
+    record_video_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(record_video_package_path,
+                         'launch/record_video.launch.py')),
+        launch_arguments={
+            'camera_device': device,
+            'width': str(cam.get('width', 1280)),
+            'height': str(cam.get('height', 720)),
+            'framerate': str(cam.get('framerate', 30.0)),
+            'storage_path': rec.get('storage_path', ''),
+            'storage_limit_gb': str(rec.get('storage_limit_gb', 16.0)),
+            'segment_duration_sec': str(rec.get('segment_duration_sec', 3600)),
+            'auto_record': str(rec.get('auto_record', True)).lower(),
+            'audio_enabled': str(rec.get('audio_enabled', True)).lower(),
+            'audio_backend': str(rec.get('audio_backend', 'pulse')),
+            'audio_input': str(rec.get('audio_input', 'default')),
+            'audio_sample_rate': str(rec.get('audio_sample_rate', 44100)),
+            'audio_channels': str(rec.get('audio_channels', 1)),
+            'audio_bitrate': str(rec.get('audio_bitrate', '64k')),
+        }.items(),
     )
 
     # 启动声呐节点（默认启用，可通过 sonar:=false 关闭）
@@ -109,20 +193,24 @@ def launch_setup(context):
         output='screen',
     )
 
-    # 启动顺序：底盘 -> 摄像头/声呐 -> 视频桥/语音/大模型 -> MQTT/启动自检
-    start_camera = TimerAction(
-        period=3.0,
-        actions=[
-            LogInfo(msg='[bringup] 阶段 2/4：启动 usb_cam 与声呐'),
-            usb_cam_launch,
-            sonar_controller_launch,
-        ],
-    )
+    camera_actions = [
+        config_log,
+        LogInfo(msg='[bringup] 阶段 2/4：启动 usb_cam 与声呐'),
+    ]
+    if usb_cam_launch is not None:
+        camera_actions.append(usb_cam_launch)
+    else:
+        camera_actions.append(LogInfo(
+            msg='[bringup] 摄像头未启动：请运行 '
+                'walle-device/scripts/auto_gen_camera_conf.sh 生成配置后重启'))
+    camera_actions.append(sonar_controller_launch)
+    start_camera = TimerAction(period=3.0, actions=camera_actions)
     start_services = TimerAction(
         period=6.0,
         actions=[
-            LogInfo(msg='[bringup] 阶段 3/4：启动视频桥、语音与大模型'),
+            LogInfo(msg='[bringup] 阶段 3/4：启动视频桥、录像、语音与大模型'),
             video_webrtc_bridge_launch,
+            record_video_launch,
             speech_recognition_launch,
             large_models_launch,
         ],
@@ -162,5 +250,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'enable_web_video_server', default_value=_debug_default(),
             description='Start web_video_server on 8080 (default: WALLE_RUNTIME_ENV=debug)'),
+        DeclareLaunchArgument(
+            'camera_conf', default_value='',
+            description='Path to walle_camera.conf (default: /etc/walle-ai or '
+                        'scripts/etc, or WALLE_CAMERA_CONF)'),
+        DeclareLaunchArgument(
+            'camera_device', default_value='',
+            description='Temporary override for camera device in walle_camera.conf'),
         OpaqueFunction(function=launch_setup)
     ])

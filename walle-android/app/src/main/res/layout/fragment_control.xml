@@ -47,7 +47,7 @@
             android:textSize="12sp"
             android:visibility="gone" />
 
-        <!-- 视频区域：4:3（640x480）比例，由 AspectRatioFrameLayout 在测量阶段固定 -->
+        <!-- 视频区域：16:9 比例，由 AspectRatioFrameLayout 在测量阶段固定 -->
         <www.walle.ai.ui.AspectRatioFrameLayout
             android:id="@+id/flVideo"
             android:layout_width="match_parent"

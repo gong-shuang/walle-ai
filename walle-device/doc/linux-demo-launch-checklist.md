@@ -129,7 +129,7 @@
   - 证据：`main.py` L451-L461、L1321-L1339、L2185-L2196；`walle-ai.conf.example`；`doc/service_deploy.md` §6.2、§11 第 13 项
 
 - [x] ✅ **P0-4.2 摄像头设备白名单与 preflight**
-  - 处理：新增 `CAMERA_DEVICE`（可选固定设备，支持 udev 符号链接）；`camera_preflight()` 校验 realpath 为 `/dev/videoN`、sysfs 路径含 `usb`、`v4l2-ctl` 支持 `VIDEO_VIDEO_SIZE`（不强制 MJPG，ffmpeg 使用默认格式）；`handle_video_request` 在启动 ffmpeg 前调用，失败返回 -1；`--check` 校验 `CAMERA_DEVICE` 是否存在
+  - 处理：新增 `CAMERA_DEVICE`（可选固定设备，填实际设备节点如 `/dev/video0`）；`camera_preflight()` 校验 realpath 为 `/dev/videoN`、sysfs 路径含 `usb`、`v4l2-ctl` 支持 `VIDEO_VIDEO_SIZE`（不强制 MJPG，ffmpeg 使用默认格式）；`handle_video_request` 在启动 ffmpeg 前调用，失败返回 -1；`--check` 校验 `CAMERA_DEVICE` 是否存在
   - 验收：ISP/解码/元数据节点（如 `/dev/video19`）被拒；不支持 640x480 的摄像头被拒；未安装 v4l2-ctl 返回明确原因；合法 USB 摄像头通过；`CAMERA_DEVICE` 不存在时 `--check` 退出 1
   - 证据：`main.py` L419-L423、L257-L258、L977-L1008、L2067-L2077；`walle-ai.conf.example`
 
@@ -201,7 +201,7 @@
   - 证据：`main.py` L1443-L1455、L2911-L2913；`README.md`「音频会话」；`walle-ai.service.example` L29-L31
 
 - [x] ✅ **P1-3.4 摄像头节点变化与能力刷新**
-  - 处理：新增 `cameras_cached()`（`CAMERA_CACHE_TTL=10s`）供 `capability/query` 复用探测结果；`check_usb()` 检测到 USB 接入/拔出时调用 `invalidate_camera_cache()` 立即失效；`video/start` 的设备不存在或 preflight 失败时，结果新增 `cameras` 列表（`node`/`name`），便于 App 重新选择；`CAMERA_DEVICE` 固定设备沿用 udev 符号链接方案
+  - 处理：新增 `cameras_cached()`（`CAMERA_CACHE_TTL=10s`）供 `capability/query` 复用探测结果；`check_usb()` 检测到 USB 接入/拔出时调用 `invalidate_camera_cache()` 立即失效；`video/start` 的设备不存在或 preflight 失败时，结果新增 `cameras` 列表（`node`/`name`），便于 App 重新选择；`CAMERA_DEVICE` 可选填实际设备节点（如 `/dev/video0`）固定设备
   - 验收：连续两次 `capability` 只调用一次 `list_cameras()`；手动失效后重新探测；USB 变化后缓存为 None；`camera_nodes()` 返回当前节点；失败结果包含 `cameras` 列表（真实插拔待实机验证）
   - 证据：`main.py` L431-L432、L1943-L1964、L1971、L1828-L1830、L2260-L2271；`README.md` 常见问题
 
@@ -241,9 +241,9 @@
 
 - [ ] 🟡 **P1-5.3 故障注入与长稳测试**
   - 状态：暂缓至实机阶段（2026-11-10 确认）。代码侧已具备 `PR_SET_PDEATHSIG`、`TimeoutStopSec/KillMode`、断线重连与流租约回收（P0-5.1 / P0-5.2 / P1-2.2 / P1-3.5），需在真实设备上执行故障注入与 24h soak
-  - 动作：复用 `walle-device/scripts/stability_test.py` 思路，覆盖 `kill -9`（验证子进程清理）、断网/恢复、摄像头解绑/绑定、声卡不可用、MQTT Broker 重启、24h soak（RSS/FD/磁盘/温度）
+  - 动作：复用 `walle-device/test/stability_test.py` 思路，覆盖 `kill -9`（验证子进程清理）、断网/恢复、摄像头解绑/绑定、声卡不可用、MQTT Broker 重启、24h soak（RSS/FD/磁盘/温度）
   - 验收：`kill -9` 后无 ffmpeg/播放器残留；断网恢复后自动上线；24h 无泄漏趋势
-  - 证据：`walle-device/scripts/stability_test.py`；`main.py` L1841-L1858、L2169-L2186
+  - 证据：`walle-device/test/stability_test.py`；`main.py` L1841-L1858、L2169-L2186
 
 - [ ] 🟡 **P1-5.4 CI 覆盖 linux-demo**
   - 状态：暂缓（2026-11-10 确认不修改 `.github/workflows/ci.yml`）。现有 `Critical lint` 已覆盖 linux-demo 的语法级检查；本地已提供 `linux-demo/test/`（19 项 unittest，可用 pytest 运行），CI job 待后续统一处理
@@ -536,8 +536,8 @@ python3 walle-device/linux-demo/main.py --check
   线程池；systemd 模板增加 `TimeoutStopSec=10` / `KillMode=control-group`（P0-5.2）。
 - 2026-11-10：ffmpeg 与 WHEP 播放器 Popen 增加 `PR_SET_PDEATHSIG`，主进程崩溃/被
   `kill -9` 时子进程收到 SIGTERM；子进程 `PR_GET_PDEATHSIG` 自测为 15，实机待验证（P0-5.1）。
-- 2026-11-10：linux-demo 推流前增加摄像头 preflight：`CAMERA_DEVICE` 可选固定设备，
-  realpath 必须是 `/dev/videoN`、sysfs 含 `usb`、`v4l2-ctl` 支持 `VIDEO_VIDEO_SIZE`；
+- 2026-11-10：linux-demo 推流前增加摄像头 preflight：`CAMERA_DEVICE` 可选填实际设备节点
+  （如 `/dev/video0`），realpath 必须是 `/dev/videoN`、sysfs 含 `usb`、`v4l2-ctl` 支持 `VIDEO_VIDEO_SIZE`；
   非采集节点（ISP/解码/元数据）与不支持的分辨率在启动 ffmpeg 前返回 -1（P0-4.2）。
 - 2026-11-10：`doc/service_deploy.md` §6.2 新增 Nginx 8443 `/whep-audio/` + `secure_link`
   鉴权，设备端生成 5 分钟 token（`PHONE_AUDIO_WHEP_SECRET` / `PHONE_AUDIO_WHEP_PATH` /

@@ -6,6 +6,7 @@
 #   3. 开始/结束语音识别 -> 切换 vocal_detect 的 ASR 模式
 #   4. 把 agent_process/result 转发给 tts_node/tts_text 播放
 
+import os
 import time
 
 import rclpy
@@ -23,7 +24,9 @@ class SpeechControlNode(Node):
     def __init__(self, name):
         super().__init__(name)
 
-        self.declare_parameter('i2c_bus', 1)
+        # I2C 总线默认值从环境变量读取：RaspberryPi5=1, OrangePi5=2
+        default_i2c_bus = int(os.environ.get('WALLE_I2C_BUS', 1))
+        self.declare_parameter('i2c_bus', default_i2c_bus)
         self.declare_parameter('speech_address', 0x34)
         self.declare_parameter('poll_period', 0.05)
         self.declare_parameter('linear_speed', 0.4)

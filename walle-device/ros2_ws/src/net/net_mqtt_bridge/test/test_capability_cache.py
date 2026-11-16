@@ -9,6 +9,7 @@ import pytest
 
 import net_mqtt_bridge.agent as agent
 import net_mqtt_bridge.config as config
+import net_mqtt_bridge.record as record
 from net_mqtt_bridge.agent import RpiMonitor
 
 FIXED_UUID = "0f8fad5b-d9cb-469f-a165-70867728950e"
@@ -108,7 +109,10 @@ def test_capability_cache_only_returns_pending(fixed_uuid, monkeypatch):
     _, data = published[0]
     assert data["cache"]["source"] == "pending"
     assert data["probe"]["pending"] is True
-    assert data["capabilities"] == ["system_status"]
+    expected_caps = (["system_status", "recording"]
+                     if record.RECORD_ENABLED else ["system_status"])
+    assert data["capabilities"] == expected_caps
+    assert data["recording"]["enable"] is record.RECORD_ENABLED
 
 
 def test_first_query_waits_for_background_probe(fixed_uuid, monkeypatch):

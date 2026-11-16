@@ -81,7 +81,8 @@ class PhoneAudioMixin:
         cmd = [sys.executable, config.PHONE_AUDIO_PLAYER_SCRIPT,
                "--url", self._phone_audio_url(room_number),
                "--latency", config.PHONE_AUDIO_LATENCY,
-               "--first-frame-timeout", str(config.PHONE_AUDIO_FIRST_FRAME_TIMEOUT)]
+               "--first-frame-timeout", str(config.PHONE_AUDIO_FIRST_FRAME_TIMEOUT),
+               "--gain", str(config.PHONE_AUDIO_GAIN)]
         if config.PHONE_AUDIO_DEVICE:
             cmd += ["--device", config.PHONE_AUDIO_DEVICE]
         return cmd

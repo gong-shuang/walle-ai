@@ -5,6 +5,7 @@
     <color name="screen_bg">#080E1C</color>
     <color name="screen_bg_bottom">#0F1D33</color>
     <color name="nav_bg">#0A1324</color>
+    <color name="player_bg">#193157</color>
 
     <color name="brand_primary">#38BDF8</color>
     <color name="brand_primary_dark">#0EA5E9</color>
@@ -37,4 +38,8 @@
     <color name="onboarding_accent_1">#38BDF8</color>
     <color name="onboarding_accent_2">#2DD4BF</color>
     <color name="onboarding_accent_3">#A78BFA</color>
+
+    <!-- 播放页左下角车控摇杆 -->
+    <color name="joystick_base">#F9E2E0</color>
+    <color name="joystick_knob">#EFC3C1</color>
 </resources>

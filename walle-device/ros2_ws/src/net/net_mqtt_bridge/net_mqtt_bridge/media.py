@@ -90,8 +90,7 @@ def list_cameras():
     节点（过滤掉纯元数据节点）。
 
     返回 (cameras, error)：
-      cameras: [{"node","name","formats":[{code,desc,resolutions[{res,width,height,fps}]}],
-                 "format_count","max_resolution","resolution_count"}]
+      cameras: [{"node","name","detail","format_count","resolution_count","max_resolution"}]
       error:   None 或 描述字符串（如 v4l2-ctl 未安装）
     """
     try:
@@ -138,7 +137,6 @@ def list_cameras():
             "format_count": len(formats),
             "resolution_count": len(resolutions),
             "max_resolution": max_res or None,
-            "formats": formats,
         })
 
     return cameras, None

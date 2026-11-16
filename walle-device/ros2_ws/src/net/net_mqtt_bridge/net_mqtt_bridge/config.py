@@ -21,7 +21,6 @@ from pathlib import Path
 ENV_CANDIDATES = ("/etc/walle-ai.conf", "walle-ai.conf")
 ENV_SOURCE = None      # 实际加载到的文件（None 表示没加载）
 
-
 def _cli_arg(name):
     """从 sys.argv 里取 `--name value` 或 `--name=value`，没有则返回 None。"""
     for i, arg in enumerate(sys.argv[1:]):
@@ -30,7 +29,6 @@ def _cli_arg(name):
         if arg.startswith(name + "="):
             return arg.split("=", 1)[1]
     return None
-
 
 def _load_env_file(path):
     """把 KEY=VALUE 文件读进 os.environ（不覆盖已有变量）。返回是否成功。"""
@@ -58,7 +56,6 @@ def _load_env_file(path):
               "手动运行请改用 scripts/start.sh", file=sys.stderr)
         return False
 
-
 def _init_env():
     """按优先级加载环境文件，返回加载到的路径。"""
     # systemd EnvironmentFile 已注入时无需再读文件（生产配置为 600 root:root，
@@ -76,7 +73,6 @@ def _init_env():
         if explicit:
             print(f"[warn] 指定的环境文件不存在或不可读：{path}", file=sys.stderr)
     return None
-
 
 ENV_SOURCE = _init_env()
 
@@ -101,7 +97,7 @@ MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE", "").strip()      # 留空则用系
 TLS_PORTS = (8883, 8084)
 
 # ---- 主题命名约定（完整主题 = walle/{tenant}/{device}/v1/{资源}）----
-#   请求按语义命名：查询 .../query、命令 .../exec、动作 .../request；
+#   请求按语义命名：查询 .../query、动作 .../request、持续控制 .../set；
 #   应答统一 .../result，且**只在收到对应请求后发布**，绝不主动上报；
 #   主动上报只有 online（上线/下线）与 alarm（告警/USB 插拔）两个。
 # ---- 应答（设备 -> App）----
@@ -112,6 +108,15 @@ RES_VIDEO_START_RESULT = "video/start/result"       # 收到 video/start/request
 RES_VIDEO_STOP_RESULT = "video/stop/result"         # 收到 video/stop/request 后发布
 RES_PHONE_AUDIO_SEND_RESULT = "phone/audio/send/result"   # 收到 phone/audio/send 后发布
 RES_PHONE_AUDIO_STOP_RESULT = "phone/audio/stop/result"   # 收到 phone/audio/stop 后发布
+RES_CAR_MOTOR_RESULT = "car/motor/result"                 # 收到 car/motor/set 后发布
+RES_CAR_SERVO_STATUS_RESULT = "car/servo/status/result"   # 收到 car/servo/status/query 后发布
+RES_CAR_SERVO_SET_RESULT = "car/servo/result"             # 收到 car/servo/set 后发布
+RES_RECORD_START_RESULT = "record/start/result"           # 收到 record/start/request 后发布
+RES_RECORD_STOP_RESULT = "record/stop/result"             # 收到 record/stop/request 后发布
+RES_RECORD_LIST_RESULT = "record/list/result"             # 收到 record/list/query 后发布
+RES_RECORD_DELETE_RESULT = "record/delete/result"         # 收到 record/delete/request 后发布
+RES_RECORD_PLAY_START_RESULT = "record/play/start/result"  # 收到 record/play/start/request 后发布
+RES_RECORD_PLAY_STOP_RESULT = "record/play/stop/result"   # 收到 record/play/stop/request 后发布
 
 # ---- 主动上报（设备 -> App，不必等查询）----
 RES_ONLINE = "online"                       # retained + 遗嘱
@@ -132,6 +137,40 @@ REQ_VIDEO_START = "video/start/request"
 REQ_VIDEO_STOP = "video/stop/request"
 REQ_PHONE_AUDIO_SEND = "phone/audio/send"     # 手机麦上行：App 开始往 {room}_audio 推音频
 REQ_PHONE_AUDIO_STOP = "phone/audio/stop"     # 手机麦上行：App 停止推音频
+REQ_CAR_MOTOR_SET = "car/motor/set"           # 持续控制：最新一条覆盖旧状态
+REQ_CAR_SERVO_STATUS = "car/servo/status/query"   # 查询 PWM 舵机位置/偏移
+REQ_CAR_SERVO_SET = "car/servo/set"              # 设置 PWM 舵机绝对位置
+REQ_RECORD_START = "record/start/request"        # 开始录像
+REQ_RECORD_STOP = "record/stop/request"          # 停止录像
+REQ_RECORD_LIST = "record/list/query"            # 查询录像列表
+REQ_RECORD_DELETE = "record/delete/request"      # 删除录像文件
+REQ_RECORD_PLAY_START = "record/play/start/request"  # 播放录像（ffmpeg 推 fmp4 → SRS）
+REQ_RECORD_PLAY_STOP = "record/play/stop/request"    # 停止录像推流
+
+# ---- car/servo/set 常量 ----
+CAR_SERVO_POSITION_MIN = 800
+CAR_SERVO_POSITION_MAX = 2200
+CAR_SERVO_DURATION_MIN = 0.1
+CAR_SERVO_DURATION_MAX = 5.0
+CAR_SERVO_DURATION_DEFAULT = 1.0
+
+# ---- car/servo/status/query 常量 ----
+CAR_SERVO_IDS = (1, 2)              # 当前小车：ID1 上下、ID2 左右
+CAR_SERVO_ID_MIN = 1                # 控制板 PWM 舵机 ID 范围 1–4
+CAR_SERVO_ID_MAX = 4
+CAR_SERVO_READ_TIMEOUT_SEC = 2.0    # SDK 单次读取超时
+CAR_SERVO_QUERY_GRACE_SEC = 1.0     # 服务调用额外宽限
+
+# ---- car/motor/set 常量（协议固定值，改协议时同步文档 §4.10）----
+CAR_MOTOR_LINEAR_MIN = 0.5          # 允许的线速度下限（m/s）
+CAR_MOTOR_LINEAR_MAX = 1.0          # 允许的线速度上限（m/s）
+CAR_MOTOR_ANGULAR_SPEED = 2.5       # 固定角速度（rad/s）
+CAR_MOTOR_WHEEL_FACTOR = 0.1389     # (wheelbase + track_width) / 2，用于轮速预算
+# 同时旋转时，|linear| 的上限 = 轮速上限 - k*|angular| = 1.0 - 0.347
+CAR_MOTOR_LINEAR_LIMIT_WITH_ROTATE = round(
+    CAR_MOTOR_LINEAR_MAX - CAR_MOTOR_WHEEL_FACTOR * CAR_MOTOR_ANGULAR_SPEED, 3)
+CAR_MOTOR_STATE_HZ = 10.0           # 运动状态下本地重发 /cmd_vel 的频率
+CAR_MOTOR_DEADMAN_SEC = 0.5         # 超过该时间没有有效命令则自动停车
 
 # ---- 设备标识 ----
 HOSTNAME = socket.gethostname()
@@ -177,10 +216,8 @@ def _version_root():
             return parent.parent
     return here.parent
 
-
 VERSION_FILE = os.environ.get("WALLE_VERSION_FILE") or str(
     _version_root() / "VERSION")
-
 
 def _parse_version_file(path):
     values = {}
@@ -196,7 +233,6 @@ def _parse_version_file(path):
                 values[key.strip()] = value.strip().strip('"').strip("'")
     return values
 
-
 try:
     _VERSION_VALUES = _parse_version_file(VERSION_FILE)
 except OSError:
@@ -210,10 +246,8 @@ except ValueError:
 VERSION_NAME = (os.environ.get("WALLE_VERSION_NAME")
                 or _VERSION_VALUES.get("WALLE_VERSION_NAME") or "0.0.0")
 
-
 def _is_ascii_alnum(ch):
     return ("a" <= ch <= "z") or ("A" <= ch <= "Z") or ("0" <= ch <= "9")
-
 
 def sanitize_segment(raw):
     """主题段清洗：必须与 Android 端 TopicNames.sanitize 完全一致。
@@ -237,7 +271,6 @@ def sanitize_segment(raw):
         return seg[:40] + "-" + hashlib.md5(raw.encode("utf-8")).hexdigest()[:8]
     return seg
 
-
 def tls_enabled():
     """是否启用 TLS。已禁止明文，返回 False 时节点拒绝启动。"""
     if MQTT_TLS == "on":
@@ -245,7 +278,6 @@ def tls_enabled():
     if MQTT_TLS == "auto":
         return MQTT_PORT in TLS_PORTS
     return False
-
 
 def validate_mqtt_config():
     """校验 MQTT 必填配置，返回问题列表；非空表示必须拒绝启动。"""
@@ -278,21 +310,17 @@ def validate_mqtt_config():
             problems.append(f"系统 CA 不可用（{exc}）：请通过 MQTT_CA_FILE 指定 CA 文件")
     return problems
 
-
 def device_topic_base(tenant=None, device=None):
     """walle/{tenant}/{device}/v1"""
     t = sanitize_segment(MQTT_TENANT if tenant is None else tenant)
     d = sanitize_segment(DEVICE_ID if device is None else device)
     return f"{TOPIC_ROOT}/{t}/{d}/{PROTOCOL_VERSION}"
 
-
 def device_topic(resource):
     return device_topic_base() + "/" + resource
 
-
 def tenant_topic(suffix):
     return f"{TOPIC_ROOT}/{sanitize_segment(MQTT_TENANT)}/{PROTOCOL_VERSION}/{suffix}"
-
 
 # 请求 → 应答 的对应关系（也用于自检，保证命名成对）
 REQUEST_TO_RESULT = {
@@ -303,6 +331,15 @@ REQUEST_TO_RESULT = {
     REQ_VIDEO_STOP: RES_VIDEO_STOP_RESULT,
     REQ_PHONE_AUDIO_SEND: RES_PHONE_AUDIO_SEND_RESULT,
     REQ_PHONE_AUDIO_STOP: RES_PHONE_AUDIO_STOP_RESULT,
+    REQ_CAR_MOTOR_SET: RES_CAR_MOTOR_RESULT,
+    REQ_CAR_SERVO_STATUS: RES_CAR_SERVO_STATUS_RESULT,
+    REQ_CAR_SERVO_SET: RES_CAR_SERVO_SET_RESULT,
+    REQ_RECORD_START: RES_RECORD_START_RESULT,
+    REQ_RECORD_STOP: RES_RECORD_STOP_RESULT,
+    REQ_RECORD_LIST: RES_RECORD_LIST_RESULT,
+    REQ_RECORD_DELETE: RES_RECORD_DELETE_RESULT,
+    REQ_RECORD_PLAY_START: RES_RECORD_PLAY_START_RESULT,
+    REQ_RECORD_PLAY_STOP: RES_RECORD_PLAY_STOP_RESULT,
 }
 
 # 请求资源 → 处理函数名
@@ -313,14 +350,32 @@ REQUEST_HANDLERS = {
     REQ_VIDEO_STOP: "handle_video_stop",
     REQ_PHONE_AUDIO_SEND: "handle_phone_audio_send",
     REQ_PHONE_AUDIO_STOP: "handle_phone_audio_stop",
+    REQ_CAR_MOTOR_SET: "handle_car_motor_set",
+    REQ_CAR_SERVO_STATUS: "handle_car_servo_status",
+    REQ_CAR_SERVO_SET: "handle_car_servo_set",
+    REQ_RECORD_START: "handle_record_start",
+    REQ_RECORD_STOP: "handle_record_stop",
+    REQ_RECORD_LIST: "handle_record_list",
+    REQ_RECORD_DELETE: "handle_record_delete",
+    REQ_RECORD_PLAY_START: "handle_record_play",
+    REQ_RECORD_PLAY_STOP: "handle_record_play_stop",
 }
 
 # 动作类请求：可能阻塞数秒（等首帧 / 推流宽限期 / 音频启动），单独线程池处理，
 # 避免占满查询线程（P2-1.4）
 ACTION_REQUESTS = frozenset({
     REQ_VIDEO_START, REQ_VIDEO_STOP, REQ_PHONE_AUDIO_SEND, REQ_PHONE_AUDIO_STOP,
+    REQ_RECORD_START, REQ_RECORD_STOP, REQ_RECORD_DELETE,
+    REQ_RECORD_PLAY_START, REQ_RECORD_PLAY_STOP,
 })
 
+# 实时请求：处理只做校验 + 发布 /cmd_vel，必须在 MQTT 回调线程内立即执行，
+# 不能排进查询/动作队列，否则 200ms 的控制周期会被慢查询拖垮。
+REALTIME_REQUESTS = frozenset({REQ_CAR_MOTOR_SET, REQ_CAR_SERVO_SET})
+
+# 舵机状态查询：会阻塞数秒（get_state 每个舵机最多 2s），单独一个池，
+# 不能占用 state/capability 查询线程，也不能和推流启动抢动作线程。
+SERVO_REQUESTS = frozenset({REQ_CAR_SERVO_STATUS})
 
 def subscriptions():
     """本设备要订阅的主题（只有请求类 + 租户内发现广播）。
@@ -336,9 +391,17 @@ def subscriptions():
         (f"{base}/{REQ_VIDEO_STOP}", MQTT_QOS),
         (f"{base}/{REQ_PHONE_AUDIO_SEND}", MQTT_QOS),
         (f"{base}/{REQ_PHONE_AUDIO_STOP}", MQTT_QOS),
+        (f"{base}/{REQ_CAR_MOTOR_SET}", MQTT_QOS),
+        (f"{base}/{REQ_CAR_SERVO_STATUS}", MQTT_QOS),
+        (f"{base}/{REQ_CAR_SERVO_SET}", MQTT_QOS),
+        (f"{base}/{REQ_RECORD_START}", MQTT_QOS),
+        (f"{base}/{REQ_RECORD_STOP}", MQTT_QOS),
+        (f"{base}/{REQ_RECORD_LIST}", MQTT_QOS),
+        (f"{base}/{REQ_RECORD_DELETE}", MQTT_QOS),
+        (f"{base}/{REQ_RECORD_PLAY_START}", MQTT_QOS),
+        (f"{base}/{REQ_RECORD_PLAY_STOP}", MQTT_QOS),
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
     ]
-
 
 # ---- 监控阈值（均可用环境变量覆盖，写进 /etc/walle-ai.conf 即可）----
 MONITOR_INTERVAL = int(os.environ.get("MONITOR_INTERVAL", "5"))          # 采样周期（秒）
@@ -357,9 +420,14 @@ QUERY_WORKERS = max(1, int(os.environ.get("MQTT_QUERY_WORKERS", "2")))
 ACTION_WORKERS = max(1, int(os.environ.get("MQTT_ACTION_WORKERS", "2")))
 MAX_QUERY_BACKLOG = max(0, int(os.environ.get("MQTT_MAX_QUERY_BACKLOG", "16")))
 MAX_ACTION_BACKLOG = max(0, int(os.environ.get("MQTT_MAX_ACTION_BACKLOG", "8")))
+SERVO_WORKERS = max(1, int(os.environ.get("MQTT_SERVO_WORKERS", "1")))
+MAX_SERVO_BACKLOG = max(0, int(os.environ.get("MQTT_MAX_SERVO_BACKLOG", "2")))
+
+# ---- 调试：MQTT 收发报文完整 JSON 打印 ----
+# WALLE_RUNTIME_ENV=debug 时开启，=prod 或未设置时关闭
+MQTT_DEBUG_JSON = os.environ.get("WALLE_RUNTIME_ENV", "prod").strip().lower() == "debug"
 
 # ---- 布尔环境变量 ----
-
 
 def _env_flag(name, default):
     """布尔环境变量：1/true/yes/on 为真，0/false/no/off 为假。"""
@@ -367,7 +435,6 @@ def _env_flag(name, default):
     if raw is None or raw == "":
         return default
     return raw.strip().lower() in ("1", "true", "yes", "on")
-
 
 # USB 设备扫描路径
 USB_SYSFS = Path("/sys/bus/usb/devices")
@@ -392,6 +459,10 @@ VIDEO_FFMPEG_BIN = "ffmpeg"              # ffmpeg 可执行文件（不在 PATH 
 MEDIA_SERVER_HOST = os.environ.get("MEDIA_SERVER_HOST", "").strip()
 # Oryx 控制台「推流鉴权」生成的 secret；重置后需同步更新 App 与设备
 MEDIA_SERVER_SECRET = os.environ.get("MEDIA_SERVER_SECRET", "").strip()
+# 录像点播推流（record/play）：ffmpeg 把 fmp4 转封装为 FLV 推到 SRS，App 拉流播放
+RECORD_PLAY_FFMPEG_BIN = os.environ.get("RECORD_PLAY_FFMPEG_BIN", "ffmpeg")
+# SRS HTTP-FLV 端口（Oryx 默认 8080），可通过环境变量覆盖
+RECORD_PLAY_FLV_PORT = int(os.environ.get("RECORD_PLAY_FLV_PORT", "8080"))
 VIDEO_LOG_FILE = "log/ffmpeg_{time}.log"  # ffmpeg 日志文件（相对路径以进程工作目录为基准）
                                          # {time} 会替换成推流时刻，如 20261029_162650，
                                          # 所以每次推流都是一个独立的日志文件；目录不存在会自动创建
@@ -410,12 +481,12 @@ VIDEO_AUDIO_BITRATE = "128k"             # 音频码率
 PHONE_AUDIO_ENABLE = _env_flag("PHONE_AUDIO_ENABLE", True)  # 不需要时置 False
 PHONE_AUDIO_DEVICE = os.environ.get("PHONE_AUDIO_DEVICE", "")   # sounddevice 输出设备名，空=系统默认
 PHONE_AUDIO_LATENCY = os.environ.get("PHONE_AUDIO_LATENCY", "low")  # PortAudio 延迟档位：low/high
+PHONE_AUDIO_GAIN = float(os.environ.get("PHONE_AUDIO_GAIN", "1.5"))  # 手机语音软件增益，2.5≈+8dB
 PHONE_AUDIO_FIRST_FRAME_TIMEOUT = 8.0     # 首帧超时：超时即判定手机端没在推流
 PHONE_AUDIO_STARTUP_GRACE = 2.0          # 启动宽限：播放进程活过这段时间即视为开始播放（秒）
 PHONE_AUDIO_STREAM_SUFFIX = "_audio"     # 音频流名后缀：与视频房间号错开，避免抢同一路 stream
 PHONE_AUDIO_PLAYER_SCRIPT = os.path.join(  # WHEP 播放器脚本（与被监控脚本同目录）
     os.path.dirname(os.path.abspath(__file__)), "whep_audio_player.py")
-
 
 def build_phone_audio_url(stream):
     """手机音频 WHEP 拉流地址（Oryx 443 固定路径，无需鉴权）。"""

@@ -18,21 +18,21 @@
 - `ros2_ws/src/audio`、`ros2_ws/src/ai`：语音交互与大模型
 - `ros2_ws/src/protocol`：自定义 ROS 消息与服务
 - `ros2_ws/src/bringup`：统一启动、启动自检、版本横幅
-- `scripts`：`deploy.sh`、`start.sh`、`env_walle.sh` 与配置/服务模板
+- `scripts`：`deploy.sh`、`start.sh`、`env_walle.sh`、`auto_gen_camera_conf.sh` 与配置/服务模板
 - `doc`：部署文档、依赖清单与上线检查清单
 
 ### 软硬件要求
 
 硬件：
 
-- 树莓派 5 或同级 ARM64 板卡，系统为 Ubuntu 24.04
-- Walle 麦克纳姆轮底盘（STM32 控制器，USB 串口连接）
+- 树莓派 5（RaspberryPi5）或香橙派 5（OrangePi5），系统为 Ubuntu 24.04
+- Walle 麦克纳姆轮底盘（STM32 控制器，SoC UART 连接）
 - USB 摄像头、I2C 声呐、麦克风/扬声器（或语音盒子）
 
 软件：
 
 - ROS 2 Jazzy、Python 3.12、colcon
-- ffmpeg（推流）、OpenCV（`python3-opencv`）、`python3-smbus`
+- ffmpeg（推流）、OpenCV（`python3-opencv`）、`python3-smbus`、`v4l-utils`（摄像头枚举与校验）
 - Python 依赖见 [`requirements.txt`](requirements.txt)
 
 
@@ -103,6 +103,11 @@ sudo apt update
 sudo apt install -y ros-jazzy-desktop-full
 ```
 
+```bash
+# 安装ROS2的依赖，注意，如果版本是别的，如Humble，需要修改为对应的包名
+sudo apt install -y ros-jazzy-rosbridge-server ros-jazzy-web-video-server ros-jazzy-usb-cam
+```
+
 配置环境变量：
 ```bash
 echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
@@ -134,7 +139,7 @@ touch ~/venv/COLCON_IGNORE
 source ~/venv/bin/activate
 
 # 安装系统依赖（OpenCV / I2C / 推流）
-sudo apt install -y ffmpeg python3-opencv python3-smbus
+sudo apt install -y ffmpeg python3-opencv python3-smbus libportaudio2
 
 # 安装 walle 项目的 Python 依赖
 pip install -r ~/walle-device/doc/requirements.txt
@@ -152,15 +157,90 @@ source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 ```
 
-### 安装 udev 规则（底盘串口）
+### 安装 udev 规则
+
+根据主控板型号选择对应的安装脚本（仅安装串口映射规则）：
 
 ```bash
-cd ~/walle-device/scripts/udev
-sudo ./create_udev_rules.sh
+# 树莓派 5（RaspberryPi5）
+cd ~/walle-ai/walle-device/scripts/udev
+sudo ./create_rpi_udev_rules.sh
+
+# 香橙派 5（OrangePi5）
+cd ~/walle-ai/walle-device/scripts/udev
+sudo ./create_orangePi_udev_rules.sh
 ```
 
-> 规则会创建 `/dev/rrc`（`ttyAMA0`，`dialout` 0660）和 `/dev/walle-camera`（USB 摄像头，按 idVendor/idProduct 匹配）；确保运行用户在 `dialout` 与 `video` 组。
-> 换摄像头后需更新 `99-walle-camera.rules` 的 USB id 与两个 yaml 中的设备路径。
+> 规则会创建 `/dev/wi_uart`（树莓派 `ttyAMA0` / 香橙派 `ttyS6`，`dialout` 0660）；确保运行用户在 `dialout` 与 `video` 组。
+> 摄像头不使用 udev 固定符号链接，直接使用实际设备节点（如 `/dev/video0`），由用户按实际设备配置。
+
+### 配置摄像头（交互式，推荐）
+
+首次部署或更换摄像头后，在设备上运行：
+
+```bash
+cd ~/walle-ai/walle-device/scripts
+./auto_gen_camera_conf.sh
+```
+
+脚本通过 `v4l2-ctl` 枚举摄像头、格式（MJPG/YUYV）、分辨率与帧率，并让你命名，最后生成：
+
+```text
+walle-device/scripts/etc/walle_camera.conf
+```
+
+配置为 JSON，示例见 `scripts/etc/walle_camera.conf.example`：
+
+```json
+{
+  "schema_version": 1,
+  "name": "front_camera",
+  "device": "/dev/video0",
+  "format": "MJPG",
+  "width": 640,
+  "height": 480,
+  "framerate": 30
+}
+```
+
+运行时按以下顺序查找（找到即用）：
+
+1. `ros2 launch ... camera_conf:=<path>` 或环境变量 `WALLE_CAMERA_CONF`
+2. `/etc/walle-ai/walle_camera.conf`（`deploy.sh` 安装）
+3. `$TURBOPI_HOME/scripts/etc/walle_camera.conf`（开发环境）
+
+未找到或 schema 不合法时，`bringup` 会打印错误并提示运行本脚本，摄像头不会启动；
+`startup_check` 也会校验该文件。`bringup` 读取后把设备、格式、分辨率、帧率传给
+`usb_cam`，并将同一设备与帧率配置传给 `video_webrtc_bridge`。
+
+> `/dev/videoN` 编号可能随 USB 插口变化；换口后重新运行脚本即可，不需要 udev 规则。
+> `camera_device:=/dev/videoN` 仍可临时覆盖配置中的设备节点。
+
+`usb_cam` 启动前会校验设备存在、属于 USB 摄像头且支持所选格式/分辨率，失败则跳过启动，避免误开 ISP/编解码节点。
+
+### 摄像头与推流链路
+
+摄像头固定由 `usb_cam` 独占采集并发布 `/image_raw`，`video_webrtc_bridge`
+订阅该话题，将 ROS 图像帧编码为 H.264 后通过 RTMP 推流到服务器：
+
+```text
+USB Camera → usb_cam → /image_raw → video_webrtc_bridge → H.264/FLV → RTMP
+```
+
+正常启动无需指定摄像头后端：
+
+```bash
+ros2 launch bringup bringup.launch.py
+```
+
+### 视频硬件编码
+
+`video_webrtc_bridge` 的 `video_encoder=auto` 会优先使用硬件编码：
+
+- Orange Pi 5 Plus（RK3588）：GStreamer `mpph264enc`（Rockchip MPP）。需 `gst-launch-1.0` 与 `gstreamer1.0-rockchip1`，Orange Pi 官方镜像已预装，可用 `gst-inspect-1.0 mpph264enc` 检查。
+- 其他平台：ffmpeg `h264_v4l2m2m`；硬件不可用时自动回退 `libx264`。
+
+启动日志会打印实际使用的编码器；RK3588 上应显示 `mpph264enc`（GStreamer/Rockchip MPP 硬件编码）。
 
 ## 部署形态选择（ROS2 版 / linux-demo 二选一）
 
@@ -242,18 +322,18 @@ journalctl -u walle-ai -f       # 查看日志
 
 ## 稳定性测试（上线前）
 
-`scripts/stability_test.py` 用于故障注入与长稳验证，建议在整机镜像上以 root 执行：
+`test/stability_test.py` 用于故障注入与长稳验证，建议在整机镜像上以 root 执行：
 
 ```bash
-sudo ./scripts/stability_test.py health                       # 服务/节点/MQTT 基线
-sudo ./scripts/stability_test.py kill                         # 逐个 kill 节点，等待自动拉起
-sudo ./scripts/stability_test.py camera                       # 解绑/绑定 uvcvideo，模拟拔插摄像头
-sudo ./scripts/stability_test.py network --offline 15         # 只拦截 Broker 流量，不影响 SSH
-./scripts/stability_test.py soak --hours 24 --require-stream  # 持续推流并采样 24h
+sudo ./test/stability_test.py health                       # 服务/节点/MQTT 基线
+sudo ./test/stability_test.py kill                         # 逐个 kill 节点，等待自动拉起
+sudo ./test/stability_test.py camera                       # 解绑/绑定 uvcvideo，模拟拔插摄像头
+sudo ./test/stability_test.py network --offline 15         # 只拦截 Broker 流量，不影响 SSH
+./test/stability_test.py soak --hours 24 --require-stream  # 持续推流并采样 24h
 ```
 
 - `network --mode link --iface wlan0` 才会断开整块网卡，需在串口/本地终端执行（脚本带延时自动恢复兜底）。
-- 串口掉线无法软件模拟：手动拔插 `/dev/rrc` 后观察 `ros_robot_controller` 是否自动重连。
+- 串口掉线无法软件模拟：手动拔插 `/dev/wi_uart` 后观察 `ros_robot_controller` 是否自动重连。
 - `soak` 的 CSV 写入 `~/.ros/log/stability/soak-*.csv`，结束时按 RSS / FD / 磁盘增长判定泄漏；任一项 `FAIL` 需在发布前处理。
 
 ## 持续集成

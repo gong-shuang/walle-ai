@@ -61,6 +61,11 @@ def generate_launch_description():
             'address': ParameterValue(rosbridge_address, value_type=str),
             # 同时作用于 rosbridge 的 publish/advertise 与 subscribe
             'topics_glob': ParameterValue(rosbridge_topics_glob, value_type=str),
+            # 显式固定为 Jazzy 的新默认值：服务调用 5s 超时且在新线程执行、
+            # action goal 在新线程发送，避免服务卡死时阻塞 rosbridge 主线程。
+            'default_call_service_timeout': 5.0,
+            'call_services_in_new_thread': True,
+            'send_action_goals_in_new_thread': True,
         }],
     )
 

@@ -5,6 +5,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -61,6 +62,15 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
 
         /** video/stop/result：停止推流结果 */
         default void onVideoStopResult(JSONObject payload) {}
+
+        /** car/motor/result：车控持续命令回执 */
+        default void onCarMotorResult(JSONObject payload) {}
+
+        /** car/servo/status/result：舵机状态查询回执 */
+        default void onCarServoStatusResult(JSONObject payload) {}
+
+        /** car/servo/result：舵机位置设置回执 */
+        default void onCarServoSetResult(JSONObject payload) {}
 
         /** 发布失败；kind 取值见 {@link TopicNames#KIND_STATE} 等常量 */
         default void onDeliveryError(String kind, String error) {}
@@ -367,6 +377,173 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         return rid;
     }
 
+    /**
+     * 车控持续命令：{@code car/motor/set}。
+     *
+     * <p>move 四个方向只允许一个非 0，取值 0 或 [0.5,1.0] m/s；
+     * rotate 的 left/right 互斥，都为 false 表示停止旋转。
+     * 设备端保存最新状态并以 10Hz 重发 /cmd_vel，500ms 没有有效命令会自动停车。</p>
+     *
+     * @return 本次 request_id；参数不合法或未选设备时返回空串
+     */
+    public String sendCarMotorDrive(String uuid, double forward, double back,
+                                    double left, double right,
+                                    boolean rotateLeft, boolean rotateRight) {
+        if (uuid == null || uuid.isEmpty()) {
+            notifyDeliveryError(TopicNames.KIND_CAR_MOTOR, "请先在设备页选择设备");
+            return "";
+        }
+        if (!isValidCarDrive(forward, back, left, right, rotateLeft, rotateRight)) {
+            notifyDeliveryError(TopicNames.KIND_CAR_MOTOR, "车控参数不合法");
+            return "";
+        }
+        final String rid = newRequestId();
+        JSONObject move = new JSONObject();
+        JSONObject rotate = new JSONObject();
+        JSONObject body = new JSONObject();
+        try {
+            move.put("forward", forward);
+            move.put("back", back);
+            move.put("left", left);
+            move.put("right", right);
+            rotate.put("left", rotateLeft);
+            rotate.put("right", rotateRight);
+            body.put("uuid", uuid);
+            body.put("request_id", rid);
+            body.put("move", move);
+            body.put("rotate", rotate);
+        } catch (JSONException ignore) {
+        }
+        client.publish(TopicNames.KIND_CAR_MOTOR,
+                TopicNames.carMotorSet(tenant, deviceSegment(uuid)), body.toString());
+        return rid;
+    }
+
+    /** 停止车控：move 全 0 + rotate 都为 false。 */
+    public String stopCarMotorDrive(String uuid) {
+        return sendCarMotorDrive(uuid, 0, 0, 0, 0, false, false);
+    }
+
+    /** 查询默认舵机 ID 1、2 的位置，不读 offset。 */
+    public String requestCarServoStatus(String uuid) {
+        return requestCarServoStatus(uuid, new int[]{1, 2}, false);
+    }
+
+    /**
+     * 查询 PWM 舵机状态：{@code car/servo/status/query}。
+     *
+     * <p>设备端调用 get_state，每个舵机最多阻塞 2 秒；UI 超时应至少 6 秒。
+     * 默认不读 offset，避免 2 个舵机最坏等待约 8 秒。</p>
+     *
+     * @param ids           要查询的舵机 ID，允许 1–4；为空时使用 [1,2]
+     * @param includeOffset 是否同时读取 offset
+     * @return 本次 request_id；参数不合法或未选设备时返回空串
+     */
+    public String requestCarServoStatus(String uuid, int[] ids, boolean includeOffset) {
+        if (uuid == null || uuid.isEmpty()) {
+            notifyDeliveryError(TopicNames.KIND_CAR_SERVO_STATUS, "请先在设备页选择设备");
+            return "";
+        }
+        int[] queryIds = (ids == null || ids.length == 0) ? new int[]{1, 2} : ids;
+        boolean[] seen = new boolean[5];
+        JSONArray idArray = new JSONArray();
+        for (int id : queryIds) {
+            if (id < 1 || id > 4 || seen[id]) {
+                notifyDeliveryError(TopicNames.KIND_CAR_SERVO_STATUS, "舵机 ID 不合法");
+                return "";
+            }
+            seen[id] = true;
+            idArray.put(id);
+        }
+        final String rid = newRequestId();
+        JSONObject body = new JSONObject();
+        try {
+            body.put("uuid", uuid);
+            body.put("request_id", rid);
+            body.put("ids", idArray);
+            body.put("include_offset", includeOffset);
+        } catch (JSONException ignore) {
+        }
+        client.publish(TopicNames.KIND_CAR_SERVO_STATUS,
+                TopicNames.carServoStatusQuery(tenant, deviceSegment(uuid)), body.toString());
+        return rid;
+    }
+
+    /** 设置单个舵机到绝对位置，duration 默认 1.0 秒。 */
+    public String setCarServo(String uuid, int id, int position) {
+        return setCarServos(uuid, new int[]{id}, new int[]{position}, 1.0);
+    }
+
+    /**
+     * 设置一个或多个 PWM 舵机的绝对位置：{@code car/servo/set}。
+     *
+     * <p>position 必须在 800–2200；设备端规则：一个越界、另一个合法时只执行合法项，
+     * 两个都越界才返回 result=1（命令无效）。App 侧只做结构和 duration 校验，越界交给设备端。</p>
+     *
+     * @return 本次 request_id；参数不合法或未选设备时返回空串
+     */
+    public String setCarServos(String uuid, int[] ids, int[] positions, double duration) {
+        if (uuid == null || uuid.isEmpty()) {
+            notifyDeliveryError(TopicNames.KIND_CAR_SERVO_SET, "请先在设备页选择设备");
+            return "";
+        }
+        if (ids == null || positions == null || ids.length == 0
+                || ids.length != positions.length || ids.length > 4) {
+            notifyDeliveryError(TopicNames.KIND_CAR_SERVO_SET, "舵机参数不合法");
+            return "";
+        }
+        if (Double.isNaN(duration) || duration < 0.1 || duration > 5.0) {
+            notifyDeliveryError(TopicNames.KIND_CAR_SERVO_SET, "duration 必须在 0.1–5.0 秒");
+            return "";
+        }
+        boolean[] seen = new boolean[5];
+        JSONArray servos = new JSONArray();
+        for (int i = 0; i < ids.length; i++) {
+            int id = ids[i];
+            if (id < 1 || id > 4 || seen[id]) {
+                notifyDeliveryError(TopicNames.KIND_CAR_SERVO_SET, "舵机 ID 不合法");
+                return "";
+            }
+            seen[id] = true;
+            JSONObject item = new JSONObject();
+            try {
+                item.put("id", id);
+                item.put("position", positions[i]);
+            } catch (JSONException ignore) {
+            }
+            servos.put(item);
+        }
+        final String rid = newRequestId();
+        JSONObject body = new JSONObject();
+        try {
+            body.put("uuid", uuid);
+            body.put("request_id", rid);
+            body.put("servos", servos);
+            body.put("duration", duration);
+        } catch (JSONException ignore) {
+        }
+        client.publish(TopicNames.KIND_CAR_SERVO_SET,
+                TopicNames.carServoSet(tenant, deviceSegment(uuid)), body.toString());
+        return rid;
+    }
+
+    /** App 侧先做一次轻量校验，避免明显非法的报文占用 MQTT。 */
+    private static boolean isValidCarDrive(double forward, double back,
+                                           double left, double right,
+                                           boolean rotateLeft, boolean rotateRight) {
+        if (rotateLeft && rotateRight) return false;
+        double[] values = {forward, back, left, right};
+        int moving = 0;
+        for (double value : values) {
+            if (Double.isNaN(value) || Double.isInfinite(value)) return false;
+            if (value != 0.0) {
+                if (value < 0.5 || value > 1.0) return false;
+                moving++;
+            }
+        }
+        return moving <= 1;
+    }
+
     /** 在租户内广播设备发现：{@code walle/{tenant}/discovery/query}。返回本次 request_id。 */
     public String requestDeviceInfo() {
         final String rid = newRequestId();
@@ -488,6 +665,21 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     @Override
     public void onVideoStopResult(JSONObject payload) {
         for (Listener l : listeners) main.post(() -> l.onVideoStopResult(payload));
+    }
+
+    @Override
+    public void onCarMotorResult(JSONObject payload) {
+        for (Listener l : listeners) main.post(() -> l.onCarMotorResult(payload));
+    }
+
+    @Override
+    public void onCarServoStatusResult(JSONObject payload) {
+        for (Listener l : listeners) main.post(() -> l.onCarServoStatusResult(payload));
+    }
+
+    @Override
+    public void onCarServoSetResult(JSONObject payload) {
+        for (Listener l : listeners) main.post(() -> l.onCarServoSetResult(payload));
     }
 
     @Override

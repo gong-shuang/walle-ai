@@ -1,4 +1,0 @@
-# Walle 底盘 STM32 控制器：固定为 /dev/rrc
-# 本机控制器接在 SoC UART（ttyAMA0）；若改用 USB 串口（ttyACM0）也映射到同一路径
-KERNEL=="ttyAMA0", SUBSYSTEM=="tty", SYMLINK+="rrc", GROUP="dialout", MODE="0660"
-KERNEL=="ttyACM0", SUBSYSTEM=="tty", SYMLINK+="rrc", GROUP="dialout", MODE="0660", ENV{ID_MM_PORT_IGNORE}="1"

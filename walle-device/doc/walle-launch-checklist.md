@@ -72,7 +72,7 @@
 - [ ] 🟡 **P0-3.3 MCU 固件通信超时停车（软硬双保险）**
   - 状态：阻塞——`ros_robot_controller` 为 STM32 固件，源码不在本仓库，需固件方实现并烧录
   - 需求：见 `doc/mcu-comm-timeout-requirement.md`（合法电机帧计时、默认 500ms 超时四轮置 0、仅电机帧刷新、超时后新指令可恢复）
-  - 验证：架空车轮后运行 `tools/test_mcu_timeout.py`，并补 `kill -9` 与整机断电测试
+  - 验证：架空车轮后运行 `test/test_mcu_timeout.py`，并补 `kill -9` 与整机断电测试
   - 验收：上位机死机/断电时，底盘在 0.5s 内自动停止
 
 - [x] ✅ **P0-3.4 速度与加速度限幅**
@@ -161,9 +161,9 @@
   - 处理：串口读 `timeout=1s`、写 `write_timeout=0.5s`；舵机读取队列 `timeout=2s` 超时返回 None；节点改用 `MultiThreadedExecutor`，底盘/执行器写回调放入 `ReentrantCallbackGroup`，与状态查询回调互不阻塞
   - 验收：串口卡顿时 `/cmd_vel` 与状态查询仍能及时响应（需实车验证）
 
-- [x] ✅ **P1-3.3 摄像头设备节点固定**
-  - 处理：新增 `99-walle-camera.rules`，按 `idVendor/idProduct` 创建一级符号链接 `/dev/walle-camera`；`usb_cam_param.yaml` 与 `video_webrtc_bridge.yaml` 使用该路径（`usb_cam` 不支持 by-id 深层链接，会把 `../../video0` 拼成 `/dev/../../video0`）
-  - 验收：重启/插拔后 `/dev/walle-camera` 始终指向正确摄像头，`usb_cam` 正常打开；换相机时更新 udev id 与配置
+- [x] ✅ **P1-3.3 摄像头设备节点配置**
+  - 处理：摄像头不再使用 udev 符号链接，采集参数统一放在 `scripts/etc/walle_camera.conf`（由 `scripts/auto_gen_camera_conf.sh` 交互式生成）；`bringup` 读取 JSON 后把采集参数传给 `usb_cam`，并把设备与帧率传给 `video_webrtc_bridge`，`camera_device:=/dev/videoN` 仍可临时覆盖
+  - 验收：运行脚本选择设备后摄像头正常打开；换相机或换 USB 口时只需重新运行脚本，无需安装 udev 规则
 
 - [x] ✅ **P1-3.4 补齐 `/dev/rrc` udev 规则**
   - 处理：规则改为 `99-rrc.rules`——`ttyAMA0` 创建 `SYMLINK+="rrc"`，属组 `dialout`、`MODE=0660`；兼容 `ttyACM0` 并忽略 ModemManager；`create_udev_rules.sh` 自动安装
@@ -199,7 +199,7 @@
   - 验收：三个包 `pytest` 共 63 项通过（21 + 23 + 19，含 P1-5.1 的 3 项）；`controller` 的 copyright/flake8/pep257 为包内历史遗留失败，与本次单测无关
 
 - [x] ✅ **P1-5.3 故障注入与长稳测试**
-  - 处理：新增 `scripts/stability_test.py`：`kill` 逐个 SIGKILL 关键节点并等待 launch/systemd 拉起；`camera` 通过 sysfs 解绑/绑定 uvcvideo 模拟拔插；`network` 默认用 iptables 只拦截 Broker 流量（不影响 SSH），`--mode link` 才断整块网卡并带延时恢复兜底；`soak` 周期采样 RSS/FD/磁盘/温度并输出 CSV，结束时判定泄漏趋势。串口掉线无法软件模拟，README 补充手动拔插步骤
+  - 处理：新增 `test/stability_test.py`：`kill` 逐个 SIGKILL 关键节点并等待 launch/systemd 拉起；`camera` 通过 sysfs 解绑/绑定 uvcvideo 模拟拔插；`network` 默认用 iptables 只拦截 Broker 流量（不影响 SSH），`--mode link` 才断整块网卡并带延时恢复兜底；`soak` 周期采样 RSS/FD/磁盘/温度并输出 CSV，结束时判定泄漏趋势。串口掉线无法软件模拟，README 补充手动拔插步骤
   - 验收：脚本 `--help`、`health`、`kill`（无节点）、`camera`（非 USB 设备）、`soak`（9 样本）冒烟通过；真机需按 README 执行 kill/camera/network/soak 24h 并留存 CSV
 
 - [x] ✅ **P1-5.4 CI 流水线**
@@ -223,9 +223,9 @@
   - 验收：`test/test_capability_cache.py` 覆盖只读缓存、cache-only 立即返回 pending、后台探测写入缓存、探测失败保留旧缓存；请求线程不再执行 v4l2/pactl
 
 - [x] ✅ **P2-1.3 视频硬件编码**
-  - 处理：评估结论——本机 Pi 5（kernel 6.8）只有 `pispbe` ISP 与 `rpivid` 解码节点，无 V4L2 M2M 编码器；ffmpeg 的 `h264_v4l2m2m` / `hevc_v4l2m2m` 试编码均报 `Could not find a valid device`，GStreamer 也没有 `v4l2h264enc`。已实现 `video_encoder=auto|libx264|h264_v4l2m2m`：启动时用 0.5s 试编码探测，硬件可用则启用，否则自动回退 libx264 并打印原因
-  - 证据：`ros2_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py`（`probe_hw_h264_encoder` / `select_encoder` / `_select_encoder` / `_build_ffmpeg_cmd`）
-  - 验收：本机探测 0.2s 后正确回退 libx264（Pi 5 无硬件编码器，CPU 不下降属硬件限制）；带 V4L2 M2M 编码器的设备上 `auto` 会自动切到 `h264_v4l2m2m`
+  - 处理：`video_encoder=auto` 优先 Rockchip MPP 硬件编码（`mpph264enc`，Orange Pi 5 Plus / RK3588 走 MPP），其次 ffmpeg V4L2 M2M（`h264_v4l2m2m`），都不可用时回退 `libx264`；MPP 后端使用 GStreamer 管道（`fdsrc → rawvideoparse → videoconvert → mpph264enc → flvmux → rtmpsink`），其余后端沿用 ffmpeg。RK3588 上 ffmpeg 的 `h264_v4l2m2m` / `hevc_v4l2m2m` 会报 `Could not find a valid device`（编码器走 `/dev/mpp_service`，不是 V4L2 M2M 节点）
+  - 证据：`ros2_ws/src/video/video_webrtc_bridge/video_webrtc_bridge/node.py`（`probe_mpp_h264_encoder` / `probe_hw_h264_encoder` / `select_encoder` / `_build_gst_cmd` / `_build_ffmpeg_cmd`）
+  - 验收：Orange Pi 5 Plus 启动日志显示 `mpph264enc`；实测 640x480@30 / 720p@30 编码约 9% / 12% 单核（libx264 约 26% / 71%）；Raspberry Pi 5 无硬件编码器时仍正确回退 `libx264`
 
 - [x] ✅ **P2-1.4 MQTT 消息处理与监控解耦**
   - 处理：请求按「查询（state/capability/discovery）/动作（video、phone audio）」分两个线程池，慢动作不再占用查询线程；每池用 `BoundedSemaphore` 限制「执行中 + 排队」总量（默认查询 2+16、动作 2+8），洪峰时丢弃并每 5s 汇总告警；监控采样仍在独立线程 `monitor_loop`，与请求池完全解耦
@@ -302,10 +302,10 @@
   - 证据：`ros2_ws/src/video/walle_video/config/usb_cam_param.yaml`（已知告警说明）、`ros2_ws/src/video/walle_video/launch/usb_cam.launch.py`（`v4l2-ctl` 预设置）
   - 验收：`/image_raw` 正常 30 FPS；`white_balance_automatic=1`、`auto_exposure=3` 已由 v4l2-ctl 设置；启动日志仍有 3 条 usb_cam 0.8.1 的 `unknown control` 告警，属上游已知问题、非致命，已在本项与配置文件中明确记录
 
-- [x] ✅ **P2-4.2 多 video 节点环境固定设备**
-  - 处理：`99-walle-camera.rules` 已按 `idVendor=0bc8` / `idProduct=5880` + `index=0` 固定 `/dev/walle-camera`；`usb_cam.launch.py` 增加启动前 `_preflight()`：校验设备存在、sysfs 路径含 `usb`（排除 `pispbe` ISP / `rpivid` 解码节点）、`v4l2-ctl` 支持 `MJPG` 与 `640x480`，失败时跳过启动并打印原因
-  - 证据：`scripts/udev/99-walle-camera.rules`、`ros2_ws/src/video/walle_video/launch/usb_cam.launch.py`（`_is_usb_camera` / `_preflight`）
-  - 验收：`_preflight('/dev/walle-camera')` 返回 True；`/dev/video19`（rpivid）与 `/dev/video20`（pispbe）均返回 False；启动后 `/image_raw` 约 28–30 FPS，无前置检查失败日志
+- [x] ✅ **P2-4.2 多 video 节点环境指定设备**
+  - 处理：摄像头直接使用实际设备节点（默认 `/dev/video0`，由用户在 `usb_cam_param.yaml` / `video_webrtc_bridge.yaml` 配置，或 `camera_device:=` 覆盖）；`usb_cam.launch.py` 增加启动前 `_preflight()`：校验设备存在、sysfs 路径含 `usb`（排除 `pispbe` ISP / `rpivid` 解码节点）、`v4l2-ctl` 支持 `MJPG` 与 `640x480`，失败时跳过启动并打印原因
+  - 证据：`ros2_ws/src/video/walle_video/launch/usb_cam.launch.py`（`_is_usb_camera` / `_preflight`）、`ros2_ws/src/video/walle_video/config/usb_cam_param.yaml`
+  - 验收：`_preflight('/dev/video0')` 返回 True；`/dev/video19`（rpivid）与 `/dev/video20`（pispbe）均返回 False；启动后 `/image_raw` 约 28–30 FPS，无前置检查失败日志
 
 - [x] ✅ **P2-4.3 修复测试页缺失服务**
   - 处理：原 `app` 包的 `avoidance_node` 未迁移到 `ros2_ws`（`object_tracking` / `line_following` / `qrcode` 同样未迁移），按本项允许的“移除按钮”方案处理：删除测试页避障页签、面板、参数与按钮 JS、`TAB_VIDEO` / `VIDEO_TIP` 条目，并去掉急停中的 `/avoidance_node/exit` 调用（成功计数 5 → 4）
@@ -411,7 +411,7 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-09 | P1-2.4 | 未提交 | `WALLE_VENV` 可覆盖 venv 路径，site-packages 按实际 Python 版本取；默认路径与不存在路径均已验证 | 待确认 |
 | 2026-11-09 | P1-3.1 | 未提交 | SDK 增加串口自动重连；编译通过；需实车拔插 USB 验证 | 待确认 |
 | 2026-11-09 | P1-3.2 | 未提交 | 串口读写超时收紧 + MultiThreadedExecutor/回调组；编译通过；需实车验证卡顿不阻塞 | 待确认 |
-| 2026-11-09 | P1-3.3 | 未提交 | 新增 `99-walle-camera.rules`，相机固定 `/dev/walle-camera`；待安装 udev 规则后重启验证 | 待确认 |
+| 2026-11-09 | P1-3.3 | 未提交 | 摄像头前后改用实际设备节点（默认 `/dev/video0`，用户配置）；udev 符号链接方案已移除；待按实际设备修改配置后验证 | 待确认 |
 | 2026-11-09 | P1-3.4 | 未提交 | `99-rrc.rules` 创建 `/dev/rrc`（ttyAMA0，dialout 0660）；待全新镜像或 reload udev 验证 | 待确认 |
 | 2026-11-09 | P1-3.5 | 未提交 | 声呐 I2C 异常不再吞掉，失败发布 -1 并节流告警；编译后待拔插验证 | 待确认 |
 | 2026-11-09 | P1-4.1 | 未提交 | ffmpeg 日志按 7 天/10 个/100MB 清理；编译通过，待连续推流验证 | 待确认 |
@@ -436,7 +436,7 @@ cd walle-device/scripts && ./start.sh
 | 2026-11-10 | P2-3.3 | 未提交 | 声呐记录时间戳，0.4s 断流/无效值即停车并终止动作；mock 冒烟验证 | 待确认 |
 | 2026-11-10 | P2-3.4 | 未提交 | 核查生产 launch：仅 vocal_detect/agent_process/tts_node；实验驾驶节点均为独立 launch，未被 bringup 引用 | 待确认 |
 | 2026-11-10 | P2-4.1 | 未提交 | usb_cam 0.8.1 旧控制名告警记录为已知问题；launch 中用 v4l2-ctl 按新名称设置自动模式；实测 30FPS | 待确认 |
-| 2026-11-10 | P2-4.2 | 未提交 | udev 已按 USB VID/PID 固定设备；launch 增加 USB/格式/分辨率前置校验，实测不会误开 ISP/解码节点 | 待确认 |
+| 2026-11-10 | P2-4.2 | 未提交 | 设备节点改为用户配置的 `/dev/videoN`；launch 保留 USB/格式/分辨率前置校验，实测不会误开 ISP/解码节点 | 待确认 |
 | 2026-11-10 | P2-4.3 | 未提交 | 移除测试页避障页签/面板/JS 与急停中的 `/avoidance_node/exit`；页面已无避障引用，页签与面板一致 | 待确认 |
 |  |  |  |  |  |
 
@@ -444,12 +444,22 @@ cd walle-device/scripts && ./start.sh
 
 ## 备注
 
+- 2026-11-13：摄像头采集参数改为 JSON 单一来源 `scripts/etc/walle_camera.conf`，
+  由 `scripts/auto_gen_camera_conf.sh` 交互式生成（摄像头、格式、分辨率、帧率、名称）；
+  `bringup` 读取后把采集参数传给 `usb_cam`，并把设备与帧率传给 `video_webrtc_bridge`。
+  查找顺序：`camera_conf:=` / `WALLE_CAMERA_CONF` → `/etc/walle-ai/walle_camera.conf`
+  （`deploy.sh` 安装）→ `$TURBOPI_HOME/scripts/etc/walle_camera.conf`。配置缺失或
+  schema 不合法时摄像头不启动并提示运行脚本，`startup_check` 同步校验。
+- 2026-11-12：摄像头 udev 规则 `99-walle-camera.rules` 已移除，不再创建 `/dev/walle-camera`；
+  摄像头直接使用实际设备节点（默认 `/dev/video0`）。当时在 `usb_cam_param.yaml` 的
+  `video_device` 与 `video_webrtc_bridge.yaml` 的 `camera_device` 中配置（两者需一致），
+  也可用 `camera_device:=/dev/videoN` 启动参数覆盖；2026-11-13 起改为
+  `scripts/etc/walle_camera.conf` 单一来源。
 - 2026-11-10：P2-4.3 `app` 包（`avoidance_node` / `object_tracking` / `line_following` /
   `qrcode` / 手势）未迁移到 `ros2_ws`，测试页按“移除按钮”方案删除避障页签及相关
   服务调用；其余玩法页签仍依赖未迁移的 `app` 节点，仅适用于 TurboPi 原始环境调试。
-- 2026-11-10：P2-4.2 摄像头设备由 `99-walle-camera.rules`（USB VID/PID + index=0）
-  固定为 `/dev/walle-camera`；`usb_cam.launch.py` 启动前校验目标必须是 USB video
-  节点且支持 MJPG 640x480，失败则跳过启动，避免误开 `pispbe`/`rpivid` 节点。
+- 2026-11-10：P2-4.2 `usb_cam.launch.py` 启动前校验目标必须是 USB video 节点且支持
+  MJPG 640x480，失败则跳过启动，避免误开 `pispbe`/`rpivid` 节点。
 - 2026-11-10：P2-4.1 usb_cam 0.8.1 的控制名仍为 `white_balance_temperature_auto` /
   `exposure_auto` / `focus_auto`，与 kernel 6.8 的 UVC 新名称不匹配；参数无法跳过，
   仓库内也无更新版本。按本项兜底方式记录为已知告警，并在 `usb_cam.launch.py`
@@ -490,6 +500,41 @@ cd walle-device/scripts && ./start.sh
   `agent.py` 保留 `RpiMonitor` 组合、启动流程、`--check` 与公共名 re-export，
   `node.py` 改为从 `config` 读写 `DEVICE_ID_FILE` / `DEVICE_ID`。各文件均 < 500 行，
   新增 `test/test_modules.py` 固化模块导入与文件大小约束。
+- 2026-11-15：P2-1.3 摄像头与推流架构还原为 `usb_cam` → `/image_raw` →
+  `video_webrtc_bridge` → H.264/FLV → RTMP；移除 `walle_camera`、摄像头独占、
+  `camera_backend` 与共享内存输入，保留 JSON 摄像头配置和 `mpph264enc`
+  硬件编码能力，`video_gop` 默认值恢复为 60。下列 2026-11-12/13 的
+  `camera_owner` / `camera_backend` / 共享内存记录仅为历史优化过程，已由本项替代。
+- 2026-11-12：P2-1.3 新增 `camera_backend=shm` 分离链路：
+  `walle_camera` 独占摄像头并发布 `/image_raw`（10fps），H.264 经
+  GStreamer `shmsink wait-for-connection=true` / `shmsrc` 交给
+  `video_webrtc_bridge` 混流推 RTMP。实测接收端收到 640x480 H.264 317 帧；
+  推流时 camera 约 81.3% 单核、bridge 解码/混流进程约 2.8% 单核，
+  整机约 15.6%。
+- 2026-11-12：P2-1.3 新增 `camera_backend=shm` 分离链路最小版：
+  `walle_camera` 独占摄像头并发布 `/image_raw`（10fps），H.264 经本机
+  RTP/UDP 交给 `video_webrtc_bridge` 混流推 RTMP。实测接收端收到
+  640x480 H.264 248 帧；视频链路约 79% 单核（camera 76.5 + bridge/gst 2.9），
+  整机约 12.5%。`shmsink` 对后连接客户端不下发数据，最小版暂用 RTP/UDP，
+  后续再评估 shm/ipcpipeline。
+- 2026-11-12：P2-1.3 camera_owner 模式修复 MPP buffer 竞争：`mppjpegdec`
+  显式指定 `format=NV12`，`tee` 的 ROS 分支在 `videoconvert` 前用 `identity`
+  抽样降频（默认 10fps）。实测推流时 owner 进程约 88.8% 单核（改造前
+  usb_cam+bridge+gst 约 102%），整机约 15.9%（改造前约 21%），连续推流
+  1 分钟无 `mpp_buffer` / 编码器 watchdog 错误。
+- 2026-11-12：P2-1.3 新增 camera_owner 模式：`bringup` 检测到 `mppjpegdec` 时
+  跳过 usb_cam，由 `video_webrtc_bridge` 独占摄像头——`v4l2src(MJPG) → mppjpegdec
+  → tee`，一路按 `ros_image_fps`（默认 10fps，identity 抽样）发布 `/image_raw`，
+  一路 `mpph264enc → flvmux → rtmpsink`；`camera_backend` 可显式指定
+  `auto|gst|shm|usb_cam`，摄像头断开时自动重建管道。
+- 2026-11-13：`camera_backend=auto` 默认后端改为 `shm`（检测到 `mppjpegdec`
+  时），不带参数执行 `ros2 launch bringup bringup.launch.py` 即启动
+  `walle_camera` + 共享内存 H.264；`video_gop` 默认 30，关键帧间隔 1s。
+- 2026-11-12：P2-1.3 新增 Rockchip MPP 硬件编码后端：`auto` 先探测 GStreamer
+  `mpph264enc`（RK3588 编码器走 `/dev/mpp_service`，ffmpeg 的 `h264_v4l2m2m`
+  会报 `Could not find a valid device`），可用时用 GStreamer 管道推 RTMP，
+  否则依次回退 `h264_v4l2m2m` / `libx264`；实测 640x480@30 / 720p@30 编码
+  约占 9% / 12% 单核（libx264 约 26% / 71%）。
 - 2026-11-10：P2-1.3 评估结论——Raspberry Pi 5（kernel 6.8）没有 V4L2 M2M 编码器：
   `/sys/class/video4linux` 只有 `pispbe-*`（ISP）与 `rpivid`（解码），
   `ffmpeg -c:v h264_v4l2m2m` / `hevc_v4l2m2m` 试编码均报
@@ -522,7 +567,7 @@ cd walle-device/scripts && ./start.sh
   与 `scripts`/测试目录严格 flake8，`build-test` 在 Jazzy 下构建并跑三个包单测；
   顺带补齐 `sdk/common.py` 的 `random` 与 `speech.py` 的 `queue` 导入。
   GitHub 分支保护（Require status checks）需在仓库 Settings 中手动启用。
-- 2026-11-09：P1-5.3 新增 `scripts/stability_test.py`：`kill` 验证节点自治恢复；
+- 2026-11-09：P1-5.3 新增 `test/stability_test.py`：`kill` 验证节点自治恢复；
   `camera` 用 sysfs unbind/bind 模拟拔插；`network` 默认只拦截 Broker 流量，
   `--mode link` 断网卡并带延时恢复兜底；`soak` 采样 RSS/FD/磁盘/温度并判定泄漏。
   README 增加「稳定性测试（上线前）」操作步骤，串口掉线保留手动拔插验证。
@@ -537,8 +582,8 @@ cd walle-device/scripts && ./start.sh
   P1-4.2 MQTT 报文默认只记录主题与长度，DEBUG 才输出脱敏内容。
 - 2026-11-09：P1-3.5 声呐 I2C 读取失败不再静默，节点发布 `-1` 无效值并节流告警，
   恢复后自动继续；RGB 写入与退出清理加异常保护。
-- 2026-11-09：P1-3.3/P1-3.4 相机固定为 `/dev/walle-camera`（`99-walle-camera.rules`，
-  usb_cam 不支持 by-id 深层链接）；udev 规则改为 `99-rrc.rules`
+- 2026-11-09：P1-3.3/P1-3.4 摄像头改为使用实际设备节点（默认 `/dev/video0`，
+  用户配置；原 `/dev/walle-camera` udev 方案已移除）；udev 规则改为 `99-rrc.rules`
   （ttyAMA0 → `/dev/rrc`，dialout 0660），README 同步说明。
 - 2026-11-09：P1-3.1/P1-3.2 `Board` 增加串口自动重连（1s 周期），读写异常关闭
   端口并重连；串口读 1s/写 0.5s/舵机读取 2s 超时；节点改用 MultiThreadedExecutor
@@ -583,7 +628,7 @@ cd walle-device/scripts && ./start.sh
 - 2026-11-09：P0-3.4 已在 `mecanum.py` 增加速度限幅与加速度斜坡（默认
   1.0 m/s、3.0 rad/s、1.0 m/s²、3.0 rad/s²），看门狗急停不经斜坡；需架空验证。
 - 2026-11-09：P0-3.3 阻塞于 MCU 固件源码缺失；需求见
-  `doc/mcu-comm-timeout-requirement.md`，验证脚本 `tools/test_mcu_timeout.py`
+  `doc/mcu-comm-timeout-requirement.md`，验证脚本 `test/test_mcu_timeout.py`
   （需架空车轮）。
 - 2026-11-08：rosbridge / web_video_server 定位为开发调试工具，`scripts/env_walle.sh` 新增
   `WALLE_RUNTIME_ENV`（prod/debug），`bringup` 的 `enable_rosbridge` /

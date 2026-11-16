@@ -14,12 +14,7 @@ captures/
 *.ap_
 *.dex
 **/app/release/
-
-# gradle.properties 必须入库（构建期常量），不要忽略
-# 本地临时改动可用，执行后git看不见它的改动，只在本地生效
-# git update-index --skip-worktree gradle.properties
-# 取消 git 看不见
-# git update-index --no-skip-worktree gradle.properties
+gradle.properties
 
 # ---------- IDE ----------
 .idea/

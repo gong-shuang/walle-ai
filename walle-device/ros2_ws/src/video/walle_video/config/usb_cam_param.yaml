@@ -1,7 +1,9 @@
 /**:
     ros__parameters:
-      # udev 固定为 /dev/walle-camera（见 99-walle-camera.rules）；usb_cam 不支持 by-id 深层链接
-      video_device: "/dev/walle-camera"
+      # 以下采集参数是单独启动 usb_cam.launch.py 时的默认值；
+      # bringup 会用 scripts/etc/walle_camera.conf（JSON）覆盖
+      # video_device / pixel_format / image_width / image_height / framerate。
+      video_device: "/dev/video0"
       framerate: 30.0
       io_method: "mmap"
       frame_id: "camera"

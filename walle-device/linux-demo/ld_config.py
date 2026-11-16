@@ -309,7 +309,7 @@ CAPABILITY_CACHE_ONLY = _env_flag("CAPABILITY_CACHE_ONLY", False)
 
 # ---- 视频推流（video/start，ffmpeg -> RTMP）----
 VIDEO_ENABLE = _env_flag("VIDEO_ENABLE", True)  # 不需要推流能力时置 False
-# 可选：固定摄像头设备（如 udev 符号链接 /dev/walle-camera）；留空接受任意 /dev/videoN
+# 可选：固定摄像头设备（如 /dev/video0，按实际设备配置）；留空接受任意 /dev/videoN
 CAMERA_DEVICE = os.environ.get("CAMERA_DEVICE", "").strip()
 VIDEO_FFMPEG_BIN = "ffmpeg"              # ffmpeg 可执行文件（不在 PATH 就写绝对路径）
 # ---- 媒体服务器（Oryx：视频 RTMP 推流 + 手机音频 WHEP 拉流）----

@@ -32,6 +32,9 @@ public class MessageRouterTest {
         @Override public void onCapabilityResult(JSONObject p) { record("capability", p); }
         @Override public void onVideoStartResult(JSONObject p) { record("video-start", p); }
         @Override public void onVideoStopResult(JSONObject p) { record("video-stop", p); }
+        @Override public void onCarMotorResult(JSONObject p) { record("car-motor", p); }
+        @Override public void onCarServoStatusResult(JSONObject p) { record("car-servo-status", p); }
+        @Override public void onCarServoSetResult(JSONObject p) { record("car-servo-set", p); }
         @Override public void onIgnored(String topic, String reason) { ignored.add(topic); }
     }
 
@@ -47,9 +50,13 @@ public class MessageRouterTest {
         router.route(BASE + "/capability/result", "{\"cameras\":[]}");
         router.route(BASE + "/video/start/result", "{\"result\":0}");
         router.route(BASE + "/video/stop/result", "{\"result\":0}");
+        router.route(BASE + "/car/motor/result", "{\"result\":0}");
+        router.route(BASE + "/car/servo/status/result", "{\"result\":0}");
+        router.route(BASE + "/car/servo/result", "{\"result\":0}");
 
         assertEquals(List.of("online", "discovery", "state", "alarm",
-                "capability", "video-start", "video-stop"), sink.events);
+                "capability", "video-start", "video-stop", "car-motor",
+                "car-servo-status", "car-servo-set"), sink.events);
     }
 
     @Test
@@ -72,8 +79,15 @@ public class MessageRouterTest {
         router.route(BASE + "/alarm", "{\"event\":\"alarm\",\"timestamp\":1}");
         router.route(BASE + "/video/start/result", "{\"request_id\":\"v1\"}");
         router.route(BASE + "/video/start/result", "{\"request_id\":\"v1\"}");
+        router.route(BASE + "/car/motor/result", "{\"request_id\":\"c1\"}");
+        router.route(BASE + "/car/motor/result", "{\"request_id\":\"c1\"}");
+        router.route(BASE + "/car/servo/status/result", "{\"request_id\":\"s1\"}");
+        router.route(BASE + "/car/servo/status/result", "{\"request_id\":\"s1\"}");
+        router.route(BASE + "/car/servo/result", "{\"request_id\":\"s2\"}");
+        router.route(BASE + "/car/servo/result", "{\"request_id\":\"s2\"}");
 
-        assertEquals(List.of("alarm", "video-start"), sink.events);
+        assertEquals(List.of("alarm", "video-start", "car-motor",
+                "car-servo-status", "car-servo-set"), sink.events);
     }
 
     @Test

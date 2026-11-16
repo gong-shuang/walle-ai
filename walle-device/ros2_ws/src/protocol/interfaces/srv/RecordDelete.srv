@@ -1,0 +1,6 @@
+# 删除某个录像文件
+string filename        # 要删除的文件名（仅文件名，不含路径）
+---
+int32 result           # 0 成功 / -1 文件不存在 / -2 正在录制不可删 / -3 非法路径 / -4 执行失败
+string cause
+string filename

@@ -17,9 +17,9 @@ mqttPort=8883
 
 # ---- 播放 / 拉流地址（演示服务器，调试时按需改）----
 whepUrlTemplate=https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream={room}
-# WHIP 推流鉴权 secret（每台服务器部署时生成）----
+# WHIP 推流鉴权 secret（每台服务器部署时生成，32 位十六进制）----
 whipSecret=xxx
-# WHIP 音频上行基础地址（{room} 为房间号占位符；oryxSecret 非空时会自动拼接 &whipSecret=）
+# WHIP 音频上行基础地址（{room} 为房间号占位符；secret 非空时会自动拼接 &secret=）
 whipAudioBaseUrl=https://www.baidong.xyz:443/rtc/v1/whip/?app=live&stream={room}_audio
 
 

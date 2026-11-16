@@ -25,8 +25,9 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     .../video/stop/request                      .../video/stop/result                停止推流（动作）
     .../phone/audio/send                        .../phone/audio/send/result            手机麦上行·开（App 发起）
     .../phone/audio/stop                        .../phone/audio/stop/result            手机麦上行·关（App 发起）
+    .../car/motor/set                         .../car/motor/result                   电机持续控制（最新状态覆盖）
 
-    命名约定：请求按语义划分 —— 查询 /query、动作 /request；
+    命名约定：请求按语义划分 —— 查询 /query、动作 /request、持续控制 /set；
     应答一律 /result，且只在收到对应请求后才发布，只有 online 与 alarm 是主动上报。
 
     除 discovery 广播外，设备只订阅自己子树下的「请求类」主题，
@@ -87,13 +88,17 @@ import psutil
 
 from . import config
 from .capability import CapabilityMixin
+from .car_motor import CarMotorMixin
+from .car_servo import CarServoMixin
 from .config import (ACTION_REQUESTS, MQTT_CA_FILE, MQTT_HOST, MQTT_KEEPALIVE,  # noqa: F401
                      MQTT_PASSWORD, MQTT_PORT, MQTT_QOS, MQTT_TENANT, MQTT_TLS,
                      MQTT_USER, REQUEST_HANDLERS, REQUEST_TO_RESULT,
-                     REQ_CAPABILITY, REQ_DISCOVERY, REQ_PHONE_AUDIO_SEND,
+                     REQ_CAPABILITY, REQ_CAR_MOTOR_SET, REQ_CAR_SERVO_SET,
+                     REQ_CAR_SERVO_STATUS, REQ_DISCOVERY, REQ_PHONE_AUDIO_SEND,
                      REQ_PHONE_AUDIO_STOP, REQ_STATE, REQ_VIDEO_START,
                      REQ_VIDEO_STOP, RES_ALARM, RES_CAPABILITY_RESULT,
-                     RES_DISCOVERY_RESULT, RES_ONLINE,
+                     RES_CAR_MOTOR_RESULT, RES_CAR_SERVO_SET_RESULT,
+                     RES_CAR_SERVO_STATUS_RESULT, RES_DISCOVERY_RESULT, RES_ONLINE,
                      RES_PHONE_AUDIO_SEND_RESULT, RES_PHONE_AUDIO_STOP_RESULT,
                      RES_STATE_RESULT, RES_VIDEO_START_RESULT,
                      RES_VIDEO_STOP_RESULT, VIDEO_ENABLE, VIDEO_ROOM_PATTERN,
@@ -106,6 +111,7 @@ from .media import rtmp_secret_ready  # noqa: F401
 from .monitor import MonitorMixin, scan_usb_devices
 from .phone_audio import PhoneAudioMixin
 from .protocol import ProtocolMixin
+from .record import RecordMixin
 from .video import VideoMixin
 
 
@@ -119,8 +125,8 @@ def __getattr__(name):
 
 
 class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
-                 PhoneAudioMixin):
-    """设备代理：组合协议、监控、能力、推流与手机音频能力。"""
+                 RecordMixin, PhoneAudioMixin, CarMotorMixin, CarServoMixin):
+    """设备代理：组合协议、监控、能力、推流、录像、手机音频、车控与舵机状态能力。"""
 
     def __init__(self):
         self.client = None
@@ -134,8 +140,11 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
                                              thread_name_prefix="mqtt-query")
         self.action_pool = ThreadPoolExecutor(config.ACTION_WORKERS,
                                               thread_name_prefix="mqtt-action")
+        self.servo_pool = ThreadPoolExecutor(config.SERVO_WORKERS,
+                                             thread_name_prefix="mqtt-servo")
         self._query_slots = threading.BoundedSemaphore(config.QUERY_WORKERS + config.MAX_QUERY_BACKLOG)
         self._action_slots = threading.BoundedSemaphore(config.ACTION_WORKERS + config.MAX_ACTION_BACKLOG)
+        self._servo_slots = threading.BoundedSemaphore(config.SERVO_WORKERS + config.MAX_SERVO_BACKLOG)
         self.dropped_requests = 0
         self._dropped_lock = threading.Lock()
         self._last_drop_log = 0.0
@@ -162,6 +171,8 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
         self.audio_meta = {}
         # 上一次应答 discovery 的时间（单调时钟），用于限频
         self._last_discovery_at = 0.0
+        # state/result 的 recording 分组：由节点侧在 record start/stop 应答后更新
+        self.recording_state = {"recording": False, "filename": None}
         # state/query 快照：monitor_loop 每次采样后写入，查询直接复用，
         # 避免每次查询都阻塞采样 1s（P2-1.1）
         self.status_sample = None       # (cores, per_iface, total_rx, total_tx, interval, monotonic_ts)
@@ -217,6 +228,8 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
         self.client.on_message = self.on_message
+        # paho 内部错误（回调异常、连接异常）默认只写它自己的 logger，接进统一日志
+        self.client.enable_logger()
         self.client.reconnect_delay_set(min_delay=3, max_delay=30)
         # TLS 已在 validate_mqtt_config 中强制校验，不再允许明文回退
         import ssl
@@ -245,6 +258,7 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
                 pass
             self.query_pool.shutdown(wait=False, cancel_futures=True)
             self.action_pool.shutdown(wait=False, cancel_futures=True)
+            self.servo_pool.shutdown(wait=False, cancel_futures=True)
             self.client.loop_stop()
             self.client.disconnect()
 

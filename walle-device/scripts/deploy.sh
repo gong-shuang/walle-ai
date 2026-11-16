@@ -25,7 +25,7 @@ get_conf() {
               -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
 }
 
-echo "[1/4] 检查配置文件 $conf_file"
+echo "[1/5] 检查配置文件 $conf_file"
 if [[ ! -f "$conf_file" ]]; then
     echo "  未找到 $conf_file，请先复制模板：cp walle-ai.conf.example walle-ai.conf" >&2
     exit 1
@@ -45,10 +45,20 @@ if [[ "$missing" -ne 0 ]]; then
 fi
 echo "  必填项检查通过：MQTT_HOST / MQTT_USERNAME / MQTT_PASSWORD / MQTT_TENANT / MEDIA_SERVER_HOST / MEDIA_SERVER_SECRET"
 
-echo "[2/4] 安装配置到 /etc/walle-ai.conf（root:root 600）"
+echo "[2/5] 安装配置到 /etc/walle-ai.conf（root:root 600）"
 sudo install -m 600 -o root -g root "$conf_file" /etc/walle-ai.conf
 
-echo "[3/4] 安装 walle-ai.service"
+echo "[3/5] 安装摄像头配置到 /etc/walle-ai/walle_camera.conf"
+camera_conf="$script_dir/etc/walle_camera.conf"
+if [[ -f "$camera_conf" ]]; then
+    sudo install -d -m 755 -o root -g root /etc/walle-ai
+    sudo install -m 644 -o root -g root "$camera_conf" /etc/walle-ai/walle_camera.conf
+else
+    echo "  未找到 $camera_conf" >&2
+    echo "  请先运行 ./auto_gen_camera_conf.sh 生成；本次跳过（运行时回退到仓库内配置）" >&2
+fi
+
+echo "[4/5] 安装 walle-ai.service"
 target_user="${SUDO_USER:-$(id -un)}"
 target_group="$(id -gn "$target_user")"
 target_home="$(getent passwd "$target_user" | cut -d: -f6)"
@@ -66,7 +76,7 @@ sed -e "s|@WALLE_USER@|$target_user|g" \
     walle-ai.service.in > "$unit_tmp"
 sudo install -m 644 -o root -g root "$unit_tmp" /etc/systemd/system/walle-ai.service
 
-echo "[4/4] 启用 walle-ai.service"
+echo "[5/5] 启用 walle-ai.service"
 sudo systemctl daemon-reload
 sudo systemctl enable walle-ai.service
 
