@@ -30,10 +30,9 @@ class TTSNode(Node):
         super().__init__(name)
         
         self.text = None  # 待转换的文本 (text to be converted)
-        try:
-            speech.set_volume(50)  # 设置音量 (set volume)
-        except Exception as e:
-            self.get_logger().warning('set volume failed, continue: %s' % e)
+        # 音量统一由 bringup.launch.py 启动时设置（PulseAudio sink 音量）。
+        # 这里不要再调用 speech.set_volume()：它走 amixer 设置 ALSA 硬件音量，
+        # 而本机 PulseAudio 使用硬件音量控制，50% raw 会被 Pulse 显示成 16%。
         self.language = os.environ["ASR_LANGUAGE"]  # 从环境变量获取语言设置 (get language setting from environment variable)
         if self.language == 'Chinese':
             self.tts = speech.RealTimeTTS(log=self.get_logger())  # 中文TTS引擎 (Chinese TTS engine)

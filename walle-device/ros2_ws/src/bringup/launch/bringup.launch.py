@@ -3,8 +3,9 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
-                            LogInfo, OpaqueFunction, TimerAction)
+from launch.actions import (DeclareLaunchArgument, ExecuteProcess,
+                            IncludeLaunchDescription, LogInfo, OpaqueFunction,
+                            TimerAction)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -227,8 +228,22 @@ def launch_setup(context):
     # 启动时统一打印版本（来自 env_walle.sh 导出的 WALLE_VERSION_*）
     version_log = LogInfo(msg=_version_banner())
 
+    # 启动时把 PulseAudio 默认输出音量固定为 70%。
+    # 注意：speech.set_volume() 操作的是 ALSA 硬件 mixer，而本机 aplay 的
+    # default 走 PulseAudio，实际音量由 sink 决定，所以必须用 pactl 设置。
+    # Pulse 未就绪时重试 3 次，失败也不阻塞 bringup。
+    set_output_volume = ExecuteProcess(
+        cmd=['/bin/bash', '-c',
+             'for i in 1 2 3; do '
+             'pactl set-sink-volume @DEFAULT_SINK@ 70% && exit 0; '
+             'sleep 1; done; exit 0'],
+        name='set_output_volume',
+        output='screen',
+    )
+
     return [
         version_log,
+        set_output_volume,
         LogInfo(msg='[bringup] 阶段 1/4：启动底盘与调试服务'),
         net_launch,
         web_video_server_launch,
