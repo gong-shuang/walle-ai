@@ -159,6 +159,12 @@ def launch_setup(context):
             'storage_limit_gb': str(rec.get('storage_limit_gb', 16.0)),
             'segment_duration_sec': str(rec.get('segment_duration_sec', 3600)),
             'auto_record': str(rec.get('auto_record', True)).lower(),
+            'audio_enabled': str(rec.get('audio_enabled', True)).lower(),
+            'audio_backend': str(rec.get('audio_backend', 'pulse')),
+            'audio_input': str(rec.get('audio_input', 'default')),
+            'audio_sample_rate': str(rec.get('audio_sample_rate', 44100)),
+            'audio_channels': str(rec.get('audio_channels', 1)),
+            'audio_bitrate': str(rec.get('audio_bitrate', '64k')),
         }.items(),
     )
 

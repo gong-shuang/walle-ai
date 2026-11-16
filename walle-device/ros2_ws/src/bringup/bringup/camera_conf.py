@@ -9,7 +9,9 @@ schema_version == 1（camera / record 分块）：
     "camera": { "name":..., "device":..., "format":..., "width":..., "height":..., "framerate":... },
     "record": { "enabled":..., "dir_name":..., "storage_path":...,
                 "storage_limit_gb":..., "segment_duration_sec":...,
-                "auto_record":... } }
+                "auto_record":..., "audio_enabled":..., "audio_backend":...,
+                "audio_input":..., "audio_sample_rate":...,
+                "audio_channels":..., "audio_bitrate":... } }
 
 运行时按以下顺序查找：
   1. 显式参数 / 环境变量 WALLE_CAMERA_CONF
@@ -64,6 +66,13 @@ def _default_record_conf():
         'storage_limit_gb': DEFAULT_STORAGE_LIMIT_GB,
         'segment_duration_sec': DEFAULT_SEGMENT_DURATION_SEC,
         'auto_record': True,
+        # 音频：pulse 可与 ASR/VAD 共享麦克风；alsa 直连为独占设备
+        'audio_enabled': True,
+        'audio_backend': 'pulse',
+        'audio_input': 'default',
+        'audio_sample_rate': 44100,
+        'audio_channels': 1,
+        'audio_bitrate': '64k',
     }
 
 
@@ -131,6 +140,32 @@ def _validate_record_block(block, path):
     except (TypeError, ValueError):
         pass
     rec['auto_record'] = bool(block.get('auto_record', default['auto_record']))
+    rec['audio_enabled'] = bool(
+        block.get('audio_enabled', default['audio_enabled']))
+    backend = str(
+        block.get('audio_backend') or default['audio_backend']).strip().lower()
+    if backend in ('pulse', 'alsa'):
+        rec['audio_backend'] = backend
+    audio_input = str(
+        block.get('audio_input') or default['audio_input']).strip()
+    if audio_input:
+        rec['audio_input'] = audio_input
+    try:
+        rate = int(block.get('audio_sample_rate', default['audio_sample_rate']))
+        if 8000 <= rate <= 48000:
+            rec['audio_sample_rate'] = rate
+    except (TypeError, ValueError):
+        pass
+    try:
+        channels = int(block.get('audio_channels', default['audio_channels']))
+        if channels in (1, 2):
+            rec['audio_channels'] = channels
+    except (TypeError, ValueError):
+        pass
+    audio_bitrate = str(
+        block.get('audio_bitrate') or default['audio_bitrate']).strip().lower()
+    if audio_bitrate[:-1].isdigit() and audio_bitrate.endswith('k'):
+        rec['audio_bitrate'] = audio_bitrate
     return rec
 
 
@@ -183,9 +218,10 @@ def describe_camera_conf(conf):
     rec = conf.get('record') or {}
     rec_text = ''
     if rec:
-        rec_text = '；录像：%sGB上限/%ds分片' % (
+        rec_text = '；录像：%sGB上限/%ds分片/音频%s' % (
             rec.get('storage_limit_gb', '?'),
-            rec.get('segment_duration_sec', '?'))
+            rec.get('segment_duration_sec', '?'),
+            '开' if rec.get('audio_enabled', True) else '关')
     return '%s %s %dx%d@%sfps%s' % (
         cam.get('name', '?'), cam.get('format', '?'),
         cam.get('width', 0), cam.get('height', 0), fps_text, rec_text)

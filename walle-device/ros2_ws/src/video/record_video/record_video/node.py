@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """record_video_node
 
-订阅 /image_raw（sensor_msgs/Image，BGR8），通过 ffmpeg 编码为 H.264 并封装为
-fragmented MP4（fMP4）落盘到本地。支持：
+订阅 /image_raw（sensor_msgs/Image，BGR8），通过 ffmpeg 编码为 H.264，并同时从
+麦克风采集音频编码为 AAC，一起封装为 fragmented MP4（fMP4）落盘到本地。支持：
   - 开始 / 停止录像
   - 按配置时长自动分片（每个分片一个独立 fMP4 文件）
   - 存储空间上限管理（FIFO 回收最旧文件）
@@ -104,11 +104,51 @@ def select_encoder():
     return SOFTWARE_H264_ENCODER, "libx264 软件编码"
 
 
+def probe_audio_input(backend, device, timeout=5.0):
+    """试采集 0.3s 音频，判断音频输入是否可用；返回 (ok, cause)。"""
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-f", backend, "-i", device,
+        "-t", "0.3", "-f", "null", "-",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout,
+        )
+    except FileNotFoundError:
+        return False, "未安装 ffmpeg"
+    except subprocess.TimeoutExpired:
+        return False, "音频输入试采集超时"
+    except Exception as exc:  # noqa: BLE001
+        return False, "音频输入试采集失败: %s" % exc
+    if proc.returncode != 0:
+        err = proc.stdout.decode("utf-8", "replace").strip()[-300:]
+        return False, "音频输入不可用: %s" % err
+    return True, None
+
+
+def _parse_bitrate(text):
+    """把 '2M'/'64k'/'800000' 解析成 bps；解析失败返回 0。"""
+    text = str(text).strip().lower()
+    try:
+        if text.endswith("k"):
+            return float(text[:-1]) * 1000
+        if text.endswith("m"):
+            return float(text[:-1]) * 1000 * 1000
+        return float(text)
+    except (ValueError, IndexError):
+        return 0.0
+
+
 class RecordingSession:
     """一次录像会话：管理 ffmpeg 进程、分片切换、文件写入。"""
 
     def __init__(self, storage_path, width, height, framerate, bitrate,
-                 segment_duration_sec, encoder, logger):
+                 segment_duration_sec, encoder, logger,
+                 audio_enabled=False, audio_backend="pulse",
+                 audio_input="default", audio_sample_rate=44100,
+                 audio_channels=1, audio_bitrate="64k"):
         self.storage_path = storage_path
         self.width = width
         self.height = height
@@ -117,6 +157,14 @@ class RecordingSession:
         self.segment_duration_sec = segment_duration_sec
         self.encoder = encoder
         self.logger = logger
+
+        self.audio_backend = audio_backend
+        self.audio_input = audio_input
+        self.audio_sample_rate = audio_sample_rate
+        self.audio_channels = audio_channels
+        self.audio_bitrate = audio_bitrate
+        # 运行期可降级：某次分片带音频启动失败后，后续分片只录视频
+        self.audio_active = bool(audio_enabled)
 
         self.proc = None
         self.current_file = None
@@ -129,7 +177,7 @@ class RecordingSession:
         self._pump_thread = None
 
     def _build_ffmpeg_cmd(self, out_path):
-        """构建 ffmpeg 命令：rawvideo 输入 -> H.264 -> fMP4。"""
+        """构建 ffmpeg 命令：rawvideo(+麦克风) -> H.264(+AAC) -> fMP4。"""
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
             "-f", "rawvideo",
@@ -137,6 +185,15 @@ class RecordingSession:
             "-s", "%dx%d" % (self.width, self.height),
             "-r", "%.3f" % self.framerate,
             "-i", "-",
+        ]
+        if self.audio_active:
+            # 音频独立输入：默认 PulseAudio（可与 ASR/VAD 共享麦克风），
+            # 也可配成 alsa + plughw:X,0（独占，ASR 运行时可能抢不到）
+            cmd += ["-f", self.audio_backend, "-i", self.audio_input]
+        cmd += ["-map", "0:v"]
+        if self.audio_active:
+            cmd += ["-map", "1:a"]
+        cmd += [
             "-c:v", self.encoder,
             # 强制输出 yuv420p（4:2:0 色度子采样），否则输入是 bgr24 时
             # libx264 默认会输出 yuv444p（H.264 High 4:4:4 Predictive），
@@ -148,6 +205,14 @@ class RecordingSession:
             # High profile + level 4.0：兼容 720p/1080p，桌面/移动/浏览器通吃
             cmd += ["-preset", "ultrafast", "-tune", "zerolatency",
                     "-profile:v", "high", "-level", "4.0"]
+        if self.audio_active:
+            cmd += [
+                "-c:a", "aac", "-b:a", self.audio_bitrate,
+                "-ar", str(self.audio_sample_rate),
+                "-ac", str(self.audio_channels),
+                # 音频与摄像头时钟不同源：async 自动补/丢采样，避免长分片音画漂移
+                "-af", "aresample=async=1:first_pts=0",
+            ]
         # fMP4 关键参数：每个关键帧一个 fragment，支持边录边播、断电可恢复
         cmd += [
             "-movflags", "+frag_keyframe+empty_moov+default_base_moof",
@@ -180,41 +245,53 @@ class RecordingSession:
             out_path = os.path.join(self.storage_path, filename)
             suffix += 1
 
-        cmd = self._build_ffmpeg_cmd(out_path)
-        try:
-            self.proc = subprocess.Popen(
-                cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE)
-        except (FileNotFoundError, OSError) as exc:
-            self.logger.error("启动 ffmpeg 失败: %s" % exc)
-            self.proc = None
-            return False
-        # 启动后等一小段时间检查进程是否存活（编码器不存在等会立即退出）
-        time.sleep(0.2)
-        rc = self.proc.poll()
-        if rc is not None:
+        while True:
+            cmd = self._build_ffmpeg_cmd(out_path)
+            try:
+                self.proc = subprocess.Popen(
+                    cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE)
+            except (FileNotFoundError, OSError) as exc:
+                self.logger.error("启动 ffmpeg 失败: %s" % exc)
+                self.proc = None
+                return False
+            # 启动后等一小段时间检查进程是否存活（编码器/音频设备不可用会立即退出）
+            time.sleep(0.2)
+            rc = self.proc.poll()
+            if rc is None:
+                break
             err = b""
             try:
                 if self.proc.stderr:
                     err = self.proc.stderr.read() or b""
             except Exception:  # noqa: BLE001
                 pass
-            self.logger.error(
-                "ffmpeg 启动后立即退出（rc=%s）：%s\n命令：%s"
-                % (rc, err.decode("utf-8", "replace").strip()[-500:],
-                   " ".join(cmd)))
             try:
                 if self.proc.stdin:
                     self.proc.stdin.close()
             except Exception:  # noqa: BLE001
                 pass
             self.proc = None
+            err_text = err.decode("utf-8", "replace").strip()[-500:]
+            if self.audio_active:
+                # 麦克风被独占/掉线时不让整段录像失败：本片起退回仅视频
+                self.logger.warning(
+                    "带音频启动 ffmpeg 失败（rc=%s），改录纯视频：%s\n命令：%s"
+                    % (rc, err_text, " ".join(cmd)))
+                self.audio_active = False
+                continue
+            self.logger.error(
+                "ffmpeg 启动后立即退出（rc=%s）：%s\n命令：%s"
+                % (rc, err_text, " ".join(cmd)))
             return False
         self.current_file = filename
         self.current_started_ts = _ts()
         self.logger.info(
-            "开始录像分片：%s（%dx%d@%.1ffps，编码器=%s）"
-            % (filename, self.width, self.height, self.framerate, self.encoder))
+            "开始录像分片：%s（%dx%d@%.1ffps，编码器=%s，音频=%s）"
+            % (filename, self.width, self.height, self.framerate, self.encoder,
+               ("%s/%s %dHz %dch" % (self.audio_backend, self.audio_input,
+                                     self.audio_sample_rate, self.audio_channels))
+               if self.audio_active else "关闭"))
         return True
 
     def _stop_segment(self, finalize=True):
@@ -223,6 +300,14 @@ class RecordingSession:
             return
         try:
             self.proc.send_signal(signal.SIGINT)
+            # ffmpeg 阻塞在 stdin / 音频设备读取上时不会及时处理 SIGINT，
+            # 单发 SIGINT 会一直挂到被 kill，fMP4 尾部（moov/fragment）丢失。
+            # 立即关闭 stdin 让它读到 EOF，配合 SIGINT 可正常收尾退出。
+            if self.proc.stdin:
+                try:
+                    self.proc.stdin.close()
+                except Exception:  # noqa: BLE001
+                    pass
             try:
                 self.proc.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
@@ -232,11 +317,6 @@ class RecordingSession:
         except (OSError, subprocess.SubprocessError) as exc:
             self.logger.error("停止 ffmpeg 分片失败: %s" % exc)
         finally:
-            if self.proc.stdin:
-                try:
-                    self.proc.stdin.close()
-                except Exception:  # noqa: BLE001
-                    pass
             self.proc = None
 
     def _segment_loop(self):
@@ -311,6 +391,12 @@ class RecordVideoNode(Node):
         self.declare_parameter("auto_record", True)
         self.declare_parameter("min_free_space_gb", 6.0)
         self.declare_parameter("bitrate", "2M")
+        self.declare_parameter("audio_enabled", True)
+        self.declare_parameter("audio_backend", "pulse")
+        self.declare_parameter("audio_input", "default")
+        self.declare_parameter("audio_sample_rate", 44100)
+        self.declare_parameter("audio_channels", 1)
+        self.declare_parameter("audio_bitrate", "64k")
         self.declare_parameter("http_port", 8088)
         self.declare_parameter("http_host", "0.0.0.0")
 
@@ -327,6 +413,14 @@ class RecordVideoNode(Node):
         self._auto_record_handled = False
         self.min_free_space_gb = float(self.get_parameter("min_free_space_gb").value)
         self.bitrate = self.get_parameter("bitrate").value
+        self.audio_enabled = bool(self.get_parameter("audio_enabled").value)
+        self.audio_backend = str(
+            self.get_parameter("audio_backend").value).strip().lower()
+        self.audio_input = str(self.get_parameter("audio_input").value).strip()
+        self.audio_sample_rate = int(
+            self.get_parameter("audio_sample_rate").value)
+        self.audio_channels = int(self.get_parameter("audio_channels").value)
+        self.audio_bitrate = self.get_parameter("audio_bitrate").value
         self.http_port = int(self.get_parameter("http_port").value)
         self.http_host = self.get_parameter("http_host").value
 
@@ -337,6 +431,21 @@ class RecordVideoNode(Node):
         # 编码器选择（启动时探测一次）
         self.encoder, self.encoder_desc = select_encoder()
         self.get_logger().info("录像编码器：%s" % self.encoder_desc)
+
+        # 音频输入探测（启动时探测一次）：不可用时只录视频，不影响录像功能。
+        # 默认 pulse 可与 ASR/VAD 共享麦克风；alsa 直连设备是独占的。
+        if self.audio_enabled:
+            ok, cause = probe_audio_input(self.audio_backend, self.audio_input)
+            if ok:
+                self.get_logger().info(
+                    "录像音频：%s/%s（%dHz %dch %s）"
+                    % (self.audio_backend, self.audio_input,
+                       self.audio_sample_rate, self.audio_channels,
+                       self.audio_bitrate))
+            else:
+                self.audio_enabled = False
+                self.get_logger().warning(
+                    "音频输入不可用，录像将仅包含视频：%s" % cause)
 
         # 存储路径
         if not self.storage_path:
@@ -510,7 +619,13 @@ class RecordVideoNode(Node):
                     self._session = RecordingSession(
                         self.storage_path, self.width, self.height,
                         self.framerate, self.bitrate, segment_sec,
-                        self.encoder, self.get_logger())
+                        self.encoder, self.get_logger(),
+                        audio_enabled=self.audio_enabled,
+                        audio_backend=self.audio_backend,
+                        audio_input=self.audio_input,
+                        audio_sample_rate=self.audio_sample_rate,
+                        audio_channels=self.audio_channels,
+                        audio_bitrate=self.audio_bitrate)
                     if not self._session.start():
                         response.result = -4
                         response.cause = "启动录像失败"
@@ -603,12 +718,9 @@ class RecordVideoNode(Node):
             return session.current_duration_sec()
         # 历史文件按码率粗估（bitrate 如 2M -> 2*1024*1024/8 字节/秒）
         try:
-            bps = float(self.bitrate[:-1])
-            unit = self.bitrate[-1].lower()
-            if unit == "k":
-                bps *= 1000
-            elif unit == "m":
-                bps *= 1000 * 1000
+            bps = _parse_bitrate(self.bitrate)
+            if self.audio_enabled:
+                bps += _parse_bitrate(self.audio_bitrate)
             bytes_per_sec = bps / 8.0
             if bytes_per_sec > 0:
                 return int(size_bytes / bytes_per_sec)

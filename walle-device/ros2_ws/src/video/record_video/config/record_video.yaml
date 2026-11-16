@@ -11,4 +11,12 @@ record_video:
     auto_record: true
     min_free_space_gb: 6.0
     bitrate: 2M
+    # 音频：默认从 PulseAudio 默认源采集（可与 ASR/VAD 共享麦克风）。
+    # 若用 ALSA 直连（独占设备）可改为 alsa + plughw:X,0。
+    audio_enabled: true
+    audio_backend: pulse
+    audio_input: default
+    audio_sample_rate: 44100
+    audio_channels: 1
+    audio_bitrate: 64k
     http_port: 8088
