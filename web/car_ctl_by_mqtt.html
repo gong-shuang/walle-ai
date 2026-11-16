@@ -105,6 +105,18 @@ textarea, .input{width:100%;border:1px solid var(--line2);background:rgba(255,25
 textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3px rgba(61,220,151,.08)}
 .videoWrap{position:relative;width:100%;aspect-ratio:16/9;border-radius:13px;overflow:hidden;border:1px solid var(--line);background:#04070b}
 .videoWrap video{display:block;width:100%;height:100%;object-fit:contain;background:#000}
+/* 声音开关：默认有声，点击静音 */
+.videoSoundBtn{position:absolute;right:10px;bottom:10px;z-index:3;width:34px;height:34px;
+  display:flex;align-items:center;justify-content:center;padding:0;border-radius:50%;
+  border:1px solid rgba(255,255,255,.22);background:rgba(8,12,18,.62);color:#e6edf7;
+  cursor:pointer;backdrop-filter:blur(6px);transition:background .15s,color .15s}
+.videoSoundBtn:hover{background:rgba(8,12,18,.85)}
+.videoSoundBtn.off{color:#8a99ad}
+.videoSoundBtn svg{width:19px;height:19px;display:block;fill:currentColor}
+.videoSoundBtn .icoOff{display:none}
+.videoSoundBtn.off .icoOn{display:none}
+.videoSoundBtn.off .icoOff{display:block}
+.videoSoundBtn.hide{display:none}
 .videoEmpty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
   text-align:center;padding:16px;background:radial-gradient(circle at 50% 40%,rgba(61,220,151,.07),rgba(4,7,11,.94))}
 .videoEmpty p{margin:0;max-width:320px;font-size:12px;color:var(--muted);line-height:1.55}
@@ -425,7 +437,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       </div>
       <div class="videoStage">
         <div class="videoWrap">
-          <video id="videoEl" muted autoplay playsinline></video>
+          <video id="videoEl" autoplay playsinline></video>
+          <button id="btnVideoSound" class="videoSoundBtn hide" type="button" aria-label="关闭声音" title="关闭声音">
+            <svg class="icoOn" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+            <svg class="icoOff" viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+          </button>
           <div id="videoEmpty" class="videoEmpty">
             <div class="ico">◎</div>
             <p id="videoHint">页面不自动拉流。连接 MQTT 并选择设备后可开始推流或接管已有画面。</p>
@@ -638,7 +654,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   ['deviceSelect', 'connChip', 'connText', 'btnDiscover', 'btnSettings', 'onlineBadge', 'devName', 'devSub',
    'devPills', 'mCpu', 'bCpu', 'mTemp', 'bTemp', 'mMem', 'bMem', 'mUptime', 'bUp', 'dHost', 'dOs', 'dLoad', 'dNet',
    'dDisk', 'dUsb', 'dVideo', 'dRec', 'stateTime', 'autoState', 'btnState', 'btnCapability', 'videoEl',
-   'videoEmpty', 'videoHint', 'btnVideoAction', 'btnVideoStop',
+   'videoEmpty', 'videoHint', 'btnVideoAction', 'btnVideoStop', 'btnVideoSound',
    'videoMsg', 'alarmList', 'btnAlarmClear', 'carStatus', 'servoStatus', 'servoEnable',
    'scrim', 'drawer', 'btnDrawerClose', 'fWsUrl', 'fUser', 'fPass', 'fClientId', 'fKeepalive', 'fDevice',
    'fVideoUrl', 'btnSave',
@@ -2117,12 +2133,20 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       setTimeout(finish, 6000);
     });
   }
+  function applyVideoSoundUi() {
+    var off = !!el.videoEl.muted;
+    el.btnVideoSound.classList.toggle('off', off);
+    var label = off ? '开启声音' : '关闭声音';
+    el.btnVideoSound.setAttribute('aria-label', label);
+    el.btnVideoSound.title = label;
+  }
   function closeWhep(del) {
     if (ui.video.pc) {
       var old = ui.video.pc; ui.video.pc = null;
       try { old.ontrack = null; old.onconnectionstatechange = null; old.close(); } catch (e) {}
     }
     el.videoEl.srcObject = null;
+    el.btnVideoSound.classList.add('hide');
     if (del && ui.video.location) {
       try { fetch(ui.video.location, { method: 'DELETE', keepalive: true }).catch(function () {}); } catch (e) {}
     }
@@ -2180,7 +2204,15 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       if (!body.trim()) throw new Error('WHEP 响应体为空（HTTP ' + res.status + '）');
       await pc.setRemoteDescription({ type: 'answer', sdp: body });
       setVideoMsg('协商完成，等待首帧…', 'ok');
-      el.videoEl.play().catch(function () {});
+      el.videoEl.muted = false;
+      applyVideoSoundUi();
+      el.videoEl.play().catch(function () {
+        // 浏览器自动播放策略拦截了带声音播放：先静音出画面，点击喇叭再开声音
+        el.videoEl.muted = true;
+        el.videoEl.play().catch(function () {});
+        applyVideoSoundUi();
+        setVideoMsg('浏览器限制带声音自动播放，已静音；点击喇叭开启声音', null);
+      });
     } catch (e) {
       closeWhep(false);
       setVideoMsg('视频连接失败：' + (e && e.message ? e.message : e), 'err');
@@ -2236,8 +2268,18 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   el.btnVideoStop.addEventListener('click', videoStop);
   el.videoEl.addEventListener('playing', function () {
     el.videoEmpty.classList.add('hide');
+    el.btnVideoSound.classList.remove('hide');
+    applyVideoSoundUi();
     ui.video.connected = true; applyVideoUi();
     setVideoMsg('画面播放中 · room ' + (ui.video.room || '—'), 'ok');
+  });
+  el.btnVideoSound.addEventListener('click', function (e) {
+    e.stopPropagation();
+    var mute = !el.videoEl.muted;
+    el.videoEl.muted = mute;
+    if (!mute) el.videoEl.play().catch(function () {});
+    applyVideoSoundUi();
+    setVideoMsg(mute ? '已静音（点击喇叭恢复声音）' : '声音已开启', mute ? null : 'ok');
   });
   el.btnAlarmClear.addEventListener('click', function () {
     el.alarmList.innerHTML = '<div class="emptyState">暂无告警</div>';
