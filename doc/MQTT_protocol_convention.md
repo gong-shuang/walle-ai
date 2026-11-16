@@ -1,11 +1,11 @@
-# MQTT 协议约定（文档版本 v1.3）
+# MQTT 协议约定（文档版本 v1.5）
 
 > 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`；ROS2 车控为
 > `walle-device/ros2_ws/src/net/net_mqtt_bridge`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
 > - 与设备通信的，用来控制小车的协议版本：v1  （记录每个协议的版本，用来兼容旧版本） 
-> - 本文档的版本：v1.3 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.5 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -40,7 +40,7 @@ walle/{tenant}/{device}/v1/{resource}
 | 1 | 上线/下线 | — | `walle/{t}/{d}/v1/online` | 主动上报（retained + LWT） | v1.1 | v1.1最小化json报文 |
 | 2 | 设备发现 | `walle/{t}/v1/discovery/query` | `walle/{t}/{d}/v1/discovery/result` | 请求-应答（按需、限频） | v1.1 | v1.1最小化json报文 |
 | 3 | 状态查询 | `walle/{t}/{d}/v1/state/query` | `walle/{t}/{d}/v1/state/result` | 请求-应答 | v1.4 | v1.4精简json报文 |
-| 4 | 设备能力 | `walle/{t}/{d}/v1/capability/query` | `walle/{t}/{d}/v1/capability/result` | 请求-应答 | v1.4 | cameras 去掉 formats |
+| 4 | 设备能力 | `walle/{t}/{d}/v1/capability/query` | `walle/{t}/{d}/v1/capability/result` | 请求-应答 | v1.4 | v1.1后台缓存探测，v1.4精简json报文 |
 | 5 | 开始推流 | `walle/{t}/{d}/v1/video/start/request` | `walle/{t}/{d}/v1/video/start/result` | 请求-应答 | v1.0 |  |
 | 6 | 停止推流 | `walle/{t}/{d}/v1/video/stop/request` | `walle/{t}/{d}/v1/video/stop/result` | 请求-应答 | v1.0 |  |
 | 7 | 告警 | — | `walle/{t}/{d}/v1/alarm` | 主动上报 | v1.0 |  |
@@ -1103,6 +1103,19 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
   - `record/play/stop/request` → `record/play/stop/result`：停止录像点播推流。
 - 支持 `offset_sec` 从指定时间点开始播放（进度条拖动）。
 
+### 2026-11-16：精简两个result报文 state|capability/result（V1.4）
+
+**变更类型**：破坏性变更（协议 v1 主题不变，精简两个result报文）。
+
+**变更内容**
+
+- 精简 state/result 报文，recording 增加功能开关
+- 精简 capability/result，cameras 去掉 formats 并新增 recording
+
+**影响与兼容性**：变更主题，APP和web都需要更新；
+
+**验证方式**：刷新设备详情和刷新设备能力验证
+
 ### 2026-11-15：新增录像 record/start|stop|list|delete（V1.3）
 
 **变更类型**：非破坏性增量（协议 v1 主题不变，新增 4 组录像主题）。
@@ -1196,7 +1209,7 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 `test_protocol.py` 校验订阅清单与请求-应答配对；App `TopicNamesTest` / `MessageRouterTest`
 覆盖新增主题与路由。
 
-### 2026-11-10～11-12：online / discovery/result 统一为最小身份报文
+### 2026-11-10～11-12：online / discovery/result 统一为最小身份报文（V1.1）
 
 **提交**：`104ed22`（设备端，`feat(linux-demo): 最小化 retained online 报文`）、
 `b8957d5`（App，`refactor(mqtt): 适配设备最小身份报文`）。
@@ -1233,7 +1246,7 @@ App `DeviceInfoTest` / `DeviceRegistryTest` 共 21 个用例通过
 
 **验证方式**：`test/test_status_cache.py` 覆盖快照复用、无快照时兜底采样与查询 < 100ms。
 
-### 2026-11-10：capability/query 改为后台缓存探测
+### 2026-11-10：capability/query 改为后台缓存探测 （V1.1）
 
 **变更类型**：非破坏性增量（协议 v1 字段只增不改）。
 
@@ -1255,7 +1268,7 @@ App `DeviceInfoTest` / `DeviceRegistryTest` 共 21 个用例通过
 - `test/test_capability_cache.py`：capability 查询只读缓存、cache-only 立即返回
   pending、后台探测结果写入缓存、探测失败保留旧缓存。
 
-### 2026-11-08 20:00（Asia/Shanghai, CST）：移除远程命令 cmd/exec → cmd/result
+### 2026-11-08 20:00（Asia/Shanghai, CST）：移除远程命令 cmd/exec → cmd/result （V1.1）
 
 **变更类型**：破坏性删除（协议 v1 内直接移除，不保留兼容层）。
 
