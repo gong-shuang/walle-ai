@@ -39,7 +39,7 @@ walle/{tenant}/{device}/v1/{resource}
 |---|---|---|---|---|---|---|
 | 1 | 上线/下线 | — | `walle/{t}/{d}/v1/online` | 主动上报（retained + LWT） | v1.1 | v1.1最小化json报文 |
 | 2 | 设备发现 | `walle/{t}/v1/discovery/query` | `walle/{t}/{d}/v1/discovery/result` | 请求-应答（按需、限频） | v1.1 | v1.1最小化json报文 |
-| 3 | 状态查询 | `walle/{t}/{d}/v1/state/query` | `walle/{t}/{d}/v1/state/result` | 请求-应答 | v1.0 |  |
+| 3 | 状态查询 | `walle/{t}/{d}/v1/state/query` | `walle/{t}/{d}/v1/state/result` | 请求-应答 | v1.4 | v1.4精简json报文 |
 | 4 | 设备能力 | `walle/{t}/{d}/v1/capability/query` | `walle/{t}/{d}/v1/capability/result` | 请求-应答 | v1.0 |  |
 | 5 | 开始推流 | `walle/{t}/{d}/v1/video/start/request` | `walle/{t}/{d}/v1/video/start/result` | 请求-应答 | v1.0 |  |
 | 6 | 停止推流 | `walle/{t}/{d}/v1/video/stop/request` | `walle/{t}/{d}/v1/video/stop/result` | 请求-应答 | v1.0 |  |
@@ -256,11 +256,17 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 > `device="v1", resource="discovery/query"`——两端（`TopicNames.parse`、`main._handle_request`）
 > 都对它做了特判，别改没。
 
-### 4.3 状态查询 state/query → state/result（V1.0）
+### 4.3 状态查询 state/query → state/result（V1.4）
 
 **作用**：拉取设备运行状态，驱动状态页所有卡片。CPU/网络数据复用监控循环的
 最近一次采样（`MONITOR_INTERVAL`，默认 5s），USB 列表复用 `check_usb` 的维护结果，
 **查询路径不再阻塞采样**；内存/磁盘/推流/告警在应答时读取。
+
+**V1.4 变更（报文精简，只保留原始数值）**：`cpu` 去掉 `per_core_percent[]` 与 `frequency_mhz`；
+`memory` 去掉 `swap` 与所有 `*_human`；`disk` 由逐挂载点列表改为聚合总量且不带 `*_human`；
+`network` 去掉 `interfaces[]`、`total_rx/tx_rate`；`alarms.thresholds` 去掉 `network_rate_human`；
+新增 `recording` 分组（`enable` 取自 `record.enabled`，另含实时录像状态）；
+`usb` 只统计用户视角的 USB 设备（过滤 root hub 与 Hub）。**App 端需同步调整 `StatusSnapshot` 解析。**
 
 - 请求：`walle/{t}/{d}/v1/state/query`
 - 应答：`walle/{t}/{d}/v1/state/result`
@@ -278,11 +284,12 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 |---|---|
 | 顶层 | `device_id`、`uuid`、`hostname`、`version_code`、`version_name`、`ip`、`timestamp`、`datetime`、`uptime_seconds`、`sample_age_sec`、`request_id` |
 | `system` | `os`、`kernel`、`os_version`、`python`、`machine`、`model` |
-| `cpu` | `percent`（总）、`per_core_percent[]`（各核）、`count_logical/physical`、`load_avg_1m/5m/15m`、`frequency_mhz{current,min,max}`、`temperature_c`、`sample_interval_sec` |
-| `memory` | `percent`、`total/used/available/free_bytes` + `*_human`、`swap{percent,total_bytes,used_bytes,total_human,used_human}`（无 swap 时为 null） |
-| `disk` | `mounts[]`：每挂载点容量/使用率/文件系统类型 |
-| `network` | `sample_interval_sec`、`total_rx/tx_bytes_per_sec`、`total_rx/tx_rate`（可读）、`interfaces[]`（每网卡 rx/tx 速率） |
-| `usb` | `count`、`devices[]` |
+| `cpu` | `percent`（总）、`count_logical/physical`、`load_avg_1m/5m/15m`、`temperature_c`、`sample_interval_sec` |
+| `memory` | `percent`、`total_bytes`、`used_bytes`、`available_bytes`、`free_bytes`（均为字节，不提供格式化字符串） |
+| `disk` | 全部真实磁盘的**聚合总量**：`total_bytes`、`used_bytes`、`free_bytes`、`percent`。统计口径：排除 zram（内存压缩盘）；同一设备只算一次（log2ram 会把根分区再挂到 /var/log.hdd，不去重总量翻倍），同设备优先取 `/` 挂载点 |
+| `network` | `sample_interval_sec`、`total_rx_bytes_per_sec`、`total_tx_bytes_per_sec` |
+| `usb` | `count`、`devices[]`。只统计用户视角的 USB 设备：跳过 root hub（usbN 节点）与 Hub 类设备（`bDeviceClass=09`，含板载/外接 Hub）；Hub 下挂的设备仍单独出现；板载蓝牙等功能芯片保留。插拔 Hub 不触发告警 |
+| `recording` | `enable`（录像功能是否开启，取自 `walle_camera.conf` 的 `record.enabled`）、`recording`（是否正在录像）、`filename`（正在录像的文件名，未录像为 null）。`recording`/`filename` 由 record start/stop 成功应答维护；record_video_node 异常退出时该状态可能滞后。`enable=false` 时 App 应隐藏录像入口 |
 | `video` | 推流状态（任务 1）：`streaming`、`room_number`、`video_device`、`audio`（推流时的音频信息，无音频/未推流为 null）、`pid`、`started_at`、`uptime_sec`；未推流时 `streaming=false` 且其余字段全为 null。数据来自推流时记录的 `video_meta`，ffmpeg 异常退出后看护线程清理，下一次查询即 `streaming=false` |
 
 **采样时效**：`cpu` / `network` 的 `sample_interval_sec` 是监控循环的实际采样周期；
@@ -295,7 +302,7 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 （`ControlViewModel.takeoverRid`），状态页的周期查询不会触发接管。
 
 解析入口（App 唯一）：`model/StatusSnapshot.java`。契约测试：`StatusSnapshotTest`
-（缺分组归空、异常数值归一为 null、网卡按名称排序等）。**状态是实时查询数据，不落盘**
+（缺分组归空、异常数值归一为 null 等）。**状态是实时查询数据，不落盘**
 （N11 曾落盘又 revert，决策见 git 历史）。
 
 ### 4.4 设备能力 capability/query → capability/result（V1.0）

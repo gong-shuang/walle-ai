@@ -11,11 +11,44 @@
 fMP4）。
 """
 
+import json
 import logging
+import os
 import threading
 
 from . import config
 from .identity import now_str, now_ts
+
+# ---- 录像功能开关：取自 walle_camera.conf 的 record.enabled ----
+CAMERA_CONF_NAME = "walle_camera.conf"
+
+
+def _camera_conf_candidates():
+    """walle_camera.conf 查找顺序：WALLE_CAMERA_CONF > /etc/walle-ai > $TURBOPI_HOME/scripts/etc。"""
+    explicit = os.environ.get("WALLE_CAMERA_CONF", "").strip()
+    if explicit:
+        return [os.path.expanduser(explicit)]
+    paths = [os.path.join("/etc", "walle-ai", CAMERA_CONF_NAME)]
+    home = (os.environ.get("TURBOPI_HOME") or os.environ.get("WALLE_HOME") or "").strip()
+    if home:
+        paths.append(os.path.join(home, "scripts", "etc", CAMERA_CONF_NAME))
+    return paths
+
+
+def _load_record_enabled():
+    """读取 record.enabled；文件缺失或解析失败时按启用处理（与 camera_conf 默认一致）。"""
+    for path in _camera_conf_candidates():
+        try:
+            with open(path, encoding="utf-8") as f:
+                conf = json.load(f)
+        except (OSError, ValueError):
+            continue
+        record = conf.get("record") or {}
+        return bool(record.get("enabled", True))
+    return True
+
+
+RECORD_ENABLED = _load_record_enabled()
 
 
 class RecordMixin:
@@ -195,6 +228,10 @@ class RecordNodeMixin:
             extra['error'] = resp.cause
         self.agent._publish_record_start_result(
             req, int(resp.result), resp.cause or 'ok', extra)
+        # 维护 state/result 的 recording 分组（仅成功时更新）
+        if resp.result == 0:
+            self.agent.recording_state = {
+                'recording': True, 'filename': resp.filename or None}
 
     def _handle_record_stop(self, payload):
         from interfaces.srv import RecordControl
@@ -218,6 +255,8 @@ class RecordNodeMixin:
             extra['error'] = resp.cause
         self.agent._publish_record_stop_result(
             req, int(resp.result), resp.cause or 'ok', extra)
+        if resp.result == 0:
+            self.agent.recording_state = {'recording': False, 'filename': None}
 
     def _handle_record_list(self, payload):
         from interfaces.srv import RecordList

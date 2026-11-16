@@ -171,6 +171,8 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
         self.audio_meta = {}
         # 上一次应答 discovery 的时间（单调时钟），用于限频
         self._last_discovery_at = 0.0
+        # state/result 的 recording 分组：由节点侧在 record start/stop 应答后更新
+        self.recording_state = {"recording": False, "filename": None}
         # state/query 快照：monitor_loop 每次采样后写入，查询直接复用，
         # 避免每次查询都阻塞采样 1s（P2-1.1）
         self.status_sample = None       # (cores, per_iface, total_rx, total_tx, interval, monotonic_ts)

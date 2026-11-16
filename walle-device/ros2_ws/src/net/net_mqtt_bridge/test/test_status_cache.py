@@ -10,6 +10,7 @@ import pytest
 import net_mqtt_bridge.agent as agent
 import net_mqtt_bridge.config as config
 import net_mqtt_bridge.monitor as monitor_mod
+import net_mqtt_bridge.record as record
 from net_mqtt_bridge.agent import RpiMonitor
 
 FIXED_UUID = "0f8fad5b-d9cb-469f-a165-70867728950e"
@@ -89,4 +90,6 @@ def test_handle_query_status_responds_under_100ms(fixed_uuid, monkeypatch):
     resource, data = published[0]
     assert resource == agent.RES_STATE_RESULT
     assert data["request_id"] == "r1"
-    assert data["cpu"]["per_core_percent"] == [5.0]
+    assert data["cpu"]["percent"] == 5.0
+    assert data["recording"] == {
+        "enable": record.RECORD_ENABLED, "recording": False, "filename": None}
