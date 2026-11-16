@@ -122,12 +122,34 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .videoEmpty p{margin:0;max-width:320px;font-size:12px;color:var(--muted);line-height:1.55}
 .videoEmpty .ico{font-size:26px;color:var(--accent);opacity:.55}
 /* 实时画面：视频居中放大，按钮与提示文字放右侧 */
-.videoStage{display:flex;gap:16px;align-items:center;justify-content:center}
+.videoStage{display:flex;gap:16px;align-items:flex-start;justify-content:center}
 .videoStage .videoWrap{flex:1 1 auto;max-width:1100px;min-width:0}
-.videoSide{width:190px;flex:none;display:flex;flex-direction:column;gap:9px}
-.videoSideMain{margin:auto 0;display:flex;flex-direction:column;gap:9px}
+.videoSide{width:190px;flex:none;align-self:stretch;display:flex;flex-direction:column;gap:9px}
+.videoSideMain{margin:0;display:flex;flex-direction:column;gap:9px}
 .videoSide .btn{width:100%}
 .videoSide .videoMsg{margin-top:2px;max-height:200px}
+/* 语音通话：麦克风开关 + 实时音量柱（贴住视频底部） */
+.voiceCard{margin-top:auto;padding:10px 12px;border:1px solid var(--line);border-radius:12px;
+  background:rgba(255,255,255,.028)}
+.voiceCardHead{font-size:11.5px;color:var(--muted);margin-bottom:9px}
+.voiceBody{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.micBtn{width:40px;height:40px;flex:none;border-radius:50%;border:1px solid var(--line2);
+  background:#1b2433;color:var(--dim);display:flex;align-items:center;justify-content:center;
+  padding:0;cursor:pointer;transition:color .15s,border-color .15s,background .15s,box-shadow .15s}
+.micBtn:hover:not(:disabled){border-color:#3a475c}
+.micBtn:disabled{cursor:wait;opacity:.6}
+.micBtn svg{width:20px;height:20px;display:block;fill:currentColor}
+.micBtn .micOn{display:none}
+.micBtn.on{color:#ffd0d0;border-color:rgba(255,107,107,.55);background:rgba(255,107,107,.16);
+  box-shadow:0 0 0 3px rgba(255,107,107,.08)}
+.micBtn.on .micOn{display:block}
+.micBtn.on .micOff{display:none}
+.voiceMeter{width:12px;height:52px;flex:none;border-radius:99px;background:rgba(255,255,255,.07);
+  overflow:hidden;position:relative}
+.voiceMeter i{position:absolute;left:0;right:0;bottom:0;height:0;
+  background:linear-gradient(0deg,var(--accent),#ffd166 70%,#ff6b6b);transition:height .08s linear}
+.voiceCard.off .voiceMeter{opacity:.35;filter:grayscale(1)}
+.voiceCard.off .voiceMeter i{height:0}
 /* 实时画面与车辆控制之间的亮色分隔线 */
 .videoSplit{height:2px;margin:18px 0 14px;border-radius:2px;
   background:linear-gradient(90deg,rgba(61,220,151,0),rgba(61,220,151,.9) 18%,rgba(74,168,255,.9) 82%,rgba(74,168,255,0));
@@ -219,6 +241,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   .videoSideMain{flex-direction:row;flex-wrap:wrap}
   .videoSideMain .btn{width:auto;flex:1 1 45%}
   .videoSideMain .videoMsg{flex:1 1 100%;max-height:120px}
+  .voiceCard{margin-top:0}
 }
 </style>
 <style>
@@ -434,6 +457,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
           <h2>实时画面</h2>
           <small>video/start|stop → WHEP 拉流</small>
         </div>
+        <button id="btnCapability" class="btn" type="button" disabled title="查询视频流状态（state/query）">刷新</button>
       </div>
       <div class="videoStage">
         <div class="videoWrap">
@@ -448,11 +472,20 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
           </div>
         </div>
         <div class="videoSide">
-          <button id="btnCapability" class="btn" type="button" disabled title="查询视频流状态（state/query）">刷新</button>
           <div class="videoSideMain">
             <button id="btnVideoAction" class="btn primary">开始推流</button>
             <button id="btnVideoStop" class="btn" disabled>停止推流</button>
             <div id="videoMsg" class="videoMsg">MQTT 未连接</div>
+          </div>
+          <div id="voiceCard" class="voiceCard off">
+            <div class="voiceCardHead">语音通话</div>
+            <div class="voiceBody">
+              <button id="btnMic" class="micBtn" type="button" aria-label="开启麦克风" title="开启麦克风">
+                <svg class="micOn" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72h-1.7z"/></svg>
+                <svg class="micOff" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg>
+              </button>
+              <div class="voiceMeter"><i id="micMeterFill"></i></div>
+            </div>
           </div>
         </div>
       </div>
@@ -591,6 +624,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <input id="fVideoUrl" class="input mono" spellcheck="false">
       <div class="hint">按 room_number 拼装；浏览器直连受 CORS 与证书限制。</div>
     </div>
+    <div class="field">
+      <label>WHIP 推流 Secret</label>
+      <input id="fWhipSecret" class="input mono" type="password" autocomplete="off" spellcheck="false" placeholder="Oryx 推流 secret">
+      <div class="hint">语音通话上行鉴权，与设备推流 secret 一致；WHIP 地址由 WHEP 模板自动推导（stream={room}_audio）。</div>
+    </div>
   </div>
   <div class="drawerFoot">
     <button id="btnSave" class="btn primary">保存并重连</button>
@@ -625,7 +663,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     prefix: 'walle',
     device: '',
     videoUrl: 'https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream={room}',
-    videoRoom: ''
+    videoRoom: '',
+    whipSecret: ''
   };
   var cfg = loadCfg();
   function loadCfg() {
@@ -655,9 +694,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
    'devPills', 'mCpu', 'bCpu', 'mTemp', 'bTemp', 'mMem', 'bMem', 'mUptime', 'bUp', 'dHost', 'dOs', 'dLoad', 'dNet',
    'dDisk', 'dUsb', 'dVideo', 'dRec', 'stateTime', 'autoState', 'btnState', 'btnCapability', 'videoEl',
    'videoEmpty', 'videoHint', 'btnVideoAction', 'btnVideoStop', 'btnVideoSound',
+   'btnMic', 'voiceCard', 'micMeterFill',
    'videoMsg', 'alarmList', 'btnAlarmClear', 'carStatus', 'servoStatus', 'servoEnable',
    'scrim', 'drawer', 'btnDrawerClose', 'fWsUrl', 'fUser', 'fPass', 'fClientId', 'fKeepalive', 'fDevice',
-   'fVideoUrl', 'btnSave',
+   'fVideoUrl', 'fWhipSecret', 'btnSave',
    'recordBadge', 'recordActive', 'recFilename', 'recStartedAt', 'recDuration',
    'btnRecordStart', 'btnRecordStop', 'recordMsg', 'btnRecordList',
    'recQuotaBar', 'recUsed', 'recLimit', 'recordList',
@@ -668,6 +708,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   var ui = { online: false, uuid: '', devices: {}, state: {}, cap: {}, pendingVideo: null,
     pendingCap: null, pendingVideoStop: null, discoveryRid: '', videoRefreshing: false,
     video: { pc: null, location: '', room: '', camera: '', lastAlarmKey: '', connected: false, uiStreaming: null },
+    mic: { on: false, starting: false, pc: null, stream: null, ac: null, analyser: null,
+      raf: 0, room: '', location: '' },
     car: { held: {}, timer: null, pendingRid: '', wasActive: false },
     servo: { enabled: false, held: {}, pos: { 1: null, 2: null }, timer: null,
       queryTimer: null, pendingQueryRid: '', pendingSetRid: '' },
@@ -834,6 +876,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
           clearRecPending();
           setRecMsg('MQTT 已断开', 'err');
           applyRecordUi();
+          if (ui.mic.on || ui.mic.starting) stopMic(false);
           scheduleReconnect();
         }
       },
@@ -2219,10 +2262,182 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       el.videoEmpty.classList.remove('hide');
     }
   }
+  // ---------- 语音通话：浏览器麦克风 → WHIP → 设备扬声器 ----------
+  function micSupported() {
+    return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.RTCPeerConnection);
+  }
+  // 从 WHEP 模板推导 WHIP 推流地址：/whep/ → /whip/，流名 {room}_audio，附 secret
+  function whipAudioUrl(rm) {
+    var tmpl = String(cfg.videoUrl || '').trim();
+    if (!/^https?:\/\//i.test(tmpl)) return '';
+    var url = tmpl.replace('/whep/', '/whip/').replace(/\{room\}/g, encodeURIComponent(rm + '_audio'));
+    url = url.replace(/([?&])secret=[^&]*/g, '$1').replace(/[?&]$/, '');
+    return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'secret='
+      + encodeURIComponent(String(cfg.whipSecret || '').trim());
+  }
+  function setMicUi(on, busy) {
+    el.btnMic.classList.toggle('on', !!on);
+    el.btnMic.disabled = !!busy;
+    var label = busy ? '连接中…' : (on ? '关闭麦克风' : '开启麦克风');
+    el.btnMic.setAttribute('aria-label', label);
+    el.btnMic.title = label;
+    el.voiceCard.classList.toggle('off', !on);
+    if (!on) el.micMeterFill.style.height = '0%';
+  }
+  function stopMicMeter() {
+    if (ui.mic.raf) { cancelAnimationFrame(ui.mic.raf); ui.mic.raf = 0; }
+    ui.mic.analyser = null;
+    if (ui.mic.ac) { try { ui.mic.ac.close(); } catch (e) {} ui.mic.ac = null; }
+    el.micMeterFill.style.height = '0%';
+  }
+  function startMicMeter(stream) {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      var ac = new AC();
+      if (ac.state === 'suspended') { try { ac.resume(); } catch (e) {} }
+      var analyser = ac.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.7;
+      ac.createMediaStreamSource(stream).connect(analyser);
+      ui.mic.ac = ac; ui.mic.analyser = analyser;
+      var buf = new Uint8Array(analyser.fftSize);
+      var tick = function () {
+        if (ui.mic.analyser !== analyser) return;
+        analyser.getByteTimeDomainData(buf);
+        var sum = 0;
+        for (var i = 0; i < buf.length; i++) {
+          var v = (buf[i] - 128) / 128;
+          sum += v * v;
+        }
+        var rms = Math.sqrt(sum / buf.length);
+        el.micMeterFill.style.height = Math.min(100, Math.round(rms * 400)) + '%';
+        ui.mic.raf = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch (e) {}
+  }
+  function stopMicStream() {
+    stopMicMeter();
+    if (ui.mic.pc) {
+      var pc = ui.mic.pc; ui.mic.pc = null;
+      try { pc.onconnectionstatechange = null; pc.close(); } catch (e) {}
+    }
+    if (ui.mic.location) {
+      try { fetch(ui.mic.location, { method: 'DELETE', keepalive: true }).catch(function () {}); } catch (e) {}
+      ui.mic.location = '';
+    }
+    if (ui.mic.stream) {
+      ui.mic.stream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
+      ui.mic.stream = null;
+    }
+    ui.mic.on = false; ui.mic.starting = false;
+    setMicUi(false, false);
+  }
+  function stopMic(sendStop) {
+    var wasOn = ui.mic.on || ui.mic.starting;
+    var rm = ui.mic.room || ui.video.room || '';
+    stopMicStream();
+    if (sendStop !== false && wasOn && mqtt && mqtt.connected && cfg.device) {
+      var payload = { uuid: ui.uuid, request_id: rid() };
+      if (rm) payload.room_number = rm;
+      try { mqtt.publish(base(cfg.device) + '/phone/audio/stop', payload); } catch (e) {}
+    }
+    ui.mic.room = '';
+    setVideoMsg('语音通话已关闭', null);
+  }
+  async function startMic() {
+    if (ui.mic.starting || ui.mic.on) return;
+    if (!micSupported()) { setVideoMsg('当前浏览器不支持麦克风采集（需 HTTPS 或 localhost）', 'err'); return; }
+    if (!mqtt || !mqtt.connected || !cfg.device) { setVideoMsg('MQTT 未连接或未选择设备', 'err'); return; }
+    if (!ui.uuid) { setVideoMsg('尚未取得设备 uuid', 'err'); return; }
+    if (!String(cfg.whipSecret || '').trim()) {
+      setVideoMsg('未配置 WHIP 推流 Secret，请在设置中填写 Oryx 推流 secret', 'err');
+      return;
+    }
+    var rm = (ui.video.room || room()).trim();
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(rm)) { setVideoMsg('房间号不合法，无法开启语音通话', 'err'); return; }
+    var url = whipAudioUrl(rm);
+    if (!url) { setVideoMsg('WHEP 端点不合法，无法推导 WHIP 地址', 'err'); return; }
+    if (url.indexOf('/whip/') < 0) {
+      setVideoMsg('WHEP 端点模板需包含 /whep/，无法推导 WHIP 地址', 'err');
+      return;
+    }
+
+    ui.mic.starting = true; ui.mic.room = rm; setMicUi(false, true);
+    setVideoMsg('正在申请麦克风权限…', null);
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false
+      });
+      if (!ui.mic.starting) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+      ui.mic.stream = stream;
+      var pc = new RTCPeerConnection({ iceServers: [] });
+      ui.mic.pc = pc;
+      stream.getAudioTracks().forEach(function (t) {
+        pc.addTransceiver(t, { direction: 'sendonly', streams: [stream] });
+      });
+      var connected = new Promise(function (resolve, reject) {
+        pc.onconnectionstatechange = function () {
+          if (pc.connectionState === 'connected') resolve();
+          else if (pc.connectionState === 'failed') reject(new Error('WHIP 连接失败（ICE 不通或被防火墙拦截）'));
+          else if (pc.connectionState === 'closed') reject(new Error('已取消'));
+        };
+      });
+      connected.catch(function () {});
+      var offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await waitIce(pc);
+      if (ui.mic.pc !== pc) return;
+      setVideoMsg('正在连接 WHIP 推流（room ' + rm + '）…', null);
+      var ctrl = new AbortController();
+      var timer = setTimeout(function () { ctrl.abort(); }, 10000);
+      var res;
+      try {
+        res = await fetch(url, { method: 'POST', signal: ctrl.signal,
+          headers: { 'Content-Type': 'application/sdp', 'Accept': 'application/sdp' },
+          body: pc.localDescription.sdp });
+      } catch (e) {
+        clearTimeout(timer);
+        throw new Error(e.name === 'AbortError' ? 'WHIP 请求超时（10s）'
+          : 'fetch 失败（多为 CORS、证书或 secret 错误）：' + e.message);
+      }
+      clearTimeout(timer);
+      if (ui.mic.pc !== pc) return;
+      var loc = res.headers.get('Location');
+      if (loc) { try { ui.mic.location = new URL(loc, url).href; } catch (e) {} }
+      var body = await res.text();
+      if (res.status !== 200 && res.status !== 201) {
+        throw new Error('WHIP HTTP ' + res.status + '：' + (body || '无响应体').slice(0, 200) + '（请检查 secret）');
+      }
+      if (!body.trim()) throw new Error('WHIP 响应体为空');
+      await pc.setRemoteDescription({ type: 'answer', sdp: body });
+      // 等媒体面真正连通再通知设备，否则设备 WHEP 拉不到流
+      await Promise.race([connected, new Promise(function (_, reject) {
+        setTimeout(function () { reject(new Error('WHIP 媒体连接超时（10s）')); }, 10000);
+      })]);
+      if (ui.mic.pc !== pc) return;
+      if (!mqtt.publish(base(cfg.device) + '/phone/audio/send',
+        { uuid: ui.uuid, request_id: rid(), room_number: rm })) {
+        throw new Error('phone/audio/send 发送失败');
+      }
+      ui.mic.on = true; ui.mic.starting = false;
+      setMicUi(true, false);
+      startMicMeter(stream);
+      setVideoMsg('语音通话已开启（room ' + rm + '）', 'ok');
+    } catch (e) {
+      if (!ui.mic.starting && !ui.mic.on) return; // 已被用户取消/关闭
+      stopMicStream();
+      ui.mic.room = '';
+      setVideoMsg('语音通话开启失败：' + (e && e.message ? e.message : e), 'err');
+    }
+  }
   function fillSettings() {
     el.fWsUrl.value = cfg.wsUrl; el.fUser.value = cfg.user; el.fPass.value = cfg.pass;
     el.fClientId.value = cfg.clientId; el.fKeepalive.value = cfg.keepalive;
     el.fDevice.value = cfg.device; el.fVideoUrl.value = cfg.videoUrl;
+    el.fWhipSecret.value = cfg.whipSecret || '';
   }
   function openDrawer() { fillSettings(); el.drawer.classList.add('show'); el.scrim.classList.add('show'); }
   function closeDrawer() { el.drawer.classList.remove('show'); el.scrim.classList.remove('show'); }
@@ -2236,6 +2451,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     cfg.clientId = el.fClientId.value.trim();
     cfg.keepalive = keep; cfg.device = el.fDevice.value.trim();
     cfg.videoUrl = el.fVideoUrl.value.trim() || DEFAULTS.videoUrl;
+    cfg.whipSecret = el.fWhipSecret.value.trim();
+    stopMic(true);
     saveCfg(); closeDrawer();
     ui.devices = {}; ui.uuid = ''; ui.state = {}; ui.cap = {}; ui.video.room = ''; closeWhep(true);
     setConn('bad', '正在重连…');
@@ -2248,7 +2465,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   el.btnSave.addEventListener('click', saveSettings);
   el.btnDiscover.addEventListener('click', function () { discover(); setConn('on', '已连接 · 正在发现设备'); });
   el.deviceSelect.addEventListener('change', function () {
-    closeWhep(true); selectDevice(el.deviceSelect.value);
+    stopMic(true); closeWhep(true); selectDevice(el.deviceSelect.value);
   });
   el.btnState.addEventListener('click', function () { queryState(true); });
   el.autoState.addEventListener('change', function () {
@@ -2280,6 +2497,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (!mute) el.videoEl.play().catch(function () {});
     applyVideoSoundUi();
     setVideoMsg(mute ? '已静音（点击喇叭恢复声音）' : '声音已开启', mute ? null : 'ok');
+  });
+  el.btnMic.addEventListener('click', function () {
+    if (ui.mic.starting) return;
+    if (ui.mic.on) stopMic(true);
+    else startMic();
   });
   el.btnAlarmClear.addEventListener('click', function () {
     el.alarmList.innerHTML = '<div class="emptyState">暂无告警</div>';
@@ -2349,7 +2571,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (document.hidden) { carReleaseAll(true); servoReleaseAll(); }
   });
   window.addEventListener('pagehide', function () {
-    carReleaseAll(true); servoReleaseAll(); closeWhep(true);
+    carReleaseAll(true); servoReleaseAll(); closeWhep(true); stopMic(true);
   });
 
   if (cfg.videoRoom) ui.video.room = cfg.videoRoom;
