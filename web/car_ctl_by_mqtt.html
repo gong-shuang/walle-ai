@@ -244,6 +244,64 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .playerFoot{display:flex;align-items:center;justify-content:space-between;gap:10px;
   padding:10px 18px;border-top:1px solid var(--line);font-size:11px}
 .playerFoot .mono{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+
+/* ============ 左侧栏 + 右侧内容区 ============ */
+.layout{display:flex;gap:0;min-height:calc(100vh - 100px);align-items:stretch}
+.sidebar{width:200px;flex:none;border-right:1px solid var(--line);padding:18px 0;background:rgba(17,22,31,.55)}
+.sideNav{display:flex;flex-direction:column;gap:4px;padding:0 10px}
+.sideNavItem{
+  display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;
+  border:1px solid transparent;border-radius:10px;background:transparent;
+  color:var(--muted);font-size:13px;font-weight:500;text-align:left;cursor:pointer;
+  transition:color .15s,background .15s,border-color .15s;
+}
+.sideNavItem:hover{color:var(--text);background:rgba(255,255,255,.035)}
+.sideNavItem.active{
+  color:#d9ffee;
+  background:linear-gradient(135deg,rgba(61,220,151,.18),rgba(74,168,255,.10));
+  border-color:rgba(61,220,151,.30);
+}
+.sideNavItem .navIcon{width:22px;text-align:center;font-size:15px;opacity:.75}
+.sideNavItem.active .navIcon{opacity:1;color:var(--accent)}
+.mainArea{flex:1;min-width:0;padding:18px 18px 18px 20px;overflow-x:hidden}
+.tabPanel{display:none;animation:fadeIn .18s ease}
+.tabPanel.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.tabHeader{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+.tabTitle{font-size:15px;font-weight:650;color:var(--text);letter-spacing:.3px}
+
+/* 设备列表卡片 */
+.deviceCardGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.deviceCard{
+  position:relative;padding:16px;border:1px solid var(--line);border-radius:14px;
+  background:linear-gradient(180deg,rgba(21,27,38,.92),rgba(17,22,31,.92));
+  cursor:pointer;transition:border-color .15s,box-shadow .15s;
+}
+.deviceCard:hover{border-color:#3a475c;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+.deviceCard.active{
+  border-color:rgba(61,220,151,.55);
+  box-shadow:0 0 0 2px rgba(61,220,151,.12),0 6px 24px rgba(61,220,151,.10);
+  background:linear-gradient(180deg,rgba(30,40,55,.95),rgba(20,27,38,.95));
+}
+.deviceCardTop{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.deviceCardName{font-size:14px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%}
+.deviceCardStatus{display:inline-flex;align-items:center;gap:5px;font-size:11px;height:22px;padding:0 9px;border-radius:999px;border:1px solid var(--line);color:var(--dim);background:rgba(255,255,255,.03)}
+.deviceCardStatus.online{color:#bff5dd;border-color:rgba(61,220,151,.35);background:rgba(61,220,151,.08)}
+.deviceCardStatus.offline{color:#ffc3c3;border-color:rgba(255,107,107,.30);background:rgba(255,107,107,.06)}
+.deviceCardInfo{display:flex;flex-direction:column;gap:4px}
+.deviceCardInfo .infoRow{display:flex;justify-content:space-between;gap:10px;font-size:11.5px}
+.deviceCardInfo .infoRow span.label{color:var(--dim);flex:none}
+.deviceCardInfo .infoRow span.val{color:var(--muted);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
+.deviceCard.selectedMark{position:absolute;top:10px;right:10px;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(61,220,151,.15);display:none}
+.deviceCard.active .selectedMark{display:block}
+.deviceCardEmpty{grid-column:1/-1;padding:40px;text-align:center;color:var(--dim);font-size:13px;border:1px dashed var(--line);border-radius:12px}
+@media(max-width:900px){
+  .layout{flex-direction:column}
+  .sidebar{width:100%;border-right:none;border-bottom:1px solid var(--line);padding:10px 0}
+  .sideNav{flex-direction:row;overflow-x:auto;padding:0 10px;gap:6px}
+  .sideNavItem{flex:none;padding:8px 12px;font-size:12px}
+  .mainArea{padding:14px}
+}
 </style>
 </head>
 <body>
@@ -264,8 +322,49 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     </div>
   </header>
 
-  <main class="grid">
-    <section class="card statusCard">
+  <div class="layout">
+    <!-- ============ 左侧菜单 ============ -->
+    <aside class="sidebar">
+      <nav class="sideNav">
+        <button class="sideNavItem active" data-tab="device-list">
+          <span class="navIcon">▤</span><span>设备列表</span>
+        </button>
+        <button class="sideNavItem" data-tab="device-detail">
+          <span class="navIcon">◎</span><span>设备详情</span>
+        </button>
+        <button class="sideNavItem" data-tab="video-monitor">
+          <span class="navIcon">▶</span><span>视频监控</span>
+        </button>
+        <button class="sideNavItem" data-tab="video-record">
+          <span class="navIcon">●</span><span>视频录像</span>
+        </button>
+        <button class="sideNavItem" data-tab="alarm">
+          <span class="navIcon">⚠</span><span>告警信息</span>
+        </button>
+      </nav>
+    </aside>
+
+    <!-- ============ 右侧内容区 ============ -->
+    <main class="mainArea">
+      <!-- Tab 1: 设备列表 -->
+      <div class="tabPanel active" data-tab="device-list">
+        <div class="tabHeader">
+          <span class="tabTitle">设备列表</span>
+          <button id="btnRefreshDevices" class="btn" title="发送 discovery/query 刷新设备">↻ 刷新</button>
+        </div>
+        <div id="deviceCardList" class="deviceCardGrid">
+          <div class="deviceCardEmpty">等待设备发现…请先连接 MQTT 并点击刷新</div>
+        </div>
+      </div>
+
+      <!-- Tab 容器（JS 初始化时把对应 section 移动进去） -->
+      <div class="tabPanel" data-tab="device-detail"></div>
+      <div class="tabPanel" data-tab="video-monitor"></div>
+      <div class="tabPanel" data-tab="video-record"></div>
+      <div class="tabPanel" data-tab="alarm"></div>
+
+      <!-- 原有卡片（JS 会移动到上面的 tabPanel 中） -->
+      <section class="card statusCard" data-tab-target="device-detail">
       <div class="cardHead">
         <div>
           <h2>设备状态</h2>
@@ -308,7 +407,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         </span>
       </div>
     </section>
-    <section class="card videoCard">
+    <section class="card videoCard" data-tab-target="video-monitor">
       <div class="cardHead">
         <div class="videoTitle">
           <h2>实时画面</h2>
@@ -331,7 +430,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div id="videoMsg" class="videoMsg">MQTT 未连接</div>
     </section>
 
-    <section class="card recordCard">
+    <section class="card recordCard" data-tab-target="video-record">
       <div class="cardHead">
         <div>
           <h2>本地录像</h2>
@@ -366,7 +465,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div id="recordList" class="recordList"><div class="emptyState">尚未查询</div></div>
     </section>
 
-    <section class="card alarmCard">
+    <section class="card alarmCard" data-tab-target="alarm">
       <div class="cardHead">
         <div>
           <h2>告警</h2>
@@ -376,7 +475,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       </div>
       <div id="alarmList" class="alarmList"><div class="emptyState">暂无告警</div></div>
     </section>
-    <section class="card carCard">
+    <section class="card carCard" data-tab-target="video-monitor">
       <div class="cardHead">
         <div>
           <h2>车辆控制</h2>
@@ -427,7 +526,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         </div>
       </div>
     </section>
-  </main>
+    </main><!-- /mainArea -->
+  </div><!-- /layout -->
 </div>
 
 <div id="scrim" class="scrim"></div>
@@ -820,6 +920,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     }
     var selected = el.deviceSelect.value;
     if (selected && (selected !== cfg.device || !ui.uuid)) selectDevice(selected);
+    // 同步更新设备卡片列表
+    if (typeof window.__renderDeviceCards === 'function') window.__renderDeviceCards();
   }
   function selectDevice(dev) {
     if (!dev) return;
@@ -2188,6 +2290,106 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   if (cfg.videoRoom) ui.video.room = cfg.videoRoom;
   el.videoHint.textContent = '页面不自动拉流。file:// 直接打开时，HTTPS WHEP 可能被 CORS/证书拦截；建议在 web/ 下起本地静态服务。';
   servoSetEnabled(false, '相机方位未启用', null);
+
+  /* ============ 新布局初始化：DOM 重排 + 侧边栏 + 设备卡片 ============ */
+  (function initNewLayout() {
+    // 1) 把带 data-tab-target 的 section 移动到对应 tabPanel
+    var targets = document.querySelectorAll('[data-tab-target]');
+    targets.forEach(function (sec) {
+      var tabName = sec.getAttribute('data-tab-target');
+      var panel = document.querySelector('.tabPanel[data-tab="' + tabName + '"]');
+      if (panel) panel.appendChild(sec);
+    });
+
+    // 2) video-monitor tabPanel 内需要 grid 包裹 videoCard + carCard
+    var vmPanel = document.querySelector('.tabPanel[data-tab="video-monitor"]');
+    if (vmPanel) {
+      var grid = document.createElement('div');
+      grid.className = 'grid';
+      var videoCard = vmPanel.querySelector('.videoCard');
+      var carCard = vmPanel.querySelector('.carCard');
+      if (videoCard) grid.appendChild(videoCard);
+      if (carCard) grid.appendChild(carCard);
+      vmPanel.appendChild(grid);
+    }
+
+    // 3) 侧边栏切换
+    var navItems = document.querySelectorAll('.sideNavItem');
+    var tabPanels = document.querySelectorAll('.tabPanel');
+    function switchTab(name) {
+      navItems.forEach(function (btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-tab') === name);
+      });
+      tabPanels.forEach(function (p) {
+        p.classList.toggle('active', p.getAttribute('data-tab') === name);
+      });
+    }
+    navItems.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        switchTab(btn.getAttribute('data-tab'));
+      });
+    });
+
+    // 4) 设备卡片渲染函数（扩展 renderDevices）
+    function renderDeviceCards() {
+      var list = document.getElementById('deviceCardList');
+      if (!list) return;
+      var keys = Object.keys(ui.devices).sort();
+      list.innerHTML = '';
+      if (!keys.length) {
+        list.innerHTML = '<div class="deviceCardEmpty">尚未发现设备，请点击「刷新」或等待 MQTT 上线回报</div>';
+        return;
+      }
+      var selected = cfg.device;
+      keys.forEach(function (d) {
+        var dev = ui.devices[d] || {};
+        var card = document.createElement('div');
+        card.className = 'deviceCard';
+        if (d === selected) card.classList.add('active');
+        card.innerHTML =
+          '<span class="selectedMark"></span>' +
+          '<div class="deviceCardTop">' +
+            '<span class="deviceCardName">' + escapeHtml(dev.hostname || dev.device_id || d) + '</span>' +
+            '<span class="deviceCardStatus ' + (dev.online ? 'online' : 'offline') + '">' +
+              (dev.online ? '● 在线' : '○ 离线') + '</span>' +
+          '</div>' +
+          '<div class="deviceCardInfo">' +
+            '<div class="infoRow"><span class="label">IP</span><span class="val">' + escapeHtml(dev.ip || '—') + '</span></div>' +
+            '<div class="infoRow"><span class="label">型号</span><span class="val">' + escapeHtml(dev.model || '—') + '</span></div>' +
+            '<div class="infoRow"><span class="label">ID</span><span class="val mono">' + escapeHtml(d) + '</span></div>' +
+          '</div>';
+        card.addEventListener('click', function () {
+          if (d !== cfg.device) {
+            el.deviceSelect.value = d;
+            selectDevice(d);
+          }
+          // 高亮选中
+          document.querySelectorAll('.deviceCard').forEach(function (c) { c.classList.remove('active'); });
+          card.classList.add('active');
+          // 切换到设备详情 tab
+          switchTab('device-detail');
+        });
+        list.appendChild(card);
+      });
+    }
+    // 保存到全局供 renderDevices 调用
+    window.__renderDeviceCards = renderDeviceCards;
+
+    // 5) 刷新按钮
+    var btnRefresh = document.getElementById('btnRefreshDevices');
+    if (btnRefresh) {
+      btnRefresh.addEventListener('click', function () {
+        discover();
+        btnRefresh.textContent = '刷新中…';
+        btnRefresh.disabled = true;
+        setTimeout(function () {
+          btnRefresh.textContent = '↻ 刷新';
+          btnRefresh.disabled = false;
+        }, 1500);
+      });
+    }
+  })();
+
   rebuildMqtt(); renderDevices();
 })();
 </script>
