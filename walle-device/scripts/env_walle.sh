@@ -43,7 +43,7 @@ export WALLE_ENV_LOADED=1
 source "$walle_home/VERSION"
 export VERSION="|V${WALLE_VERSION_NAME}|${WALLE_VERSION_DATE}|"
 
-# 注释下面，就是生产环境
+# 生产环境（默认）：prod，调试环境：debug
 export WALLE_RUNTIME_ENV=debug
 
 # 机器类型：Walle

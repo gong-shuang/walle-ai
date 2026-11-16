@@ -429,6 +429,11 @@ MAX_ACTION_BACKLOG = max(0, int(os.environ.get("MQTT_MAX_ACTION_BACKLOG", "8")))
 SERVO_WORKERS = max(1, int(os.environ.get("MQTT_SERVO_WORKERS", "1")))
 MAX_SERVO_BACKLOG = max(0, int(os.environ.get("MQTT_MAX_SERVO_BACKLOG", "2")))
 
+# ---- 调试：MQTT 收发报文完整 JSON 打印 ----
+# WALLE_RUNTIME_ENV=debug 时开启，=prod 或未设置时关闭
+MQTT_DEBUG_JSON = os.environ.get("WALLE_RUNTIME_ENV", "prod").strip().lower() == "debug"
+
+
 # ---- 布尔环境变量 ----
 
 

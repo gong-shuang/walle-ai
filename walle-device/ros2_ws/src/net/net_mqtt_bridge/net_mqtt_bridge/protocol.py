@@ -72,6 +72,13 @@ class ProtocolMixin:
         # 默认只记录主题与长度；DEBUG 级别才输出脱敏后的报文
         logging.info("收到消息 %s（%d 字节）", msg.topic, len(payload))
         logging.debug("消息内容 %s: %s", msg.topic, self._redact_payload(payload))
+        if config.MQTT_DEBUG_JSON:
+            try:
+                _rx_data = json.loads(payload) if payload else None
+                _rx_text = json.dumps(_rx_data, ensure_ascii=False, indent=2) if _rx_data is not None else payload
+            except (json.JSONDecodeError, TypeError, ValueError):
+                _rx_text = payload
+            logging.info("[MQTT-RX] %s\n%s", msg.topic, _rx_text)
         if msg.topic.startswith(config.TOPIC_ROOT + "/"):
             self._handle_request(msg.topic, payload)
         else:
@@ -115,6 +122,12 @@ class ProtocolMixin:
             topic, json.dumps(data, ensure_ascii=False), qos=config.MQTT_QOS, retain=retain
         )
         logging.debug("publish -> %s mid=%s", topic, info.mid)
+        if config.MQTT_DEBUG_JSON:
+            try:
+                text = json.dumps(data, ensure_ascii=False, indent=2)
+            except (TypeError, ValueError):
+                text = repr(data)
+            logging.info("[MQTT-TX] %s\n%s", topic, text)
 
     def _handle_request(self, topic, payload):
         """把请求分发到对应处理函数。
