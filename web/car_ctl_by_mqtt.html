@@ -335,7 +335,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div class="cardHead">
         <div>
           <h2>本地录像</h2>
-          <small>record/start|stop|list|delete · fMP4 回放</small>
+          <small>record/start|stop|list|delete|play · SRS 推流回放</small>
         </div>
         <span id="recordBadge" class="badge">未录像</span>
       </div>
@@ -482,8 +482,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     <button id="btnPlayerClose" class="btn icon">✕</button>
   </div>
   <video id="playerVideo" controls playsinline></video>
+  <div id="playerMsg" class="recordMsg">—</div>
   <div class="playerFoot">
-    <a id="playerDownload" class="btn" download>下载</a>
+    <a id="playerDownload" class="btn" download style="display:none">下载</a>
     <span id="playerUrl" class="mono"></span>
   </div>
 </div>
@@ -539,7 +540,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
    'recordBadge', 'recordActive', 'recFilename', 'recStartedAt', 'recDuration',
    'btnRecordStart', 'btnRecordStop', 'recordMsg', 'btnRecordList',
    'recQuotaBar', 'recUsed', 'recLimit', 'recordList',
-   'playerScrim', 'playerModal', 'playerTitle', 'playerVideo', 'playerUrl',
+   'playerScrim', 'playerModal', 'playerTitle', 'playerVideo', 'playerMsg', 'playerUrl',
    'playerDownload', 'btnPlayerClose']
     .forEach(function (k) { el[k] = document.getElementById(k); });
 
@@ -552,6 +553,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     record: { recording: false, filename: '', startedAt: '', startedTs: 0,
       list: [], usedBytes: 0, limitBytes: 0, durationTimer: null,
       pendingStart: null, pendingStop: null, pendingList: null, pendingDelete: null },
+    player: { pc: null, location: '', pending: null, filename: '' },
     autoTimer: null, statePending: null, offline: {} };
   var reconnectTimer = null, mqtt;
   var RUNTIME_SUFFIX = Math.random().toString(16).slice(2, 6);
@@ -677,7 +679,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     'video/start/result', 'video/stop/result', 'car/motor/result',
     'car/servo/status/result', 'car/servo/result', 'alarm',
     'record/start/result', 'record/stop/result',
-    'record/list/result', 'record/delete/result'];
+    'record/list/result', 'record/delete/result',
+    'record/play/start/result', 'record/play/stop/result'];
 
   function setConn(kind, text) {
     el.connChip.className = 'chip ' + (kind === 'on' ? 'on' : 'bad');
@@ -731,6 +734,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     else if (/\/record\/stop\/result$/.test(topic)) onRecordStop(dev, data);
     else if (/\/record\/list\/result$/.test(topic)) onRecordList(dev, data);
     else if (/\/record\/delete\/result$/.test(topic)) onRecordDelete(dev, data);
+    else if (/\/record\/play\/start\/result$/.test(topic)) onRecordPlay(dev, data);
     else if (/\/alarm$/.test(topic)) onAlarm(dev, data);
   }
   function devOf(topic) {
@@ -1165,7 +1169,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
 
   // ---------------------------------------------------------------- 录像
-  var REC_WAIT_MS = 10000, REC_LIST_WAIT_MS = 5000;
+  var REC_WAIT_MS = 10000, REC_LIST_WAIT_MS = 5000, REC_PLAY_WAIT_MS = 10000;
   function setRecMsg(text, kind) {
     el.recordMsg.textContent = text;
     el.recordMsg.className = 'recordMsg' + (kind ? ' ' + kind : '');
@@ -1438,25 +1442,137 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     }
   }
 
-  // ---------- 播放录像 ----------
+  // ---------- 播放录像（record/play → 设备 ffmpeg 推流到 SRS → WHEP 拉流） ----------
   function playRecord(filename, playUrl) {
-    if (!playUrl) { setRecMsg('该录像缺少 play_url，无法播放', 'err'); return; }
+    if (!mqtt || !mqtt.connected || !cfg.device || !ui.uuid) {
+      setRecMsg('MQTT 未连接 / 未选设备 / 缺 uuid，无法播放', 'err'); return;
+    }
+    if (ui.player.pending) return;
+    closePlayerWhep(true);
+    ui.player.filename = filename;
     el.playerTitle.textContent = filename || '—';
-    el.playerVideo.src = playUrl;
-    el.playerDownload.href = playUrl;
+    el.playerDownload.style.display = playUrl ? '' : 'none';
+    el.playerDownload.href = playUrl || '#';
     el.playerDownload.setAttribute('download', filename || 'record.fmp4');
-    el.playerUrl.textContent = playUrl;
+    el.playerUrl.textContent = '';
+    el.playerMsg.className = 'recordMsg';
+    el.playerMsg.textContent = '正在请求设备推流…';
     el.playerScrim.classList.add('show');
     el.playerModal.classList.add('show');
-    var p = el.playerVideo.play();
-    if (p && p.catch) p.catch(function () { /* 自动播放被浏览器拦截可忽略，用户可手动点播放 */ });
+
+    var id = rid();
+    if (!mqtt.publish(base(cfg.device) + '/record/play/start/request',
+      { uuid: ui.uuid, request_id: id, filename: filename })) {
+      el.playerMsg.className = 'recordMsg err';
+      el.playerMsg.textContent = 'record/play/start/request 发送失败';
+      return;
+    }
+    ui.player.pending = { rid: id, timer: setTimeout(function () {
+      ui.player.pending = null;
+      el.playerMsg.className = 'recordMsg err';
+      el.playerMsg.textContent = '等待 record/play/start/result 超时（10s）';
+    }, REC_PLAY_WAIT_MS) };
+  }
+  function onRecordPlay(dev, data) {
+    if (dev !== cfg.device) return;
+    if (ui.player.pending && data.request_id && data.request_id !== ui.player.pending.rid) return;
+    if (ui.player.pending) { clearTimeout(ui.player.pending.timer); ui.player.pending = null; }
+    if (data.result !== 0) {
+      el.playerMsg.className = 'recordMsg err';
+      el.playerMsg.textContent = '设备推流失败：' + (data.cause || ('result=' + data.result));
+      return;
+    }
+    var whep = String(data.whep_url || '');
+    el.playerUrl.textContent = whep || data.flv_url || '';
+    if (!whep) {
+      el.playerMsg.className = 'recordMsg err';
+      el.playerMsg.textContent = '应答缺少 whep_url，无法播放';
+      return;
+    }
+    el.playerMsg.className = 'recordMsg';
+    el.playerMsg.textContent = '设备已开始推流（' + (data.stream || '') + '），建立 WebRTC 连接…';
+    playerWhep(whep);
+  }
+  async function playerWhep(url) {
+    if (!/^https?:\/\//i.test(url)) {
+      el.playerMsg.className = 'recordMsg err';
+      el.playerMsg.textContent = 'whep_url 非法：' + url;
+      return;
+    }
+    try {
+      var pc = new RTCPeerConnection({ iceServers: [] });
+      ui.player.pc = pc;
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      pc.ontrack = function (e) {
+        el.playerVideo.srcObject = (e.streams && e.streams[0]) || new MediaStream([e.track]);
+      };
+      pc.onconnectionstatechange = function () {
+        if (ui.player.pc !== pc) return;
+        if (pc.connectionState === 'connected') {
+          el.playerMsg.className = 'recordMsg ok';
+          el.playerMsg.textContent = 'WebRTC 已连接，等待画面…';
+        } else if (pc.connectionState === 'failed') {
+          el.playerMsg.className = 'recordMsg err';
+          el.playerMsg.textContent = 'WebRTC 连接失败（ICE 不通或被防火墙拦截）';
+        } else if (pc.connectionState === 'disconnected') {
+          el.playerMsg.className = 'recordMsg err';
+          el.playerMsg.textContent = '连接断开';
+        }
+      };
+      var offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await waitIce(pc);
+      var ctrl = new AbortController();
+      var timer = setTimeout(function () { ctrl.abort(); }, 10000);
+      var res;
+      try {
+        res = await fetch(url, { method: 'POST', signal: ctrl.signal,
+          headers: { 'Content-Type': 'application/sdp', 'Accept': 'application/sdp' },
+          body: pc.localDescription.sdp });
+      } catch (e) {
+        clearTimeout(timer);
+        throw new Error(e.name === 'AbortError' ? 'WHEP 请求超时（10s）'
+          : 'fetch 失败（多为 CORS 或 TLS 证书）：' + e.message);
+      }
+      clearTimeout(timer);
+      var loc = res.headers.get('Location');
+      if (loc) { try { ui.player.location = new URL(loc, url).href; } catch (e) {} }
+      var body = await res.text();
+      if (res.status !== 200 && res.status !== 201) {
+        throw new Error('WHEP HTTP ' + res.status + '：' + (body || '无响应体').slice(0, 200));
+      }
+      await pc.setRemoteDescription({ type: 'answer', sdp: body });
+      el.playerVideo.play().catch(function () {});
+    } catch (e) {
+      el.playerMsg.className = 'recordMsg err';
+      el.playerMsg.textContent = '播放失败：' + (e && e.message ? e.message : e);
+    }
+  }
+  function closePlayerWhep(del) {
+    if (ui.player.pc) {
+      var old = ui.player.pc; ui.player.pc = null;
+      try { old.ontrack = null; old.onconnectionstatechange = null; old.close(); } catch (e) {}
+    }
+    el.playerVideo.srcObject = null;
+    if (del && ui.player.location) {
+      try { fetch(ui.player.location, { method: 'DELETE', keepalive: true }).catch(function () {}); } catch (e) {}
+    }
+    ui.player.location = '';
   }
   function closePlayer() {
+    closePlayerWhep(true);
     try { el.playerVideo.pause(); } catch (e) {}
-    el.playerVideo.removeAttribute('src');
-    el.playerVideo.load();
+    try { el.playerVideo.removeAttribute('src'); el.playerVideo.load(); } catch (e) {}
     el.playerScrim.classList.remove('show');
     el.playerModal.classList.remove('show');
+    if (ui.player.pending) { clearTimeout(ui.player.pending.timer); ui.player.pending = null; }
+    // 通知设备停止推流，释放 ffmpeg 进程
+    if (ui.player.filename && mqtt && mqtt.connected && cfg.device && ui.uuid) {
+      mqtt.publish(base(cfg.device) + '/record/play/stop/request',
+        { uuid: ui.uuid, request_id: rid(), filename: ui.player.filename });
+    }
+    ui.player.filename = '';
   }
 
   // ---------------------------------------------------------------- 车控
