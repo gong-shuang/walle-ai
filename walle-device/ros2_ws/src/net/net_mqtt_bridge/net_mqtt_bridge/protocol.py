@@ -9,6 +9,7 @@ import random
 import time
 
 import psutil
+import paho.mqtt.client as mqtt
 
 from . import config
 from .identity import (get_cpu_model, get_device_serial, get_os_description,
@@ -118,16 +119,19 @@ class ProtocolMixin:
         self._publish_one(config.device_topic(resource), data, retain)
 
     def _publish_one(self, topic, data, retain=False):
-        info = self.client.publish(
-            topic, json.dumps(data, ensure_ascii=False), qos=config.MQTT_QOS, retain=retain
-        )
-        logging.debug("publish -> %s mid=%s", topic, info.mid)
+        text = json.dumps(data, ensure_ascii=False)
         if config.MQTT_DEBUG_JSON:
             try:
-                text = json.dumps(data, ensure_ascii=False, indent=2)
+                pretty = json.dumps(data, ensure_ascii=False, indent=2)
             except (TypeError, ValueError):
-                text = repr(data)
-            logging.info("[MQTT-TX] %s\n%s", topic, text)
+                pretty = text
+            logging.info("[MQTT-TX] %s\n%s", topic, pretty)
+        info = self.client.publish(topic, text, qos=config.MQTT_QOS, retain=retain)
+        # paho 的 publish() 出错只体现在 rc 上（不抛异常），不检查就会静默丢报文
+        if info.rc != mqtt.MQTT_ERR_SUCCESS:
+            logging.error("报文发布失败 %s（rc=%s：%s）", topic, info.rc,
+                          mqtt.error_string(info.rc))
+        logging.debug("publish -> %s mid=%s rc=%s", topic, info.mid, info.rc)
 
     def _handle_request(self, topic, payload):
         """把请求分发到对应处理函数。
@@ -181,6 +185,10 @@ class ProtocolMixin:
         def _run():
             try:
                 handler(payload)
+            except Exception:
+                # 线程池里的异常不会冒泡（Future 无人取结果），必须自己记日志，
+                # 否则处理函数出错时表现为"设备收到了请求但没有任何应答"。
+                logging.exception("处理请求失败: %s", topic)
             finally:
                 slots.release()
 

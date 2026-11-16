@@ -54,11 +54,13 @@ walle/{tenant}/{device}/v1/{resource}
 | 15 | 停止录像 | `walle/{t}/{d}/v1/record/stop/request` | `walle/{t}/{d}/v1/record/stop/result` | 请求-应答 | v1.3 | 停止当前录像会话 |
 | 16 | 录像列表 | `walle/{t}/{d}/v1/record/list/query` | `walle/{t}/{d}/v1/record/list/result` | 请求-应答 | v1.3 | 返回历史录像与播放地址 |
 | 17 | 删除录像 | `walle/{t}/{d}/v1/record/delete/request` | `walle/{t}/{d}/v1/record/delete/result` | 请求-应答 | v1.3 | 删除指定录像文件 |
+| 18 | 播放录像 | `walle/{t}/{d}/v1/record/play/start/request` | `walle/{t}/{d}/v1/record/play/start/result` | 请求-应答 | v1.5 | ffmpeg 推 fmp4 → SRS，App 拉流 |
+| 19 | 停止播放 | `walle/{t}/{d}/v1/record/play/stop/request` | `walle/{t}/{d}/v1/record/play/stop/result` | 请求-应答 | v1.5 | 停止录像点播推流 |
 
 > `{t}` = tenant，`{d}` = device_id。
 > 8/9 只承载「开/关」控制，音频本身走独立 RTMP（§4.8）。
-> 14–17 录像由 `record_video_node` 订阅 `/image_raw` 编码为 fMP4 落盘，播放通过设备内置 HTTP 服务
-> `http://{device_ip}:8088/recordings/<filename>.fmp4` 提供。
+> 14–17 录像由 `record_video_node` 订阅 `/image_raw` 编码为 fMP4 落盘。
+> 18/19 录像点播：设备端 ffmpeg 用 `-c copy` 把 fMP4 转封装为 FLV 推到 SRS，App 通过返回的 `flv_url` / `whep_url` 拉流；支持 `offset_sec` 从指定时间点开始。
 
 ---
 
@@ -995,6 +997,68 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 **安全**：文件名白名单 `^rec_\d{8}_\d{6}\.fmp4$`，删除前校验真实路径在 `data/recordings/`
 目录内，防止路径穿越。
 
+### 4.17 播放录像 record/play/start/request → record/play/start/result（V1.5）
+
+**作用**：把设备本地的 fMP4 录像文件用 ffmpeg 转封装（`-c copy`，不重编码）推到 SRS，
+App 用返回的 `flv_url` / `whep_url` 拉流播放。同一时刻只允许一路播放，新请求会先停掉旧的。
+
+- 请求：`walle/{t}/{d}/v1/record/play/start/request`
+- 应答：`walle/{t}/{d}/v1/record/play/start/result`
+
+**请求字段**：
+
+```json
+{
+  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "request_id": "r5",
+  "filename": "rec_20261115_143000.fmp4",
+  "offset_sec": 300
+}
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `uuid` | 是 | 不匹配静默忽略 |
+| `request_id` | 是 | 原样回显 |
+| `filename` | 是 | 要播放的文件名（仅文件名，不含路径；白名单 `^rec_\d{8}_\d{6}(_\d+)?\.fmp4$`） |
+| `offset_sec` | 否 | 从第几秒开始播放，默认 0；用于进度条拖动 |
+
+**应答字段**：
+
+```json
+{
+  "result": 0,
+  "cause": "ok",
+  "request_id": "r5",
+  "filename": "rec_20261115_143000.fmp4",
+  "stream": "record_a38e3322_ab12cd34",
+  "flv_url": "http://srs-host:8080/live/record_a38e3322_ab12cd34.flv",
+  "whep_url": "https://srs-host/rtc/v1/whep/?app=live&stream=record_a38e3322_ab12cd34",
+  "offset_sec": 300
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `result` | `0` 成功 / `-1` 推流失败（未配置媒体服务器、文件不存在等） / `-3` 非法参数 |
+| `cause` | 对应原因说明 |
+| `stream` | SRS 流名，每次播放唯一 |
+| `flv_url` | HTTP-FLV 拉流地址（SRS 默认端口 8080，可由 `RECORD_PLAY_FLV_PORT` 覆盖） |
+| `whep_url` | WebRTC WHEP 拉流地址（与直播共用，低延迟） |
+| `offset_sec` | 实际生效的起始秒数（仅请求带了时回显） |
+
+**停止播放**：App 退出播放时发 `record/play/stop/request`，设备端 kill ffmpeg 进程，
+返回 `record/play/stop/result`（带 `stopped: true`）。
+
+**实现要点**：
+- ffmpeg 命令：`ffmpeg -re [-ss <offset>] -i <fmp4> -c copy -f flv rtmp://<srs>:1935/live/<stream>?secret=<secret>`
+- `-c copy` 直接转封装 H.264 +（未来）AAC，CPU 占用极低
+- `-ss` 放在 `-i` 前，快速跳到最近关键帧（差几秒，用户无感）
+- 流名格式 `record_{device_id前8位}_{8位随机hex}`，避免与直播流冲突
+- 路径安全：校验真实路径在 `RECORD_STORAGE_PATH` 目录内，防止路径穿越
+
+**前置条件**：`MEDIA_SERVER_HOST` / `MEDIA_SERVER_SECRET` 已配置（与直播推流共用），且 SRS 服务器可达。
+
 ---
 
 ## 5. 修改协议的流程（改前必读）
@@ -1027,6 +1091,17 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 7. 变更记录
+
+### 2026-11-16：新增录像点播 record/play（V1.5）
+
+**变更类型**：非破坏性增量（新增 2 组主题）。
+
+**变更内容**
+
+- 新增 2 组请求主题（V1.5）：
+  - `record/play/start/request` → `record/play/start/result`：ffmpeg 推 fMP4 → SRS，App 拉流；
+  - `record/play/stop/request` → `record/play/stop/result`：停止录像点播推流。
+- 支持 `offset_sec` 从指定时间点开始播放（进度条拖动）。
 
 ### 2026-11-15：新增录像 record/start|stop|list|delete（V1.3）
 

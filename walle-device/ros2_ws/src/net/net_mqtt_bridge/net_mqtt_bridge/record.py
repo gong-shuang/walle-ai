@@ -18,37 +18,7 @@ import threading
 
 from . import config
 from .identity import now_str, now_ts
-
-# ---- 录像功能开关：取自 walle_camera.conf 的 record.enabled ----
-CAMERA_CONF_NAME = "walle_camera.conf"
-
-
-def _camera_conf_candidates():
-    """walle_camera.conf 查找顺序：WALLE_CAMERA_CONF > /etc/walle-ai > $TURBOPI_HOME/scripts/etc。"""
-    explicit = os.environ.get("WALLE_CAMERA_CONF", "").strip()
-    if explicit:
-        return [os.path.expanduser(explicit)]
-    paths = [os.path.join("/etc", "walle-ai", CAMERA_CONF_NAME)]
-    home = (os.environ.get("TURBOPI_HOME") or os.environ.get("WALLE_HOME") or "").strip()
-    if home:
-        paths.append(os.path.join(home, "scripts", "etc", CAMERA_CONF_NAME))
-    return paths
-
-
-def _load_record_enabled():
-    """读取 record.enabled；文件缺失或解析失败时按启用处理（与 camera_conf 默认一致）。"""
-    for path in _camera_conf_candidates():
-        try:
-            with open(path, encoding="utf-8") as f:
-                conf = json.load(f)
-        except (OSError, ValueError):
-            continue
-        record = conf.get("record") or {}
-        return bool(record.get("enabled", True))
-    return True
-
-
-RECORD_ENABLED = _load_record_enabled()
+from .record_player import RecordPlayer, RECORD_ENABLED, RECORD_STORAGE_PATH
 
 
 class RecordMixin:
@@ -135,6 +105,46 @@ class RecordMixin:
                      payload["request_id"] or "-", result_code, cause)
         return payload
 
+    def _publish_record_play_start_result(self, req, result_code, cause, extra=None):
+        payload = {
+            "device_id": config.DEVICE_ID,
+            "uuid": config.DEVICE_UUID,
+            "hostname": config.HOSTNAME,
+            "ip": self.lan_ip,
+            "request_id": self._rid(req),
+            "result": result_code,
+            "cause": cause,
+            "timestamp": now_ts(),
+            "datetime": now_str(),
+        }
+        if extra:
+            payload.update(extra)
+        self.publish_json(config.RES_RECORD_PLAY_START_RESULT, payload)
+        logging.info("录像点播开始结果 -> %s: request_id=%s result=%s cause=%s",
+                     config.device_topic(config.RES_RECORD_PLAY_START_RESULT),
+                     payload["request_id"] or "-", result_code, cause)
+        return payload
+
+    def _publish_record_play_stop_result(self, req, result_code, cause, extra=None):
+        payload = {
+            "device_id": config.DEVICE_ID,
+            "uuid": config.DEVICE_UUID,
+            "hostname": config.HOSTNAME,
+            "ip": self.lan_ip,
+            "request_id": self._rid(req),
+            "result": result_code,
+            "cause": cause,
+            "timestamp": now_ts(),
+            "datetime": now_str(),
+        }
+        if extra:
+            payload.update(extra)
+        self.publish_json(config.RES_RECORD_PLAY_STOP_RESULT, payload)
+        logging.info("录像点播停止结果 -> %s: request_id=%s result=%s cause=%s",
+                     config.device_topic(config.RES_RECORD_PLAY_STOP_RESULT),
+                     payload["request_id"] or "-", result_code, cause)
+        return payload
+
 
 class RecordNodeMixin:
     """net_mqtt_bridge 节点侧：调用 record_video_node 的 ROS2 服务。
@@ -164,6 +174,8 @@ class RecordNodeMixin:
             self.get_parameter('record_call_timeout').value)
         self._record_http_port = int(
             self.get_parameter('record_http_port').value)
+        # 录像点播播放器（ffmpeg 推 fmp4 → SRS）
+        self._record_player = RecordPlayer(logger=self.get_logger())
 
     def _call_record(self, client, request):
         """通用录像服务调用：等待服务就绪 + 异步调用 + 超时。"""
@@ -317,4 +329,48 @@ class RecordNodeMixin:
             extra['error'] = resp.cause
         self.agent._publish_record_delete_result(
             req, int(resp.result), resp.cause or 'ok', extra)
+
+    def _handle_record_play(self, payload):
+        """播放录像：ffmpeg 推 fmp4 → SRS，返回拉流地址给 App。"""
+        ok, data = self.agent.verify_uuid(
+            payload, config.REQ_RECORD_PLAY_START)
+        if not ok:
+            return
+        req = data
+        filename = str(data.get('filename') or '').strip()
+        if not filename:
+            self.agent._publish_record_play_start_result(
+                req, -3, '非法参数', {'error': 'filename 不能为空', 'filename': None})
+            return
+        try:
+            offset_sec = float(data.get('offset_sec') or 0)
+        except (TypeError, ValueError):
+            offset_sec = 0.0
+        offset_sec = max(0.0, offset_sec)
+
+        ok, cause, urls = self._record_player.play(filename, offset_sec)
+        if not ok:
+            self.agent._publish_record_play_start_result(
+                req, -1, cause, {'filename': filename, 'error': cause})
+            return
+        extra = {
+            'filename': filename,
+            'stream': urls['stream'],
+            'flv_url': urls['flv_url'],
+            'whep_url': urls['whep_url'],
+        }
+        if offset_sec > 0:
+            extra['offset_sec'] = offset_sec
+        self.agent._publish_record_play_start_result(req, 0, 'ok', extra)
+
+    def _handle_record_play_stop(self, payload):
+        """停止录像点播。"""
+        ok, data = self.agent.verify_uuid(
+            payload, config.REQ_RECORD_PLAY_STOP)
+        if not ok:
+            return
+        req = data
+        self._record_player.stop()
+        self.agent._publish_record_play_stop_result(
+            req, 0, 'ok', {'stopped': True})
 

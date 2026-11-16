@@ -115,10 +115,8 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin):
             self.get_parameter('video_status_topic').value,
             self._on_video_status,
             status_qos)
-
         self._heartbeat_pub = self.create_publisher(Bool, '~/heartbeat', 10)
         self.create_timer(1.0, self._publish_heartbeat)
-
         # ---- car/motor/set：/cmd_vel 发布 + 本地状态 + 10Hz 重发 + 500ms 死区 ----
         self._cmd_vel_pub = self.create_publisher(
             Twist, self.get_parameter('cmd_vel_topic').value, 10)
@@ -140,6 +138,8 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin):
         self.agent.handle_record_stop = self._handle_record_stop
         self.agent.handle_record_list = self._handle_record_list
         self.agent.handle_record_delete = self._handle_record_delete
+        self.agent.handle_record_play = self._handle_record_play
+        self.agent.handle_record_play_stop = self._handle_record_play_stop
         self.get_logger().info(
             'net_mqtt_bridge 启动：device_id=%s tenant=%s video_service=%s'
             % (config.DEVICE_ID, agent.sanitize_segment(config.MQTT_TENANT),

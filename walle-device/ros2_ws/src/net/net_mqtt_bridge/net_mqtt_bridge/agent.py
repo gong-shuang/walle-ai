@@ -228,6 +228,8 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
         self.client.on_message = self.on_message
+        # paho 内部错误（回调异常、连接异常）默认只写它自己的 logger，接进统一日志
+        self.client.enable_logger()
         self.client.reconnect_delay_set(min_delay=3, max_delay=30)
         # TLS 已在 validate_mqtt_config 中强制校验，不再允许明文回退
         import ssl

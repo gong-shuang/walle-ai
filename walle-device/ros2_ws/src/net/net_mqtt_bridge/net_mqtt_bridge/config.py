@@ -21,7 +21,6 @@ from pathlib import Path
 ENV_CANDIDATES = ("/etc/walle-ai.conf", "walle-ai.conf")
 ENV_SOURCE = None      # 实际加载到的文件（None 表示没加载）
 
-
 def _cli_arg(name):
     """从 sys.argv 里取 `--name value` 或 `--name=value`，没有则返回 None。"""
     for i, arg in enumerate(sys.argv[1:]):
@@ -30,7 +29,6 @@ def _cli_arg(name):
         if arg.startswith(name + "="):
             return arg.split("=", 1)[1]
     return None
-
 
 def _load_env_file(path):
     """把 KEY=VALUE 文件读进 os.environ（不覆盖已有变量）。返回是否成功。"""
@@ -58,7 +56,6 @@ def _load_env_file(path):
               "手动运行请改用 scripts/start.sh", file=sys.stderr)
         return False
 
-
 def _init_env():
     """按优先级加载环境文件，返回加载到的路径。"""
     # systemd EnvironmentFile 已注入时无需再读文件（生产配置为 600 root:root，
@@ -76,7 +73,6 @@ def _init_env():
         if explicit:
             print(f"[warn] 指定的环境文件不存在或不可读：{path}", file=sys.stderr)
     return None
-
 
 ENV_SOURCE = _init_env()
 
@@ -119,6 +115,8 @@ RES_RECORD_START_RESULT = "record/start/result"           # 收到 record/start/
 RES_RECORD_STOP_RESULT = "record/stop/result"             # 收到 record/stop/request 后发布
 RES_RECORD_LIST_RESULT = "record/list/result"             # 收到 record/list/query 后发布
 RES_RECORD_DELETE_RESULT = "record/delete/result"         # 收到 record/delete/request 后发布
+RES_RECORD_PLAY_START_RESULT = "record/play/start/result"  # 收到 record/play/start/request 后发布
+RES_RECORD_PLAY_STOP_RESULT = "record/play/stop/result"   # 收到 record/play/stop/request 后发布
 
 # ---- 主动上报（设备 -> App，不必等查询）----
 RES_ONLINE = "online"                       # retained + 遗嘱
@@ -146,6 +144,8 @@ REQ_RECORD_START = "record/start/request"        # 开始录像
 REQ_RECORD_STOP = "record/stop/request"          # 停止录像
 REQ_RECORD_LIST = "record/list/query"            # 查询录像列表
 REQ_RECORD_DELETE = "record/delete/request"      # 删除录像文件
+REQ_RECORD_PLAY_START = "record/play/start/request"  # 播放录像（ffmpeg 推 fmp4 → SRS）
+REQ_RECORD_PLAY_STOP = "record/play/stop/request"    # 停止录像推流
 
 # ---- car/servo/set 常量 ----
 CAR_SERVO_POSITION_MIN = 800
@@ -216,10 +216,8 @@ def _version_root():
             return parent.parent
     return here.parent
 
-
 VERSION_FILE = os.environ.get("WALLE_VERSION_FILE") or str(
     _version_root() / "VERSION")
-
 
 def _parse_version_file(path):
     values = {}
@@ -235,7 +233,6 @@ def _parse_version_file(path):
                 values[key.strip()] = value.strip().strip('"').strip("'")
     return values
 
-
 try:
     _VERSION_VALUES = _parse_version_file(VERSION_FILE)
 except OSError:
@@ -249,10 +246,8 @@ except ValueError:
 VERSION_NAME = (os.environ.get("WALLE_VERSION_NAME")
                 or _VERSION_VALUES.get("WALLE_VERSION_NAME") or "0.0.0")
 
-
 def _is_ascii_alnum(ch):
     return ("a" <= ch <= "z") or ("A" <= ch <= "Z") or ("0" <= ch <= "9")
-
 
 def sanitize_segment(raw):
     """主题段清洗：必须与 Android 端 TopicNames.sanitize 完全一致。
@@ -276,7 +271,6 @@ def sanitize_segment(raw):
         return seg[:40] + "-" + hashlib.md5(raw.encode("utf-8")).hexdigest()[:8]
     return seg
 
-
 def tls_enabled():
     """是否启用 TLS。已禁止明文，返回 False 时节点拒绝启动。"""
     if MQTT_TLS == "on":
@@ -284,7 +278,6 @@ def tls_enabled():
     if MQTT_TLS == "auto":
         return MQTT_PORT in TLS_PORTS
     return False
-
 
 def validate_mqtt_config():
     """校验 MQTT 必填配置，返回问题列表；非空表示必须拒绝启动。"""
@@ -317,21 +310,17 @@ def validate_mqtt_config():
             problems.append(f"系统 CA 不可用（{exc}）：请通过 MQTT_CA_FILE 指定 CA 文件")
     return problems
 
-
 def device_topic_base(tenant=None, device=None):
     """walle/{tenant}/{device}/v1"""
     t = sanitize_segment(MQTT_TENANT if tenant is None else tenant)
     d = sanitize_segment(DEVICE_ID if device is None else device)
     return f"{TOPIC_ROOT}/{t}/{d}/{PROTOCOL_VERSION}"
 
-
 def device_topic(resource):
     return device_topic_base() + "/" + resource
 
-
 def tenant_topic(suffix):
     return f"{TOPIC_ROOT}/{sanitize_segment(MQTT_TENANT)}/{PROTOCOL_VERSION}/{suffix}"
-
 
 # 请求 → 应答 的对应关系（也用于自检，保证命名成对）
 REQUEST_TO_RESULT = {
@@ -349,6 +338,8 @@ REQUEST_TO_RESULT = {
     REQ_RECORD_STOP: RES_RECORD_STOP_RESULT,
     REQ_RECORD_LIST: RES_RECORD_LIST_RESULT,
     REQ_RECORD_DELETE: RES_RECORD_DELETE_RESULT,
+    REQ_RECORD_PLAY_START: RES_RECORD_PLAY_START_RESULT,
+    REQ_RECORD_PLAY_STOP: RES_RECORD_PLAY_STOP_RESULT,
 }
 
 # 请求资源 → 处理函数名
@@ -366,6 +357,8 @@ REQUEST_HANDLERS = {
     REQ_RECORD_STOP: "handle_record_stop",
     REQ_RECORD_LIST: "handle_record_list",
     REQ_RECORD_DELETE: "handle_record_delete",
+    REQ_RECORD_PLAY_START: "handle_record_play",
+    REQ_RECORD_PLAY_STOP: "handle_record_play_stop",
 }
 
 # 动作类请求：可能阻塞数秒（等首帧 / 推流宽限期 / 音频启动），单独线程池处理，
@@ -373,6 +366,7 @@ REQUEST_HANDLERS = {
 ACTION_REQUESTS = frozenset({
     REQ_VIDEO_START, REQ_VIDEO_STOP, REQ_PHONE_AUDIO_SEND, REQ_PHONE_AUDIO_STOP,
     REQ_RECORD_START, REQ_RECORD_STOP, REQ_RECORD_DELETE,
+    REQ_RECORD_PLAY_START, REQ_RECORD_PLAY_STOP,
 })
 
 # 实时请求：处理只做校验 + 发布 /cmd_vel，必须在 MQTT 回调线程内立即执行，
@@ -382,7 +376,6 @@ REALTIME_REQUESTS = frozenset({REQ_CAR_MOTOR_SET, REQ_CAR_SERVO_SET})
 # 舵机状态查询：会阻塞数秒（get_state 每个舵机最多 2s），单独一个池，
 # 不能占用 state/capability 查询线程，也不能和推流启动抢动作线程。
 SERVO_REQUESTS = frozenset({REQ_CAR_SERVO_STATUS})
-
 
 def subscriptions():
     """本设备要订阅的主题（只有请求类 + 租户内发现广播）。
@@ -405,9 +398,10 @@ def subscriptions():
         (f"{base}/{REQ_RECORD_STOP}", MQTT_QOS),
         (f"{base}/{REQ_RECORD_LIST}", MQTT_QOS),
         (f"{base}/{REQ_RECORD_DELETE}", MQTT_QOS),
+        (f"{base}/{REQ_RECORD_PLAY_START}", MQTT_QOS),
+        (f"{base}/{REQ_RECORD_PLAY_STOP}", MQTT_QOS),
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
     ]
-
 
 # ---- 监控阈值（均可用环境变量覆盖，写进 /etc/walle-ai.conf 即可）----
 MONITOR_INTERVAL = int(os.environ.get("MONITOR_INTERVAL", "5"))          # 采样周期（秒）
@@ -433,9 +427,7 @@ MAX_SERVO_BACKLOG = max(0, int(os.environ.get("MQTT_MAX_SERVO_BACKLOG", "2")))
 # WALLE_RUNTIME_ENV=debug 时开启，=prod 或未设置时关闭
 MQTT_DEBUG_JSON = os.environ.get("WALLE_RUNTIME_ENV", "prod").strip().lower() == "debug"
 
-
 # ---- 布尔环境变量 ----
-
 
 def _env_flag(name, default):
     """布尔环境变量：1/true/yes/on 为真，0/false/no/off 为假。"""
@@ -443,7 +435,6 @@ def _env_flag(name, default):
     if raw is None or raw == "":
         return default
     return raw.strip().lower() in ("1", "true", "yes", "on")
-
 
 # USB 设备扫描路径
 USB_SYSFS = Path("/sys/bus/usb/devices")
@@ -468,6 +459,10 @@ VIDEO_FFMPEG_BIN = "ffmpeg"              # ffmpeg 可执行文件（不在 PATH 
 MEDIA_SERVER_HOST = os.environ.get("MEDIA_SERVER_HOST", "").strip()
 # Oryx 控制台「推流鉴权」生成的 secret；重置后需同步更新 App 与设备
 MEDIA_SERVER_SECRET = os.environ.get("MEDIA_SERVER_SECRET", "").strip()
+# 录像点播推流（record/play）：ffmpeg 把 fmp4 转封装为 FLV 推到 SRS，App 拉流播放
+RECORD_PLAY_FFMPEG_BIN = os.environ.get("RECORD_PLAY_FFMPEG_BIN", "ffmpeg")
+# SRS HTTP-FLV 端口（Oryx 默认 8080），可通过环境变量覆盖
+RECORD_PLAY_FLV_PORT = int(os.environ.get("RECORD_PLAY_FLV_PORT", "8080"))
 VIDEO_LOG_FILE = "log/ffmpeg_{time}.log"  # ffmpeg 日志文件（相对路径以进程工作目录为基准）
                                          # {time} 会替换成推流时刻，如 20261029_162650，
                                          # 所以每次推流都是一个独立的日志文件；目录不存在会自动创建
@@ -492,7 +487,6 @@ PHONE_AUDIO_STARTUP_GRACE = 2.0          # 启动宽限：播放进程活过这�
 PHONE_AUDIO_STREAM_SUFFIX = "_audio"     # 音频流名后缀：与视频房间号错开，避免抢同一路 stream
 PHONE_AUDIO_PLAYER_SCRIPT = os.path.join(  # WHEP 播放器脚本（与被监控脚本同目录）
     os.path.dirname(os.path.abspath(__file__)), "whep_audio_player.py")
-
 
 def build_phone_audio_url(stream):
     """手机音频 WHEP 拉流地址（Oryx 443 固定路径，无需鉴权）。"""
