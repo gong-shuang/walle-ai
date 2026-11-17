@@ -63,7 +63,7 @@ def launch_setup(context):
             os.path.join(controller_package_path, 'launch/controller.launch.py')),
     )
 
-    # 启动 rosbridge_server / rosapi（walle_net 仅做启动编排）
+    # 启动 rosbridge_websocket / rosapi（walle_net 仅做启动编排）
     # 仅调试时开启：ros2 launch bringup bringup.launch.py enable_rosbridge:=true
     net_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(

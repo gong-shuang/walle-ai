@@ -50,4 +50,4 @@ set -a
 source "$conf_file"
 set +a
 
-exec ros2 launch bringup bringup.launch.py
+exec ros2 launch bringup bringup.launch.py enable_rosbridge:=false enable_web_video_server:=false
