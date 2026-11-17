@@ -6,6 +6,7 @@ import queue
 import rclpy
 import numpy as np
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from cv_bridge import CvBridge
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
@@ -32,7 +33,7 @@ class AgentProcess(Node):
         super().__init__(name)
         
         self.declare_parameter('camera_topic', 'image_raw')  # 声明相机话题参数 (declare camera topic parameter)
-        camera_topic = self.get_parameter('camera_topic').value  # 获取相机话题 (get camera topic)
+        self.camera_topic = self.get_parameter('camera_topic').value  # 获取相机话题 (get camera topic)
 
         self.prompt = ''  # 提示词 (prompt)
         self.model = llm_model  # 大语言模型 (large language model)
@@ -46,7 +47,13 @@ class AgentProcess(Node):
         # 创建发布者和订阅者 (create publisher and subscribers)
         self.result_pub = self.create_publisher(String, '~/result', 1)  # 结果发布者 (result publisher)
         self.create_subscription(String, 'vocal_detect/asr_result', self.asr_callback, 1)  # 语音识别结果订阅 (ASR result subscription)
-        self.create_subscription(Image, camera_topic, self.image_callback, 1)  # 摄像头订阅 (subscribe to the camera)
+        # 相机订阅按需创建：只有视觉模型（vllm）才需要图像帧。
+        # 常驻订阅会让单线程 executor 持续反序列化 1280x720 整帧，纯文本问答时白白占 CPU。
+        self._image_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE)
+        self._image_sub = None
         
         # 创建服务 (create services)
         self.create_service(SetModel, '~/set_model', self.set_model_srv)  # 设置模型服务 (set model service)
@@ -126,6 +133,32 @@ class AgentProcess(Node):
         self.record_chat = False  # 停止记录聊天 (stop recording chat)
         return response
 
+    def _ensure_image_subscription(self):
+        """
+        按需订阅相机（切到 vllm 时才调用）。
+        Subscribe to the camera on demand (called when switching to vllm).
+        """
+        if self._image_sub is not None:
+            return
+        # 丢弃上一次视觉模式残留的旧帧，避免用过期画面回答
+        while not self.image_queue.empty():
+            self.image_queue.get_nowait()
+        self._image_sub = self.create_subscription(
+            Image, self.camera_topic, self.image_callback, self._image_qos)
+
+    def _release_image_subscription(self):
+        """
+        退出视觉模式后取消订阅，空闲时不再处理相机帧。
+        Release the camera subscription when leaving vllm mode.
+        """
+        sub, self._image_sub = self._image_sub, None
+        if sub is None:
+            return
+        try:
+            self.destroy_subscription(sub)
+        except Exception as e:
+            self.get_logger().warning('destroy image subscription failed: %s' % e)
+
     def asr_callback(self, msg):
         """
         语音识别结果回调函数
@@ -147,7 +180,11 @@ class AgentProcess(Node):
                     res = self.client.llm(msg.data, self.prompt, model=self.model)  # 调用语言模型 (call language model)
                     self.get_logger().info('\033[1;32m%s\033[0m' % 'publish llm result:' + str(res))
                 elif self.model_type == 'vllm':
-                    image = self.image_queue.get(block=True)  # 从队列获取图像 (get image from queue)
+                    try:
+                        image = self.image_queue.get(timeout=5.0)  # 从队列获取图像 (get image from queue)
+                    except queue.Empty:
+                        self.get_logger().warning('no camera image available, skip vllm request')
+                        return
                     res = self.client.vllm(msg.data, image, prompt=self.prompt, model=self.model)  # 调用视觉语言模型 (call vision language model)
                     self.get_logger().info('\033[1;32m%s\033[0m' % 'publish vllm result:' + str(res))
             except Exception as e:
@@ -192,6 +229,10 @@ class AgentProcess(Node):
         self.model = request.model  # 设置模型 (set model)
         self.model_type = request.model_type  # 设置模型类型 (set model type)
         self.client = speech.OpenAIAPI(request.api_key, request.base_url)  # 更新API客户端 (update API client)
+        if self.model_type == 'vllm':
+            self._ensure_image_subscription()  # 视觉模式才订阅相机 (subscribe camera only in vllm mode)
+        else:
+            self._release_image_subscription()  # 纯文本模式不再接收图像 (stop receiving images)
         response.success = True
         return response
 
@@ -249,7 +290,12 @@ class AgentProcess(Node):
             self.get_logger().info(f'receive image')  # 接收到图像 (received image)
             image = self.bridge.imgmsg_to_cv2(request.image, desired_encoding="bgr8")  # 转换图像 (convert image)
         else:
-            image = self.image_queue.get(block=True)  # 从队列获取图像 (get image from queue)
+            try:
+                image = self.image_queue.get(timeout=5.0)  # 从队列获取图像 (get image from queue)
+            except queue.Empty:
+                response.success = False
+                response.message = 'no camera image available'
+                return response
         client = speech.OpenAIAPI(request.api_key, request.base_url)  # 创建临时客户端 (create temporary client)
         res = client.vllm(request.query, image, prompt=request.prompt, model=request.model)  # 调用视觉语言模型 (call vision language model)
         response.message = res
