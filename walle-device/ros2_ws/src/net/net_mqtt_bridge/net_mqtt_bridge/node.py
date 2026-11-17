@@ -471,8 +471,10 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin):
 def main(args=None):
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
+        format=os.environ.get(
+            'WALLE_PY_LOG_FORMAT',
+            '%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s'),
+        datefmt=os.environ.get('WALLE_PY_LOG_DATEFMT', '%Y-%m-%d %H:%M:%S'),
     )
     rclpy.init(args=args)
     node = None

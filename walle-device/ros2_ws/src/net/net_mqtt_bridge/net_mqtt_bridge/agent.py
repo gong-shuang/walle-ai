@@ -77,6 +77,7 @@ if __name__ == "__main__" and __package__ in (None, ""):  # pragma: no cover
 
 import json
 import logging
+import os
 import signal
 import sys
 import threading
@@ -305,8 +306,10 @@ def print_config_check():
 def main():
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+        format=os.environ.get(
+            "WALLE_PY_LOG_FORMAT",
+            "%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s"),
+        datefmt=os.environ.get("WALLE_PY_LOG_DATEFMT", "%Y-%m-%d %H:%M:%S"),
     )
     if "-h" in sys.argv or "--help" in sys.argv:
         print(__doc__)

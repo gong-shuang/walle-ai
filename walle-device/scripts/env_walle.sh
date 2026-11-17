@@ -83,6 +83,15 @@ export ROS_DOMAIN_ID=1
 # Jazzy 推荐 ROS_AUTOMATIC_DISCOVERY_RANGE（ROS_LOCALHOST_ONLY 已弃用）。
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 
+# ===== 日志格式（唯一配置入口，可被 /etc/walle-ai.conf 或 scripts/walle-ai.conf 覆盖）=====
+# 统一格式：[来源] YYYY-MM-DD HH:MM:SS.mmm [LEVEL] 消息
+# [来源] 由 launch 自动加的 [进程名] 前缀提供，所以这里不再打印节点名。
+# ROS 节点（rcutils 占位符）
+export RCUTILS_CONSOLE_OUTPUT_FORMAT='[{date_time_with_ms}] [{severity}] {message}'
+# Python logging 节点（logging 占位符）
+export WALLE_PY_LOG_FORMAT='%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s'
+export WALLE_PY_LOG_DATEFMT='%Y-%m-%d %H:%M:%S'
+
 if [[ ! -f "$venv_path/bin/activate" ]]; then
     echo -e "\033[31m[错误] 未找到 venv：$venv_path（可用 WALLE_VENV 指定实际路径）\033[0m" >&2
     return 1
