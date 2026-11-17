@@ -459,10 +459,15 @@ class RecordVideoNode(Node):
         self._img_group = MutuallyExclusiveCallbackGroup()
         self._srv_group = ReentrantCallbackGroup()
 
-        # 订阅 /image_raw
-        self.create_subscription(
-            Image, self.image_topic, self._image_callback, 10,
-            callback_group=self._img_group)
+        # 图像订阅按需创建：只在录像期间订阅 /image_raw。
+        # 帧大（1280x720x3≈2.6MB），且 rclpy 在进入回调前就会反序列化整帧，
+        # 常驻订阅会让空闲进程持续占用 CPU。
+        # BEST_EFFORT + depth=1：消费不过来时丢最旧帧，不重传、不积压。
+        self._image_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE)
+        self._image_sub = None
 
         # 启动成功后按配置自动录像；transient_local 可接收订阅前发布的 ready
         startup_qos = QoSProfile(
@@ -553,6 +558,26 @@ class RecordVideoNode(Node):
             self.get_logger().warning("HTTP 播放服务启动失败（端口 %d 被占用？）：%s"
                                       % (self.http_port, exc))
 
+    # ---------- 图像订阅（按需） ----------
+
+    def _ensure_image_subscription(self):
+        """录像开始时才订阅 /image_raw。"""
+        if self._image_sub is not None:
+            return
+        self._image_sub = self.create_subscription(
+            Image, self.image_topic, self._image_callback,
+            self._image_qos, callback_group=self._img_group)
+
+    def _release_image_subscription(self):
+        """录像结束后取消订阅，空闲时不收取/反序列化图像。"""
+        sub, self._image_sub = self._image_sub, None
+        if sub is None:
+            return
+        try:
+            self.destroy_subscription(sub)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warning("销毁图像订阅失败: %s" % exc)
+
     # ---------- 图像回调 ----------
 
     def _image_callback(self, msg):
@@ -632,6 +657,7 @@ class RecordVideoNode(Node):
                         self._session = None
                         return response
                     self._enforce_quota()
+                    self._ensure_image_subscription()
                     response.result = 0
                     response.cause = "ok"
                     response.filename = self._session.current_file or ""
@@ -654,6 +680,7 @@ class RecordVideoNode(Node):
                 except Exception as exc:  # noqa: BLE001
                     self.get_logger().warning("停止录像异常: %s" % exc)
                 self._session = None
+                self._release_image_subscription()
                 response.result = 0
                 response.cause = "ok"
                 response.filename = filename
@@ -848,6 +875,7 @@ class RecordVideoNode(Node):
                 except Exception:  # noqa: BLE001
                     pass
                 self._session = None
+        self._release_image_subscription()
         if self._http_server is not None:
             try:
                 self._http_server.shutdown()
