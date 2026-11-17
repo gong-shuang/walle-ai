@@ -207,7 +207,7 @@ walle-device/scripts/etc/walle_camera.conf
 
 1. `ros2 launch ... camera_conf:=<path>` 或环境变量 `WALLE_CAMERA_CONF`
 2. `/etc/walle-ai/walle_camera.conf`（`deploy.sh` 安装）
-3. `$TURBOPI_HOME/scripts/etc/walle_camera.conf`（开发环境）
+3. `$WALLE_HOME/scripts/etc/walle_camera.conf`（开发环境）
 
 未找到或 schema 不合法时，`bringup` 会打印错误并提示运行本脚本，摄像头不会启动；
 `startup_check` 也会校验该文件。`bringup` 读取后把设备、格式、分辨率、帧率传给

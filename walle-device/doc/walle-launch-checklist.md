@@ -448,7 +448,7 @@ cd walle-device/scripts && ./start.sh
   由 `scripts/auto_gen_camera_conf.sh` 交互式生成（摄像头、格式、分辨率、帧率、名称）；
   `bringup` 读取后把采集参数传给 `usb_cam`，并把设备与帧率传给 `video_webrtc_bridge`。
   查找顺序：`camera_conf:=` / `WALLE_CAMERA_CONF` → `/etc/walle-ai/walle_camera.conf`
-  （`deploy.sh` 安装）→ `$TURBOPI_HOME/scripts/etc/walle_camera.conf`。配置缺失或
+  （`deploy.sh` 安装）→ `$WALLE_HOME/scripts/etc/walle_camera.conf`。配置缺失或
   schema 不合法时摄像头不启动并提示运行脚本，`startup_check` 同步校验。
 - 2026-11-12：摄像头 udev 规则 `99-walle-camera.rules` 已移除，不再创建 `/dev/walle-camera`；
   摄像头直接使用实际设备节点（默认 `/dev/video0`）。当时在 `usb_cam_param.yaml` 的

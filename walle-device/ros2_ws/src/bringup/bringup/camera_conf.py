@@ -16,7 +16,7 @@ schema_version == 1（camera / record 分块）：
 运行时按以下顺序查找：
   1. 显式参数 / 环境变量 WALLE_CAMERA_CONF
   2. /etc/walle-ai/walle_camera.conf（deploy.sh 安装）
-  3. $TURBOPI_HOME/scripts/etc/walle_camera.conf（开发环境）
+  3. $WALLE_HOME/scripts/etc/walle_camera.conf（开发环境）
 """
 
 import json
@@ -42,9 +42,7 @@ def candidate_paths(explicit=None):
     if env_path:
         return [os.path.expanduser(env_path)]
     paths = [os.path.join('/etc', 'walle-ai', CONF_NAME)]
-    home = (os.environ.get('TURBOPI_HOME')
-            or os.environ.get('WALLE_HOME')
-            or '').strip()
+    home = (os.environ.get('WALLE_HOME') or '').strip()
     if home:
         paths.append(os.path.join(home, 'scripts', 'etc', CONF_NAME))
     return paths

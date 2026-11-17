@@ -198,7 +198,7 @@ cd walle-device/scripts
 - `bringup` 读取配置后，把设备、格式、分辨率、帧率传给 `usb_cam`，
   并将设备与帧率同时传给 `video_webrtc_bridge`；
 - 查找顺序：`camera_conf:=` / `WALLE_CAMERA_CONF` →
-  `/etc/walle-ai/walle_camera.conf` → `$TURBOPI_HOME/scripts/etc/walle_camera.conf`；
+  `/etc/walle-ai/walle_camera.conf` → `$WALLE_HOME/scripts/etc/walle_camera.conf`；
 - 配置缺失或 schema 不合法时摄像头不启动，日志提示运行脚本；
   `startup_check` 也会校验配置和设备节点。
 

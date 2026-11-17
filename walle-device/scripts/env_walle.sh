@@ -9,11 +9,6 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     exit 1
 fi
 
-# 以脚本所在目录为基准，不依赖当前工作目录
-current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # walle-device/scripts
-walle_home="$(cd "$current_dir/.." && pwd)"                  # walle-device
-export TURBOPI_HOME="$walle_home"
-
 # venv 目录：默认 $HOME/venv；实际路径不同时用 WALLE_VENV 指定
 venv_path="${WALLE_VENV:-$HOME/venv}"
 
@@ -37,6 +32,11 @@ if [[ -z "${WALLE_ENV_LOADED:-}" ]] && { [[ -n "${ROS_DISTRO:-}" ]] || [[ -n "${
 fi
 
 export WALLE_ENV_LOADED=1
+
+# 以脚本所在目录为基准，不依赖当前工作目录
+current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # walle-device/scripts
+walle_home="$(cd "$current_dir/.." && pwd)"                  # walle-device
+export WALLE_HOME="$walle_home"
 
 # 版本号唯一来源：设备端根目录 VERSION（linux-demo 与 ROS2 共用）
 # （WALLE_VERSION_NUM / WALLE_VERSION_NAME / WALLE_VERSION_DATE）

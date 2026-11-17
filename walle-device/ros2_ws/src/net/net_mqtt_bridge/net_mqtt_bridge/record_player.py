@@ -17,12 +17,12 @@ CAMERA_CONF_NAME = "walle_camera.conf"
 
 
 def _camera_conf_candidates():
-    """walle_camera.conf 查找顺序：WALLE_CAMERA_CONF > /etc/walle-ai > $TURBOPI_HOME/scripts/etc。"""
+    """walle_camera.conf 查找顺序：WALLE_CAMERA_CONF > /etc/walle-ai > $WALLE_HOME/scripts/etc。"""
     explicit = os.environ.get("WALLE_CAMERA_CONF", "").strip()
     if explicit:
         return [os.path.expanduser(explicit)]
     paths = [os.path.join("/etc", "walle-ai", CAMERA_CONF_NAME)]
-    home = (os.environ.get("TURBOPI_HOME") or os.environ.get("WALLE_HOME") or "").strip()
+    home = (os.environ.get("WALLE_HOME") or "").strip()
     if home:
         paths.append(os.path.join(home, "scripts", "etc", CAMERA_CONF_NAME))
     return paths
