@@ -613,6 +613,7 @@ class VideoWebrtcBridge(Node):
             time.sleep(0.2)
             tail = sink.error_line()
             self._reset_stream(stream_id)
+            self._publish_status()
             sink.close()
             response.result = -2
             response.cause = "命令执行失败"
