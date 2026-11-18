@@ -42,7 +42,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 配置：全部通过环境变量；前台运行时会自动加载 /etc/walle-ai.conf，
       查找顺序 --env-file > $RPI_MONITOR_ENV > /etc/walle-ai.conf > ./walle-ai.conf，
       已存在的 shell 变量优先。必填 MQTT_HOST / MQTT_USERNAME / MQTT_PASSWORD / MQTT_TENANT，
-      TLS 强制开启（默认 8883）；缺项或明文配置时拒绝启动。
+      TLS 默认开启（默认 8883）；仅 debug 环境允许显式配置明文连接。
 
 命令行：
     python3 main.py                         前台运行（自动读 /etc/walle-ai.conf）
@@ -192,8 +192,8 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
                 "MQTT 配置不完整，拒绝启动：\n"
                 + "\n".join(f"  - {p}" for p in problems)
                 + "\n请编辑 /etc/walle-ai.conf（参考 scripts/walle-ai.conf.example），"
-                  "至少配置 MQTT_HOST / MQTT_USERNAME / MQTT_PASSWORD / MQTT_TENANT，"
-                  "并保持 TLS（MQTT_PORT=8883、MQTT_TLS=on）。")
+                  "至少配置 MQTT_HOST / MQTT_USERNAME / MQTT_PASSWORD / MQTT_TENANT；"
+                  "生产环境保持 TLS（MQTT_PORT=8883、MQTT_TLS=on）。")
         logging.info("设备 %s (%s) 启动监控，采样周期 %ss", config.DEVICE_ID, self.lan_ip, config.MONITOR_INTERVAL)
         logging.info("协议 v1: tenant=%s device=%s broker=%s:%s",
                      config.sanitize_segment(config.MQTT_TENANT), config.sanitize_segment(config.DEVICE_ID),
@@ -232,16 +232,19 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
         # paho 内部错误（回调异常、连接异常）默认只写它自己的 logger，接进统一日志
         self.client.enable_logger()
         self.client.reconnect_delay_set(min_delay=3, max_delay=30)
-        # TLS 已在 validate_mqtt_config 中强制校验，不再允许明文回退
-        import ssl
-        try:
-            ctx = ssl.create_default_context(cafile=config.MQTT_CA_FILE or None)
-        except (OSError, ssl.SSLError) as exc:
-            raise RuntimeError(
-                f"加载 CA 失败（MQTT_CA_FILE={config.MQTT_CA_FILE or 'system'}）：{exc}") from exc
-        self.client.tls_set_context(ctx)
-        logging.info("启用 TLS 连接 %s:%s（CA=%s）",
-                     config.MQTT_HOST, MQTT_PORT, config.MQTT_CA_FILE or "system")
+        if config.tls_enabled():
+            import ssl
+            try:
+                ctx = ssl.create_default_context(cafile=config.MQTT_CA_FILE or None)
+            except (OSError, ssl.SSLError) as exc:
+                raise RuntimeError(
+                    f"加载 CA 失败（MQTT_CA_FILE={config.MQTT_CA_FILE or 'system'}）：{exc}") from exc
+            self.client.tls_set_context(ctx)
+            logging.info("启用 TLS 连接 %s:%s（CA=%s）",
+                         config.MQTT_HOST, MQTT_PORT, config.MQTT_CA_FILE or "system")
+        else:
+            logging.warning("调试模式：使用明文 MQTT 连接 %s:%s（WALLE_RUNTIME_ENV=%s）",
+                            config.MQTT_HOST, MQTT_PORT, config.WALLE_RUNTIME_ENV)
         self.client.connect(config.MQTT_HOST, MQTT_PORT, config.MQTT_KEEPALIVE)
         self.client.loop_start()
 

@@ -13,6 +13,23 @@ from net_mqtt_bridge.agent import RpiMonitor, generate_device_uuid
 FIXED_UUID = "0f8fad5b-d9cb-469f-a165-70867728950e"
 
 
+@pytest.fixture
+def valid_mqtt_config(monkeypatch):
+    values = {
+        "MQTT_HOST": "broker.local",
+        "MQTT_PORT": 8883,
+        "_MQTT_PORT_RAW": "8883",
+        "MQTT_USER": "device",
+        "MQTT_PASSWORD": "secret",
+        "MQTT_TENANT": "tenant",
+        "MQTT_TLS": "on",
+        "MQTT_CA_FILE": "",
+        "WALLE_RUNTIME_ENV": "prod",
+    }
+    for name, value in values.items():
+        monkeypatch.setattr(config, name, value)
+
+
 def test_generate_device_uuid_is_deterministic():
     first = generate_device_uuid("aa:bb:cc:dd:ee:ff", "192.168.1.10", ts=1700000000)
     second = generate_device_uuid("aa:bb:cc:dd:ee:ff", "192.168.1.10", ts=1700000000)
@@ -128,3 +145,30 @@ def test_car_servo_set_topics_and_realtime_dispatch_registered():
     assert (config.REQUEST_HANDLERS[config.REQ_CAR_SERVO_SET]
             == "handle_car_servo_set")
     assert config.REQ_CAR_SERVO_SET in config.REALTIME_REQUESTS
+
+
+def test_debug_allows_plaintext_mqtt_on_1883(valid_mqtt_config, monkeypatch):
+    monkeypatch.setattr(config, "WALLE_RUNTIME_ENV", "debug")
+    monkeypatch.setattr(config, "MQTT_PORT", 1883)
+    monkeypatch.setattr(config, "_MQTT_PORT_RAW", "1883")
+    monkeypatch.setattr(config, "MQTT_TLS", "off")
+
+    assert config.validate_mqtt_config() == []
+    assert config.tls_enabled() is False
+
+
+@pytest.mark.parametrize("mqtt_tls", ["on", "off"])
+def test_prod_rejects_mqtt_port_1883(valid_mqtt_config, monkeypatch, mqtt_tls):
+    monkeypatch.setattr(config, "MQTT_PORT", 1883)
+    monkeypatch.setattr(config, "_MQTT_PORT_RAW", "1883")
+    monkeypatch.setattr(config, "MQTT_TLS", mqtt_tls)
+
+    problems = config.validate_mqtt_config()
+    assert any("MQTT_PORT=1883" in problem for problem in problems)
+
+
+def test_prod_rejects_plaintext_mqtt(valid_mqtt_config, monkeypatch):
+    monkeypatch.setattr(config, "MQTT_TLS", "off")
+
+    problems = config.validate_mqtt_config()
+    assert any("MQTT_TLS=off" in problem for problem in problems)

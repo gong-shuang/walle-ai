@@ -78,7 +78,8 @@ ENV_SOURCE = _init_env()
 
 # ============================== 配置区 ==============================
 
-# ---- MQTT ----
+# ---- 运行环境（prod/debug）/ MQTT ----
+WALLE_RUNTIME_ENV = os.environ.get("WALLE_RUNTIME_ENV", "prod").strip().lower()
 # 不提供默认 broker / 用户名：必须由 /etc/walle-ai.conf（或 systemd Environment=）注入。
 # 缺失时节点拒绝启动（validate_mqtt_config），避免设备误连演示服务器或使用默认凭据。
 MQTT_HOST = os.environ.get("MQTT_HOST", "").strip()
@@ -91,8 +92,8 @@ MQTT_USER = os.environ.get("MQTT_USERNAME", "").strip()
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "")
 MQTT_KEEPALIVE = 60
 MQTT_QOS = 1
-# TLS：默认强制开启，不再支持明文回退；auto 仅在 8883/8084 端口下自动启用
-MQTT_TLS = os.environ.get("MQTT_TLS", "on").strip().lower()  # on | auto（off 会被拒绝）
+# TLS：默认开启；auto 仅在 8883/8084 端口下启用；off 仅允许 debug 环境
+MQTT_TLS = os.environ.get("MQTT_TLS", "on").strip().lower()  # on | auto | off
 MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE", "").strip()      # 留空则用系统 CA
 TLS_PORTS = (8883, 8084)
 
@@ -272,7 +273,7 @@ def sanitize_segment(raw):
     return seg
 
 def tls_enabled():
-    """是否启用 TLS。已禁止明文，返回 False 时节点拒绝启动。"""
+    """是否启用 TLS；off 返回 False，仅 debug 环境可通过配置校验。"""
     if MQTT_TLS == "on":
         return True
     if MQTT_TLS == "auto":
@@ -292,22 +293,27 @@ def validate_mqtt_config():
         problems.append("MQTT_TENANT 未配置：请填写手机 App 登录用户名（两者必须一致）")
     if not 1 <= MQTT_PORT <= 65535:
         problems.append(f"MQTT_PORT 无效（{_MQTT_PORT_RAW!r}）：应为 1-65535，TLS 默认 8883")
-    if MQTT_TLS not in ("on", "auto"):
-        problems.append(f"MQTT_TLS={MQTT_TLS!r} 不安全：已禁止明文 MQTT，请设置 MQTT_TLS=on")
+    elif MQTT_PORT == 1883 and WALLE_RUNTIME_ENV != "debug":
+        problems.append("MQTT_PORT=1883 仅允许在 WALLE_RUNTIME_ENV=debug 下使用，生产环境请使用 8883")
+    if MQTT_TLS not in ("on", "auto", "off"):
+        problems.append("MQTT_TLS 只能是 on/auto/off（off 仅允许 debug 环境）")
+    elif MQTT_TLS == "off" and WALLE_RUNTIME_ENV != "debug":
+        problems.append("MQTT_TLS=off 仅允许在 WALLE_RUNTIME_ENV=debug 下使用")
     elif MQTT_TLS == "auto" and MQTT_PORT not in TLS_PORTS:
         problems.append(
             f"MQTT_TLS=auto 但端口 {MQTT_PORT} 不是 8883/8084，无法确认 TLS；"
             "请设置 MQTT_TLS=on 或改用 8883")
-    if MQTT_CA_FILE:
-        if not os.path.isfile(MQTT_CA_FILE):
-            problems.append(f"MQTT_CA_FILE 不存在或不可读：{MQTT_CA_FILE}")
-    else:
-        # 留空表示使用系统 CA，这里确认系统信任库可用
-        try:
-            import ssl
-            ssl.create_default_context()
-        except Exception as exc:  # noqa: BLE001
-            problems.append(f"系统 CA 不可用（{exc}）：请通过 MQTT_CA_FILE 指定 CA 文件")
+    if tls_enabled():
+        if MQTT_CA_FILE:
+            if not os.path.isfile(MQTT_CA_FILE):
+                problems.append(f"MQTT_CA_FILE 不存在或不可读：{MQTT_CA_FILE}")
+        else:
+            # 留空表示使用系统 CA，这里确认系统信任库可用
+            try:
+                import ssl
+                ssl.create_default_context()
+            except Exception as exc:  # noqa: BLE001
+                problems.append(f"系统 CA 不可用（{exc}）：请通过 MQTT_CA_FILE 指定 CA 文件")
     return problems
 
 def device_topic_base(tenant=None, device=None):
