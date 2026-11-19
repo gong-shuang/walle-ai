@@ -169,6 +169,41 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .alarmItem b{display:block;font-size:12px;font-weight:550;color:var(--text);word-break:break-word}
 .alarmItem p{margin:3px 0 0;font-size:11px;color:var(--dim)}
 .alarmItem time{flex:none;font-size:10.5px;color:var(--dim);white-space:nowrap}
+.alarmItem .dev{font-size:13px;font-weight:600;color:var(--accent);margin-bottom:2px;word-break:break-word}
+.alarmItem.unread{cursor:pointer}
+.alarmItem .unreadDot{width:7px;height:7px;border-radius:50%;flex:none;align-self:center;
+  background:var(--danger);box-shadow:0 0 6px rgba(255,107,107,.8)}
+.alarmTabs{display:flex;gap:6px;margin-bottom:12px;padding:3px;border-radius:11px;
+  border:1px solid var(--line);background:rgba(255,255,255,.02);width:fit-content}
+.alarmTab{height:28px;padding:0 20px;border-radius:8px;border:1px solid transparent;
+  background:transparent;color:var(--muted);font-size:12px;transition:background .15s,color .15s,border-color .15s}
+.alarmTab:hover{color:var(--text)}
+.alarmTab.active{background:rgba(61,220,151,.14);border-color:rgba(61,220,151,.35);
+  color:#d9ffee;font-weight:600}
+.alarmUnreadBar{display:flex;justify-content:flex-end;margin:-4px 0 10px}
+.alarmUnreadBar .btn{color:var(--dim)}
+.alarmUnreadBar .btn:not(:disabled){color:var(--muted)}
+.alarmTools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px}
+.alarmTools select,.alarmTools input{height:31px;padding:0 9px;border-radius:9px;border:1px solid var(--line2);
+  background:var(--card2);font-size:11.5px;color:var(--text);outline:none}
+.alarmTools input[type=datetime-local]{color-scheme:dark;max-width:190px}
+.alarmTools .sep{font-size:11px;color:var(--dim)}
+.alarmTools .timeField{position:relative;display:inline-flex;align-items:center}
+.alarmTools .timeField .timeDash{position:absolute;left:10px;top:50%;transform:translateY(-50%);
+  color:var(--dim);font-size:12px;line-height:1;pointer-events:none;display:none}
+.alarmTools .timeField.empty:not(:focus-within) input{color:transparent}
+.alarmTools .timeField.empty:not(:focus-within) .timeDash{display:block}
+.alarmTools .timeField.empty input::-webkit-calendar-picker-indicator{cursor:pointer}
+.alarmMeta{margin-bottom:8px;font-size:11px;color:var(--dim)}
+.alarmPager{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px;margin-top:10px}
+.alarmPager:empty{display:none}
+.alarmPager button{min-width:30px;height:28px;padding:0 9px;border-radius:8px;
+  border:1px solid var(--line2);background:rgba(255,255,255,.03);color:var(--muted);font-size:11.5px}
+.alarmPager button:hover:not(:disabled){border-color:#3a475c;color:var(--text)}
+.alarmPager button.active{border-color:rgba(61,220,151,.45);background:rgba(61,220,151,.14);
+  color:#d9ffee;font-weight:600}
+.alarmPager button:disabled{opacity:.4;cursor:not-allowed}
+.alarmPager .dots{color:var(--dim);font-size:11px;padding:0 2px}
 .carBody{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:center}
 /* 车辆控制：横向排布（键盘左、状态/说明右），压缩卡片高度 */
 .carHalf{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;gap:4px 16px;align-items:center}
@@ -306,6 +341,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 }
 .sideNavItem .navIcon{width:22px;text-align:center;font-size:15px;opacity:.75}
 .sideNavItem.active .navIcon{opacity:1;color:var(--accent)}
+.sideNavItem .navDot{width:7px;height:7px;border-radius:50%;flex:none;margin-left:auto;
+  background:var(--danger);box-shadow:0 0 6px rgba(255,107,107,.8)}
 .mainArea{flex:1;min-width:0;padding:18px 18px 18px 20px;overflow-x:hidden}
 .tabPanel{display:none;animation:fadeIn .18s ease}
 .tabPanel.active{display:block}
@@ -360,8 +397,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     <div class="topActions">
       <select id="deviceSelect" class="deviceSelect"><option value="">未发现设备</option></select>
       <span id="connChip" class="chip bad"><i class="dot"></i><span id="connText">未连接</span></span>
-      <button id="btnDiscover" class="btn" title="发送 discovery/query">刷新设备</button>
-      <button id="btnSettings" class="btn icon" title="连接设置">⚙</button>
+      <button id="btnSettings" class="btn icon" title="登录">⚙</button>
     </div>
   </header>
 
@@ -383,6 +419,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         </button>
         <button class="sideNavItem" data-tab="alarm">
           <span class="navIcon">⚠</span><span>告警信息</span>
+          <span id="navAlarmDot" class="navDot hide" title="有未读告警"></span>
         </button>
       </nav>
     </aside>
@@ -420,7 +457,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         <div class="avatar">▤</div>
         <div style="min-width:0;flex:1">
           <h3 id="devName">未选择设备</h3>
-          <p id="devSub">从上方列表选择，或点「刷新设备」发送 discovery/query</p>
+          <p id="devSub">从上方列表选择，或点「刷新」发送 discovery/query</p>
           <div class="pills" id="devPills"></div>
         </div>
       </div>
@@ -575,11 +612,37 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div class="cardHead">
         <div>
           <h2>告警</h2>
-          <small>alarm · 主动上报</small>
+          <small>alarm · 实时上报 + 历史查询（保留 30 天）</small>
         </div>
-        <button id="btnAlarmClear" class="btn" style="height:28px;font-size:11px">清空</button>
       </div>
+      <div class="alarmTabs">
+        <button class="alarmTab active" data-alarm-tab="live">当前</button>
+        <button class="alarmTab" data-alarm-tab="history">历史</button>
+      </div>
+      <div id="alarmUnreadBar" class="alarmUnreadBar">
+        <button id="btnAlarmReadAll" class="btn" style="height:29px;font-size:11.5px"
+          title="清除所有未读告警标记" disabled>全部已读</button>
+      </div>
+      <div id="alarmFilter" class="alarmTools hide">
+        <select id="alarmDeviceSel" title="按设备过滤">
+          <option value="">全部设备</option>
+        </select>
+        <span class="timeField">
+          <input id="alarmFrom" type="datetime-local" title="开始时间（留空表示不限）">
+          <span class="timeDash" aria-hidden="true">—</span>
+        </span>
+        <span class="sep">至</span>
+        <span class="timeField">
+          <input id="alarmTo" type="datetime-local" title="结束时间（留空表示不限）">
+          <span class="timeDash" aria-hidden="true">—</span>
+        </span>
+        <button id="btnAlarmQuery" class="btn" style="height:31px;font-size:11.5px">查询</button>
+        <button id="btnAlarmClear" class="btn" style="height:31px;font-size:11.5px;color:var(--dim)"
+          title="清空开始/结束时间，查询全部">清除</button>
+      </div>
+      <div id="alarmMeta" class="alarmMeta">实时接收中 · 共 0 条</div>
       <div id="alarmList" class="alarmList"><div class="emptyState">暂无告警</div></div>
+      <div id="alarmPager" class="alarmPager"></div>
     </section>
     </main><!-- /mainArea -->
   </div><!-- /layout -->
@@ -588,14 +651,14 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 <div id="scrim" class="scrim"></div>
 <aside id="drawer" class="drawer">
   <div class="drawerHead">
-    <h2>连接设置</h2>
+    <h2>登录</h2>
     <button id="btnDrawerClose" class="btn icon">✕</button>
   </div>
   <div class="drawerBody">
     <div class="field">
-      <label>WebSocket 地址</label>
-      <input id="fWsUrl" class="input mono" spellcheck="false">
-      <div class="hint">截图填的是 ws:// + SSL/TLS 关闭，但实测 8084 为 TLS 监听：明文 ws 握手失败，wss 才能 101。默认用 wss；若你的网络确实跑明文 WS，可改回 ws://。</div>
+      <label>服务器地址</label>
+      <input id="fServer" class="input mono" spellcheck="false" placeholder="https://www.baidong.xyz 或 http://192.168.1.10:8088">
+      <div class="hint">填门户域名或 IP（含端口）；自动推导 MQTT 的 ws(s)://…/mqtt 与 WHEP 的 /rtc/ 地址。</div>
     </div>
     <div class="field">
       <label>用户名</label>
@@ -604,34 +667,16 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     </div>
     <div class="field">
       <label>密码</label>
-      <input id="fPass" class="input" type="password" placeholder="MQTT 密码" autocomplete="off" spellcheck="false">
+      <input id="fPass" class="input" type="password" placeholder="MQTT / 门户登录密码" autocomplete="off" spellcheck="false">
     </div>
     <div class="field">
-      <label>客户端 ID</label>
-      <input id="fClientId" class="input mono" spellcheck="false" placeholder="留空 = walle-web-xxxx（每次加载随机）">
-      <div class="hint">留空时每次加载生成 walle-web-xxxx；填了也会追加运行时随机后缀，避免与 MQTTX 同 ID 互踢。</div>
-    </div>
-    <div class="field">
-      <label>Keep Alive（秒）</label>
-      <input id="fKeepalive" class="input" type="number" min="5" max="300" value="60">
-    </div>
-    <div class="field">
-      <label>设备 ID（可选）</label>
-      <input id="fDevice" class="input mono" spellcheck="false" placeholder="留空则从 discovery/online 选择">
-    </div>
-    <div class="field">
-      <label>WHEP 端点模板</label>
-      <input id="fVideoUrl" class="input mono" spellcheck="false">
-      <div class="hint">按 room_number 拼装；浏览器直连受 CORS 与证书限制。</div>
-    </div>
-    <div class="field">
-      <label>WHIP 推流 Secret</label>
-      <input id="fWhipSecret" class="input mono" type="password" autocomplete="off" spellcheck="false" placeholder="Oryx 推流 secret">
-      <div class="hint">语音通话上行鉴权，与设备推流 secret 一致；WHIP 地址由 WHEP 模板自动推导（stream={room}_audio）。</div>
+      <label>WHIP 推流 Secret（可选，仅语音通话需要）</label>
+      <input id="fWhipSecret" class="input mono" type="password" autocomplete="off" spellcheck="false" placeholder="与设备端 MEDIA_SERVER_SECRET 一致">
+      <div class="hint">仅本页本地使用，不经过服务端；与「SRS · 流鉴权」中的推流密钥一致。</div>
     </div>
   </div>
   <div class="drawerFoot">
-    <button id="btnSave" class="btn primary">保存并重连</button>
+    <button id="btnSave" class="btn primary">登录并连接</button>
   </div>
 </aside>
 
@@ -655,14 +700,13 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 
   var LS_KEY = 'walle_web_v2';
   var DEFAULTS = {
-    wsUrl: 'wss://www.baidong.xyz:8084/mqtt',
+    server: 'https://www.baidong.xyz',
     user: 'home',
     pass: '',
     clientId: '',
     keepalive: 60,
     prefix: 'walle',
     device: '',
-    videoUrl: 'https://www.baidong.xyz:443/rtc/v1/whep/?app=live&stream={room}',
     videoRoom: '',
     whipSecret: ''
   };
@@ -670,10 +714,15 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function loadCfg() {
     var out = {};
     for (var k in DEFAULTS) out[k] = DEFAULTS[k];
-    try {
-      var saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
-      for (var s in saved) if (saved[s] !== '' && saved[s] !== null && saved[s] !== undefined) out[s] = saved[s];
-    } catch (e) {}
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}') || {}; } catch (e) {}
+    // 兼容旧配置：从旧的 wsUrl / videoUrl 里提取主机，迁移成 server 地址
+    if (!saved.server) {
+      var legacy = String(saved.videoUrl || saved.wsUrl || '');
+      var m = /^(?:https?|wss?):\/\/([^\/:]+)/i.exec(legacy);
+      if (m) saved.server = /^\d{1,3}(\.\d{1,3}){3}$/.test(m[1]) ? 'http://' + m[1] + ':8088' : 'https://' + m[1];
+    }
+    for (var s in saved) if (saved[s] !== '' && saved[s] !== null && saved[s] !== undefined) out[s] = saved[s];
     // 旧版本默认值会与 MQTTX 同 ID 互踢，加载时丢弃
     if (out.clientId === 'mqttx_bos9daa') out.clientId = '';
     return out;
@@ -688,16 +737,29 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function topicRoot() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/v1'; }
   function rid() { return Math.random().toString(16).slice(2, 10); }
   function nowTime() { return new Date().toLocaleTimeString('zh-CN', { hour12: false }); }
+  function serverBase() {
+    var s = String(cfg.server || '').trim().replace(/\/+$/, '');
+    if (!/^https?:\/\//i.test(s)) {
+      // 裸 IP 或非 443 端口默认按 HTTP（门户常用 http://<ip>:8088）
+      var isIp = /^\d{1,3}(\.\d{1,3}){3}(:\d+)?$/.test(s);
+      var nonTlsPort = /:\d+$/.test(s) && !/:443$/.test(s);
+      s = (isIp || nonTlsPort ? 'http://' : 'https://') + s;
+    }
+    return s;
+  }
+  function wsUrlNow() { return serverBase().replace(/^http/i, 'ws') + '/mqtt'; }
+  function videoUrlTemplate() { return serverBase() + '/rtc/v1/whep/?app=live&stream={room}'; }
 
   var el = {};
-  ['deviceSelect', 'connChip', 'connText', 'btnDiscover', 'btnSettings', 'onlineBadge', 'devName', 'devSub',
+  ['deviceSelect', 'connChip', 'connText', 'btnSettings', 'onlineBadge', 'devName', 'devSub',
    'devPills', 'mCpu', 'bCpu', 'mTemp', 'bTemp', 'mMem', 'bMem', 'mUptime', 'bUp', 'dHost', 'dOs', 'dLoad', 'dNet',
    'dDisk', 'dUsb', 'dVideo', 'dRec', 'stateTime', 'autoState', 'btnState', 'btnCapability', 'videoEl',
    'videoEmpty', 'videoHint', 'btnVideoAction', 'btnVideoStop', 'btnVideoSound',
    'btnMic', 'voiceCard', 'micMeterFill',
    'videoMsg', 'alarmList', 'btnAlarmClear', 'carStatus', 'servoStatus', 'servoEnable',
-   'scrim', 'drawer', 'btnDrawerClose', 'fWsUrl', 'fUser', 'fPass', 'fClientId', 'fKeepalive', 'fDevice',
-   'fVideoUrl', 'fWhipSecret', 'btnSave',
+   'scrim', 'drawer', 'btnDrawerClose', 'fServer', 'fUser', 'fPass', 'fWhipSecret', 'btnSave',
+   'alarmFilter', 'alarmUnreadBar', 'alarmDeviceSel', 'alarmFrom', 'alarmTo',
+   'alarmMeta', 'alarmPager', 'btnAlarmQuery', 'btnAlarmReadAll', 'navAlarmDot',
    'recordBadge', 'recordActive', 'recFilename', 'recStartedAt', 'recDuration',
    'btnRecordStart', 'btnRecordStop', 'recordMsg', 'btnRecordList',
    'recQuotaBar', 'recUsed', 'recLimit', 'recordList',
@@ -717,6 +779,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       list: [], usedBytes: 0, limitBytes: 0, durationTimer: null,
       pendingStart: null, pendingStop: null, pendingList: null, pendingDelete: null },
     player: { pc: null, location: '', pending: null, filename: '' },
+    alarm: { tab: 'live', loading: false, pageSize: 30,
+      live: [], livePage: 1,
+      history: { items: [], page: 1, pages: 0, total: 0, loaded: false, filter: null } },
     autoTimer: null, statePending: null, offline: {} };
   var reconnectTimer = null, mqtt;
   var RUNTIME_SUFFIX = Math.random().toString(16).slice(2, 6);
@@ -859,7 +924,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     mqtt = new MqttWS();
     mqtt.topics = SUBS.map(function (r) { return subBase() + r; });
     mqtt.connect({
-      url: cfg.wsUrl, user: cfg.user, pass: cfg.pass, clientId: clientIdNow(), keepalive: cfg.keepalive,
+      url: wsUrlNow(), user: cfg.user, pass: cfg.pass, clientId: clientIdNow(), keepalive: cfg.keepalive,
       onStatus: function (kind, text) {
         setConn(kind === 'on' ? 'on' : 'bad', text);
         if (kind === 'on') {
@@ -1333,26 +1398,285 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     }
     queryState();
   }
-  function onAlarm(dev, data) {
-    if (dev !== cfg.device) return;
-    var key = [data.event, data.metric, data.alarm_type, data.timestamp, data.message].join('|');
-    if (ui.lastAlarm && ui.lastAlarm.key === key && Date.now() - ui.lastAlarm.at < 2000) return;
-    ui.lastAlarm = { key: key, at: Date.now() };
-    var empty = el.alarmList.querySelector('.emptyState');
-    if (empty) empty.remove();
+  // ---------------------------------------------------------------- 告警
+  var TOKEN_KEY = 'walle_demo_token';
+  function apiToken() { return sessionStorage.getItem(TOKEN_KEY) || ''; }
+  function apiFetch(path, params) {
+    var url = serverBase() + '/api' + path;
+    var qs = [];
+    params = params || {};
+    Object.keys(params).forEach(function (k) {
+      var v = params[k];
+      if (v === '' || v === null || v === undefined) return;
+      qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(v));
+    });
+    if (qs.length) url += '?' + qs.join('&');
+    return fetch(url, {
+      headers: { 'Authorization': 'Bearer ' + apiToken() }
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) {
+        if (!res.ok) throw new Error(data.message || ('HTTP ' + res.status));
+        return data;
+      });
+    });
+  }
+  function apiLogin() {
+    return fetch(serverBase() + '/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: cfg.user, password: cfg.pass })
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) {
+        if (!res.ok) throw new Error(data.message || ('HTTP ' + res.status));
+        if (data.token) sessionStorage.setItem(TOKEN_KEY, data.token);
+        return data;
+      });
+    });
+  }
+  function ensureApiLogin() {
+    if (apiToken()) return Promise.resolve(true);
+    return apiLogin().then(function () { return true; }).catch(function () { return false; });
+  }
+  function alarmRowEl(row) {
     var item = document.createElement('div');
-    item.className = 'alarmItem ' + (data.level || 'info');
+    item.className = 'alarmItem ' + (row.level || 'info');
     var mark = document.createElement('div'); mark.className = 'mark';
     var txt = document.createElement('div'); txt.className = 'txt';
-    var title = document.createElement('b'); title.textContent = data.message || (data.event + ' · ' + (data.metric || ''));
+    var devLine = document.createElement('div'); devLine.className = 'dev';
+    devLine.textContent = row.hostname || row.device || '—';
+    var title = document.createElement('b');
+    title.textContent = row.message || ((row.event || 'alarm') + ' · ' + (row.metric || ''));
     var sub = document.createElement('p');
-    sub.textContent = [data.event, data.level, data.metric, data.alarm_type].filter(Boolean).join(' · ');
+    sub.textContent = [row.event, row.level, row.metric, row.alarm_type].filter(Boolean).join(' · ');
     var time = document.createElement('time');
-    time.textContent = data.datetime ? data.datetime.slice(11, 19) : nowTime();
-    txt.appendChild(title); txt.appendChild(sub);
+    var when = row.occurred_text || '';
+    time.textContent = when ? when.slice(11, 19) : '';
+    if (when) item.title = when + (row.device ? ' · ' + row.device : '');
+    txt.appendChild(devLine); txt.appendChild(title); txt.appendChild(sub);
     item.appendChild(mark); item.appendChild(txt); item.appendChild(time);
-    el.alarmList.insertBefore(item, el.alarmList.firstChild);
-    while (el.alarmList.children.length > 200) el.alarmList.removeChild(el.alarmList.lastChild);
+    var dot = null;
+    if (row.unread) {
+      item.classList.add('unread');
+      dot = document.createElement('span');
+      dot.className = 'unreadDot';
+      dot.title = '未读';
+      item.appendChild(dot);
+    }
+    item.addEventListener('click', function () {
+      if (!row.unread) return;
+      row.unread = false;
+      item.classList.remove('unread');
+      if (dot && dot.parentNode) dot.parentNode.removeChild(dot);
+      updateUnreadUi();
+    });
+    return item;
+  }
+  function alarmEmpty(text) {
+    var empty = document.createElement('div');
+    empty.className = 'emptyState';
+    empty.textContent = text;
+    el.alarmList.innerHTML = '';
+    el.alarmList.appendChild(empty);
+    el.alarmPager.innerHTML = '';
+  }
+  function setAlarmMeta(text) { el.alarmMeta.textContent = text; }
+  function hasUnreadAlarm() {
+    return ui.alarm.live.some(function (row) { return !!row.unread; });
+  }
+  function updateUnreadUi() {
+    var unread = hasUnreadAlarm();
+    el.navAlarmDot.classList.toggle('hide', !unread);
+    el.btnAlarmReadAll.disabled = !unread;
+  }
+  function markAllAlarmsRead() {
+    ui.alarm.live.forEach(function (row) { row.unread = false; });
+    if (ui.alarm.tab === 'live') renderLiveAlarms();
+    updateUnreadUi();
+  }
+  function setAlarmTab(name) {
+    ui.alarm.tab = name === 'history' ? 'history' : 'live';
+    Array.prototype.forEach.call(document.querySelectorAll('.alarmTab'), function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-alarm-tab') === ui.alarm.tab);
+    });
+    el.alarmFilter.classList.toggle('hide', ui.alarm.tab !== 'history');
+    el.alarmUnreadBar.classList.toggle('hide', ui.alarm.tab !== 'live');
+    if (ui.alarm.tab === 'live') renderLiveAlarms();
+    else {
+      syncAlarmDeviceOptions();
+      if (!ui.alarm.history.loaded) queryAlarms(1);
+      else renderHistoryPage();
+    }
+  }
+  function renderLivePager(pages, page) {
+    el.alarmPager.innerHTML = '';
+    if (pages <= 1) return;
+    var prev = document.createElement('button');
+    prev.textContent = '上一页';
+    prev.disabled = page <= 1;
+    prev.addEventListener('click', function () { ui.alarm.livePage = page - 1; renderLiveAlarms(); });
+    var next = document.createElement('button');
+    next.textContent = '下一页';
+    next.disabled = page >= pages;
+    next.addEventListener('click', function () { ui.alarm.livePage = page + 1; renderLiveAlarms(); });
+    el.alarmPager.appendChild(prev);
+    el.alarmPager.appendChild(next);
+  }
+  function renderLiveAlarms() {
+    var rows = ui.alarm.live, size = ui.alarm.pageSize;
+    var pages = Math.ceil(rows.length / size);
+    if (ui.alarm.livePage > pages) ui.alarm.livePage = pages || 1;
+    var page = ui.alarm.livePage;
+    el.alarmList.innerHTML = '';
+    if (!rows.length) alarmEmpty('暂无告警');
+    else rows.slice((page - 1) * size, page * size).forEach(function (row) {
+      el.alarmList.appendChild(alarmRowEl(row));
+    });
+    setAlarmMeta('实时接收中 · 共 ' + rows.length + ' 条' +
+      (pages > 1 ? ' · 第 ' + page + '/' + pages + ' 页' : ''));
+    renderLivePager(pages, page);
+    updateUnreadUi();
+  }
+  function renderHistoryPager() {
+    var h = ui.alarm.history;
+    el.alarmPager.innerHTML = '';
+    if (h.pages <= 1) return;
+    var marks = [];
+    for (var i = 1; i <= h.pages; i++) {
+      if (i === 1 || i === h.pages || Math.abs(i - h.page) <= 2) marks.push(i);
+      else if (marks[marks.length - 1] !== '...') marks.push('...');
+    }
+    marks.forEach(function (p) {
+      if (p === '...') {
+        var dots = document.createElement('span');
+        dots.className = 'dots';
+        dots.textContent = '…';
+        el.alarmPager.appendChild(dots);
+        return;
+      }
+      var btn = document.createElement('button');
+      btn.textContent = '第' + p + '页';
+      if (p === h.page) btn.className = 'active';
+      btn.addEventListener('click', function () {
+        if (p !== h.page) queryAlarms(p);
+      });
+      el.alarmPager.appendChild(btn);
+    });
+  }
+  function renderHistoryPage() {
+    var h = ui.alarm.history, filter = h.filter || {};
+    el.alarmList.innerHTML = '';
+    if (!h.items.length) alarmEmpty('该时间范围内暂无告警');
+    h.items.forEach(function (row) { el.alarmList.appendChild(alarmRowEl(row)); });
+    setAlarmMeta('共 ' + h.total + ' 条 · 第 ' + (h.pages ? h.page : 0) + '/' + h.pages + ' 页 · ' +
+      (filter.device ? '设备 ' + filter.device : '全部设备') + ' · ' +
+      (filter.from || filter.to ? '已按时间过滤' : '全部时间'));
+    renderHistoryPager();
+  }
+  function syncAlarmDeviceOptions() {
+    var current = el.alarmDeviceSel.value;
+    var seen = {}, opts = [['', '全部设备']];
+    Object.keys(ui.devices).sort().forEach(function (d) {
+      if (seen[d]) return;
+      seen[d] = true;
+      var info = ui.devices[d] || {};
+      opts.push([d, (info.hostname || d) + (info.online ? ' · 在线' : ' · 离线')]);
+    });
+    el.alarmDeviceSel.innerHTML = '';
+    opts.forEach(function (pair) {
+      var option = document.createElement('option');
+      option.value = pair[0];
+      option.textContent = pair[1];
+      el.alarmDeviceSel.appendChild(option);
+    });
+    el.alarmDeviceSel.value = seen[current] ? current : '';
+  }
+  function localInputEpoch(value) {
+    if (!value) return '';
+    var ts = new Date(value).getTime();
+    return isNaN(ts) ? '' : Math.floor(ts / 1000);
+  }
+  function syncAlarmTimeDash(input) {
+    var wrap = input && input.closest ? input.closest('.timeField') : null;
+    if (wrap) wrap.classList.toggle('empty', !input.value);
+  }
+  function clearAlarmTime() {
+    el.alarmFrom.value = '';
+    el.alarmTo.value = '';
+    syncAlarmTimeDash(el.alarmFrom);
+    syncAlarmTimeDash(el.alarmTo);
+  }
+  function queryAlarms(page) {
+    if (ui.alarm.loading) return;
+    page = Math.max(1, parseInt(page, 10) || 1);
+    if (page === 1) {
+      ui.alarm.history.filter = {
+        device: el.alarmDeviceSel.value,
+        from: localInputEpoch(el.alarmFrom.value),
+        to: localInputEpoch(el.alarmTo.value)
+      };
+    }
+    if (location.protocol === 'file:') {
+      ui.alarm.history.loaded = true;
+      alarmEmpty('历史查询需通过门户域名打开本页（本地文件受跨域限制）');
+      setAlarmMeta('本地文件模式：仅实时告警可用');
+      return;
+    }
+    var filter = ui.alarm.history.filter || {};
+    var params = { page: page, limit: ui.alarm.pageSize };
+    for (var k in filter) if (filter[k] !== '') params[k] = filter[k];
+    ui.alarm.loading = true;
+    el.btnAlarmQuery.disabled = true;
+    alarmEmpty('查询中…');
+    ensureApiLogin().then(function (ok) {
+      if (!ok) throw new Error('未登录：请填写门户用户名/密码后重新登录');
+      return apiFetch('/alarms', params);
+    }).then(function (data) {
+      var h = ui.alarm.history;
+      h.items = data.items || [];
+      h.total = data.total || 0;
+      h.pages = data.pages || 0;
+      h.page = data.page || page;
+      h.loaded = true;
+      if (ui.alarm.tab === 'history') renderHistoryPage();
+    }).catch(function (err) {
+      var h = ui.alarm.history;
+      h.items = [];
+      h.total = 0;
+      h.pages = 0;
+      h.page = 1;
+      h.loaded = true;
+      if (ui.alarm.tab === 'history') {
+        alarmEmpty(err.message || '查询失败');
+        setAlarmMeta('查询失败：' + (err.message || '未知错误'));
+        renderHistoryPager();
+      }
+    }).then(function () {
+      ui.alarm.loading = false;
+      el.btnAlarmQuery.disabled = false;
+    });
+  }
+  function onAlarm(dev, data) {
+    var key = [dev, data.event, data.metric, data.alarm_type, data.timestamp, data.message].join('|');
+    if (ui.lastAlarm && ui.lastAlarm.key === key && Date.now() - ui.lastAlarm.at < 2000) return;
+    ui.lastAlarm = { key: key, at: Date.now() };
+    var row = {
+      device: dev,
+      hostname: data.hostname || (ui.devices[dev] && ui.devices[dev].hostname) || data.device_id,
+      event: data.event,
+      level: data.level || 'info',
+      metric: data.metric,
+      alarm_type: data.alarm_type,
+      message: data.message,
+      occurred_text: data.datetime || '',
+      unread: true
+    };
+    ui.alarm.live.unshift(row);
+    while (ui.alarm.live.length > 300) ui.alarm.live.pop();
+    updateUnreadUi();
+    if (ui.alarm.tab === 'live' && ui.alarm.livePage === 1) renderLiveAlarms();
+    else if (ui.alarm.tab === 'live') {
+      setAlarmMeta('实时接收中 · 共 ' + ui.alarm.live.length + ' 条（新告警在第 1 页）');
+    }
   }
 
   // ---------------------------------------------------------------- 录像
@@ -2202,7 +2526,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
   async function startWhep(room) {
     closeWhep(false);
-    var tmpl = String(cfg.videoUrl || '').trim();
+    var tmpl = videoUrlTemplate();
     if (!tmpl) { setVideoMsg('未配置 WHEP 端点', 'err'); return; }
     var url = tmpl.replace(/\{room\}/g, encodeURIComponent(room));
     if (!/^https?:\/\//i.test(url)) { setVideoMsg('WHEP 端点必须以 http(s):// 开头', 'err'); return; }
@@ -2266,9 +2590,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function micSupported() {
     return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.RTCPeerConnection);
   }
-  // 从 WHEP 模板推导 WHIP 推流地址：/whep/ → /whip/，流名 {room}_audio，附 secret
+  // 从 WHEP 模板推导 WHIP 推流地址：/whep/ → /whip/，流名 {room}_audio，附静态 secret
   function whipAudioUrl(rm) {
-    var tmpl = String(cfg.videoUrl || '').trim();
+    var tmpl = videoUrlTemplate();
     if (!/^https?:\/\//i.test(tmpl)) return '';
     var url = tmpl.replace('/whep/', '/whip/').replace(/\{room\}/g, encodeURIComponent(rm + '_audio'));
     url = url.replace(/([?&])secret=[^&]*/g, '$1').replace(/[?&]$/, '');
@@ -2352,7 +2676,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (!mqtt || !mqtt.connected || !cfg.device) { setVideoMsg('MQTT 未连接或未选择设备', 'err'); return; }
     if (!ui.uuid) { setVideoMsg('尚未取得设备 uuid', 'err'); return; }
     if (!String(cfg.whipSecret || '').trim()) {
-      setVideoMsg('未配置 WHIP 推流 Secret，请在设置中填写 Oryx 推流 secret', 'err');
+      setVideoMsg('未配置 WHIP 推流 Secret，请在登录设置中填写', 'err');
       return;
     }
     var rm = (ui.video.room || room()).trim();
@@ -2401,7 +2725,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       } catch (e) {
         clearTimeout(timer);
         throw new Error(e.name === 'AbortError' ? 'WHIP 请求超时（10s）'
-          : 'fetch 失败（多为 CORS、证书或 secret 错误）：' + e.message);
+          : 'fetch 失败（多为 CORS、证书或凭据错误）：' + e.message);
       }
       clearTimeout(timer);
       if (ui.mic.pc !== pc) return;
@@ -2409,7 +2733,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       if (loc) { try { ui.mic.location = new URL(loc, url).href; } catch (e) {} }
       var body = await res.text();
       if (res.status !== 200 && res.status !== 201) {
-        throw new Error('WHIP HTTP ' + res.status + '：' + (body || '无响应体').slice(0, 200) + '（请检查 secret）');
+        throw new Error('WHIP HTTP ' + res.status + '：' + (body || '无响应体').slice(0, 200) + '（请检查 WHIP Secret）');
       }
       if (!body.trim()) throw new Error('WHIP 响应体为空');
       await pc.setRemoteDescription({ type: 'answer', sdp: body });
@@ -2434,28 +2758,36 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     }
   }
   function fillSettings() {
-    el.fWsUrl.value = cfg.wsUrl; el.fUser.value = cfg.user; el.fPass.value = cfg.pass;
-    el.fClientId.value = cfg.clientId; el.fKeepalive.value = cfg.keepalive;
-    el.fDevice.value = cfg.device; el.fVideoUrl.value = cfg.videoUrl;
+    el.fServer.value = cfg.server || '';
+    el.fUser.value = cfg.user;
+    el.fPass.value = cfg.pass;
     el.fWhipSecret.value = cfg.whipSecret || '';
   }
   function openDrawer() { fillSettings(); el.drawer.classList.add('show'); el.scrim.classList.add('show'); }
   function closeDrawer() { el.drawer.classList.remove('show'); el.scrim.classList.remove('show'); }
   function saveSettings() {
-    var url = el.fWsUrl.value.trim();
-    if (!/^ws(s)?:\/\/[^\s]+/i.test(url)) { setConn('bad', 'WebSocket 地址必须以 ws:// 或 wss:// 开头'); return; }
-    var keep = Math.max(5, Math.min(300, Number(el.fKeepalive.value) || 60));
+    var server = String(el.fServer.value || '').trim();
+    if (!server) { setConn('bad', '请填写服务器地址'); return; }
+    if (!/^(https?:\/\/)?[^\s/]+/i.test(server)) { setConn('bad', '服务器地址格式不正确（示例：https://www.baidong.xyz）'); return; }
+    var user = String(el.fUser.value || '').trim();
+    if (!user) { setConn('bad', '请填写用户名'); return; }
+    var pass = el.fPass.value;
+    if (!pass) { setConn('bad', '请填写密码'); return; }
     carReleaseAll(true);
-    servoDisable('连接参数已修改');
-    cfg.wsUrl = url; cfg.user = el.fUser.value.trim() || 'home'; cfg.pass = el.fPass.value;
-    cfg.clientId = el.fClientId.value.trim();
-    cfg.keepalive = keep; cfg.device = el.fDevice.value.trim();
-    cfg.videoUrl = el.fVideoUrl.value.trim() || DEFAULTS.videoUrl;
+    servoDisable('登录信息已修改');
+    cfg.server = server;
+    cfg.user = user;
+    cfg.pass = pass;
     cfg.whipSecret = el.fWhipSecret.value.trim();
+    sessionStorage.removeItem(TOKEN_KEY);
     stopMic(true);
     saveCfg(); closeDrawer();
     ui.devices = {}; ui.uuid = ''; ui.state = {}; ui.cap = {}; ui.video.room = ''; closeWhep(true);
-    setConn('bad', '正在重连…');
+    ui.alarm.live = []; ui.alarm.livePage = 1;
+    ui.alarm.history = { items: [], page: 1, pages: 0, total: 0, loaded: false, filter: null };
+    setAlarmTab('live');
+    setConn('bad', '正在登录…');
+    apiLogin().catch(function () {}); // 同源可获取历史查询 token；file:// 下失败，仅影响历史
     rebuildMqtt();
   }
 
@@ -2463,7 +2795,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   el.btnDrawerClose.addEventListener('click', closeDrawer);
   el.scrim.addEventListener('click', closeDrawer);
   el.btnSave.addEventListener('click', saveSettings);
-  el.btnDiscover.addEventListener('click', function () { discover(); setConn('on', '已连接 · 正在发现设备'); });
   el.deviceSelect.addEventListener('change', function () {
     stopMic(true); closeWhep(true); selectDevice(el.deviceSelect.value);
   });
@@ -2503,9 +2834,21 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (ui.mic.on) stopMic(true);
     else startMic();
   });
-  el.btnAlarmClear.addEventListener('click', function () {
-    el.alarmList.innerHTML = '<div class="emptyState">暂无告警</div>';
+  Array.prototype.forEach.call(document.querySelectorAll('.alarmTab'), function (btn) {
+    btn.addEventListener('click', function () { setAlarmTab(btn.getAttribute('data-alarm-tab')); });
   });
+  [el.alarmFrom, el.alarmTo].forEach(function (input) {
+    input.addEventListener('input', function () { syncAlarmTimeDash(input); });
+    input.addEventListener('change', function () { syncAlarmTimeDash(input); });
+    syncAlarmTimeDash(input);
+  });
+  el.btnAlarmClear.addEventListener('click', clearAlarmTime);
+  el.btnAlarmReadAll.addEventListener('click', markAllAlarmsRead);
+  el.btnAlarmQuery.addEventListener('click', function () {
+    ui.alarm.history.loaded = false;
+    queryAlarms(1);
+  });
+  updateUnreadUi();
 
   // 录像控制按钮
   el.btnRecordStart.addEventListener('click', recordStart);
@@ -2601,7 +2944,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     }
     navItems.forEach(function (btn) {
       btn.addEventListener('click', function () {
-        switchTab(btn.getAttribute('data-tab'));
+        var tab = btn.getAttribute('data-tab');
+        switchTab(tab);
+        // 进入告警页时按当前子 Tab 刷新：当前页重绘实时数据，历史页沿用已查结果
+        if (tab === 'alarm') setAlarmTab(ui.alarm.tab);
       });
     });
 
@@ -2665,7 +3011,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     }
   })();
 
+  setAlarmTab('live');
   rebuildMqtt(); renderDevices();
+  if (!cfg.pass) openDrawer();
 })();
 </script>
 </body>
