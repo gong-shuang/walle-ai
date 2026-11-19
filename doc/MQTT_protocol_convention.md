@@ -1,11 +1,11 @@
-# MQTT 协议约定（文档版本 v1.5）
+# MQTT 协议约定（文档版本 v1.6）
 
 > 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`；ROS2 车控为
 > `walle-device/ros2_ws/src/net/net_mqtt_bridge`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
 > - 与设备通信的，用来控制小车的协议版本：v1  （记录每个协议的版本，用来兼容旧版本） 
-> - 本文档的版本：v1.5 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.6 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -43,7 +43,7 @@ walle/{tenant}/{device}/v1/{resource}
 | 4 | 设备能力 | `walle/{t}/{d}/v1/capability/query` | `walle/{t}/{d}/v1/capability/result` | 请求-应答 | v1.4 | v1.1后台缓存探测，v1.4精简json报文 |
 | 5 | 开始推流 | `walle/{t}/{d}/v1/video/start/request` | `walle/{t}/{d}/v1/video/start/result` | 请求-应答 | v1.0 |  |
 | 6 | 停止推流 | `walle/{t}/{d}/v1/video/stop/request` | `walle/{t}/{d}/v1/video/stop/result` | 请求-应答 | v1.0 |  |
-| 7 | 告警 | — | `walle/{t}/{d}/v1/alarm` | 主动上报 | v1.0 |  |
+| 7 | 告警 | — | `walle/{t}/{d}/v1/alarm` | 主动上报 | v1.0 | v1.6 增补电池低压/前方障碍告警 |
 | 8 | 手机音频上行·开 | `walle/{t}/{d}/v1/phone/audio/send` | `walle/{t}/{d}/v1/phone/audio/send/result` | 单向动作（App 不订阅应答） | v1.0 |  |
 | 9 | 手机音频上行·关 | `walle/{t}/{d}/v1/phone/audio/stop` | `walle/{t}/{d}/v1/phone/audio/stop/result` | 单向动作（App 不订阅应答） | v1.0 |  |
 | 10 | 远程命令执行 | `walle/{t}/{d}/v1/cmd/exec` | `walle/{t}/{d}/v1/cmd/result` | 请求-应答 | v1.1 | v1.1已删除 |
@@ -409,9 +409,11 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 **一致性校验**：请求带了 `room_number` 且与当前推流不一致 → `result=-1` 并在 `error`
 里说明当前房间号，**不会误停别人的流**。
 
-### 4.7 alarm —— 告警（主动上报）（V1.0）
+### 4.7 alarm —— 告警（主动上报）（V1.0，V1.6 增补 battery_low / obstacle_near）
 
-**作用**：阈值越限/恢复、USB 插拔、推流/手机音频中断的实时通知，驱动 App 告警中心（落 SQLite，200 条滚动淘汰）。
+**作用**：阈值越限/恢复、USB 插拔、推流/手机音频中断、电池低压与前方障碍的实时通知，
+驱动 App 告警中心（App 侧 SQLite，200 条滚动淘汰）。**设备端只发布、不落盘**：告警历史
+由服务端数据库持久化，设备端不建本地告警库（避免双份数据不一致与 SD 卡磨损）。
 
 - 主题：`walle/{t}/{d}/v1/alarm`（非 retained，QoS1，App 侧 2 秒签名去重）
 
@@ -420,14 +422,14 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 | 字段 | 取值 | 说明 |
 |---|---|---|
 | `event` | `alarm` / `recover` / `usb_connect` / `usb_disconnect` | 事件类型 |
-| `level` | `critical` / `warning` / `info` | 级别（阈值告警=warning，恢复=info，USB 拔出=warning，USB 接入=info） |
-| `metric` | `cpu` / `memory` / `disk` / `network` / `temperature` / `usb` / `video` / `audio` | 指标 |
-| `alarm_type` | 稳定代码如 `cpu_high` / `video_lost` / `phone_audio_lost` | 分类用 |
+| `level` | `critical` / `warning` / `info` | 级别（阈值告警=warning，恢复=info，USB 拔出=warning，USB 接入=info，电池极低=critical） |
+| `metric` | `cpu` / `memory` / `disk` / `network` / `temperature` / `usb` / `video` / `audio` / `battery` / `obstacle` | 指标 |
+| `alarm_type` | 稳定代码如 `cpu_high` / `video_lost` / `phone_audio_lost` / `battery_low` / `obstacle_near` | 分类用 |
 | `message` | 中文可读描述 | 直接可展示 |
-| `detail` | 阈值类：`{value, unit, threshold}`；USB：`{device{...}, current_count}`；视频中断：`{room_number, exit_code, log_file, tail}`；手机音频中断：`{room_number, exit_code, reason, log_file, tail}` | 结构化细节 |
+| `detail` | 阈值类：`{value, unit, threshold}`；USB：`{device{...}, current_count}`；视频中断：`{room_number, exit_code, log_file, tail}`；手机音频中断：`{room_number, exit_code, reason, log_file, tail}`；电池低压：`{value, unit, threshold}`；障碍：`{distance_cm, threshold_cm, sensor, direction}` | 结构化细节 |
 | `device_id`、`uuid`、`hostname`、`ip`、`timestamp`、`datetime` | 公共字段 | |
 
-**回滞防抖**：越限（≥阈值）告警后，要降到 **阈值 × 0.9** 以下才发 `recover`，防止边界
+**高阈值回滞防抖（cpu/memory/disk/network/temperature）**：越限（≥阈值）告警后，要降到 **阈值 × 0.9** 以下才发 `recover`，防止边界
 抖动反复报警。阈值均可用环境变量覆盖（`THRESH_CPU`/`THRESH_MEM`/`THRESH_DISK`/
 `THRESH_TEMP`/`THRESH_NET_MIB`），监控周期 `MONITOR_INTERVAL`（默认 5s）。
 
@@ -437,6 +439,41 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 ≤500 字符）用于定位；重新启动成功后发同 `alarm_type` 的 `event=recover`，主动 stop 不发告警。
 达到最长时长自动停止时改发 `video_timeout` / `phone_audio_timeout`（`event=alarm`、`level=info`，
 `detail` 带 `room_number`、`max_duration_sec`、`started_at`），不视为故障。
+
+**电池低压与前方障碍告警（V1.6）**
+
+复用同一个 `alarm` 主题，不新增主题。两者都是「低阈值」语义，与上面的高阈值告警**方向相反**：
+
+- `battery_low`（`metric=battery`）：数据源为 ROS2 `ros_robot_controller` 节点的
+  `/ros_robot_controller/battery`（`std_msgs/UInt16`，单位 mV，发布前除以 1000 换算成 V），
+  `detail={value, unit, threshold}`；电压极低（≤ `THRESH_BATTERY_CRITICAL_V`，默认 6.6V，
+  约 3.3V/节）时升为 `level=critical`。
+- `obstacle_near`（`metric=obstacle`）：数据源为声呐 `sonar_controller/get_distance`
+  （`std_msgs/Int32`，单位 mm，发布前换算成 cm），
+  `detail={distance_cm, threshold_cm, sensor, direction}`（`sensor="sonar"`、`direction="front"`）。
+
+| 告警 | 触发 `event=alarm` | 恢复 `event=recover` | 环境变量 |
+|---|---|---|---|
+| `battery_low` | 电压 ≤ `THRESH_BATTERY_V`（默认 7.0V，3.5V/节） | 电压 ≥ `RECOVER_BATTERY_V`（默认 7.4V，3.7V/节） | `THRESH_BATTERY_V` / `RECOVER_BATTERY_V` / `THRESH_BATTERY_CRITICAL_V` |
+| `obstacle_near` | 距离 ≤ `THRESH_OBSTACLE_CM`（默认 30cm） | 距离 ≥ `RECOVER_OBSTACLE_CM`（默认 50cm） | `THRESH_OBSTACLE_CM` / `RECOVER_OBSTACLE_CM` |
+
+**采样与防抖**：
+
+- 电池：取最近 3 个采样（`MONITOR_INTERVAL`，默认 5s）的均值判断，连续 2 次越限才发
+  `alarm`、连续 2 次高于恢复线才发 `recover`，避免电机启动瞬间的电压跌落误报。
+- 障碍：边沿触发，只在跨越阈值时各发一条；同一 `alarm_type` 最小间隔
+  `ALARM_MIN_INTERVAL`（默认 3s）。App 的 2 秒签名去重对障碍告警基本无效
+  （`distance_cm` 每次变化都会改变签名），**限流必须在设备端完成**。
+- 车静止时（500ms 内无有效 `car/motor/set`）检出障碍按 `level=info` 上报，避免有人
+  从车前经过时刷 warning。
+
+**安全边界（重要）**：
+
+- 障碍急停必须在设备本地闭环完成（声呐/车控节点直接限速或停车），**不得依赖 MQTT
+  往返**；`alarm` 只负责通知，不负责刹车。
+- 告警主题不承载连续遥测：实时电压、实时距离不要按采样周期发布，否则会把 App 告警
+  列表（200 条滚动）冲掉。需要实时表盘时走 `state/result` 或另设低频遥测主题。
+- 设备端不持久化告警（不建 SQLite、不写盘），告警历史由服务端数据库保存。
 
 ### 4.8 手机麦克风上行 phone/audio/send|stop（控制面）＋ WebRTC WHIP/WHEP（媒体面）（V1.0）
 
@@ -1091,6 +1128,28 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 7. 变更记录
+
+### 2026-11-19：新增电池低压与前方障碍告警（V1.6）
+
+**变更类型**：非破坏性增量（主题不变，`alarm` 新增两个 `alarm_type`）。
+
+**变更内容**
+
+- `alarm` 新增 `metric=battery` / `alarm_type=battery_low`、`metric=obstacle` /
+  `alarm_type=obstacle_near`，复用 `walle/{t}/{d}/v1/alarm`，不新增主题。
+- 明确低阈值回滞方向：≤阈值告警、回到恢复线以上才 `recover`；新增
+  `THRESH_BATTERY_V` / `RECOVER_BATTERY_V` / `THRESH_BATTERY_CRITICAL_V`、
+  `THRESH_OBSTACLE_CM` / `RECOVER_OBSTACLE_CM` 环境变量。
+- 电池取 3 个采样均值、连续 2 次判定；障碍边沿触发并限频 3s；车静止时障碍降为 `info`。
+- **设备端告警只发布不落盘**（不建本地 SQLite），告警历史由服务端数据库保存。
+
+**影响与兼容性**：旧版 App 收到未知 `metric`/`alarm_type` 时应归入通用告警展示、不崩溃；
+主题未变，不影响现有 App/设备。
+
+**验证方式**：App 端无需改动（`AlarmAdapter`/`AlarmStore` 按通用字段展示，未知
+`metric` 不会崩溃）；设备端 `net_mqtt_bridge/test/test_alarm_sensors.py` 覆盖低压/障碍
+阈值与回滞，`test_protocol.py` 校验主题不变；实车触发低压与遮挡声呐，确认
+`alarm → recover` 各一条。
 
 ### 2026-11-16：新增录像点播 record/play（V1.5）
 

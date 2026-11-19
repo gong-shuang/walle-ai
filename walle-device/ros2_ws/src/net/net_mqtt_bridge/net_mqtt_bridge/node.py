@@ -29,10 +29,12 @@ from interfaces.msg import VideoStreamStatus
 from interfaces.srv import VideoStreamControl
 
 import net_mqtt_bridge.car_motor as car_motor
+from net_mqtt_bridge.alarm_sensors import SensorAlarmNodeMixin
 from net_mqtt_bridge.car_servo import CarServoStatusNodeMixin
 from net_mqtt_bridge.record import RecordNodeMixin
 
-class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin):
+class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
+                    SensorAlarmNodeMixin):
     def __init__(self):
         super().__init__('net_mqtt_bridge')
 
@@ -125,7 +127,7 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin):
         self._car_last_valid = 0.0
         self._car_moving = False
         self.create_timer(1.0 / config.CAR_MOTOR_STATE_HZ, self._car_tick)
-
+        self.setup_sensor_alarms()   # V1.6 电池低压 / 前方障碍告警（复用 alarm 主题）
         # 用 ROS 实现替换 main.py 里的 ffmpeg 推流实现
         self.agent.handle_video_request = self._handle_video_start
         self.agent.handle_video_stop = self._handle_video_stop
@@ -172,13 +174,11 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin):
             self._agent_thread.join(timeout=5.0)
         # agent 线程退出前可能还有一条在途命令，最后再停一次。
         self._car_stop('节点退出')
-
     # ------------------------------------------------------------------ 心跳/状态
     def _publish_heartbeat(self):
         client = self.agent.client
         connected = bool(client is not None and client.is_connected())
         self._heartbeat_pub.publish(Bool(data=connected))
-
     # ------------------------------------------------------------------ 车控
     def _publish_cmd_vel(self, linear_x, linear_y, angular_z):
         try:
@@ -306,7 +306,6 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin):
             'uptime_sec': (round(time.time() - st.started_ts, 1)
                            if st.started_ts > 0 else None),
         }
-
     # ------------------------------------------------------------------ 服务调用
     def _call_video(self, request):
         if not self._video_client.service_is_ready():
@@ -335,7 +334,6 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin):
             future.cancel()
             return None
         return box.get('response')
-
     # ------------------------------------------------------------------ 推流请求
     def _handle_video_start(self, payload):
         ok, data = self.agent.verify_uuid(

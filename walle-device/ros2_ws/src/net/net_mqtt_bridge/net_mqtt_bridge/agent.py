@@ -88,6 +88,7 @@ import paho.mqtt.client as mqtt
 import psutil
 
 from . import config
+from .alarm_sensors import SensorAlarmMixin
 from .capability import CapabilityMixin
 from .car_motor import CarMotorMixin
 from .car_servo import CarServoMixin
@@ -125,8 +126,9 @@ def __getattr__(name):
             f"module {__name__!r} has no attribute {name!r}") from None
 
 
-class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
-                 RecordMixin, PhoneAudioMixin, CarMotorMixin, CarServoMixin):
+class RpiMonitor(ProtocolMixin, MonitorMixin, SensorAlarmMixin, CapabilityMixin,
+                 VideoMixin, RecordMixin, PhoneAudioMixin, CarMotorMixin,
+                 CarServoMixin):
     """设备代理：组合协议、监控、能力、推流、录像、手机音频、车控与舵机状态能力。"""
 
     def __init__(self):
@@ -153,6 +155,8 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, CapabilityMixin, VideoMixin,
         self.sample_lock = threading.Lock()
         self.active_alarms = set()
         self.usb_state = scan_usb_devices()
+        # 电池低压 / 前方障碍告警状态（V1.6）：设备端只上报，不落盘
+        self.init_alarm_sensors()
         self.lan_ip = get_lan_ip()
         self.mac = pick_primary_mac(self.lan_ip)
         # device_id：落盘优先，首次才按硬件指纹（MAC + CPU 核数 + 内存 GiB）生成。

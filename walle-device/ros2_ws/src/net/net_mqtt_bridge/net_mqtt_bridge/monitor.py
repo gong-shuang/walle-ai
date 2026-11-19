@@ -389,7 +389,13 @@ class MonitorMixin:
                                  {"rate_human": human_rate(tx_rate),
                                   "threshold_human": human_rate(config.THRESH_NET_BPS)})
 
-            # 2) USB 热插拔
+            # 2) 电池低压（障碍在 ROS 声呐回调里边沿触发，不在采样循环里判定）
+            try:
+                self.check_battery()
+            except Exception:
+                logging.exception("电池告警判定异常")
+
+            # 3) USB 热插拔
             try:
                 self.check_usb()
             except Exception:

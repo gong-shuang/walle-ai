@@ -119,6 +119,10 @@ class ProtocolMixin:
         self._publish_one(config.device_topic(resource), data, retain)
 
     def _publish_one(self, topic, data, retain=False):
+        if self.client is None:
+            # 启动/重连窗口：agent 线程还没建好客户端，丢弃本次上报（不阻塞传感器回调）
+            logging.warning("MQTT 客户端未就绪，丢弃上报: %s", topic)
+            return
         text = json.dumps(data, ensure_ascii=False)
         if config.MQTT_DEBUG_JSON:
             try:
