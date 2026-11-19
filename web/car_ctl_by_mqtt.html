@@ -476,6 +476,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         <div class="detail"><span>网络 下行/上行</span><b id="dNet">—</b></div>
         <div class="detail"><span>磁盘（聚合）</span><b id="dDisk">—</b></div>
         <div class="detail"><span>USB 设备</span><b id="dUsb">—</b></div>
+        <div class="detail"><span>电池电压</span><b id="dBattery">—</b></div>
+        <div class="detail"><span>声呐距离</span><b id="dSonar">—</b></div>
         <div class="detail"><span>视频推流</span><b id="dVideo">—</b></div>
         <div class="detail"><span>录像状态</span><b id="dRec">—</b></div>
       </div>
@@ -753,7 +755,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   var el = {};
   ['deviceSelect', 'connChip', 'connText', 'btnSettings', 'onlineBadge', 'devName', 'devSub',
    'devPills', 'mCpu', 'bCpu', 'mTemp', 'bTemp', 'mMem', 'bMem', 'mUptime', 'bUp', 'dHost', 'dOs', 'dLoad', 'dNet',
-   'dDisk', 'dUsb', 'dVideo', 'dRec', 'stateTime', 'autoState', 'btnState', 'btnCapability', 'videoEl',
+   'dDisk', 'dUsb', 'dBattery', 'dSonar', 'dVideo', 'dRec', 'stateTime', 'autoState', 'btnState', 'btnCapability', 'videoEl',
    'videoEmpty', 'videoHint', 'btnVideoAction', 'btnVideoStop', 'btnVideoSound',
    'btnMic', 'voiceCard', 'micMeterFill',
    'videoMsg', 'alarmList', 'btnAlarmClear', 'carStatus', 'servoStatus', 'servoEnable',
@@ -1163,6 +1165,12 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     el.dDisk.textContent = (disk.percent == null && !dTotal) ? '—'
       : (Math.round(disk.percent || 0) + '%' + (dTotal ? ' · ' + dUsed + ' / ' + dTotal : ''));
     el.dUsb.textContent = s.usb ? ((s.usb.count || 0) + ' 个设备') : '—';
+    // V1.7：battery / sonar 为可选分组，设备端无传感器时不返回
+    var bat = s.battery || {}, sonar = s.sonar || {};
+    el.dBattery.textContent = (bat.available && bat.voltage_v != null)
+      ? Number(bat.voltage_v).toFixed(2) + ' V' : '—';
+    el.dSonar.textContent = (sonar.available && sonar.distance_cm != null)
+      ? Number(sonar.distance_cm).toFixed(1) + ' cm' : '—';
     var v = s.video || {};
     el.dVideo.textContent = v.streaming ? ('推流中 · room=' + (v.room_number || '—') + ' · ' + (v.video_device || '—')) : '未推流';
     if (v.streaming && v.room_number) {
