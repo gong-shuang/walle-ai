@@ -416,9 +416,9 @@ STATUS_PRIME_INTERVAL = min(1.0, MONITOR_INTERVAL)
 THRESH_CPU = float(os.environ.get("THRESH_CPU", "90.0"))                 # CPU 使用率 %
 THRESH_MEM = float(os.environ.get("THRESH_MEM", "90.0"))                 # 内存使用率 %
 THRESH_DISK = float(os.environ.get("THRESH_DISK", "90.0"))               # 磁盘使用率 %
-THRESH_TEMP = float(os.environ.get("THRESH_TEMP", "80.0"))               # CPU 温度 ℃
-# 网络带宽阈值：默认 10 MiB/s，环境变量按 MiB/s 配置
-THRESH_NET_BPS = float(os.environ.get("THRESH_NET_MIB", "10")) * 1024 * 1024
+THRESH_TEMP = float(os.environ.get("THRESH_TEMP", "70.0"))               # CPU 温度 ℃
+# 网络带宽阈值：只监控出站，默认 2.5 MiB/s，环境变量按 MiB/s 配置
+THRESH_NET_BPS = float(os.environ.get("THRESH_NET_MIB", "2.5")) * 1024 * 1024
 RECOVER_RATIO = 0.9                      # 回滞系数：降到阈值的 90% 以下才算恢复，防止边界抖动
 
 # ---- 请求处理并发（P2-1.4：查询/动作分池，限制并发与排队长度）----

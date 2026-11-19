@@ -7,6 +7,7 @@ import pytest
 
 import net_mqtt_bridge.alarm_sensors as alarm_sensors
 from net_mqtt_bridge.alarm_sensors import SensorAlarmMixin
+from net_mqtt_bridge.monitor import MonitorMixin
 
 
 class DummyMonitor(SensorAlarmMixin):
@@ -185,3 +186,25 @@ def test_sensor_status_marks_stale_data_unavailable(monitor):
     assert status["battery"]["available"] is False
     assert status["sonar"]["distance_cm"] == 30.0
     assert status["sonar"]["available"] is False
+
+
+def test_threshold_message_can_use_human_units():
+    class Dummy(MonitorMixin):
+        def __init__(self):
+            self.active_alarms = set()
+            self.events = []
+
+        def _event(self, event, level, metric, alarm_type, message, detail=None):
+            self.events.append((event, message, detail))
+
+    monitor = Dummy()
+    monitor.check_threshold(
+        "network_tx_high", 26877623.9, 10485760.0, "network", "network_tx_high",
+        "B/s", "网络出站带宽",
+        human_value="25.6 MB/s", human_threshold="10.0 MB/s")
+
+    event, message, detail = monitor.events[0]
+    assert event == "alarm"
+    assert "25.6 MB/s" in message and "10.0 MB/s" in message
+    assert "26877623.9" not in message, "message 不应再使用原始 B/s 数值"
+    assert detail["unit"] == "B/s", "detail 仍保留原始单位"

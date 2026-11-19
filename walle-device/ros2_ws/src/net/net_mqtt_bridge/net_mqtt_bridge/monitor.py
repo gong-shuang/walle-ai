@@ -159,23 +159,28 @@ def disk_mounts():
 
 class MonitorMixin:
     def check_threshold(self, key, value, threshold, metric, alarm_type,
-                        unit, label, extra=None):
+                        unit, label, extra=None, human_value=None,
+                        human_threshold=None):
         detail = {"value": round(value, 2), "unit": unit, "threshold": threshold}
         if extra:
             detail.update(extra)
+        # 网络等场景用人类可读单位展示（如 MB/s），detail 仍保留原始数值
+        shown_value = human_value if human_value is not None else f"{value:.1f}{unit}"
+        shown_threshold = (human_threshold if human_threshold is not None
+                           else f"{threshold:g}{unit}")
         if value >= threshold:
             if key not in self.active_alarms:
                 self.active_alarms.add(key)
                 self._event(
                     "alarm", "warning", metric, alarm_type,
-                    f"{label}当前 {value:.1f}{unit}，已达到/超过阈值 {threshold:g}{unit}",
+                    f"{label}当前 {shown_value}，已达到/超过阈值 {shown_threshold}",
                     detail,
                 )
         elif key in self.active_alarms and value < threshold * config.RECOVER_RATIO:
             self.active_alarms.discard(key)
             self._event(
                 "recover", "info", metric, alarm_type,
-                f"{label}已恢复，当前 {value:.1f}{unit}（阈值 {threshold:g}{unit}）",
+                f"{label}已恢复，当前 {shown_value}（阈值 {shown_threshold}）",
                 detail,
             )
 
@@ -377,14 +382,13 @@ class MonitorMixin:
                                      "%", f"磁盘 {mnt['mount']} 使用率",
                                      {"mount": mnt["mount"], "device": mnt["device"],
                                       "free_human": mnt["free_human"]})
-            self.check_threshold("network_rx_high", rx_rate, config.THRESH_NET_BPS, "network",
-                                 "network_rx_high", "B/s", "网络入站带宽",
-                                 {"rate_human": human_rate(rx_rate),
-                                  "threshold_human": human_rate(config.THRESH_NET_BPS)})
+            # 网络只监控出站带宽，入站不产生告警；message 用 MB/s 展示
             self.check_threshold("network_tx_high", tx_rate, config.THRESH_NET_BPS, "network",
                                  "network_tx_high", "B/s", "网络出站带宽",
                                  {"rate_human": human_rate(tx_rate),
-                                  "threshold_human": human_rate(config.THRESH_NET_BPS)})
+                                  "threshold_human": human_rate(config.THRESH_NET_BPS)},
+                                 human_value=human_rate(tx_rate),
+                                 human_threshold=human_rate(config.THRESH_NET_BPS))
 
             # 2) 电池低压（障碍在 ROS 声呐回调里边沿触发，不在采样循环里判定）
             try:

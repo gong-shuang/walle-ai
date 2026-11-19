@@ -32,7 +32,9 @@ MQTT_CA_FILE=
 # MONITOR_INTERVAL=5
 # THRESH_MEM=90.0
 # THRESH_DISK=90.0
-# THRESH_TEMP=80.0
+# THRESH_TEMP=70.0
+# 网络只监控出站带宽，单位 MiB/s
+# THRESH_NET_MIB=2.5
 
 # 电池低压 / 前方障碍告警（V1.6；设备端只上报，不落盘）
 # 默认按 2 节 18650 串联（2S）：3.5V/节低压、3.7V/节恢复、3.3V/节极低

@@ -295,14 +295,13 @@ class MonitorStatusMixin:
                                      "%", f"磁盘 {mnt['mount']} 使用率",
                                      {"mount": mnt["mount"], "device": mnt["device"],
                                       "free_human": mnt["free_human"]})
-            self.check_threshold("network_rx_high", rx_rate, THRESH_NET_BPS, "network",
-                                 "network_rx_high", "B/s", "网络入站带宽",
-                                 {"rate_human": human_rate(rx_rate),
-                                  "threshold_human": human_rate(THRESH_NET_BPS)})
+            # 网络只监控出站带宽，入站不产生告警；message 用 MB/s 展示
             self.check_threshold("network_tx_high", tx_rate, THRESH_NET_BPS, "network",
                                  "network_tx_high", "B/s", "网络出站带宽",
                                  {"rate_human": human_rate(tx_rate),
-                                  "threshold_human": human_rate(THRESH_NET_BPS)})
+                                  "threshold_human": human_rate(THRESH_NET_BPS)},
+                                 human_value=human_rate(tx_rate),
+                                 human_threshold=human_rate(THRESH_NET_BPS))
 
             # 2) USB 热插拔
             try:
