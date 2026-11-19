@@ -111,6 +111,33 @@ def test_rotation_keeps_linear_speed_within_budget():
     assert twist == (0.6, 0.0, config.CAR_MOTOR_ANGULAR_SPEED)
 
 
+def test_obstacle_blocks_forward():
+    result, cause, twist = car_motor.parse_drive(
+        _payload(move={"forward": 0.6}), forward_blocked=True)
+    assert (result, cause, twist) == (
+        car_motor.RESULT_OBSTACLE, car_motor.CAUSE_OBSTACLE, None)
+
+
+def test_obstacle_blocks_forward_with_rotation():
+    data = _payload(move={"forward": 0.6}, rotate={"left": True, "right": False})
+    result, cause, twist = car_motor.parse_drive(data, forward_blocked=True)
+    assert (result, cause, twist) == (
+        car_motor.RESULT_OBSTACLE, car_motor.CAUSE_OBSTACLE, None)
+
+
+@pytest.mark.parametrize("data", [
+    _payload(move={"back": 0.6}),
+    _payload(move={"left": 0.6}),
+    _payload(move={"right": 0.6}),
+    _payload(rotate={"left": True, "right": False}),
+    _payload(),
+])
+def test_obstacle_allows_back_strafe_rotate_and_stop(data):
+    result, cause, twist = car_motor.parse_drive(data, forward_blocked=True)
+    assert (result, cause) == (car_motor.RESULT_OK, car_motor.CAUSE_OK)
+    assert twist is not None
+
+
 @pytest.mark.parametrize("value", [0.5, 1.0])
 def test_boundary_speeds_are_valid(value):
     result, _cause, twist = car_motor.parse_drive(_payload(move={"forward": value}))

@@ -172,6 +172,16 @@ class SensorAlarmMixin:
         if payload:
             self._event(*payload)
 
+    def forward_blocked(self):
+        """前方有新鲜且小于阈值的声呐读数时返回 True（用于禁止前进）。"""
+        with self._sensor_lock:
+            distance = self._obstacle_distance_cm
+            if distance is None:
+                return False
+            fresh = (time.monotonic() - self._obstacle_last_update
+                     <= SONAR_STALE_SEC)
+        return fresh and distance <= THRESH_OBSTACLE_CM
+
     def sensor_status(self):
         """state/result 的 battery / sonar 分组（查询时读取最新采样，不阻塞）。"""
         with self._sensor_lock:

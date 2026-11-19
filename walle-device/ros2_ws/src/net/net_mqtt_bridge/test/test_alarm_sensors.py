@@ -162,6 +162,20 @@ def test_invalid_sonar_reading_is_ignored(monitor):
     assert monitor.events == []
 
 
+def test_forward_blocked_uses_fresh_near_reading(monitor):
+    assert monitor.forward_blocked() is False
+    monitor.update_obstacle_distance(300)      # 恰好 30cm，按阈值拦截
+    assert monitor.forward_blocked() is True
+    monitor.update_obstacle_distance(600)
+    assert monitor.forward_blocked() is False
+
+
+def test_forward_blocked_ignores_stale_reading(monitor):
+    monitor.update_obstacle_distance(200)
+    monitor._obstacle_last_update -= alarm_sensors.SONAR_STALE_SEC + 1
+    assert monitor.forward_blocked() is False
+
+
 def test_sensor_status_reflects_latest_samples(monitor):
     monitor.update_battery_voltage(7.62)
     monitor.update_obstacle_distance(245)

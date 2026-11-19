@@ -6,7 +6,8 @@
   - move 四个方向只允许一个非 0，取值 0 或 [0.5, 1.0] m/s；
   - rotate 只接受布尔值，left/right 互斥；都为 false 表示停止旋转；
   - 同时旋转时，线速度上限压到 1.0 - k*2.5 = 0.653 m/s，超出按比例缩放；
-  - 结果 0 成功 / 1 命令无效 / 2 命令错误 / 3 底盘控制链路不可用。
+  - 前方有障碍（声呐有效距离 ≤ 阈值）时只允许后退/转向，forward 非 0 → result=4；
+  - 结果 0 成功 / 1 命令无效 / 2 命令错误 / 3 底盘控制链路不可用 / 4 前方有障碍。
 """
 
 import logging
@@ -19,11 +20,13 @@ RESULT_OK = 0
 RESULT_INVALID = 1
 RESULT_ERROR = 2
 RESULT_LINK_DOWN = 3
+RESULT_OBSTACLE = 4
 
 CAUSE_OK = "ok"
 CAUSE_INVALID = "命令无效"
 CAUSE_ERROR = "命令错误"
 CAUSE_LINK_DOWN = "底盘控制链路不可用"
+CAUSE_OBSTACLE = "前方有障碍物，不可前进"
 
 _MISSING = object()
 _MOVE_KEYS = ("forward", "back", "left", "right")
@@ -39,13 +42,14 @@ def _number(value):
     return value
 
 
-def parse_drive(data):
+def parse_drive(data, forward_blocked=False):
     """校验并归一化一条 car/motor/set 报文。
 
     返回 (result, cause, twist)：
       - twist 为 (linear_x, linear_y, angular_z)，仅 result=0 时非 None；
       - 缺失 move/rotate 整个对象 -> result=1（命令无效）；
-      - 字段类型/取值/互斥不合法 -> result=2（命令错误）。
+      - 字段类型/取值/互斥不合法 -> result=2（命令错误）；
+      - forward_blocked=True 且命令要求前进 -> result=4（前方有障碍）。
     """
     if not isinstance(data, dict):
         return RESULT_INVALID, CAUSE_INVALID, None
@@ -96,6 +100,10 @@ def parse_drive(data):
         scale = config.CAR_MOTOR_LINEAR_LIMIT_WITH_ROTATE / linear
         linear_x *= scale
         linear_y *= scale
+
+    # 前方障碍联锁：只拦前进（linear_x > 0），后退/转向/横移仍允许
+    if forward_blocked and linear_x > 0:
+        return RESULT_OBSTACLE, CAUSE_OBSTACLE, None
 
     return RESULT_OK, CAUSE_OK, (linear_x, linear_y, angular_z)
 

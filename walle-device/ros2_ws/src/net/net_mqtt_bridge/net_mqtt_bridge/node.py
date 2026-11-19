@@ -245,11 +245,11 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
             payload, self._agent_mod.REQ_CAR_MOTOR_SET)
         if not ok:
             return
-
         rid = self.agent._rid(data)
-        result, cause, twist = car_motor.parse_drive(data)
+        result, cause, twist = car_motor.parse_drive(
+            data, forward_blocked=self.agent.forward_blocked())
         if result != car_motor.RESULT_OK:
-            self._car_stop('命令无效/错误')
+            self._car_stop(cause if result == car_motor.RESULT_OBSTACLE else '命令无效/错误')
             self.agent._publish_car_motor_result(rid, result, cause)
             return
 

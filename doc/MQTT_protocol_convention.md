@@ -47,7 +47,7 @@ walle/{tenant}/{device}/v1/{resource}
 | 8 | 手机音频上行·开 | `walle/{t}/{d}/v1/phone/audio/send` | `walle/{t}/{d}/v1/phone/audio/send/result` | 单向动作（App 不订阅应答） | v1.0 |  |
 | 9 | 手机音频上行·关 | `walle/{t}/{d}/v1/phone/audio/stop` | `walle/{t}/{d}/v1/phone/audio/stop/result` | 单向动作（App 不订阅应答） | v1.0 |  |
 | 10 | 远程命令执行 | `walle/{t}/{d}/v1/cmd/exec` | `walle/{t}/{d}/v1/cmd/result` | 请求-应答 | v1.1 | v1.1已删除 |
-| 11 | 电机持续控制 | `walle/{t}/{d}/v1/car/motor/set` | `walle/{t}/{d}/v1/car/motor/result` | 持续控制（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车 |
+| 11 | 电机持续控制 | `walle/{t}/{d}/v1/car/motor/set` | `walle/{t}/{d}/v1/car/motor/result` | 持续控制（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车；v1.7 前方障碍禁前进 |
 | 12 | 舵机状态查询 | `walle/{t}/{d}/v1/car/servo/status/query` | `walle/{t}/{d}/v1/car/servo/status/result` | 请求-应答 | v1.2 | 默认只读位置，不读 offset |
 | 13 | 舵机位置设置 | `walle/{t}/{d}/v1/car/servo/set` | `walle/{t}/{d}/v1/car/servo/result` | 请求-应答 | v1.2 | 绝对位置；单舵机越界只跳过该舵机 |
 | 14 | 开始录像 | `walle/{t}/{d}/v1/record/start/request` | `walle/{t}/{d}/v1/record/start/result` | 请求-应答 | v1.3 | 本地 fMP4 落盘 |
@@ -577,7 +577,7 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 安全开关（设备端环境变量 / 常量）：`ENABLE_CMD_EXEC`（总开关）、`CMD_ALLOWLIST`
 （前缀白名单，为空=允许任意命令）。**这是高危能力**，Broker ACL 必须保证租户隔离。
 
-### 4.10 电机持续控制 car/motor/set → car/motor/result（V1.2）
+### 4.10 电机持续控制 car/motor/set → car/motor/result（V1.2，V1.7 增补前方障碍联锁）
 
 **作用**：App 按住方向键时，以 200ms 周期下发目标运动状态；设备端保存最新状态，
 以 10Hz 重发 `/cmd_vel`，500ms 没有收到有效命令就自动停车。
@@ -624,10 +624,21 @@ angular.z =  2.5  (rotate.left = true)
 同时旋转的线速度上限为 `1.0 - 0.1389*2.5 = 0.653 m/s`；超过时按比例缩放线速度
 （不改变角速度）。纯平移最大 1.0 m/s。
 
+**前方障碍联锁（V1.7）**：收到 `car/motor/set` 后，若声呐存在 1s 内的有效读数且
+`distance_cm ≤ THRESH_OBSTACLE_CM`（默认 30cm），则：
+
+- `forward` 非 0 的命令不执行：清空运动状态、立即发布零速，返回 `result=4`、
+  `cause=前方有障碍物，不可前进`；
+- 后退、转向、横移（`back` / `rotate` / `left` / `right`）不受影响；
+- 声呐无数据或读数过期时不启用联锁，避免传感器故障导致车辆无法移动。
+
+阈值与障碍告警共用 `THRESH_OBSTACLE_CM`，数据源 `/sonar_controller/get_distance`。
+
 **停止**：
 
 - 合法停止命令 = `move` 全 0 + `rotate` 都为 `false` → 清空状态、发布零速、`result=0`；
 - 收到 `result=1/2` 的无效/错误命令 → 清空状态、立即发布零速；
+- 收到 `result=4` 的前方障碍命令 → 清空状态、立即发布零速；
 - 500ms 死区触发 → 清空状态、立即发布零速；
 - 设备退出 → 清空状态、发布零速。
 
@@ -635,17 +646,17 @@ angular.z =  2.5  (rotate.left = true)
 
 | 字段 | 取值 | 说明 |
 |---|---|---|
-| `result` | `0` / `1` / `2` / `3` | 0 成功并已下发；1 命令无效（缺 `move`/`rotate`）；2 命令错误（类型/取值/互斥）；3 底盘控制链路不可用（`/cmd_vel` 无订阅者） |
-| `cause` | `ok` / `命令无效` / `命令错误` / `底盘控制链路不可用` | 可读原因 |
+| `result` | `0` / `1` / `2` / `3` / `4` | 0 成功并已下发；1 命令无效（缺 `move`/`rotate`）；2 命令错误（类型/取值/互斥）；3 底盘控制链路不可用（`/cmd_vel` 无订阅者）；4 前方有障碍物，不可前进 |
+| `cause` | `ok` / `命令无效` / `命令错误` / `底盘控制链路不可用` / `前方有障碍物，不可前进` | 可读原因 |
 | `request_id` 及公共字段 | — | 原样回显请求的 `request_id` |
 
-`result=0` 表示“命令已接受并下发”，不是“车已经执行完成”。`result=3` 时设备端不会
-保存这次状态，避免底盘恢复后自己动起来。
+`result=0` 表示“命令已接受并下发”，不是“车已经执行完成”。`result=3/4` 时设备端不会
+保存这次状态，避免底盘恢复或障碍消失后自己动起来。
 
 **App 行为**：按住方向键每 200ms 发一条；快速点击去重后仍按 200ms 节流；松开立即发
 停止命令（停止不受 200ms 去重限制）。去重只针对完全相同的 payload，方向反转必须立即发。
 
-**设备端实现**：`net_mqtt_bridge/car_motor.py`（校验/结果）与 `node.py`
+**设备端实现**：`net_mqtt_bridge/car_motor.py`（校验/结果/障碍联锁）与 `node.py`
 （`/cmd_vel` 发布、10Hz 重发、500ms 死区）；`/cmd_vel` 为 `geometry_msgs/msg/Twist`。
 500ms 停车由 bridge 进程保证；若 bridge 本身崩溃，由底盘节点 `mecanum.py` 的
 `cmd_vel_timeout`（默认 1.5s）兜底。
@@ -1139,6 +1150,25 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 7. 变更记录
+
+### 2026-11-19：car/motor/set 新增前方障碍联锁（V1.7）
+
+**变更类型**：非破坏性增量（主题不变，新增结果码 `4`）。
+
+**变更内容**
+
+- 设备端收到 `car/motor/set` 后，若声呐 1s 内有有效读数且距离
+  `≤ THRESH_OBSTACLE_CM`（默认 30cm），`forward` 非 0 的命令被拒绝：不更新运动状态、
+  立即发布零速，返回 `result=4`、`cause=前方有障碍物，不可前进`。
+- 后退、转向、横移不受影响；声呐无数据或读数过期时不启用联锁。
+- 设备端 `car_motor.parse_drive` 新增 `forward_blocked` 参数，`node.py` 调用时注入
+  当前声呐状态。
+
+**影响与兼容性**：新增结果码 `4`，旧版 App/网页按 `result != 0` 展示 `cause` 即可；
+主题与请求字段不变。
+
+**验证方式**：`test_car_motor.py` 覆盖前进拦截、后退/转向/横移放行；
+`test_alarm_sensors.py` 覆盖新鲜/过期声呐读数；实车前 30cm 内前进应返回 `result=4` 并停车。
 
 ### 2026-11-19：状态查询移除 alarms 分组（V1.7）
 
