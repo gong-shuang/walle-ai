@@ -21,6 +21,7 @@ THRESH_BATTERY_CRITICAL_V = float(os.environ.get("THRESH_BATTERY_CRITICAL_V", "6
 THRESH_OBSTACLE_CM = float(os.environ.get("THRESH_OBSTACLE_CM", "30"))        # 前方障碍阈值（cm）
 RECOVER_OBSTACLE_CM = float(os.environ.get("RECOVER_OBSTACLE_CM", "50"))      # 障碍恢复线（cm）
 ALARM_MIN_INTERVAL = float(os.environ.get("ALARM_MIN_INTERVAL", "3"))         # 同一 alarm_type 最小间隔（s）
+SONAR_STALE_SEC = 1.0                    # 声呐 20Hz 上报，超过该时间无有效值视为不可用
 BATTERY_SAMPLE_COUNT = 3                 # 判定用采样点数（每个 MONITOR_INTERVAL 取一个点）
 BATTERY_CONFIRM_COUNT = 2                # 连续越限 / 恢复多少次才发事件
 BATTERY_STALE_SEC = max(config.MONITOR_INTERVAL * 3, 15)  # 超过该时间无电池数据则跳过判定
@@ -42,6 +43,7 @@ class SensorAlarmMixin:
         self._battery_good_streak = 0
         self._battery_critical_streak = 0
         self._obstacle_distance_cm = None
+        self._obstacle_last_update = 0.0
         self._obstacle_active = False
         self._obstacle_last_event = 0.0
         # 由 ROS 节点注入：返回底盘当前是否在运动（影响障碍告警级别）
@@ -143,6 +145,7 @@ class SensorAlarmMixin:
         with self._sensor_lock:
             self._obstacle_distance_cm = cm
             now = time.monotonic()
+            self._obstacle_last_update = now
             if now - self._obstacle_last_event < ALARM_MIN_INTERVAL:
                 return
             if not self._obstacle_active and cm <= THRESH_OBSTACLE_CM:
@@ -168,6 +171,31 @@ class SensorAlarmMixin:
                 )
         if payload:
             self._event(*payload)
+
+    def sensor_status(self):
+        """state/result 的 battery / sonar 分组（查询时读取最新采样，不阻塞）。"""
+        with self._sensor_lock:
+            now = time.monotonic()
+            voltage = self._battery_latest_voltage
+            battery_age = (now - self._battery_last_update
+                           if voltage is not None else None)
+            distance = self._obstacle_distance_cm
+            sonar_age = (now - self._obstacle_last_update
+                         if distance is not None else None)
+        return {
+            "battery": {
+                "voltage_v": round(voltage, 2) if voltage is not None else None,
+                "available": (battery_age is not None
+                              and battery_age <= BATTERY_STALE_SEC),
+                "age_sec": round(battery_age, 1) if battery_age is not None else None,
+            },
+            "sonar": {
+                "distance_cm": distance,
+                "available": (sonar_age is not None
+                              and sonar_age <= SONAR_STALE_SEC),
+                "age_sec": round(sonar_age, 1) if sonar_age is not None else None,
+            },
+        }
 
 
 class SensorAlarmNodeMixin:

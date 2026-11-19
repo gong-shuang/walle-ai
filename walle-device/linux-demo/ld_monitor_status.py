@@ -134,17 +134,6 @@ class MonitorStatusMixin:
                 "devices": list(usb.values()),
             },
             "video": self._video_status(),
-            "alarms": {
-                "active": sorted(self.active_alarms),
-                "thresholds": {
-                    "cpu_percent": THRESH_CPU,
-                    "memory_percent": THRESH_MEM,
-                    "disk_percent": THRESH_DISK,
-                    "temperature_c": THRESH_TEMP,
-                    "network_bytes_per_sec": THRESH_NET_BPS,
-                    "network_rate_human": human_rate(THRESH_NET_BPS),
-                },
-            },
         }
 
     def _video_status(self):

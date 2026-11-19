@@ -159,3 +159,29 @@ def test_invalid_sonar_reading_is_ignored(monitor):
     monitor.update_obstacle_distance(-1)
     monitor.update_obstacle_distance("bad")
     assert monitor.events == []
+
+
+def test_sensor_status_reflects_latest_samples(monitor):
+    monitor.update_battery_voltage(7.62)
+    monitor.update_obstacle_distance(245)
+
+    status = monitor.sensor_status()
+    assert status["battery"]["voltage_v"] == 7.62
+    assert status["battery"]["available"] is True
+    assert status["battery"]["age_sec"] >= 0
+    assert status["sonar"]["distance_cm"] == 24.5
+    assert status["sonar"]["available"] is True
+    assert status["sonar"]["age_sec"] >= 0
+
+
+def test_sensor_status_marks_stale_data_unavailable(monitor):
+    monitor.update_battery_voltage(7.6)
+    monitor.update_obstacle_distance(300)
+    monitor._battery_last_update -= alarm_sensors.BATTERY_STALE_SEC + 1
+    monitor._obstacle_last_update -= alarm_sensors.SONAR_STALE_SEC + 1
+
+    status = monitor.sensor_status()
+    assert status["battery"]["voltage_v"] == 7.6
+    assert status["battery"]["available"] is False
+    assert status["sonar"]["distance_cm"] == 30.0
+    assert status["sonar"]["available"] is False

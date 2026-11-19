@@ -1,11 +1,11 @@
-# MQTT 协议约定（文档版本 v1.6）
+# MQTT 协议约定（文档版本 v1.7）
 
 > 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`；ROS2 车控为
 > `walle-device/ros2_ws/src/net/net_mqtt_bridge`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
 > - 与设备通信的，用来控制小车的协议版本：v1  （记录每个协议的版本，用来兼容旧版本） 
-> - 本文档的版本：v1.6 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.7 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -39,7 +39,7 @@ walle/{tenant}/{device}/v1/{resource}
 |---|---|---|---|---|---|---|
 | 1 | 上线/下线 | — | `walle/{t}/{d}/v1/online` | 主动上报（retained + LWT） | v1.1 | v1.1最小化json报文 |
 | 2 | 设备发现 | `walle/{t}/v1/discovery/query` | `walle/{t}/{d}/v1/discovery/result` | 请求-应答（按需、限频） | v1.1 | v1.1最小化json报文 |
-| 3 | 状态查询 | `walle/{t}/{d}/v1/state/query` | `walle/{t}/{d}/v1/state/result` | 请求-应答 | v1.4 | v1.4精简json报文 |
+| 3 | 状态查询 | `walle/{t}/{d}/v1/state/query` | `walle/{t}/{d}/v1/state/result` | 请求-应答 | v1.4 | v1.4精简json报文；v1.7增补电池/声呐，移除alarms |
 | 4 | 设备能力 | `walle/{t}/{d}/v1/capability/query` | `walle/{t}/{d}/v1/capability/result` | 请求-应答 | v1.4 | v1.1后台缓存探测，v1.4精简json报文 |
 | 5 | 开始推流 | `walle/{t}/{d}/v1/video/start/request` | `walle/{t}/{d}/v1/video/start/result` | 请求-应答 | v1.0 |  |
 | 6 | 停止推流 | `walle/{t}/{d}/v1/video/stop/request` | `walle/{t}/{d}/v1/video/stop/result` | 请求-应答 | v1.0 |  |
@@ -258,17 +258,24 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 > `device="v1", resource="discovery/query"`——两端（`TopicNames.parse`、`main._handle_request`）
 > 都对它做了特判，别改没。
 
-### 4.3 状态查询 state/query → state/result（V1.4）
+### 4.3 状态查询 state/query → state/result（V1.4，V1.7 增补 battery / sonar，移除 alarms）
 
 **作用**：拉取设备运行状态，驱动状态页所有卡片。CPU/网络数据复用监控循环的
 最近一次采样（`MONITOR_INTERVAL`，默认 5s），USB 列表复用 `check_usb` 的维护结果，
-**查询路径不再阻塞采样**；内存/磁盘/推流/告警在应答时读取。
+**查询路径不再阻塞采样**；内存/磁盘/推流在应答时读取。
 
 **V1.4 变更（报文精简，只保留原始数值）**：`cpu` 去掉 `per_core_percent[]` 与 `frequency_mhz`；
 `memory` 去掉 `swap` 与所有 `*_human`；`disk` 由逐挂载点列表改为聚合总量且不带 `*_human`；
 `network` 去掉 `interfaces[]`、`total_rx/tx_rate`；`alarms.thresholds` 去掉 `network_rate_human`；
 新增 `recording` 分组（`enable` 取自 `record.enabled`，另含实时录像状态）；
 `usb` 只统计用户视角的 USB 设备（过滤 root hub 与 Hub）。**App 端需同步调整 `StatusSnapshot` 解析。**
+
+**V1.7 增补**：新增 `battery`（电池电压）与 `sonar`（前方超声波距离）两个分组，
+数据直接取 ROS 回调维护的最新采样，**不额外触发采集**。两组都是可选的：旧设备端或
+没有对应传感器的设备不返回，App 按 null 处理并显示「—」。
+
+**V1.7 变更**：移除 `alarms` 分组（原 `active` / `thresholds`）。当前告警状态以
+`alarm` 主题的主动上报为准（App 告警中心自行维护），状态查询不再返回告警列表和阈值。
 
 - 请求：`walle/{t}/{d}/v1/state/query`
 - 应答：`walle/{t}/{d}/v1/state/result`
@@ -291,6 +298,8 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 | `disk` | 全部真实磁盘的**聚合总量**：`total_bytes`、`used_bytes`、`free_bytes`、`percent`。统计口径：排除 zram（内存压缩盘）；同一设备只算一次（log2ram 会把根分区再挂到 /var/log.hdd，不去重总量翻倍），同设备优先取 `/` 挂载点 |
 | `network` | `sample_interval_sec`、`total_rx_bytes_per_sec`、`total_tx_bytes_per_sec` |
 | `usb` | `count`、`devices[]`。只统计用户视角的 USB 设备：跳过 root hub（usbN 节点）与 Hub 类设备（`bDeviceClass=09`，含板载/外接 Hub）；Hub 下挂的设备仍单独出现；板载蓝牙等功能芯片保留。插拔 Hub 不触发告警 |
+| `battery` | **V1.7** 电池电压：`voltage_v`（V，两位小数）、`available`（采样是否在 `BATTERY_STALE_SEC` 内，默认 15s）、`age_sec`（距最近一次采样的秒数）。数据源 `/ros_robot_controller/battery`（mV→V）；从未收到电池数据时不返回该分组 |
+| `sonar` | **V1.7** 前方超声波距离：`distance_cm`（cm，一位小数）、`available`（采样是否在 `SONAR_STALE_SEC` 内，默认 1s）、`age_sec`（同 `battery`）。数据源 `/sonar_controller/get_distance`（mm→cm）；读数为 -1 时不更新距离，`available` 会随 `age_sec` 超时变为 false；从未收到声呐数据时不返回该分组 |
 | `recording` | `enable`（录像功能是否开启，取自 `walle_camera.conf` 的 `record.enabled`）、`recording`（是否正在录像）、`filename`（正在录像的文件名，未录像为 null）。`recording`/`filename` 由 record start/stop 成功应答维护；record_video_node 异常退出时该状态可能滞后。`enable=false` 时 App 应隐藏录像入口 |
 | `video` | 推流状态（任务 1）：`streaming`、`room_number`、`video_device`、`audio`（推流时的音频信息，无音频/未推流为 null）、`pid`、`started_at`、`uptime_sec`；未推流时 `streaming=false` 且其余字段全为 null。数据来自推流时记录的 `video_meta`，ffmpeg 异常退出后看护线程清理，下一次查询即 `streaming=false` |
 
@@ -1128,6 +1137,41 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 7. 变更记录
+
+### 2026-11-19：状态查询移除 alarms 分组（V1.7）
+
+**变更类型**：破坏性变更（报文结构变化，主题不变）。
+
+**变更内容**
+
+- `state/result` 不再返回 `alarms.active` / `alarms.thresholds`。
+- 当前告警状态统一以 `alarm` 主题的主动上报为准，由 App 告警中心维护。
+- 设备端 ROS2 `net_mqtt_bridge` 与 `linux-demo` 两套实现同步移除。
+
+**影响与兼容性**：仍有 `alarms` 解析逻辑的客户端会得到空列表，不会崩溃；
+依赖状态接口获取告警列表的客户端需改为订阅 `alarm` 主题。
+
+**验证方式**：设备端 `test_status_cache.py` 断言 `alarms` 不再出现；实车
+`state/query` 回包确认无该字段。
+
+### 2026-11-19：状态查询新增电池电压与前方声呐距离（V1.7）
+
+**变更类型**：非破坏性增量（主题不变，`state/result` 新增两个可选分组）。
+
+**变更内容**
+
+- `state/result` 新增 `battery`：`{voltage_v, available, age_sec}`，数据来自
+  `/ros_robot_controller/battery`（mV→V）。
+- 新增 `sonar`：`{distance_cm, available, age_sec}`，数据来自
+  `/sonar_controller/get_distance`（mm→cm）；读数 -1 不更新，超时后 `available=false`。
+- 两组均为可选：无对应传感器或旧设备端不返回，App 按 null 处理并显示「—」。
+- App `StatusSnapshot` 新增 `Battery`/`Sonar` 模型，状态页新增「电池 / 前方声呐」卡片。
+
+**影响与兼容性**：旧版 App 忽略新分组即可；旧版设备端不返回时新版 App 正常降级，不崩溃。
+
+**验证方式**：设备端 `test_status_cache.py` 校验空数据占位、
+`test_alarm_sensors.py` 校验电压/距离与过期标记；App `StatusSnapshotTest` 覆盖完整、
+缺失与异常值解析。
 
 ### 2026-11-19：新增电池低压与前方障碍告警（V1.6）
 

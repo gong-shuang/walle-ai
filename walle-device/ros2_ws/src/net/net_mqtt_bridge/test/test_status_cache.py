@@ -19,12 +19,14 @@ FIXED_UUID = "0f8fad5b-d9cb-469f-a165-70867728950e"
 def _bare_monitor():
     """构造一个不走 __init__ 的实例，只填本组用例需要的属性。"""
     monitor = object.__new__(RpiMonitor)
+    monitor.client = None
     monitor.sample_lock = threading.Lock()
     monitor.status_sample = None
     monitor.status_sample_lock = threading.Lock()
     monitor.active_alarms = set()
     monitor.usb_state = {}
     monitor.lan_ip = "192.168.1.10"
+    monitor.init_alarm_sensors()
     return monitor
 
 
@@ -57,6 +59,23 @@ def test_build_status_reuses_monitor_sample(monkeypatch):
     assert status["network"]["total_tx_bytes_per_sec"] == 50.0
     assert status["sample_age_sec"] >= 0.0
     assert status["video"]["streaming"] is False
+    assert "battery" not in status, "没有电池数据时不返回 battery 分组"
+    assert "sonar" not in status, "没有声呐数据时不返回 sonar 分组"
+    assert "alarms" not in status, "V1.8 起 state/result 不再返回 alarms 分组"
+
+
+def test_build_status_includes_sensor_groups_when_available(monkeypatch):
+    monitor = _bare_monitor()
+    monitor.status_sample = ([5.0], {}, 0.0, 0.0, 5.0, time.monotonic())
+    monkeypatch.setattr(monitor_mod, "disk_mounts", lambda: [])
+    monitor.update_battery_voltage(7.62)
+    monitor.update_obstacle_distance(245)
+
+    status = monitor.build_status()
+    assert status["battery"]["voltage_v"] == 7.62
+    assert status["battery"]["available"] is True
+    assert status["sonar"]["distance_cm"] == 24.5
+    assert status["sonar"]["available"] is True
 
 
 def test_build_status_falls_back_to_live_sample(monkeypatch):

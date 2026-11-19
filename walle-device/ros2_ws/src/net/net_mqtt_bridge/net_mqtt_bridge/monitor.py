@@ -255,8 +255,10 @@ class MonitorMixin:
             "recording": bool(state.get("recording")),
             "filename": state.get("filename"),
         }
+        # 电池电压 / 前方声呐距离（V1.7）：读取 ROS 回调维护的最新采样
+        sensors = self.sensor_status()
 
-        return {
+        status = {
             "device_id": config.DEVICE_ID,
             "uuid": config.DEVICE_UUID,
             "hostname": config.HOSTNAME,
@@ -310,17 +312,12 @@ class MonitorMixin:
             },
             "recording": recording,
             "video": self._video_status(),
-            "alarms": {
-                "active": sorted(self.active_alarms),
-                "thresholds": {
-                    "cpu_percent": config.THRESH_CPU,
-                    "memory_percent": config.THRESH_MEM,
-                    "disk_percent": config.THRESH_DISK,
-                    "temperature_c": config.THRESH_TEMP,
-                    "network_bytes_per_sec": config.THRESH_NET_BPS,
-                },
-            },
         }
+        # 没有对应传感器（age_sec 为 null）时不返回该分组，App 直接隐藏卡片
+        for key in ("battery", "sonar"):
+            if sensors[key]["age_sec"] is not None:
+                status[key] = sensors[key]
+        return status
 
     def _video_status(self):
         """state/result 的 video 分组：独立运行没有推流；ROS 模式下由 node.py 覆盖。"""
