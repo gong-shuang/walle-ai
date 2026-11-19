@@ -11,7 +11,8 @@ from pathlib import Path
 import psutil
 
 from . import config
-from .identity import (get_pi_model, human_rate, human_size, now_str, now_ts)
+from .identity import (get_pi_model, human_mbps, human_rate, human_size,
+                       now_str, now_ts)
 from .record import RECORD_ENABLED
 
 
@@ -382,13 +383,13 @@ class MonitorMixin:
                                      "%", f"磁盘 {mnt['mount']} 使用率",
                                      {"mount": mnt["mount"], "device": mnt["device"],
                                       "free_human": mnt["free_human"]})
-            # 网络只监控出站带宽，入站不产生告警；message 用 MB/s 展示
+            # 网络只监控出站带宽，入站不产生告警；message 用 Mbps 展示
+            tx_mbps = human_mbps(tx_rate)
+            thr_mbps = human_mbps(config.THRESH_NET_BPS)
             self.check_threshold("network_tx_high", tx_rate, config.THRESH_NET_BPS, "network",
                                  "network_tx_high", "B/s", "网络出站带宽",
-                                 {"rate_human": human_rate(tx_rate),
-                                  "threshold_human": human_rate(config.THRESH_NET_BPS)},
-                                 human_value=human_rate(tx_rate),
-                                 human_threshold=human_rate(config.THRESH_NET_BPS))
+                                 {"rate_human": tx_mbps, "threshold_human": thr_mbps},
+                                 human_value=tx_mbps, human_threshold=thr_mbps)
 
             # 2) 电池低压（障碍在 ROS 声呐回调里边沿触发，不在采样循环里判定）
             try:

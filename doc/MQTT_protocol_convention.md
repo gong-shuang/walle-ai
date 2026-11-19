@@ -440,9 +440,10 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 
 **高阈值回滞防抖（cpu/memory/disk/network/temperature）**：越限（≥阈值）告警后，要降到 **阈值 × 0.9** 以下才发 `recover`，防止边界
 抖动反复报警。阈值均可用环境变量覆盖（`THRESH_CPU`/`THRESH_MEM`/`THRESH_DISK`/
-`THRESH_TEMP`/`THRESH_NET_MIB`），监控周期 `MONITOR_INTERVAL`（默认 5s）。
+`THRESH_TEMP`/`THRESH_NET_MBPS`），监控周期 `MONITOR_INTERVAL`（默认 5s）。
 默认 CPU 温度阈值 70℃；网络只监控**出站**带宽（`alarm_type=network_tx_high`，
-`THRESH_NET_MIB` 默认 2.5 MiB/s），入站不产生告警。
+`THRESH_NET_MBPS` 默认 3 Mbps，约 0.375 MB/s），入站不产生告警。
+告警 `message` 与 `detail.rate_human`/`threshold_human` 均以 Mbps 展示。
 
 **媒体中断告警**：`video_lost`（`metric=video`）在 ffmpeg 推流进程非主动退出时上报；
 `phone_audio_lost`（`metric=audio`）在 WHEP 播放器非主动退出时上报。两者 `event=alarm`、

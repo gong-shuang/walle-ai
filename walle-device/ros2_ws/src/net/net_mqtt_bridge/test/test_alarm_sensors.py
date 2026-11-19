@@ -7,6 +7,7 @@ import pytest
 
 import net_mqtt_bridge.alarm_sensors as alarm_sensors
 from net_mqtt_bridge.alarm_sensors import SensorAlarmMixin
+from net_mqtt_bridge.identity import human_mbps
 from net_mqtt_bridge.monitor import MonitorMixin
 
 
@@ -213,12 +214,18 @@ def test_threshold_message_can_use_human_units():
 
     monitor = Dummy()
     monitor.check_threshold(
-        "network_tx_high", 26877623.9, 10485760.0, "network", "network_tx_high",
+        "network_tx_high", 26877623.9, 375000.0, "network", "network_tx_high",
         "B/s", "网络出站带宽",
-        human_value="25.6 MB/s", human_threshold="10.0 MB/s")
+        human_value="215.0 Mbps", human_threshold="3.0 Mbps")
 
     event, message, detail = monitor.events[0]
     assert event == "alarm"
-    assert "25.6 MB/s" in message and "10.0 MB/s" in message
+    assert "215.0 Mbps" in message and "3.0 Mbps" in message
     assert "26877623.9" not in message, "message 不应再使用原始 B/s 数值"
     assert detail["unit"] == "B/s", "detail 仍保留原始单位"
+
+
+def test_human_mbps_converts_decimal_megabits():
+    assert human_mbps(375000) == "3.0 Mbps"
+    assert human_mbps(0) == "0.0 Mbps"
+    assert human_mbps(None) is None

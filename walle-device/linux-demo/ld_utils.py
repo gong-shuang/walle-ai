@@ -44,6 +44,13 @@ def human_rate(bps):
     return human_size(bps) + "/s"
 
 
+def human_mbps(bps):
+    """字节/秒转 Mbps（十进制，网络带宽常用单位），如 3.0 Mbps。"""
+    if bps is None:
+        return None
+    return f"{bps * 8 / 1_000_000:.1f} Mbps"
+
+
 def get_lan_ip():
     """获取本机局域网 IP（不会真正发包）；链路本地地址 169.254.x 视为无效并回退"""
     ip = None
