@@ -407,6 +407,25 @@ class VideoWebrtcBridge(Node):
             Image, self.image_topic, self._on_image, image_qos,
             callback_group=self._image_group)
 
+    def _destroy_image_subscription(self):
+        """停止推流后立即退订图像话题。
+
+        usb_cam 只在有订阅者时才采集和发布；保留订阅会让摄像头在空闲时
+        仍持续软解、传输原始帧。下次启动推流时按需重建订阅。
+        """
+        with self._lock:
+            sub = self._image_sub
+            self._image_sub = None
+            self._frame = None
+            self._frame_size = None
+        if sub is None:
+            return
+        try:
+            self.destroy_subscription(sub)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().warning(
+                "取消 %s 订阅失败：%s" % (self.image_topic, exc))
+
     # ------------------------------------------------------------------ 图像输入
     def _on_image(self, msg):
         with self._lock:
@@ -445,6 +464,13 @@ class VideoWebrtcBridge(Node):
             response.action = "failed"
             response.error = str(exc)
             return response
+        finally:
+            # 启动失败（等首帧超时、编码进程起不来等）时也要退订，
+            # 避免 usb_cam 一直有订阅者而持续采集原始帧。
+            with self._lock:
+                streaming = self._streaming
+            if not streaming:
+                self._destroy_image_subscription()
 
     def _fill_audio(self, response, audio):
         response.audio_available = bool(audio.get("available"))
@@ -902,7 +928,8 @@ class VideoWebrtcBridge(Node):
             self._started_at = ""
             self._started_ts = 0.0
             self._audio = self._empty_audio()
-            return meta
+        self._destroy_image_subscription()
+        return meta
 
     def _stop_stream(self, reason=""):
         with self._lock:
