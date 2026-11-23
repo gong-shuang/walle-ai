@@ -1,0 +1,28 @@
+# walle-agent 配置（由 scripts/auto_gen_conf_service.sh 生成）
+# MQTT 连接
+MQTT_HOST=
+MQTT_PORT=8883
+MQTT_TLS=1
+MQTT_USER=
+MQTT_PASSWORD=
+
+# 租户与 agent 身份：默认与 MQTT 用户名一致；独立多租户部署时可分别修改
+TENANT=
+CHAT_MQTT_ENABLED=1
+CLIENT_ID_PREFIX=agent-
+AGENT_NAME=
+
+# 运动限制与发送频率
+DEFAULT_SPEED=0.5
+MIN_SPEED=0.5
+MAX_SPEED=0.6
+MAX_DISTANCE=10
+DEFAULT_ANGULAR=1.0
+MAX_ANGLE=360
+SEND_HZ=5
+
+# 复杂语句走 LLM（默认关闭）
+LLM_ENABLED=0
+LLM_BASE_URL=
+LLM_API_KEY=
+LLM_MODEL=

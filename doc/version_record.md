@@ -35,6 +35,7 @@ client：可选
   - android：只涉及到android代码的修改
   - web：只涉及到web代码的修改
   - device：只涉及到设备端代码的修改
+  - agent：只涉及到agent端代码的修改
   - all：所有端的代码都涉及到修改
   注意，没有修改代码时，client项可以不写。
 
