@@ -34,10 +34,10 @@ def sanitize_segment(raw):
 
 
 def device_topic_base(tenant=None, device=None):
-    """walle/{tenant}/{device}/v1"""
+    """walle/{tenant}/device/{device}"""
     t = sanitize_segment(config.MQTT_TENANT if tenant is None else tenant)
     d = sanitize_segment(config.DEVICE_ID if device is None else device)
-    return f"{TOPIC_ROOT}/{t}/{d}/{PROTOCOL_VERSION}"
+    return f"{TOPIC_ROOT}/{t}/{DEVICE_SEGMENT}/{d}"
 
 
 def device_topic(resource):
@@ -45,7 +45,7 @@ def device_topic(resource):
 
 
 def tenant_topic(suffix):
-    return f"{TOPIC_ROOT}/{sanitize_segment(config.MQTT_TENANT)}/{PROTOCOL_VERSION}/{suffix}"
+    return f"{TOPIC_ROOT}/{sanitize_segment(config.MQTT_TENANT)}/{suffix}"
 
 
 # 请求 → 应答 的对应关系（也用于自检，保证命名成对）
@@ -77,7 +77,7 @@ QUERY_RESOURCES = {REQ_STATE, REQ_CAPABILITY}
 def subscriptions():
     """本设备要订阅的主题（只有请求类 + 租户内发现广播）。
 
-    不订 walle/{t}/{d}/v1/#：MQTT 3.1.1 会把客户端自己发布的报文也投递回来，
+    不订 walle/{t}/device/{d}/#：MQTT 3.1.1 会把客户端自己发布的报文也投递回来，
     订全子树会收到自己发的 state/alarm，白白浪费带宽。
     """
     base = device_topic_base()

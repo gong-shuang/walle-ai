@@ -97,7 +97,7 @@ MQTT_TLS = os.environ.get("MQTT_TLS", "on").strip().lower()  # on | auto | off
 MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE", "").strip()      # 留空则用系统 CA
 TLS_PORTS = (8883, 8084)
 
-# ---- 主题命名约定（完整主题 = walle/{tenant}/{device}/v1/{资源}）----
+# ---- 主题命名约定（完整主题 = walle/{tenant}/device/{device}/{资源}）----
 #   请求按语义命名：查询 .../query、动作 .../request、持续控制 .../set；
 #   应答统一 .../result，且**只在收到对应请求后发布**，绝不主动上报；
 #   主动上报只有 online（上线/下线）与 alarm（告警/USB 插拔）两个。
@@ -190,16 +190,16 @@ DEVICE_ID_SOURCE = ""   # device_id 的来源说明（日志 / --check 用）
 DEVICE_ID_FILE = os.environ.get("DEVICE_ID_FILE", "").strip()
 
 # ---- 多租户主题（命名规则与 Android 端 TopicNames 完全一致）----
-# 主题形如 walle/{tenant}/{device}/v1/{resource}：
+# 主题形如 walle/{tenant}/device/{device}/{resource}：
 #   tenant = MQTT_TENANT（App 登录用户名，清洗后），Broker 用 walle/${tenant}/# 做 ACL；
-#   device = 下面的 DEVICE_ID（跨重启/重装不变）。
+#   device（第 3 段）固定为字面量 device；
+#   device（第 4 段）= 下面的 DEVICE_ID（跨重启/重装不变）。
 #
 # 租户必须显式配置（= 手机 App 登录用户名），不再回退到 MQTT 用户名
 MQTT_TENANT = os.environ.get("MQTT_TENANT", "").strip()
 TOPIC_ROOT = "walle"
-# 主题协议版本段：walle/{tenant}/{device}/v1/{resource}
-# 升协议（报文结构变了）时新增 v2 段，旧设备继续用 v1，两套主题可以并存。
-PROTOCOL_VERSION = "v1"
+# 设备级主题的固定层级段：walle/{tenant}/device/{device}/{resource}
+DEVICE_SEGMENT = "device"
 
 # 设备端软件版本：环境变量优先（env_walle.sh 会 source 并 export）；
 # 未注入时读取设备端根目录（walle-device）下的 VERSION，linux-demo 与 ROS2 共用；
@@ -317,16 +317,16 @@ def validate_mqtt_config():
     return problems
 
 def device_topic_base(tenant=None, device=None):
-    """walle/{tenant}/{device}/v1"""
+    """walle/{tenant}/device/{device}"""
     t = sanitize_segment(MQTT_TENANT if tenant is None else tenant)
     d = sanitize_segment(DEVICE_ID if device is None else device)
-    return f"{TOPIC_ROOT}/{t}/{d}/{PROTOCOL_VERSION}"
+    return f"{TOPIC_ROOT}/{t}/{DEVICE_SEGMENT}/{d}"
 
 def device_topic(resource):
     return device_topic_base() + "/" + resource
 
 def tenant_topic(suffix):
-    return f"{TOPIC_ROOT}/{sanitize_segment(MQTT_TENANT)}/{PROTOCOL_VERSION}/{suffix}"
+    return f"{TOPIC_ROOT}/{sanitize_segment(MQTT_TENANT)}/{suffix}"
 
 # 请求 → 应答 的对应关系（也用于自检，保证命名成对）
 REQUEST_TO_RESULT = {
@@ -386,7 +386,7 @@ SERVO_REQUESTS = frozenset({REQ_CAR_SERVO_STATUS})
 def subscriptions():
     """本设备要订阅的主题（只有请求类 + 租户内发现广播）。
 
-    不订 walle/{t}/{d}/v1/#：MQTT 3.1.1 会把客户端自己发布的报文也投递回来，
+    不订 walle/{t}/device/{d}/#：MQTT 3.1.1 会把客户端自己发布的报文也投递回来，
     订全子树会收到自己发的 state/alarm，白白浪费带宽。
     """
     base = device_topic_base()

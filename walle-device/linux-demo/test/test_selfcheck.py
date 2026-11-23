@@ -102,7 +102,7 @@ class SelfCheckTest(unittest.TestCase):
     def test_connect_roundtrip_ok(self):
         ok, output = self._run_connect(FakeMqttClient())
         self.assertTrue(ok, output)
-        self.assertIn("walle/home/dev1-check/v1/selfcheck", output)
+        self.assertIn("walle/home/device/dev1-check/selfcheck", output)
         self.assertIn("回环消息：成功", output)
 
     def test_connect_without_delivery_fails(self):

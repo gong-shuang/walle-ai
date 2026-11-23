@@ -1,16 +1,17 @@
 package www.walle.ai.net;
 
 /**
- * 多租户 MQTT 主题（协议 v1）的命名规则。
+ * 多租户 MQTT 主题的命名规则。
  *
  * <p>把租户与设备编码进主题路径，Broker 就能按 {@code walle/${username}/#} 做 ACL：</p>
  * <pre>
- * walle/{tenant}/{device}/v1/{资源}
+ * walle/{tenant}/device/{device}/{资源}
  * </pre>
  * <ul>
  *   <li>{@code tenant}：租户标识，默认取 MQTT 用户名（同一账号 = 同一租户），
  *       这样 Broker 端可以直接用 {@code walle/${username}/#} 做 ACL；</li>
- *   <li>{@code device}：<b>稳定</b>的设备标识（{@code device_id}，回退 hostname、最后 uuid），
+ *   <li>{@code device}（第 3 段）：固定字面量 {@code device}，与租户级广播区分；</li>
+ *   <li>{@code device}（第 4 段）：<b>稳定</b>的设备标识（{@code device_id}，回退 hostname、最后 uuid），
  *       不能用每次重启都会变的 uuid；</li>
  *   <li>{@code 资源}：请求按语义命名 —— 查询用 {@code .../query}、
  *       动作用 {@code .../request}（推流）、持续控制用 {@code .../set}（车控）；
@@ -18,8 +19,8 @@ package www.walle.ai.net;
  *       主动上报只有 {@code online} 与 {@code alarm}。</li>
  * </ul>
  *
- * <p>示例：{@code walle/home/666feb85d43410b2/state/query} →
- * {@code walle/home/666feb85d43410b2/state/result}。</p>
+ * <p>示例：{@code walle/home/device/666feb85d43410b2/state/query} →
+ * {@code walle/home/device/666feb85d43410b2/state/result}。</p>
  *
  * <p>本类只做字符串拼装与解析，不依赖 Android，方便单测。任何一段都必须满足
  * {@code [A-Za-z0-9_-]{1,64}}，否则会被 {@link #sanitize(String)} 清洗或替换成哈希，
@@ -30,11 +31,11 @@ public final class TopicNames {
     /** 所有主题的根前缀。 */
     public static final String ROOT = "walle";
 
-    /**
-     * 主题协议版本段：{@code walle/{tenant}/{device}/v1/{resource}}。
-     * <p>报文结构升级时新增 v2 段，旧设备继续用 v1，两套主题可以并存。</p>
-     */
-    public static final String PROTOCOL_VERSION = "v1";
+    /** 设备级主题的固定层级段：{@code walle/{tenant}/device/{device}/{resource}}。 */
+    public static final String DEVICE_SEGMENT = "device";
+
+    /** 租户级设备发现主题的资源段（没有 device 段）。 */
+    private static final String DISCOVERY_QUERY = "discovery/query";
 
     private static final int MAX_SEGMENT = 64;
 
@@ -106,14 +107,14 @@ public final class TopicNames {
 
     // ---------------------------------------------------------------- 拼装
 
-    /** 设备子树前缀：{@code walle/{tenant}/{device}/v1} */
+    /** 设备子树前缀：{@code walle/{tenant}/device/{device}} */
     public static String deviceBase(String tenant, String device) {
-        return ROOT + "/" + sanitize(tenant) + "/" + sanitize(device) + "/" + PROTOCOL_VERSION;
+        return ROOT + "/" + sanitize(tenant) + "/" + DEVICE_SEGMENT + "/" + sanitize(device);
     }
 
-    /** 租户级广播：设备发现（App → 设备），{@code walle/{tenant}/v1/discovery/query}。 */
+    /** 租户级广播：设备发现（App → 设备），{@code walle/{tenant}/discovery/query}。 */
     public static String discoveryQuery(String tenant) {
-        return ROOT + "/" + sanitize(tenant) + "/" + PROTOCOL_VERSION + "/discovery/query";
+        return ROOT + "/" + sanitize(tenant) + "/" + DISCOVERY_QUERY;
     }
 
     // ================= 设备 → App =================
@@ -179,7 +180,7 @@ public final class TopicNames {
      * 白白浪费带宽并干扰排查。</p>
      */
     public static String[] responseSubscriptions(String tenant) {
-        String base = ROOT + "/" + sanitize(tenant) + "/+/" + PROTOCOL_VERSION;
+        String base = ROOT + "/" + sanitize(tenant) + "/" + DEVICE_SEGMENT + "/+";
         return new String[]{
                 base + "/online",                  // 主动上报
                 base + "/alarm",                   // 主动上报
@@ -252,10 +253,10 @@ public final class TopicNames {
     // ---------------------------------------------------------------- 解析
 
     /**
-     * 拆解主题：{@code walle/{tenant}/{device}/v1/{resource...}}。
+     * 拆解主题：{@code walle/{tenant}/device/{device}/{resource...}}。
      *
      * @return 解析成功返回 {@code [tenant, device, resource]}（resource 可能含 {@code /}）；
-     *         不是本协议主题、版本段不符或段数不足时返回 {@code null}
+     *         不是本协议主题、缺少 {@code device} 层级段或段数不足时返回 {@code null}
      */
     public static String[] parse(String topic) {
         if (!isNamespaced(topic)) return null;
@@ -263,16 +264,15 @@ public final class TopicNames {
         if (parts.length < 5 || parts[2].isEmpty() || parts[3].isEmpty() || parts[4].isEmpty()) {
             return null;
         }
-        // 租户级发现主题 walle/{tenant}/v1/discovery/query 没有 device 段，
-        // 不能解析成 device="v1"、resource="discovery/query"。
-        if (PROTOCOL_VERSION.equals(parts[2]) && !PROTOCOL_VERSION.equals(parts[3])) return null;
-        if (!PROTOCOL_VERSION.equals(parts[3])) return null;
-        return new String[]{parts[1], parts[2], parts[4]};
+        // 租户级发现主题 walle/{tenant}/discovery/query 没有 device 段：
+        // 第 3 段必须是固定的 "device"，否则不当作设备主题。
+        if (!DEVICE_SEGMENT.equals(parts[2])) return null;
+        return new String[]{parts[1], parts[3], parts[4]};
     }
 
     /**
      * 从主题里取出资源段（不含租户与设备），用于分发：
-     * {@code walle/t/d/v1/state/result} → {@code state/result}；{@code walle/t/d/v1/capability/result} → {@code capability/result}。
+     * {@code walle/t/device/d/state/result} → {@code state/result}；{@code walle/t/device/d/capability/result} → {@code capability/result}。
      */
     public static String resourceOf(String topic) {
         String[] p = parse(topic);

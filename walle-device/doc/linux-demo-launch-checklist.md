@@ -75,7 +75,7 @@
   - 证据：`doc/service_deploy.md` §10、§10.1；`main.py` 的 `verify_uuid` / `build_device_info` / `discovery/query`
 
 - [ ] 🟡 **P0-1.4 Broker 按设备 ACL + 动作审计**
-  - 现状：`doc/service_deploy.md` §10 已补每设备独立账号、`walle/+/${clientid}/#` 规则与 `{deny, all}.`；§10.2 已补 EMQX 规则引擎审计（来源账号/clientid/topic/payload/timestamp → `walle/audit/...`），设备日志可按 `request_id` 关联结果；服务端尚未实际配置验证
+  - 现状：`doc/service_deploy.md` §10 已补每设备独立账号、`walle/+/device/${clientid}/#` 规则与 `{deny, all}.`；§10.2 已补 EMQX 规则引擎审计（来源账号/clientid/topic/payload/timestamp → `walle/audit/...`），设备日志可按 `request_id` 关联结果；服务端尚未实际配置验证
   - 动作：按 §10 / §10.1 / §10.2 在 EMQX 落地并复测；设备侧保持动作结果日志
   - 验收：A 账号无法订阅/发布 B 主题；触发一次 video/phone audio 动作后 `walle/audit/#` 收到来源与时间；`journalctl -u walle-ai | grep <request_id>` 可还原结果
   - 证据：`doc/service_deploy.md` §10、§10.1、§10.2、§11 第 9-11 项
@@ -350,7 +350,7 @@
 ### P2-4 调试工具
 
 - [x] ✅ **P2-4.1 `--check` 增加连接诊断**
-  - 处理：`check_connect()` 在原有 DNS/TCP/TLS/CONNACK 基础上增加订阅回执（SUBACK）与发布回执（PUBACK），并向临时主题 `walle/{tenant}/{device_id}-check/v1/selfcheck` 发布一次性 nonce，收到 Broker 回投才判成功；临时 clientId `<device_id>-check` 不踢线上服务，主题按该 clientId 生成以匹配 `walle/+/${clientid}/#` ACL；失败提示区分登录失败/订阅被拒/发布被拒/回投未收到（提示 EMQX `deny_action=ignore` 的影响）
+  - 处理：`check_connect()` 在原有 DNS/TCP/TLS/CONNACK 基础上增加订阅回执（SUBACK）与发布回执（PUBACK），并向临时主题 `walle/{tenant}/device/{device_id}-check/selfcheck` 发布一次性 nonce，收到 Broker 回投才判成功；临时 clientId `<device_id>-check` 不踢线上服务，主题按该 clientId 生成以匹配 `walle/+/device/${clientid}/#` ACL；失败提示区分登录失败/订阅被拒/发布被拒/回投未收到（提示 EMQX `deny_action=ignore` 的影响）
   - 验收：新增 3 项用例（回投成功、回投缺失、订阅被拒），全套 56 项通过；`--check --connect` 本机无 Broker 时 DNS 失败返回 1；真实 EMQX 账号/ACL 待现场验证
   - 证据：`ld_selfcheck.py`、`main.py`、`README.md`「4. 自检」；`test/test_selfcheck.py`
 
@@ -406,7 +406,7 @@ git log --all -p --text | grep -nE "MQTT_PASSWORD=|WHIP_SECRET=|sk-[A-Za-z0-9]{1
 
 # 5) 远程命令应无响应（整改后执行；需 mosquitto_pub）
 mosquitto_pub -h <broker> -p 8883 --cafile <ca> -u <user> -P <password> \
-  -t "walle/<tenant>/<device>/v1/cmd/exec" \
+  -t "walle/<tenant>/device/<device>/cmd/exec" \
   -m '{"uuid":"<uuid>","cmd":"id"}'
 # 期望：设备日志无「执行远程命令」，App 收不到 cmd/result
 
@@ -459,7 +459,7 @@ python3 walle-device/linux-demo/main.py --check
 - 2026-11-10：新增 `inject_request.py` 本地注入工具，默认只发只读查询、支持 `--dry-run`，
   uuid 从 retained online 读取，结果按 request_id 匹配（P2-4.2）。
 - 2026-11-10：`--check --connect` 增加订阅/发布回执与 nonce 回投验证，临时主题
-  `walle/{tenant}/{device_id}-check/v1/selfcheck`，可一条命令区分登录/ACL 问题（P2-4.1）。
+  `walle/{tenant}/device/{device_id}-check/selfcheck`，可一条命令区分登录/ACL 问题（P2-4.1）。
 - 2026-11-10：手机音频首帧超时与启动宽限改为环境变量（默认 8s / 2s），主进程等待
   `首帧超时 + 启动宽限`，弱网可延长首帧超时（P2-3.7）。
 - 2026-11-10：设备标识默认放 `/var/lib/walle-ai/device-id`，deploy.sh 创建目录并迁移旧
@@ -543,7 +543,7 @@ python3 walle-device/linux-demo/main.py --check
   鉴权，设备端生成 5 分钟 token（`PHONE_AUDIO_WHEP_SECRET` / `PHONE_AUDIO_WHEP_PATH` /
   `PHONE_AUDIO_WHEP_TOKEN_TTL`）；无 token 403、过期 410。P0-4.1 待服务端实测。
 - 2026-11-10：`doc/service_deploy.md` §10 已补每设备 MQTT ACL
-  （`walle/+/${clientid}/#`、discovery、`{deny, all}.`）与动作审计
+  （`walle/+/device/${clientid}/#`、discovery、`{deny, all}.`）与动作审计
   （EMQX 规则引擎 → `walle/audit/...`）；P0-1.3 / P0-1.4 待服务端落地验证。
 - 2026-11-10：linux-demo 删除推流/拉流地址中的生产域名默认值，模板改为显式配置；
   空模板时仅告警并在 video/phone audio 动作入口返回 -2，完整模板时校验占位符与

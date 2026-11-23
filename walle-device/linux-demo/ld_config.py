@@ -118,7 +118,7 @@ MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE", "").strip()      # 留空则用系
 # MQTT 断连超过该秒数后停止推流/手机音频（App 已无法控制，避免一直占用外设）；0 = 不断流
 MQTT_DISCONNECT_STOP_SEC = int(os.environ.get("MQTT_DISCONNECT_STOP_SEC", "60"))
 
-# ---- 主题命名约定（完整主题 = walle/{tenant}/{device}/v1/{资源}）----
+# ---- 主题命名约定（完整主题 = walle/{tenant}/device/{device}/{资源}）----
 #   请求按语义命名：查询 .../query、动作 .../request；
 #   应答统一 .../result，且**只在收到对应请求后发布**，绝不主动上报；
 #   主动上报只有 online（上线/下线）与 alarm（告警/USB 插拔）两个。
@@ -168,15 +168,15 @@ DEVICE_ID_SOURCE = ""   # device_id 的来源说明（日志 / --check 用）
 DEVICE_ID_FILE = os.environ.get("DEVICE_ID_FILE", "").strip()
 
 # ---- 多租户主题（命名规则与 Android 端 TopicNames 完全一致）----
-# 主题形如 walle/{tenant}/{device}/v1/{resource}：
+# 主题形如 walle/{tenant}/device/{device}/{resource}：
 #   tenant = MQTT 用户名（清洗后），Broker 用 walle/${username}/# 做 ACL；
-#   device = 下面的 DEVICE_ID（跨重启/重装不变）。
+#   device（第 3 段）固定为字面量 device；
+#   device（第 4 段）= 下面的 DEVICE_ID（跨重启/重装不变）。
 #
 MQTT_TENANT = os.environ.get("MQTT_TENANT", "").strip()
 TOPIC_ROOT = "walle"
-# 主题协议版本段：walle/{tenant}/{device}/v1/{resource}
-# 升协议（报文结构变了）时新增 v2 段，旧设备继续用 v1，两套主题可以并存。
-PROTOCOL_VERSION = "v1"
+# 设备级主题的固定层级段：walle/{tenant}/device/{device}/{resource}
+DEVICE_SEGMENT = "device"
 
 
 def validate_config():

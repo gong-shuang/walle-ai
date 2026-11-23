@@ -341,7 +341,7 @@ Dashboard → **访问控制 → 认证（Authentication）** → 创建认证�
 | `home`    | 手机 App 登录 | **它同时是租户名**；请改成 App 实际登录的用户名   |
 | `RaspPi5` | 树莓派设备账号   | 每台设备一个账号更安全；名字随意，需与 ACL 里的正则一致 |
 
-> `walle/{tenant}/{device}/v1/...` 里，`tenant` = App 的用户名，`device` = 设备的 `device_id`（16 位十六进制，由 `main.py` 生成）。
+> `walle/{tenant}/device/{device}/...` 里，`tenant` = App 的用户名，`device` = 设备的 `device_id`（16 位十六进制，由 `main.py` 生成）。
 > 两边不一致时 App 收不到设备，这是最常见的“设备在线但列表空”的原因。
 > 多设备部署时建议每台设备单独建账号 `dev_<device_id>`，并同步修改 §10 的设备账号正则；`RaspPi5` 仅为单设备示例。
 
@@ -356,7 +356,7 @@ apt install -y mosquitto-clients
 
 # 用设备账号发布到自己的子树（把 <clientid> 换成设备 device_id，必须与 -i 一致）
 mosquitto_pub -h SERVER_IP -p 1883 -u RaspPi5 -P '设备密码' -i '<clientid>' \
-  -t 'walle/home/<clientid>/v1/online' -m '{"online":true}' -d
+  -t 'walle/home/device/<clientid>/online' -m '{"online":true}' -d
 
 # 用 App 账号订阅租户整棵子树，应能收到上面的消息
 mosquitto_sub -h SERVER_IP -p 1883 -u home -P 'App密码' -t 'walle/home/#' -v -C 1
@@ -391,14 +391,14 @@ openssl s_client -connect www.example.com:8883 -servername www.example.com </dev
 # 2) 用设备账号走 TLS 发布（--tls-use-os-certs 用系统 CA 校验，模拟 App/设备端行为）
 mosquitto_pub -h www.example.com -p 8883 --tls-use-os-certs \
   -u RaspPi5 -P '设备密码' -i '<clientid>' \
-  -t 'walle/home/<clientid>/v1/online' -m '{"online":true}' -d
+  -t 'walle/home/device/<clientid>/online' -m '{"online":true}' -d
 ```
 
 若 `--tls-use-os-certs` 不被 mosquitto 版本支持，改成：
 
 ```bash
 mosquitto_pub -h www.example.com -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
-  -u RaspPi5 -P '设备密码' -i '<clientid>' -t 'walle/home/<clientid>/v1/online' -m '{}' -d
+  -u RaspPi5 -P '设备密码' -i '<clientid>' -t 'walle/home/device/<clientid>/online' -m '{}' -d
 ```
 
 > App 端默认就是 **8883 + 系统 CA**（`walle-android/app/build.gradle` 的 `MQTT_DEFAULT_PORT=8883`），设备端在 `/etc/walle-ai.conf` 里设 `MQTT_PORT=8883`、`MQTT_TLS=on`（生产强制 TLS，`off` 仅 `WALLE_RUNTIME_ENV=debug` 允许）。
@@ -421,10 +421,10 @@ Dashboard → **访问控制 → 授权（Authorization）** → 添加 **File**
 %% 设备：只读写自己的子树，并能收到租户内的发现广播
 %% 每台设备一个独立账号，建议命名 dev_<device_id>
 {allow, {username, {re, "^dev_[A-Za-z0-9_-]+$"}}, publish,
-       ["walle/+/${clientid}/#"]}.
+       ["walle/+/device/${clientid}/#"]}.
 {allow, {username, {re, "^dev_[A-Za-z0-9_-]+$"}}, subscribe,
-       ["walle/+/${clientid}/#",
-        "walle/+/v1/discovery/query"]}.
+       ["walle/+/device/${clientid}/#",
+        "walle/+/discovery/query"]}.
 
 %% 未命中一律拒绝；保留 EMQX 自带的 $SYS 规则，不要覆盖删除
 {deny, all}.
@@ -439,14 +439,14 @@ Dashboard → **访问控制 → 授权（Authorization）** → 添加 **File**
 | --- | --- |
 | `{username, {re, "^home$"}}` | 匹配 App 账号（正则全匹配）；`all` = 既可发布也可订阅 |
 | `walle/home/#` | 该租户的整棵子树（`#` 只能出现在末尾） |
-| `walle/+/${clientid}/#` | 设备只能访问自己 `clientid` 对应的设备子树；`+` 为租户段通配 |
-| `walle/+/v1/discovery/query` | 设备接收租户内发现广播所必需 |
+| `walle/+/device/${clientid}/#` | 设备只能访问自己 `clientid` 对应的设备子树；`+` 为租户段通配 |
+| `walle/+/discovery/query` | 设备接收租户内发现广播所必需 |
 | `publish` / `subscribe` | 分别控制发布与订阅 |
 | `{deny, all}.` | 未命中规则一律拒绝 |
 
 > - **每台设备一个账号**（如 `dev_3f2a...`），不要把多台设备共用一个 `RaspPi5`；设备端 `MQTT_USERNAME` 填自己的账号。
 > - `clientid` 必须等于设备 `device_id`（`main.py` 已用 `device_id` 作为 clientid），否则 `${clientid}` 展开后与主题对不上。
-> - 如果只允许固定租户，把 `walle/+/${clientid}/#` 改为 `walle/home/${clientid}/#`，发现主题改为 `walle/home/v1/discovery/query`。
+> - 如果只允许固定租户，把 `walle/+/device/${clientid}/#` 改为 `walle/home/device/${clientid}/#`，发现主题改为 `walle/home/discovery/query`。
 > - 修改后保存即热加载，无需重启。
 
 ### 10.1 验证 ACL（两台设备 + App）
@@ -458,15 +458,15 @@ mosquitto_sub -h www.example.com -p 8883 --tls-use-os-certs -u home -P 'App密�
 
 # 允许：设备 A 发布自己的 online（-i 必须等于 A 的 device_id）
 mosquitto_pub -h www.example.com -p 8883 --tls-use-os-certs -u dev_A -P 'A密码' \
-  -i '<A_clientid>' -t 'walle/home/<A_clientid>/v1/online' -m '{"online":true}' -d
+  -i '<A_clientid>' -t 'walle/home/device/<A_clientid>/online' -m '{"online":true}' -d
 
 # 拒绝：设备 A 订阅设备 B 的子树（应无 SUBACK / 收不到消息 / 被断开）
 timeout 5 mosquitto_sub -h www.example.com -p 8883 --tls-use-os-certs \
-  -u dev_A -P 'A密码' -i '<A_clientid>' -t 'walle/home/<B_clientid>#' -v -d
+  -u dev_A -P 'A密码' -i '<A_clientid>' -t 'walle/home/device/<B_clientid>#' -v -d
 
 # 拒绝：设备 A 发布到设备 B 的主题
 mosquitto_pub -h www.example.com -p 8883 --tls-use-os-certs -u dev_A -P 'A密码' \
-  -i '<A_clientid>' -t 'walle/home/<B_clientid>/v1/online' -m '{"online":true}' -d
+  -i '<A_clientid>' -t 'walle/home/device/<B_clientid>/online' -m '{"online":true}' -d
 ```
 
 > 第三条/第四条如果成功，说明 ACL 未生效：检查 File 授权源是否排第一、用户名正则是否与实际账号一致、`clientid` 是否等于 `device_id`。
@@ -481,10 +481,10 @@ Dashboard → **数据集成 → 规则** → 新建规则：
 ```sql
 SELECT username, clientid, topic, payload, timestamp
 FROM
-  "walle/+/+/v1/video/start/request",
-  "walle/+/+/v1/video/stop/request",
-  "walle/+/+/v1/phone/audio/send",
-  "walle/+/+/v1/phone/audio/stop"
+  "walle/+/device/+/video/start/request",
+  "walle/+/device/+/video/stop/request",
+  "walle/+/device/+/phone/audio/send",
+  "walle/+/device/+/phone/audio/stop"
 ```
 
 动作选择 **消息重发布（Republish）**：
@@ -548,7 +548,7 @@ journalctl -u walle-ai | grep '<request_id>'
 | 有信令、无画面/无声音                            | **UDP 8000 没放行**                           | 安全组 / `ss -lunp`                           |
 | App 报 WHEP 证书校验失败                      | 自签证书或 SAN 不匹配                              | §6 的 openssl 校验                            |
 | App 连不上 MQTT                           | 8883 未配证书 / 端口没开 / 密码错                     | §9、`openssl s_client`                      |
-| 设备在线但 App 列表为空                         | 租户（App 用户名）与设备 `MQTT_TENANT` 不一致           | 对照 `walle/{tenant}/{device}`               |
+| 设备在线但 App 列表为空                         | 租户（App 用户名）与设备 `MQTT_TENANT` 不一致           | 对照 `walle/{tenant}/device/{device}`               |
 | 设备能连但发布被拒                              | ACL 正则与账号不符，或 `clientid` 不等于 `device_id`   | §10                                        |
 | 设备 A 能订阅/发布到设备 B 的主题                    | ACL 未生效、File 授权源顺序不对，或未加 `{deny, all}.`     | §10.1                                      |
 | `walle/audit/#` 没有审计消息                   | 规则未启用、SQL 主题不匹配、动作未配置                     | §10.2                                      |

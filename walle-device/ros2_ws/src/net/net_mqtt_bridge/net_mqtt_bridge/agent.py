@@ -9,8 +9,8 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 2. 响应设备身份查询、状态查询、摄像头能力查询、推流/停止推流。
 3. 上线/下线：retained + 遗嘱（LWT），App 重启或重连后能立刻看到设备在线状态。
 
-协议：多租户主题 v1
-    所有主题都在 walle/{tenant}/{device}/v1/ 下展开，租户 = MQTT_TENANT（与手机 App 登录用户名一致），
+协议：多租户主题
+    所有主题都在 walle/{tenant}/device/{device}/ 下展开，租户 = MQTT_TENANT（与手机 App 登录用户名一致），
     device 用稳定的 device_id：首次启动按「MAC + CPU 核心数 + 内存 GiB」算 md5 前 16 位，
     之后落盘复用（resolve_device_id），不会因为 MemTotal 的 KiB 级浮动而漂移。
 
@@ -34,7 +34,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     不订通配子树（避免收到自己发布的上报报文）。
 
 安全：所有请求报文必须带匹配的 uuid（本次运行实例标识），否则静默忽略；
-      设备连接用独立 MQTT 账号，Broker 侧按 walle/${clientid}/# 授权。
+      设备连接用独立 MQTT 账号，Broker 侧按 walle/{tenant}/device/${clientid}/# 授权。
 
 依赖：pip install -r requirements.txt  （paho-mqtt>=2.0、psutil）
      摄像头能力探测需 v4l-utils，推流需 ffmpeg。
@@ -199,7 +199,7 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, SensorAlarmMixin, CapabilityMixin,
                   "至少配置 MQTT_HOST / MQTT_USERNAME / MQTT_PASSWORD / MQTT_TENANT；"
                   "生产环境保持 TLS（MQTT_PORT=8883、MQTT_TLS=on）。")
         logging.info("设备 %s (%s) 启动监控，采样周期 %ss", config.DEVICE_ID, self.lan_ip, config.MONITOR_INTERVAL)
-        logging.info("协议 v1: tenant=%s device=%s broker=%s:%s",
+        logging.info("协议主题: tenant=%s device=%s broker=%s:%s",
                      config.sanitize_segment(config.MQTT_TENANT), config.sanitize_segment(config.DEVICE_ID),
                      config.MQTT_HOST, MQTT_PORT)
         if config.sanitize_segment(config.MQTT_TENANT) == config.sanitize_segment(config.MQTT_USER):
@@ -221,7 +221,7 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, SensorAlarmMixin, CapabilityMixin,
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
                                   client_id=config.DEVICE_ID, clean_session=True)
         self.client.username_pw_set(config.MQTT_USER, config.MQTT_PASSWORD)
-        # 遗嘱：异常掉线时 broker 代发 offline 到 walle/{tenant}/{device}/v1/online
+        # 遗嘱：异常掉线时 broker 代发 offline 到 walle/{tenant}/device/{device}/online
         # （遗嘱必须在 connect 前设置，因此里面的静态信息取自启动时刻）
         will_topic, will_payload = self._will_message()
         self.client.will_set(
@@ -301,7 +301,7 @@ def print_config_check():
     if config.DEVICE_ID.startswith("<"):
         print("  订阅主题 : （设备号计算失败，跳过拼接；在树莓派上运行可正常计算）")
     else:
-        print(f"  主题前缀 : walle/{config.sanitize_segment(config.MQTT_TENANT)}/{config.DEVICE_ID}/")
+        print(f"  主题前缀 : walle/{config.sanitize_segment(config.MQTT_TENANT)}/device/{config.DEVICE_ID}/")
         print("  订阅主题 :")
         for topic, _qos in config.subscriptions():
             print(f"    - {topic}")

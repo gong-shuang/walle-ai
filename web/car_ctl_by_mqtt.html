@@ -735,8 +735,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     return v || 'unknown';
   }
   function tenant() { return sanitize(cfg.user); }
-  function base(dev) { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/' + sanitize(dev) + '/v1'; }
-  function topicRoot() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/v1'; }
+  function base(dev) { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/device/' + sanitize(dev); }
+  function topicRoot() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/device'; }
   function rid() { return Math.random().toString(16).slice(2, 10); }
   function nowTime() { return new Date().toLocaleTimeString('zh-CN', { hour12: false }); }
   function serverBase() {
@@ -903,8 +903,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     try { data = JSON.parse(text); } catch (e) {}
     this.opts.onMessage(topic, data, retain);
   };
-  function subBase() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/+/v1/'; }
-  function discoveryTopic() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/v1/discovery/query'; }
+  function subBase() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/device/+/'; }
+  function discoveryTopic() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/discovery/query'; }
   var SUBS = ['online', 'discovery/result', 'state/result', 'capability/result',
     'video/start/result', 'video/stop/result', 'car/motor/result',
     'car/servo/status/result', 'car/servo/result', 'alarm',
@@ -970,7 +970,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
   function devOf(topic) {
     var parts = topic.split('/');
-    return parts.length >= 5 ? parts[2] : '';
+    return parts.length >= 5 && parts[2] === 'device' ? parts[3] : '';
   }
   function discover() {
     if (!mqtt || !mqtt.connected) return;

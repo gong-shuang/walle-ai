@@ -119,8 +119,8 @@ def test_subscriptions_are_device_scoped_without_wildcards():
 
 def test_device_topic_base_sanitizes_segments():
     assert agent.device_topic_base(
-        "user@example.com", "dev:1") == "walle/user_example_com/dev_1/v1"
-    assert agent.device_topic_base("", "") == "walle/unknown/unknown/v1"
+        "user@example.com", "dev:1") == "walle/user_example_com/device/dev_1"
+    assert agent.device_topic_base("", "") == "walle/unknown/device/unknown"
 
 
 def test_car_motor_topics_and_realtime_dispatch_registered():

@@ -20,11 +20,11 @@ class InjectRequestTest(unittest.TestCase):
             items = inject.build_requests(["state/query", "capability/query"],
                                           "uuid-1", request_id="rid-1")
         self.assertEqual([item[0] for item in items],
-                         ["walle/home/dev1/v1/state/query",
-                          "walle/home/dev1/v1/capability/query"])
+                         ["walle/home/device/dev1/state/query",
+                          "walle/home/device/dev1/capability/query"])
         self.assertEqual([item[2] for item in items],
-                         ["walle/home/dev1/v1/state/result",
-                          "walle/home/dev1/v1/capability/result"])
+                         ["walle/home/device/dev1/state/result",
+                          "walle/home/device/dev1/capability/result"])
         self.assertEqual(items[0][1], {"uuid": "uuid-1", "request_id": "rid-1"})
 
     def test_build_video_start_payload(self):
@@ -46,7 +46,7 @@ class InjectRequestTest(unittest.TestCase):
                               "--action", "video/start", "--room-number", "demo"])
         self.assertEqual(rc, 0)
         text = out.getvalue()
-        self.assertIn("walle/home/dev1/v1/video/start/request", text)
+        self.assertIn("walle/home/device/dev1/video/start/request", text)
         self.assertIn("<device_uuid>", text)
 
     def test_missing_room_number_rejected(self):

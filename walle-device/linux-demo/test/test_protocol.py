@@ -42,12 +42,12 @@ class TopicTest(unittest.TestCase):
     def test_device_topic_and_subscriptions(self):
         with mock.patch.multiple(config, MQTT_TENANT="t.1", DEVICE_ID="dev-1"):
             self.assertEqual(main.device_topic("state/query"),
-                             "walle/t_1/dev-1/v1/state/query")
+                             "walle/t_1/device/dev-1/state/query")
             self.assertEqual(main.tenant_topic("discovery/query"),
-                             "walle/t_1/v1/discovery/query")
+                             "walle/t_1/discovery/query")
             topics = [topic for topic, _qos in main.subscriptions()]
         self.assertEqual(len(topics), 7)
-        self.assertIn("walle/t_1/v1/discovery/query", topics)
+        self.assertIn("walle/t_1/discovery/query", topics)
 
     def test_request_result_pairs(self):
         for req, res in main.REQUEST_TO_RESULT.items():

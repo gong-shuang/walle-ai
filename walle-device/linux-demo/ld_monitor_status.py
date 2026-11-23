@@ -358,7 +358,7 @@ class MonitorStatusMixin:
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
                                   client_id=config.DEVICE_ID, clean_session=True)
         self.client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
-        # 遗嘱：异常掉线时 broker 代发 offline 到 walle/{tenant}/{device}/v1/online
+        # 遗嘱：异常掉线时 broker 代发 offline 到 walle/{tenant}/device/{device}/online
         # （遗嘱必须在 connect 前设置，因此里面的静态信息取自启动时刻）
         will_topic, will_payload = self._will_message()
         self.client.will_set(

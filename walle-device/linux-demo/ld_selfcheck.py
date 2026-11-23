@@ -61,12 +61,12 @@ def check_connect(timeout=5.0):
     """DNS/TCP/TLS/MQTT 登录/订阅回执/发布回环验证。返回是否全部成功。
 
     回环验证用一次性 nonce：订阅并发布到本设备账号可访问的临时主题
-    ``walle/{tenant}/{device_id}-check/v1/selfcheck``，收到回投说明
+    ``walle/{tenant}/device/{device_id}-check/selfcheck``，收到回投说明
     「账号 + ACL（publish/subscribe）+ Broker 转发」整条链路可用。
 
     临时 clientId 为 ``<device_id>-check``：不会把正在运行的服务踢下线；
     主题按该 clientId 生成，与 service_deploy.md §10 的
-    ``walle/+/${clientid}/#`` ACL 规则一致。
+    ``walle/+/device/${clientid}/#`` ACL 规则一致。
     """
     host, port = config.MQTT_HOST, config.MQTT_PORT
     print("\n== 连接检查 ==")

@@ -43,7 +43,7 @@
   - 验收：无 `/etc/walle-ai.conf` 时 `net_mqtt_bridge` 构造即报错退出，`agent.py --check` 输出缺失项；TLS 强制开启，抓包无明文 MQTT 报文
 
 - [ ] 🔴 **P0-1.5 Broker 按设备 ACL + 请求审计**
-  - 动作：每台设备独立 MQTT 账号，仅允许读写 `walle/{tenant}/{device}/#`；对状态、视频、音频等动作请求记录来源、结果、时间
+  - 动作：每台设备独立 MQTT 账号，仅允许读写 `walle/{tenant}/device/{device}/#`；对状态、视频、音频等动作请求记录来源、结果、时间
   - 验收：设备 A 的账号无法订阅/发布设备 B 的主题；关键动作可追溯
 
 ### P0-2 ROS 网络暴露面

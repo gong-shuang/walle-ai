@@ -78,7 +78,7 @@ class RpiMonitorBase:
         self.disconnected_at = None  # 断连起始时间；用于长时间断连后回收推流/播放
 
     def _will_message(self):
-        """遗嘱消息：掉线时由 broker 代发 offline 到 walle/{t}/{d}/v1/online。"""
+        """遗嘱消息：掉线时由 broker 代发 offline 到 walle/{t}/device/{d}/online。"""
         return device_topic(RES_ONLINE), self.build_online_payload(False)
 
     # ---------- MQTT 回调 ----------
@@ -153,7 +153,7 @@ class RpiMonitorBase:
         }
 
     def publish_json(self, resource, data, retain=False, wait_timeout=None):
-        """按资源名发布到 walle/{tenant}/{device}/v1/{resource}。
+        """按资源名发布到 walle/{tenant}/device/{device}/{resource}。
 
         参数 resource 用模块顶部的 RES_* 常量，例如 RES_ALARM / RES_STATE_RESULT。
         返回 False 表示未送达（未连接/队列满等），调用方无需处理，但日志会留下警告。
@@ -180,17 +180,16 @@ class RpiMonitorBase:
         """把请求分发到对应处理函数。
 
         注意两种主题层级不同：
-          · 设备级请求：walle/{tenant}/{device}/v1/{resource}   （5 段）
-          · 发现广播  ：walle/{tenant}/v1/discovery/query         （4 段，没有 device 段）
-        早期实现统一按 4 段切分，导致 discovery 被解析成 device="discovery"、
-        resource="query"，匹配不到处理函数而被静默忽略 —— 设备永远不会应答发现。
+          · 设备级请求：walle/{tenant}/device/{device}/{resource}   （至少 5 段）
+          · 发现广播  ：walle/{tenant}/discovery/query               （4 段，没有 device 段）
+        发现主题先按完整主题特判；其余主题第 3 段必须是固定的 device。
         """
         if topic == tenant_topic(REQ_DISCOVERY):
             self._submit_request("query", self.handle_device_query, payload)
             return
 
         parts = topic.split("/", 4)
-        if len(parts) < 5 or parts[3] != PROTOCOL_VERSION:
+        if len(parts) < 5 or parts[2] != DEVICE_SEGMENT:
             logging.warning("忽略无法解析的主题: %s", topic)
             return
         resource = parts[4]

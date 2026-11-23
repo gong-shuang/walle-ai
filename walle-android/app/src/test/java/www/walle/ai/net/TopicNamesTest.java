@@ -17,7 +17,7 @@ public class TopicNamesTest {
 
     private static final String TENANT = "home";
     private static final String DEVICE = "666feb85d43410b2";
-    private static final String BASE = "walle/home/666feb85d43410b2/v1";
+    private static final String BASE = "walle/home/device/666feb85d43410b2";
 
     @Test
     public void sanitizeKeepsAllowedChars() {
@@ -50,7 +50,7 @@ public class TopicNamesTest {
         assertEquals(BASE + "/capability/query", TopicNames.capabilityQuery(TENANT, DEVICE));
         assertEquals(BASE + "/video/start/request", TopicNames.videoStartRequest(TENANT, DEVICE));
         assertEquals(BASE + "/video/stop/request", TopicNames.videoStopRequest(TENANT, DEVICE));
-        assertEquals("walle/home/v1/discovery/query", TopicNames.discoveryQuery(TENANT));
+        assertEquals("walle/home/discovery/query", TopicNames.discoveryQuery(TENANT));
     }
 
     @Test
@@ -99,7 +99,8 @@ public class TopicNamesTest {
         assertEquals(10, subs.length);
         for (String s : subs) {
             assertTrue("不应订通配子树: " + s, !s.endsWith("/#"));
-            assertTrue("订阅必须以 walle/home/+/v1 开头: " + s, s.startsWith("walle/home/+/v1"));
+            assertTrue("订阅必须以 walle/home/device/+ 开头: " + s,
+                    s.startsWith("walle/home/device/+"));
         }
         String joined = String.join(",", subs);
         for (String expected : new String[]{
@@ -121,12 +122,14 @@ public class TopicNamesTest {
         assertEquals("state/result", p[2]);
 
         // 租户级发现主题没有 device 段，不应被当成设备主题解析
-        assertNull(TopicNames.parse("walle/home/v1/discovery/query"));
+        assertNull(TopicNames.parse("walle/home/discovery/query"));
+        // 旧版带 v1 版本段的主题已废弃，不兼容
+        assertNull(TopicNames.parse("walle/home/666feb85d43410b2/v1/state/query"));
         assertNull(TopicNames.parse("device/online"));
         assertNull(TopicNames.parse(null));
 
         // 设备名恰好是 discovery 时，带资源的主题仍应正常解析
-        String[] devDiscovery = TopicNames.parse("walle/home/discovery/v1/state/query");
+        String[] devDiscovery = TopicNames.parse("walle/home/device/discovery/state/query");
         assertEquals("discovery", devDiscovery[1]);
         assertEquals("state/query", devDiscovery[2]);
 
