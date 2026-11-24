@@ -17,18 +17,18 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     请求（App -> 设备）                          应答（设备 -> App）                      说明
     ------------------------------------------------------------------------------------------------
     —                                          .../online                          主动上报（retained + LWT）
-    —                                          .../alarm                           主动上报（告警 / USB）
-    walle/{t}/discovery/query                   .../discovery/result                 设备发现（租户级广播）
-    .../state/query                             .../state/result                     状态快照
-    .../capability/query                      .../capability/result                  设备能力（摄像头/麦克风/音响等外设）
-    .../video/start/request                     .../video/start/result               开始推流（动作）
-    .../video/stop/request                      .../video/stop/result                停止推流（动作）
-    .../phone/audio/send                        .../phone/audio/send/result            手机麦上行·开（App 发起）
-    .../phone/audio/stop                        .../phone/audio/stop/result            手机麦上行·关（App 发起）
-    .../car/motor/set                         .../car/motor/result                   电机持续控制（最新状态覆盖）
+    —                                          .../alarm/report                    主动上报（告警 / USB）
+    walle/{t}/discovery/query/request           .../discovery/query/response         设备发现（租户级广播）
+    .../state/query/request                     .../state/query/response             状态快照
+    .../capability/query/request                .../capability/query/response        设备能力（摄像头/麦克风/音响等外设）
+    .../video/start/request                     .../video/start/response             开始推流（动作）
+    .../video/stop/request                      .../video/stop/response              停止推流（动作）
+    .../phone/audio/send/request                .../phone/audio/send/response        手机麦上行·开（App 发起）
+    .../phone/audio/stop/request                .../phone/audio/stop/response        手机麦上行·关（App 发起）
+    .../car/motor/set/cmd                       —                                    电机持续控制（最新状态覆盖，无应答）
 
-    命名约定：请求按语义划分 —— 查询 /query、动作 /request、持续控制 /set；
-    应答一律 /result，且只在收到对应请求后才发布，只有 online 与 alarm 是主动上报。
+    命名约定：请求-应答对的请求 .../request、应答 .../response；
+    持续设置且不需要应答的 .../cmd；主动上报为 online 与 alarm/report。
 
     除 discovery 广播外，设备只订阅自己子树下的「请求类」主题，
     不订通配子树（避免收到自己发布的上报报文）。
@@ -55,7 +55,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 模块拆分（P2-2.1）：
     config.py       环境文件、MQTT 配置、主题与运行期常量
     identity.py     设备身份、网络信息与格式化
-    monitor.py      系统采样、阈值告警与 state/query 快照
+    monitor.py      系统采样、阈值告警与 state/query/response 快照
     protocol.py     MQTT 回调、请求分发、身份/状态查询
     capability.py   外设能力探测与缓存
     media.py        摄像头探测、ffmpeg 参数与日志
@@ -99,7 +99,6 @@ from .config import (ACTION_REQUESTS, MQTT_CA_FILE, MQTT_HOST, MQTT_KEEPALIVE,  
                      REQ_CAR_SERVO_STATUS, REQ_DISCOVERY, REQ_PHONE_AUDIO_SEND,
                      REQ_PHONE_AUDIO_STOP, REQ_STATE, REQ_VIDEO_START,
                      REQ_VIDEO_STOP, RES_ALARM, RES_CAPABILITY_RESULT,
-                     RES_CAR_MOTOR_RESULT, RES_CAR_SERVO_SET_RESULT,
                      RES_CAR_SERVO_STATUS_RESULT, RES_DISCOVERY_RESULT, RES_ONLINE,
                      RES_PHONE_AUDIO_SEND_RESULT, RES_PHONE_AUDIO_STOP_RESULT,
                      RES_STATE_RESULT, RES_VIDEO_START_RESULT,
@@ -176,13 +175,13 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, SensorAlarmMixin, CapabilityMixin,
         self.audio_meta = {}
         # 上一次应答 discovery 的时间（单调时钟），用于限频
         self._last_discovery_at = 0.0
-        # state/result 的 recording 分组：由节点侧在 record start/stop 应答后更新
+        # state/query/response 的 recording 分组：由节点侧在 record start/stop 应答后更新
         self.recording_state = {"recording": False, "filename": None}
-        # state/query 快照：monitor_loop 每次采样后写入，查询直接复用，
+        # state/query/request 快照：monitor_loop 每次采样后写入，查询直接复用，
         # 避免每次查询都阻塞采样 1s（P2-1.1）
         self.status_sample = None       # (cores, per_iface, total_rx, total_tx, interval, monotonic_ts)
         self.status_sample_lock = threading.Lock()
-        # capability/query 缓存：后台线程按 TTL 探测，查询线程只读缓存（P2-1.2）
+        # capability/query/request 缓存：后台线程按 TTL 探测，查询线程只读缓存（P2-1.2）
         self.capability_result = None
         self.capability_at = 0.0
         self.capability_refreshing = False
@@ -211,12 +210,12 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, SensorAlarmMixin, CapabilityMixin,
         # P2-1.2：外设能力探测放后台线程，查询只读缓存，避免 v4l2/pactl 阻塞请求
         threading.Thread(target=self._capability_loop, daemon=True,
                          name="capability-cache").start()
-        # P2-1.1：连接 broker 前先填充一次状态快照，保证上线后的首个 state/query 也能立即响应
+        # P2-1.1：连接 broker 前先填充一次状态快照，保证上线后的首个 state/query/request 也能立即响应
         try:
             sample = self.sample_once(0.2)
             self._update_status_sample(*sample)
         except Exception:
-            logging.exception("启动采样失败，state/query 将退化为现场采样")
+            logging.exception("启动采样失败，state/query/request 将退化为现场采样")
         # clean_session=True：每次连接都重新订阅，改了请求主题名也不会残留旧订阅
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
                                   client_id=config.DEVICE_ID, clean_session=True)

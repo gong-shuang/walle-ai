@@ -29,8 +29,8 @@ import www.walle.ai.data.LocalDb;
  * </table>
  *
  * <p><b>协议</b>：多租户主题 {@code walle/{tenant}/device/{device}/{resource}}。
- * 请求按语义命名（查询 {@code query}、动作 {@code request}），
- * 应答一律 {@code result} 且只在收到请求后发布；主动上报只有 {@code online} 与 {@code alarm}。
+ * 请求-应答对的请求以 {@code .../request} 结尾、应答以 {@code .../response} 结尾；
+ * 持续设置且不需要应答的以 {@code .../cmd} 结尾；主动上报为 {@code online} 与 {@code alarm/report}。
  * 租户 = MQTT 用户名（清洗后）。</p>
  */
 public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
@@ -45,7 +45,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
 
         default void onDeviceInfo(DeviceInfo device) {}
 
-        /** 由 online 报文新增进列表的设备（尚未拿到 discovery/result 详情） */
+        /** 由 online 报文新增进列表的设备（尚未拿到 discovery/query/response 详情） */
         default void onDeviceAdded(DeviceInfo device) {}
 
         default void onDevicesChanged() {}
@@ -54,23 +54,17 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
 
         default void onAlarm(JSONObject payload) {}
 
-        /** capability/result：设备能力（摄像头/麦克风/音响等外设枚举结果） */
+        /** capability/query/response：设备能力（摄像头/麦克风/音响等外设枚举结果） */
         default void onCapability(JSONObject payload) {}
 
-        /** video/start/result：推流启动结果 */
+        /** video/start/response：推流启动结果 */
         default void onVideoRequestResult(JSONObject payload) {}
 
-        /** video/stop/result：停止推流结果 */
+        /** video/stop/response：停止推流结果 */
         default void onVideoStopResult(JSONObject payload) {}
 
-        /** car/motor/result：车控持续命令回执 */
-        default void onCarMotorResult(JSONObject payload) {}
-
-        /** car/servo/status/result：舵机状态查询回执 */
+        /** car/servo/status/query/response：舵机状态查询回执 */
         default void onCarServoStatusResult(JSONObject payload) {}
-
-        /** car/servo/result：舵机位置设置回执 */
-        default void onCarServoSetResult(JSONObject payload) {}
 
         /** 发布失败；kind 取值见 {@link TopicNames#KIND_STATE} 等常量 */
         default void onDeliveryError(String kind, String error) {}
@@ -325,11 +319,11 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     }
 
     /**
-     * 开启手机麦克风上行：下发 {@code phone/audio/send}，设备收到后从
-     * {@code {room}_audio} 的 RTMP 流拉音频播放。
+     * 开启手机麦克风上行：下发 {@code phone/audio/send/request}，设备收到后从
+     * {@code {room}_audio} 的 WHEP 流拉音频播放。
      *
      * <p>单向动作（用户交互即时反馈，不等设备回执）：设备端回执只写日志，
-     * App 不订阅 result，避免「点了按钮却没声音」时把等待感放大。</p>
+     * App 不订阅 response，避免「点了按钮却没声音」时把等待感放大。</p>
      *
      * @return 本次 request_id；参数不合法时返回空串
      */
@@ -356,7 +350,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         return rid;
     }
 
-    /** 关闭手机麦克风上行：下发 {@code phone/audio/stop}，设备停止拉音频流播放。 */
+    /** 关闭手机麦克风上行：下发 {@code phone/audio/stop/request}，设备停止拉音频流播放。 */
     public String stopPhoneAudio(String uuid, String roomNumber) {
         if (uuid == null || uuid.isEmpty()) {
             notifyDeliveryError(TopicNames.KIND_PHONE_AUDIO_STOP, "请先在设备页选择设备");
@@ -378,7 +372,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     }
 
     /**
-     * 车控持续命令：{@code car/motor/set}。
+     * 车控持续命令：{@code car/motor/set/cmd}（无应答）。
      *
      * <p>move 四个方向只允许一个非 0，取值 0 或 [0.5,1.0] m/s；
      * rotate 的 left/right 互斥，都为 false 表示停止旋转。
@@ -430,7 +424,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     }
 
     /**
-     * 查询 PWM 舵机状态：{@code car/servo/status/query}。
+     * 查询 PWM 舵机状态：{@code car/servo/status/query/request}。
      *
      * <p>设备端调用 get_state，每个舵机最多阻塞 2 秒；UI 超时应至少 6 秒。
      * 默认不读 offset，避免 2 个舵机最坏等待约 8 秒。</p>
@@ -475,10 +469,10 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     }
 
     /**
-     * 设置一个或多个 PWM 舵机的绝对位置：{@code car/servo/set}。
+     * 设置一个或多个 PWM 舵机的绝对位置：{@code car/servo/set/cmd}（无应答）。
      *
      * <p>position 必须在 800–2200；设备端规则：一个越界、另一个合法时只执行合法项，
-     * 两个都越界才返回 result=1（命令无效）。App 侧只做结构和 duration 校验，越界交给设备端。</p>
+     * 两个都越界则整条命令不执行。App 侧只做结构和 duration 校验，越界交给设备端。</p>
      *
      * @return 本次 request_id；参数不合法或未选设备时返回空串
      */
@@ -544,7 +538,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         return moving <= 1;
     }
 
-    /** 在租户内广播设备发现：{@code walle/{tenant}/discovery/query}。返回本次 request_id。 */
+    /** 在租户内广播设备发现：{@code walle/{tenant}/discovery/query/request}。返回本次 request_id。 */
     public String requestDeviceInfo() {
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
@@ -668,18 +662,8 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     }
 
     @Override
-    public void onCarMotorResult(JSONObject payload) {
-        for (Listener l : listeners) main.post(() -> l.onCarMotorResult(payload));
-    }
-
-    @Override
     public void onCarServoStatusResult(JSONObject payload) {
         for (Listener l : listeners) main.post(() -> l.onCarServoStatusResult(payload));
-    }
-
-    @Override
-    public void onCarServoSetResult(JSONObject payload) {
-        for (Listener l : listeners) main.post(() -> l.onCarServoSetResult(payload));
     }
 
     @Override

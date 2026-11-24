@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.8）
+# MQTT 协议约定（文档版本 v1.9）
 
 > 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`；ROS2 车控为
 > `walle-device/ros2_ws/src/net/net_mqtt_bridge`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
-> - 本文档的版本：v1.8 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.9 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -29,33 +29,39 @@ walle/{tenant}/device/{device}/{resource}
 - `device`（第 4 段）：**稳定**的设备标识 `device_id`。首次启动由设备端按 `md5(MAC | CPU 物理核数 | 内存 GiB)` 取前 16 位，
   随后**落盘复用**（`main.resolve_device_id`），因此重启、重装、换 IP 都不会变。
   注意内存必须按 GiB 取整：`MemTotal` 在两次启动之间会浮动几 KiB，直接进哈希会让同一台硬件换 identity。
-- `resource`：按语义命名（见 §2.3），可能含 `/`（如 `video/start/result`）。
+- `resource`：按语义命名（见 §2.3），可能含 `/`（如 `video/start/response`）。
 
-特例：设备发现是**租户级**广播，没有 `device` 段（第 3 段是固定的 `discovery`）：`walle/{tenant}/discovery/query`。
+特例：设备发现是**租户级**广播，没有 `device` 段（第 3 段是固定的 `discovery`）：`walle/{tenant}/discovery/query/request`。
 
 ### 主题总表
+
+命名规则：
+1. `.../online` 单独，因为比较特殊；
+2. 所有的请求-应答对，请求主题都以 `.../request` 结尾，应答主题则以 `.../response` 结尾；
+3. 所有只有下发，没有应答的主题，都以 `.../cmd` 结尾；
+4. 所有的主动上报主题，都以 `.../report` 结尾；
 
 | # | 协议 | App → 设备（请求） | 设备 → App（应答/上报） | 类型 | 版本 | 备注 |
 |---|---|---|---|---|---|---|
 | 1 | 上线/下线 | — | `walle/{t}/device/{d}/online` | 主动上报（retained + LWT） | v1.1 | v1.1最小化json报文 |
-| 2 | 设备发现 | `walle/{t}/discovery/query` | `walle/{t}/device/{d}/discovery/result` | 请求-应答（按需、限频） | v1.1 | v1.1最小化json报文 |
-| 3 | 状态查询 | `walle/{t}/device/{d}/state/query` | `walle/{t}/device/{d}/state/result` | 请求-应答 | v1.4 | v1.4精简json报文；v1.7增补电池/声呐，移除alarms |
-| 4 | 设备能力 | `walle/{t}/device/{d}/capability/query` | `walle/{t}/device/{d}/capability/result` | 请求-应答 | v1.4 | v1.1后台缓存探测，v1.4精简json报文 |
-| 5 | 开始推流 | `walle/{t}/device/{d}/video/start/request` | `walle/{t}/device/{d}/video/start/result` | 请求-应答 | v1.0 |  |
-| 6 | 停止推流 | `walle/{t}/device/{d}/video/stop/request` | `walle/{t}/device/{d}/video/stop/result` | 请求-应答 | v1.0 |  |
-| 7 | 告警 | — | `walle/{t}/device/{d}/alarm` | 主动上报 | v1.0 | v1.6 增补电池低压/前方障碍告警 |
-| 8 | 手机音频上行·开 | `walle/{t}/device/{d}/phone/audio/send` | `walle/{t}/device/{d}/phone/audio/send/result` | 单向动作（App 不订阅应答） | v1.0 |  |
-| 9 | 手机音频上行·关 | `walle/{t}/device/{d}/phone/audio/stop` | `walle/{t}/device/{d}/phone/audio/stop/result` | 单向动作（App 不订阅应答） | v1.0 |  |
-| 10 | 远程命令执行 | `walle/{t}/device/{d}/cmd/exec` | `walle/{t}/device/{d}/cmd/result` | 请求-应答 | v1.1 | v1.1已删除 |
-| 11 | 电机持续控制 | `walle/{t}/device/{d}/car/motor/set` | `walle/{t}/device/{d}/car/motor/result` | 持续控制（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车；v1.7 前方障碍禁前进 |
-| 12 | 舵机状态查询 | `walle/{t}/device/{d}/car/servo/status/query` | `walle/{t}/device/{d}/car/servo/status/result` | 请求-应答 | v1.2 | 默认只读位置，不读 offset |
-| 13 | 舵机位置设置 | `walle/{t}/device/{d}/car/servo/set` | `walle/{t}/device/{d}/car/servo/result` | 请求-应答 | v1.2 | 绝对位置；单舵机越界只跳过该舵机 |
-| 14 | 开始录像 | `walle/{t}/device/{d}/record/start/request` | `walle/{t}/device/{d}/record/start/result` | 请求-应答 | v1.3 | 本地 fMP4 落盘 |
-| 15 | 停止录像 | `walle/{t}/device/{d}/record/stop/request` | `walle/{t}/device/{d}/record/stop/result` | 请求-应答 | v1.3 | 停止当前录像会话 |
-| 16 | 录像列表 | `walle/{t}/device/{d}/record/list/query` | `walle/{t}/device/{d}/record/list/result` | 请求-应答 | v1.3 | 返回历史录像与播放地址 |
-| 17 | 删除录像 | `walle/{t}/device/{d}/record/delete/request` | `walle/{t}/device/{d}/record/delete/result` | 请求-应答 | v1.3 | 删除指定录像文件 |
-| 18 | 播放录像 | `walle/{t}/device/{d}/record/play/start/request` | `walle/{t}/device/{d}/record/play/start/result` | 请求-应答 | v1.5 | ffmpeg 推 fmp4 → SRS，App 拉流 |
-| 19 | 停止播放 | `walle/{t}/device/{d}/record/play/stop/request` | `walle/{t}/device/{d}/record/play/stop/result` | 请求-应答 | v1.5 | 停止录像点播推流 |
+| 2 | 设备发现 | `walle/{t}/discovery/query/request` | `walle/{t}/device/{d}/discovery/query/response` | 请求-应答（按需、限频） | v1.1 | v1.1最小化json报文 |
+| 3 | 状态查询 | `walle/{t}/device/{d}/state/query/request` | `walle/{t}/device/{d}/state/query/response` | 请求-应答 | v1.4 | v1.4精简json报文；v1.7增补电池/声呐，移除alarms |
+| 4 | 设备能力 | `walle/{t}/device/{d}/capability/query/request` | `walle/{t}/device/{d}/capability/query/response` | 请求-应答 | v1.4 | v1.1后台缓存探测，v1.4精简json报文 |
+| 5 | 开始推流 | `walle/{t}/device/{d}/video/start/request` | `walle/{t}/device/{d}/video/start/response` | 请求-应答 | v1.0 |  |
+| 6 | 停止推流 | `walle/{t}/device/{d}/video/stop/request` | `walle/{t}/device/{d}/video/stop/response` | 请求-应答 | v1.0 |  |
+| 7 | 告警 | — | `walle/{t}/device/{d}/alarm/report` | 主动上报 | v1.0 | v1.6 增补电池低压/前方障碍告警 |
+| 8 | 手机音频上行·开 | `walle/{t}/device/{d}/phone/audio/send/request` | `walle/{t}/device/{d}/phone/audio/send/response` | 单向动作（App 不订阅应答） | v1.0 |  |
+| 9 | 手机音频上行·关 | `walle/{t}/device/{d}/phone/audio/stop/request` | `walle/{t}/device/{d}/phone/audio/stop/response` | 单向动作（App 不订阅应答） | v1.0 |  |
+| 10 | 远程命令执行 | `walle/{t}/device/{d}/cmd/exec/request` | `walle/{t}/device/{d}/cmd/exec/response` | 请求-应答 | v1.1 | v1.1已删除 |
+| 11 | 电机持续控制 | `walle/{t}/device/{d}/car/motor/set/cmd` | - | 持续控制（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车；v1.7 前方障碍禁前进 |
+| 12 | 舵机状态查询 | `walle/{t}/device/{d}/car/servo/status/query/request` | `walle/{t}/device/{d}/car/servo/status/query/response` | 请求-应答 | v1.2 | 默认只读位置，不读 offset |
+| 13 | 舵机位置设置 | `walle/{t}/device/{d}/car/servo/set/cmd` | - | 持续控制（最新状态覆盖） | v1.2 | 绝对位置；单舵机越界只跳过该舵机 |
+| 14 | 开始录像 | `walle/{t}/device/{d}/record/start/request` | `walle/{t}/device/{d}/record/start/response` | 请求-应答 | v1.3 | 本地 fMP4 落盘 |
+| 15 | 停止录像 | `walle/{t}/device/{d}/record/stop/request` | `walle/{t}/device/{d}/record/stop/response` | 请求-应答 | v1.3 | 停止当前录像会话 |
+| 16 | 录像列表 | `walle/{t}/device/{d}/record/list/query/request` | `walle/{t}/device/{d}/record/list/query/response` | 请求-应答 | v1.3 | 返回历史录像与播放地址 |
+| 17 | 删除录像 | `walle/{t}/device/{d}/record/delete/request` | `walle/{t}/device/{d}/record/delete/response` | 请求-应答 | v1.3 | 删除指定录像文件 |
+| 18 | 播放录像 | `walle/{t}/device/{d}/record/play/start/request` | `walle/{t}/device/{d}/record/play/start/response` | 请求-应答 | v1.5 | ffmpeg 推 fmp4 → SRS，App 拉流 |
+| 19 | 停止播放 | `walle/{t}/device/{d}/record/play/stop/request` | `walle/{t}/device/{d}/record/play/stop/response` | 请求-应答 | v1.5 | 停止录像点播推流 |
 
 > `{t}` = tenant，`{d}` = device_id。
 > 8/9 只承载「开/关」控制，音频本身走独立 RTMP（§4.8）。
@@ -93,20 +99,19 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 > 代价：`device_id` 一旦变化（换网卡），旧主题上的 retained `online` 无法由设备自己清理
 > ——Broker ACL 只允许它写 `walle/{tenant}/device/${clientid}/#`。这类残留由 App 侧按 MAC 归并消化。
 
-### 2.3 资源按语义命名，应答一律 `/result`
+### 2.3 资源按语义命名
 
 | 后缀 | 语义 | 例子 |
 |---|---|---|
-| `…/query` | 查询（读，无副作用） | `state/query` |
-| `…/request` | 动作请求（生命周期管理） | `video/start/request` |
-| `…/result` | 应答，**只在收到对应请求后发布**，绝不主动上报 | `state/result` |
-| `…/send` | 手机侧发起「开始上行」的新后缀（App 是动作发起方，不是设备推流） | `phone/audio/send` |
-| `…/stop` | 手机侧发起「停止上行」的新后缀（无 room 也可发，用于退出兜底） | `phone/audio/stop` |
-| `…/set` | 持续设置命令（有副作用；最新一条覆盖旧状态，不排队） | `car/motor/set` |
-| 无后缀 | 主动上报，只有 `online` 和 `alarm` 两个 | — |
+| `…/request` | 请求（查询或动作，请求-应答对的发起方） | `state/query/request`、`video/start/request` |
+| `…/response` | 应答，**只在收到对应请求后发布**，绝不主动上报 | `state/query/response`、`video/start/response` |
+| `…/cmd` | 持续设置命令（有副作用；最新一条覆盖旧状态，不排队，**无应答**） | `car/motor/set/cmd` |
+| `…/report` | 主动上报 | `alarm/report` |
+| 无后缀 | 仅 `online`（上线/下线） | `online` |
 
 这套约定由设备端 `net_mqtt_bridge/test/test_protocol.py` 与 `linux-demo/test/test_protocol.py` 强制检查：
-每个 `REQ_*` 必须在 `REQUEST_TO_RESULT` 里登记对应的 `RES_*`，不允许存在「没人请求的 /result 主题」。
+每个 `REQ_*`（`.../request`）必须在 `REQUEST_TO_RESULT` 里登记对应的 `RES_*`（`.../response`）；
+`.../cmd` 主题不登记应答；不允许存在「没人请求的 /response 主题」。
 
 ### 2.4 请求-应答严格配对：request_id
 
@@ -120,14 +125,14 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 
 QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 `MessageRouter` 用
 「键排序后的 JSON 签名 + 2 秒窗口」去重，但只针对**一次性事件**：
-`alarm`、`capability/result`、`video/start/result`、`video/stop/result`、`car/motor/result`、`car/servo/status/result`、`car/servo/result`
-（重复处理会出事，例如推流结果重复 → 播放器初始化两次；车控结果重复 → UI 重复提示）。
-`online` 与 `state/result` 是幂等的（同一份状态重复应用无害），**不去重**。
+`alarm/report`、`capability/query/response`、`video/start/response`、`video/stop/response`、`car/servo/status/query/response`
+（重复处理会出事，例如推流结果重复 → 播放器初始化两次）。
+`online` 与 `state/query/response` 是幂等的（同一份状态重复应用无害），**不去重**。
 
 ### 2.6 retained 只给 online，发现靠回放而非轮询（N7）
 
 设备列表 = 当前在线设备，直接来自 retained `online` 报文：App 一连上就收到回放，
-**不需要广播轮询**。`discovery/query` 降级为按需手段（手动刷新、连上后一台设备都没
+**不需要广播轮询**。`discovery/query/request` 降级为按需手段（手动刷新、连上后一台设备都没
 回放出来时自动兜底一次）。设备端对 discovery 应答做了**限频（2 秒/台）+ 随机抖动
 （≤0.8 秒）**，避免多台手机同时扫描时回包风暴。
 
@@ -136,8 +141,8 @@ QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 
 MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求再收一遍，浪费带宽、
 干扰排查。所以两端都只订**精确的响应/请求主题清单**：
 
-- App 订 10 条：`walle/{t}/device/+` 下的 `online`、`alarm`、8 条 `…/result`（见 `TopicNames.responseSubscriptions`）
-- 设备端订 10 条：9 条设备级请求（含 `phone/audio/send|stop`、`car/motor/set`、`car/servo/status/query`、`car/servo/set`）+ 1 条租户级 `discovery/query`（见 `config.subscriptions()`）
+- App 订 8 条：`walle/{t}/device/+` 下的 `online`、`alarm/report`、6 条 `…/response`（见 `TopicNames.responseSubscriptions`）
+- 设备端订 16 条：15 条设备级请求（含 `phone/audio/send|stop/request`、`car/motor/set/cmd`、`car/servo/status/query/request`、`car/servo/set/cmd`）+ 1 条租户级 `discovery/query/request`（见 `config.subscriptions()`）
 
 ---
 
@@ -161,7 +166,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 1. App 每发一个请求生成新 `request_id`（8 位 hex），并把它放进请求报文。
 2. 设备端应答必须原样回显；没收到匹配 `request_id` 的应答前，UI 处于等待态。
-   例外：`discovery/result` 自 2026-11-11 起与 `online` 完全一致，不再回显 `request_id`
+   例外：`discovery/query/response` 自 2026-11-11 起与 `online` 完全一致，不再回显 `request_id`
    （App 不依赖它配对，扫描状态按超时结束）。
 3. 旧请求迟到应答会被丢弃（App 只认「当前这次」的 rid）。
 
@@ -184,7 +189,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 ### 3.4 uuid 校验（设备端 `verify_uuid`）（已废弃，因为现在设备订阅的主题字段里包含device_id，非此设备的请求在服务端就被过滤了）
 
-- `discovery/query`：**免校验**（App 此时还不知道任何 uuid）。
+- `discovery/query/request`：**免校验**（App 此时还不知道任何 uuid）。
 - 其余所有请求：报文必须是 JSON 对象且 `uuid` 与设备当前值一致（大小写不敏感），
   否则**静默忽略**（只记日志，不回复——不回复是刻意的，避免泄露设备存在性）。
 
@@ -200,7 +205,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 - 上线：设备连上 broker 后立即发布 `online: true` + 基本身份（见下表）
 - 下线：broker 通过 **LWT 遗嘱**发布 `online: false`（设备端注册 will，异常掉线也能通知）
 
-字段（最小集；完整身份见 §4.2 `discovery/result`）：
+字段（最小集；完整身份见 §4.2 `discovery/query/response`）：
 
 | 字段 | 说明 |
 |---|---|
@@ -215,7 +220,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 > 2026-11-10 起，retained `online` **不再包含** `mac`、`serial`、`os`、`cpu`、内存/磁盘
 > 总量、`boot_time`、`uuid_source` 等身份细节；这些字段不再通过 MQTT 下发，
-> 设备详情请使用 `state/query`（§4.3）。
+> 设备详情请使用 `state/query/request`（§4.3）。
 
 **注意**：`online: false` 的遗嘱只由 broker 代发；设备端正常关机也应主动发一次。
 App 侧重复 online 不去重（幂等）。
@@ -227,14 +232,14 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 新版设备端 online 不含 MAC，App 需容忍该字段缺失，退化为按 `device_id`/`uuid`/`hostname`
 归并；真实的同一启动周期遗嘱（`device_id` 相同、时间戳相同）不受影响。
 
-### 4.2 设备发现 discovery/query → discovery/result（V1.1）
+### 4.2 设备发现 discovery/query/request → discovery/query/response（V1.1）
 
 **作用**：设备列表页的按需刷新。应答内容与 §4.1 的 `online` **完全一致**（同一份
 `build_online_payload`），只含最小身份字段，`online` 固定为 `true`，不再返回完整身份。
-设备详情请使用 §4.3 `state/query`。
+设备详情请使用 §4.3 `state/query/request`。
 
-- 请求：`walle/{t}/discovery/query`（租户级，没有 device 段）
-- 应答：`walle/{t}/device/{d}/discovery/result`
+- 请求：`walle/{t}/discovery/query/request`（租户级，没有 device 段）
+- 应答：`walle/{t}/device/{d}/discovery/query/response`
 
 请求字段：
 
@@ -250,7 +255,7 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 | 限频 | `DISCOVERY_MIN_INTERVAL_SEC = 2.0` | 每台设备 2 秒内只应答一次，重复查询丢弃 |
 | 抖动 | `DISCOVERY_JITTER_SEC = 0.8` | 应答前随机延迟 0~0.8s，N 台设备错开回包 |
 
-> 2026-11-11 起 discovery/result 与 online 统一为最小身份（此前返回 `mac`/`serial`/
+> 2026-11-11 起 discovery 应答与 online 统一为最小身份（此前返回 `mac`/`serial`/
 > `os`/`cpu`/磁盘等完整身份并回显 `request_id`）。后续 App 改为
 > `UNSUBSCRIBE/SUBSCRIBE online` 触发 retained 回放后，可删除 discovery 主题。
 
@@ -258,7 +263,7 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 > `discovery`）。解析时必须先按完整主题特判 discovery，再校验 `device` 段——两端
 > （`TopicNames.parse`、`main._handle_request`）都这么处理，别改没。
 
-### 4.3 状态查询 state/query → state/result（V1.4，V1.7 增补 battery / sonar，移除 alarms）
+### 4.3 状态查询 state/query/request → state/query/response（V1.4，V1.7 增补 battery / sonar，移除 alarms）
 
 **作用**：拉取设备运行状态，驱动状态页所有卡片。CPU/网络数据复用监控循环的
 最近一次采样（`MONITOR_INTERVAL`，默认 5s），USB 列表复用 `check_usb` 的维护结果，
@@ -275,10 +280,10 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 没有对应传感器的设备不返回，App 按 null 处理并显示「—」。
 
 **V1.7 变更**：移除 `alarms` 分组（原 `active` / `thresholds`）。当前告警状态以
-`alarm` 主题的主动上报为准（App 告警中心自行维护），状态查询不再返回告警列表和阈值。
+`alarm/report` 主题的主动上报为准（App 告警中心自行维护），状态查询不再返回告警列表和阈值。
 
-- 请求：`walle/{t}/device/{d}/state/query`
-- 应答：`walle/{t}/device/{d}/state/result`
+- 请求：`walle/{t}/device/{d}/state/query/request`
+- 应答：`walle/{t}/device/{d}/state/query/response`
 
 请求字段：
 
@@ -316,7 +321,7 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 （缺分组归空、异常数值归一为 null 等）。**状态是实时查询数据，不落盘**
 （N11 曾落盘又 revert，决策见 git 历史）。
 
-### 4.4 设备能力 capability/query → capability/result（V1.4）
+### 4.4 设备能力 capability/query/request → capability/query/response（V1.4）
 
 **作用**：枚举设备端外设能力——摄像头（v4l2）、麦克风/音响（PulseAudio）等，供控制页
 展示与选择。早期只查摄像头，任务 4 起升级为通用能力查询（旧主题已彻底删除，无兼容层）。
@@ -326,8 +331,8 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 `summary.total_formats` / `total_resolutions` 仍保留作为聚合统计。
 **App 端若解析了 `cameras[].formats` 需同步调整。**
 
-- 请求：`walle/{t}/device/{d}/capability/query`，字段 `{uuid, request_id}`
-- 应答：`walle/{t}/device/{d}/capability/result`
+- 请求：`walle/{t}/device/{d}/capability/query/request`，字段 `{uuid, request_id}`
+- 应答：`walle/{t}/device/{d}/capability/query/response`
 
 应答字段：
 
@@ -360,13 +365,13 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 缺 `audio` 分组（旧设备端）归一为 unavailable，绝不崩。契约测试：`DeviceCapabilityTest`、
 `CameraCapabilityTest`。
 
-### 4.5 开始推流 video/start/request → video/start/result（V1.0）
+### 4.5 开始推流 video/start/request → video/start/response（V1.0）
 
 **作用**：让设备端用 ffmpeg 把摄像头画面推到流媒体服务（RTMP），App 拿到
 `room_number` 后拼 WHEP 地址拉流播放（`BuildConfig.WHEP_URL_TEMPLATE`）。
 
 - 请求：`walle/{t}/device/{d}/video/start/request`
-- 应答：`walle/{t}/device/{d}/video/start/result`
+- 应答：`walle/{t}/device/{d}/video/start/response`
 
 请求字段：
 
@@ -396,12 +401,12 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 - 任一参数不同 → 先停旧流再用新参数推（同一时刻设备只有一路流）；
 - 因此 App 切换摄像头时**复用同一 room_number**，避免 WHEP 侧重新协商导致黑屏。
 
-### 4.6 停止推流 video/stop/request → video/stop/result（V1.0）
+### 4.6 停止推流 video/stop/request → video/stop/response（V1.0）
 
 **作用**：停掉设备当前推流。
 
 - 请求：`walle/{t}/device/{d}/video/stop/request`
-- 应答：`walle/{t}/device/{d}/video/stop/result`
+- 应答：`walle/{t}/device/{d}/video/stop/response`
 
 请求字段：`{uuid, request_id}` + 可选 `room_number`。
 
@@ -418,13 +423,13 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 **一致性校验**：请求带了 `room_number` 且与当前推流不一致 → `result=-1` 并在 `error`
 里说明当前房间号，**不会误停别人的流**。
 
-### 4.7 alarm —— 告警（主动上报）（V1.0，V1.6 增补 battery_low / obstacle_near）
+### 4.7 alarm/report —— 告警（主动上报）（V1.0，V1.6 增补 battery_low / obstacle_near）
 
 **作用**：阈值越限/恢复、USB 插拔、推流/手机音频中断、电池低压与前方障碍的实时通知，
 驱动 App 告警中心（App 侧 SQLite，200 条滚动淘汰）。**设备端只发布、不落盘**：告警历史
 由服务端数据库持久化，设备端不建本地告警库（避免双份数据不一致与 SD 卡磨损）。
 
-- 主题：`walle/{t}/device/{d}/alarm`（非 retained，QoS1，App 侧 2 秒签名去重）
+- 主题：`walle/{t}/device/{d}/alarm/report`（非 retained，QoS1，App 侧 2 秒签名去重）
 
 字段：
 
@@ -454,7 +459,7 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 
 **电池低压与前方障碍告警（V1.6）**
 
-复用同一个 `alarm` 主题，不新增主题。两者都是「低阈值」语义，与上面的高阈值告警**方向相反**：
+复用同一个 `alarm/report` 主题，不新增主题。两者都是「低阈值」语义，与上面的高阈值告警**方向相反**：
 
 - `battery_low`（`metric=battery`）：数据源为 ROS2 `ros_robot_controller` 节点的
   `/ros_robot_controller/battery`（`std_msgs/UInt16`，单位 mV，发布前除以 1000 换算成 V），
@@ -476,18 +481,18 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 - 障碍：边沿触发，只在跨越阈值时各发一条；同一 `alarm_type` 最小间隔
   `ALARM_MIN_INTERVAL`（默认 3s）。App 的 2 秒签名去重对障碍告警基本无效
   （`distance_cm` 每次变化都会改变签名），**限流必须在设备端完成**。
-- 车静止时（500ms 内无有效 `car/motor/set`）检出障碍按 `level=info` 上报，避免有人
+- 车静止时（500ms 内无有效 `car/motor/set/cmd`）检出障碍按 `level=info` 上报，避免有人
   从车前经过时刷 warning。
 
 **安全边界（重要）**：
 
 - 障碍急停必须在设备本地闭环完成（声呐/车控节点直接限速或停车），**不得依赖 MQTT
-  往返**；`alarm` 只负责通知，不负责刹车。
+  往返**；`alarm/report` 只负责通知，不负责刹车。
 - 告警主题不承载连续遥测：实时电压、实时距离不要按采样周期发布，否则会把 App 告警
-  列表（200 条滚动）冲掉。需要实时表盘时走 `state/result` 或另设低频遥测主题。
+  列表（200 条滚动）冲掉。需要实时表盘时走 `state/query/response` 或另设低频遥测主题。
 - 设备端不持久化告警（不建 SQLite、不写盘），告警历史由服务端数据库保存。
 
-### 4.8 手机麦克风上行 phone/audio/send|stop（控制面）＋ WebRTC WHIP/WHEP（媒体面）（V1.0）
+### 4.8 手机麦克风上行 phone/audio/send|stop/request（控制面）＋ WebRTC WHIP/WHEP（媒体面）（V1.0）
 
 **作用**：把手机麦克风的声音实时送到设备扬声器（「反向音频」）。**媒体不走 MQTT**，
 走独立 WebRTC：App 用 WHIP 推 `https://www.baidong.xyz:443/rtc/v1/whip/?app=live&stream={room}_audio&secret=…`，
@@ -500,8 +505,8 @@ MQTT 只负责「开 / 关」控制。
 > 每台服务器不同，因此**不写死在代码里**：App 构建期注入（`-PoryxSecret` / `gradle.properties`
 > 的 `oryxSecret` / 环境变量 `WHIP_SECRET`），设备端读 `/etc/walle-ai.conf` 的 `MEDIA_SERVER_SECRET`。
 
-- 开启请求：`walle/{t}/device/{d}/phone/audio/send` → 应答 `.../send/result`
-- 关闭请求：`walle/{t}/device/{d}/phone/audio/stop` → 应答 `.../stop/result`
+- 开启请求：`walle/{t}/device/{d}/phone/audio/send/request` → 应答 `.../send/response`
+- 关闭请求：`walle/{t}/device/{d}/phone/audio/stop/request` → 应答 `.../stop/response`
 
 请求字段：`{uuid, request_id, room_number}`；`stop` 的 `room_number` 可选
 （退出 App 兜底时不带，表示「停掉当前任何一路手机音频」）。
@@ -524,14 +529,14 @@ MQTT 只负责「开 / 关」控制。
   `PHONE_AUDIO_STREAM_SUFFIX` 覆盖）。与设备自己推的视频流 `live/{room}` 错开，
   避免两端抢同一路 stream。
 - **先连上再通知**：App 必须等 WHIP 的 PeerConnection 进入 `CONNECTED`（媒体面已通）才发
-  `phone/audio/send`，否则设备端 WHEP 拉不到流（首帧 8s 超时会失败）。
-- **App 不订阅两个 `/result`**：App 侧是单向动作，按钮状态由本地推流结果驱动
-  （`responseSubscriptions()` 不含 `phone/audio/*`）。设备端仍会发布 result，供日志、
+  `phone/audio/send/request`，否则设备端 WHEP 拉不到流（首帧 8s 超时会失败）。
+- **App 不订阅两个 `/response`**：App 侧是单向动作，按钮状态由本地推流结果驱动
+  （`responseSubscriptions()` 不含 `phone/audio/*`）。设备端仍会发布 response，供日志、
   调试与其他客户端使用。
 - **一致性校验**：`stop` 带了 `room_number` 且与当前播放房间号不一致 → `result=-1`
   并在 `error` 里说明，**不会误停别人**。
 - **旧停新启**：`send` 时若已有别的房间在播，先停旧的再起新的（同一时刻设备只有一路）。
-- **退出即关**：`PlayerActivity.onDestroy()` 与进程退出都会发 `phone/audio/stop`，
+- **退出即关**：`PlayerActivity.onDestroy()` 与进程退出都会发 `phone/audio/stop/request`，
   设备端 `run()` 的 finally 也会 `_stop_phone_audio`，避免扬声器残留出声。
 - 设备端开关与输出可配：`PHONE_AUDIO_ENABLE`（默认 True）、`PHONE_AUDIO_DEVICE`
   （默认空 = 系统默认声卡，可填 `sounddevice` 设备名）、`PHONE_AUDIO_LATENCY`（默认 `low`）、
@@ -547,12 +552,12 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 帧后写入 `sounddevice.RawOutputStream`（blocksize=20ms，抖动队列最多 6 帧 ≈ 120ms，
 溢出丢最旧帧）。依赖：`pip install aiortc sounddevice` + `apt install libportaudio2`。
 
-### 4.9 远程命令执行 cmd/exec → cmd/result（V1.1，已废弃）
+### 4.9 远程命令执行 cmd/exec/request → cmd/exec/response（V1.1，已废弃）
 
 **作用**：在设备上以 shell（`/bin/bash`）执行任意命令并回传结果。
 
-- 请求：`walle/{t}/device/{d}/cmd/exec`
-- 应答：`walle/{t}/device/{d}/cmd/result`
+- 请求：`walle/{t}/device/{d}/cmd/exec/request`
+- 应答：`walle/{t}/device/{d}/cmd/exec/response`
 
 请求字段：
 
@@ -578,16 +583,16 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 安全开关（设备端环境变量 / 常量）：`ENABLE_CMD_EXEC`（总开关）、`CMD_ALLOWLIST`
 （前缀白名单，为空=允许任意命令）。**这是高危能力**，Broker ACL 必须保证租户隔离。
 
-### 4.10 电机持续控制 car/motor/set → car/motor/result（V1.2，V1.7 增补前方障碍联锁）
+### 4.10 电机持续控制 car/motor/set/cmd（V1.2，V1.7 增补前方障碍联锁，V1.9 取消应答）
 
 **作用**：App 按住方向键时，以 200ms 周期下发目标运动状态；设备端保存最新状态，
 以 10Hz 重发 `/cmd_vel`，500ms 没有收到有效命令就自动停车。
 
-- 请求：`walle/{t}/device/{d}/car/motor/set`
-- 应答：`walle/{t}/device/{d}/car/motor/result`（父资源 + `/result`，不是 `set/result`）
+- 请求：`walle/{t}/device/{d}/car/motor/set/cmd`
+- 应答：**无**（持续控制命令，最新状态覆盖；执行结果只写设备端日志）
 - 请求不 retained，QoS1；设备重启默认停车，运动状态不落盘。
 
-**请求字段**（公共字段 `uuid`、`request_id` 必填；`request_id` 原样回显）：
+**请求字段**（公共字段 `uuid`、`request_id` 必填；`request_id` 仅用于日志排查）：
 
 ```json
 {
@@ -600,14 +605,14 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 |---|---|---|
 | `move.forward/back/left/right` | number | 表示对应方向的线速度；只能有一个非 0；非 0 值必须在 `[0.5, 1.0]` m/s；全 0 = 停止线速度 |
 | `rotate.left/right` | boolean | 恰好一个为 `true` 时旋转；都为 `false` = 停止旋转；都为 `true` = 命令错误 |
-| `move` / `rotate` | object | **必须同时存在**；整个对象缺失 → `result=1`；对象内子字段缺失按 `0.0` / `false` 处理 |
+| `move` / `rotate` | object | **必须同时存在**；整个对象缺失 → 命令无效（设备端丢弃并停车）；对象内子字段缺失按 `0.0` / `false` 处理 |
 
 **校验规则**：
 
 - `move` 同时出现两个及以上非 0 值（含 `forward`+`back`、`left`+`right`）→ 命令错误；
 - 非 0 值小于 0.5 或大于 1.0（含负数）→ 命令错误；
 - `rotate` 取值不是 JSON 布尔、或 `left`/`right` 同时为 `true` → 命令错误；
-- `move` 或 `rotate` 整个对象缺失 → 命令无效（`result=1`）；
+- `move` 或 `rotate` 整个对象缺失 → 命令无效；
 - 未知字段忽略。
 
 **映射到 `/cmd_vel`**：
@@ -625,11 +630,11 @@ angular.z =  2.5  (rotate.left = true)
 同时旋转的线速度上限为 `1.0 - 0.1389*2.5 = 0.653 m/s`；超过时按比例缩放线速度
 （不改变角速度）。纯平移最大 1.0 m/s。
 
-**前方障碍联锁（V1.7）**：收到 `car/motor/set` 后，若声呐存在 1s 内的有效读数且
+**前方障碍联锁（V1.7）**：收到 `car/motor/set/cmd` 后，若声呐存在 1s 内的有效读数且
 `distance_cm ≤ THRESH_OBSTACLE_CM`（默认 30cm），则：
 
-- `forward` 非 0 的命令不执行：清空运动状态、立即发布零速，返回 `result=4`、
-  `cause=前方有障碍物，不可前进`；
+- `forward` 非 0 的命令不执行：清空运动状态、立即发布零速（设备端记 `result=4` 日志，
+  **不通过 MQTT 回执**）；
 - 后退、转向、横移（`back` / `rotate` / `left` / `right`）不受影响；
 - 声呐无数据或读数过期时不启用联锁，避免传感器故障导致车辆无法移动。
 
@@ -637,19 +642,18 @@ angular.z =  2.5  (rotate.left = true)
 
 **停止**：
 
-- 合法停止命令 = `move` 全 0 + `rotate` 都为 `false` → 清空状态、发布零速、`result=0`；
-- 收到 `result=1/2` 的无效/错误命令 → 清空状态、立即发布零速；
-- 收到 `result=4` 的前方障碍命令 → 清空状态、立即发布零速；
+- 合法停止命令 = `move` 全 0 + `rotate` 都为 `false` → 清空状态、发布零速；
+- 收到无效/错误命令 → 清空状态、立即发布零速；
+- 收到前方障碍拦截的命令 → 清空状态、立即发布零速；
 - 500ms 死区触发 → 清空状态、立即发布零速；
 - 设备退出 → 清空状态、发布零速。
 
-**应答字段**：
+**执行结果**（V1.9 起不再通过 MQTT 应答，仅供设备端日志/排障）：
 
-| 字段 | 取值 | 说明 |
+| 内部结果码 | 取值 | 说明 |
 |---|---|---|
 | `result` | `0` / `1` / `2` / `3` / `4` | 0 成功并已下发；1 命令无效（缺 `move`/`rotate`）；2 命令错误（类型/取值/互斥）；3 底盘控制链路不可用（`/cmd_vel` 无订阅者）；4 前方有障碍物，不可前进 |
 | `cause` | `ok` / `命令无效` / `命令错误` / `底盘控制链路不可用` / `前方有障碍物，不可前进` | 可读原因 |
-| `request_id` 及公共字段 | — | 原样回显请求的 `request_id` |
 
 `result=0` 表示“命令已接受并下发”，不是“车已经执行完成”。`result=3/4` 时设备端不会
 保存这次状态，避免底盘恢复或障碍消失后自己动起来。
@@ -662,13 +666,13 @@ angular.z =  2.5  (rotate.left = true)
 500ms 停车由 bridge 进程保证；若 bridge 本身崩溃，由底盘节点 `mecanum.py` 的
 `cmd_vel_timeout`（默认 1.5s）兜底。
 
-### 4.11 舵机状态查询 car/servo/status/query → car/servo/status/result（V1.2）
+### 4.11 舵机状态查询 car/servo/status/query/request → car/servo/status/query/response（V1.2）
 
 **作用**：查询 PWM 舵机的当前位置/偏移，供 App/网页显示舵机状态。设备端调用
 `/ros_robot_controller/pwm_servo/get_state` 服务，再把结果汇总成一条 MQTT 应答。
 
-- 请求：`walle/{t}/device/{d}/car/servo/status/query`
-- 应答：`walle/{t}/device/{d}/car/servo/status/result`
+- 请求：`walle/{t}/device/{d}/car/servo/status/query/request`
+- 应答：`walle/{t}/device/{d}/car/servo/status/query/response`
 - 请求不 retained，QoS1；应答只在收到查询后发布。
 
 **请求字段**：
@@ -745,14 +749,14 @@ angular.z =  2.5  (rotate.left = true)
 （注册 `GetPWMServoState` 客户端）；`GetPWMServoState` 的 `id/position/offset` 都是数组，
 MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
-### 4.12 舵机位置设置 car/servo/set → car/servo/result（V1.2）
+### 4.12 舵机位置设置 car/servo/set/cmd（V1.2，V1.9 取消应答）
 
 **作用**：按**绝对位置**设置一个或多个 PWM 舵机；设备端发布到
 `/ros_robot_controller/pwm_servo/set_state`。
 
-- 请求：`walle/{t}/device/{d}/car/servo/set`
-- 应答：`walle/{t}/device/{d}/car/servo/result`
-- 请求不 retained，QoS1；应答只在收到设置请求后发布。
+- 请求：`walle/{t}/device/{d}/car/servo/set/cmd`
+- 应答：**无**（持续设置命令，最新状态覆盖；执行结果只写设备端日志）
+- 请求不 retained，QoS1。
 
 **请求字段**：
 
@@ -771,7 +775,7 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 | 字段 | 必填 | 说明 |
 |---|---|---|
 | `uuid` | 是 | 不匹配静默忽略 |
-| `request_id` | 是 | 原样回显 |
+| `request_id` | 是 | 仅用于日志排查 |
 | `servos` | 是 | 非空数组，最多 4 个；同一条消息一次下发 |
 | `servos[].id` | 是 | 1–4；同一请求内不能重复 |
 | `servos[].position` | 是 | 绝对位置整数，有效范围 800–2200 |
@@ -779,70 +783,41 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 **越界规则**：
 
-- 所有请求的 `position` 都超出 800–2200 → `result=1`，不执行任何舵机；
-- 只有一个越界、另一个合法 → 只执行合法的那一个，`result=0`；
-- 越界的舵机放在 `skipped[]` 里，合法的放在 `applied[]` 里；
-- 单舵机请求且越界 → `result=1`（没有可执行项）。
+- 所有请求的 `position` 都超出 800–2200 → 整条命令不执行；
+- 只有一个越界、另一个合法 → 只执行合法的那一个；
+- 越界的舵机记入设备端日志的 `skipped[]`，合法的记入 `applied[]`；
+- 单舵机请求且越界 → 没有可执行项。
 
-**应答字段**：
+**执行结果**（V1.9 起不再通过 MQTT 应答，仅供设备端日志/排障）：
 
-```json
-{
-  "result": 0,
-  "cause": "ok",
-  "request_id": "a1b2c3d4",
-  "duration": 1.0,
-  "applied": [
-    {"id": 1, "position": 1400}
-  ],
-  "skipped": [
-    {"id": 2, "position": 2400, "reason": "超出范围 800–2200"}
-  ],
-  "device_id": "666feb85d43410b2",
-  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
-  "hostname": "orangepi5plus",
-  "ip": "192.168.1.10",
-  "timestamp": 1763000000,
-  "datetime": "2026-11-13 22:30:00"
-}
-```
-
-| 字段 | 说明 |
+| 内部结果码 | 说明 |
 |---|---|
-| `result` | `0` 成功 / `1` 命令无效 / `2` 命令错误 / `3` 舵机控制链路不可用 |
-| `cause` | `ok` / `命令无效` / `命令错误` / `舵机控制链路不可用` |
-| `duration` | 实际生效的动作时长 |
-| `applied[]` | 实际下发的舵机（`result=0` 时非空） |
-| `skipped[]` | 因越界未执行的舵机及原因 |
-
-**结果码规则**：
-
-- `1`：`servos` 为空，或所有 `position` 都越界；
-- `2`：`servos` 不是数组、`id`/`position` 类型错误、`id` 重复/超出 1–4、`duration` 类型/范围错误；
-- `3`：`/ros_robot_controller/pwm_servo/set_state` 无订阅者或发布失败；
-- `0`：至少一个舵机已成功发布。
+| `0` | 至少一个舵机已成功发布 |
+| `1` | `servos` 为空，或所有 `position` 都越界 |
+| `2` | `servos` 不是数组、`id`/`position` 类型错误、`id` 重复/超出 1–4、`duration` 类型/范围错误 |
+| `3` | `/ros_robot_controller/pwm_servo/set_state` 无订阅者或发布失败 |
 
 **注意事项**：
 
-- `set_state` 是 ROS 话题，没有服务端回执；`result=0` 只表示“已发布”，不表示舵机已经转到位；
+- `set_state` 是 ROS 话题，没有服务端回执；设备端内部结果 `0` 也只表示“已发布”，不表示舵机已经转到位；
 - 多舵机必须放在同一条 `set_state` 消息里，不要拆成多次发布；
 - `position` 是绝对位置，不是相对步进；重复发送同一条命令是幂等的；
 - 连续设置时最后一条生效；
 - 如果舵机正在运动，新命令会覆盖旧目标；
-- 需要确认实际位置时，在 `duration + 0.5s` 后调用 `car/servo/status/query`。
+- 需要确认实际位置时，在 `duration + 0.5s` 后调用 `car/servo/status/query/request`。
 
 **设备端实现**：`net_mqtt_bridge/car_servo.py` 负责校验/结果，
 `node.py` 创建 `SetPWMServoState` 发布者；`state[].id`、`state[].position` 都是数组。
 
 ---
 
-### 4.13 开始录像 record/start/request → record/start/result（V1.3）
+### 4.13 开始录像 record/start/request → record/start/response（V1.3）
 
 **作用**：让设备端开始本地录像。`record_video_node` 订阅 `/image_raw`，通过 ffmpeg
 编码为 H.264 并封装为 **fragmented MP4（fMP4）** 落盘到 `walle-device/data/recordings/`。
 
 - 请求：`walle/{t}/device/{d}/record/start/request`
-- 应答：`walle/{t}/device/{d}/record/start/result`
+- 应答：`walle/{t}/device/{d}/record/start/response`
 - 请求不 retained，QoS1；应答只在收到请求后发布。
 
 **请求字段**：
@@ -908,12 +883,12 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 ---
 
-### 4.14 停止录像 record/stop/request → record/stop/result（V1.3）
+### 4.14 停止录像 record/stop/request → record/stop/response（V1.3）
 
 **作用**：停止当前录像会话，优雅关闭 ffmpeg 并写入文件尾部。
 
 - 请求：`walle/{t}/device/{d}/record/stop/request`
-- 应答：`walle/{t}/device/{d}/record/stop/result`
+- 应答：`walle/{t}/device/{d}/record/stop/response`
 
 **请求字段**：
 
@@ -954,12 +929,12 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 ---
 
-### 4.15 录像列表 record/list/query → record/list/result（V1.3）
+### 4.15 录像列表 record/list/query/request → record/list/query/response（V1.3）
 
 **作用**：查询设备本地已保存的录像文件列表，含播放地址。
 
-- 请求：`walle/{t}/device/{d}/record/list/query`
-- 应答：`walle/{t}/device/{d}/record/list/result`
+- 请求：`walle/{t}/device/{d}/record/list/query/request`
+- 应答：`walle/{t}/device/{d}/record/list/query/response`
 
 **请求字段**：
 
@@ -1009,12 +984,12 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 ---
 
-### 4.16 删除录像 record/delete/request → record/delete/result（V1.3）
+### 4.16 删除录像 record/delete/request → record/delete/response（V1.3）
 
 **作用**：删除指定的录像文件。正在录制的文件不可删除。
 
 - 请求：`walle/{t}/device/{d}/record/delete/request`
-- 应答：`walle/{t}/device/{d}/record/delete/result`
+- 应答：`walle/{t}/device/{d}/record/delete/response`
 
 **请求字段**：
 
@@ -1057,13 +1032,13 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 **安全**：文件名白名单 `^rec_\d{8}_\d{6}\.fmp4$`，删除前校验真实路径在 `data/recordings/`
 目录内，防止路径穿越。
 
-### 4.17 播放录像 record/play/start/request → record/play/start/result（V1.5）
+### 4.17 播放录像 record/play/start/request → record/play/start/response（V1.5）
 
 **作用**：把设备本地的 fMP4 录像文件用 ffmpeg 转封装（`-c copy`，不重编码）推到 SRS，
 App 用返回的 `flv_url` / `whep_url` 拉流播放。同一时刻只允许一路播放，新请求会先停掉旧的。
 
 - 请求：`walle/{t}/device/{d}/record/play/start/request`
-- 应答：`walle/{t}/device/{d}/record/play/start/result`
+- 应答：`walle/{t}/device/{d}/record/play/start/response`
 
 **请求字段**：
 
@@ -1108,7 +1083,7 @@ App 用返回的 `flv_url` / `whep_url` 拉流播放。同一时刻只允许一�
 | `offset_sec` | 实际生效的起始秒数（仅请求带了时回显） |
 
 **停止播放**：App 退出播放时发 `record/play/stop/request`，设备端 kill ffmpeg 进程，
-返回 `record/play/stop/result`（带 `stopped: true`）。
+返回 `record/play/stop/response`（带 `stopped: true`）。
 
 **实现要点**：
 - ffmpeg 命令：`ffmpeg -re [-ss <offset>] -i <fmp4> -c copy -f flv rtmp://<srs>:1935/live/<stream>?secret=<secret>`
@@ -1140,7 +1115,7 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 **三条铁律**：
 
 - 应答必须原样回显 `request_id`（历史 bug：漏回显 → App 丢弃结果 → 一直转圈）；
-- 除 `discovery/query` 外请求必须带 `uuid`，设备端不匹配必须静默忽略；
+- 除 `discovery/query/request` 外请求必须带 `uuid`，设备端不匹配必须静默忽略；
 - 新增主题段先过 `sanitize`，两端清洗规则必须逐字符一致。
 
 
@@ -1151,6 +1126,30 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 7. 变更记录
+
+### 2026-11-24：主题后缀统一为 request/response/cmd/report（文档 v1.9）
+
+**变更类型**：破坏性变更（所有请求/应答主题改名，不保留兼容）。
+
+**变更内容**
+
+- 请求-应答对：请求统一以 `.../request` 结尾、应答统一以 `.../response` 结尾
+  （如 `state/query/request` → `state/query/response`）。
+- 持续设置且不需要应答的主题统一以 `.../cmd` 结尾：
+  `car/motor/set/cmd`、`car/servo/set/cmd`；取消原 `car/motor/result`、`car/servo/result` 应答。
+- 主动上报：`alarm` → `alarm/report`；`online` 保持单独无后缀。
+- 设备发现：请求 `walle/{t}/discovery/query/request`，应答
+  `walle/{t}/device/{d}/discovery/query/response`。
+- App（`TopicNames` / `MessageRouter` / `MqttManager`）、设备端（`ld_config` / `ld_protocol`、
+  `net_mqtt_bridge/config.py` / `protocol.py` / `node.py` / `car_motor.py` / `car_servo.py`）、
+  `walle-agent`、`web/car_ctl_by_mqtt.html` 与 Broker ACL 同步调整；旧主题直接删除。
+
+**影响与兼容性**：App、设备端、walle-agent 与 Broker ACL 必须同版本部署；旧版无法互通。
+`car/motor/set/cmd` 与 `car/servo/set/cmd` 不再有 MQTT 回执，执行结果只写设备端日志。
+
+**验证方式**：`./gradlew :app:testDebugUnitTest`；
+`python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test`；
+`cd walle-device/linux-demo && python3 -m unittest discover -s test -t .`。
 
 ### 2026-11-23：主题结构改为 walle/{tenant}/device/{device}（文档 v1.8）
 
@@ -1474,7 +1473,7 @@ App `DeviceInfoTest` / `DeviceRegistryTest` 共 21 个用例通过
 3. **WHEP 鉴权实测**：Nginx 8443 `/whep-audio/` + `secure_link` 验证无 token 403、
    过期 410、正确 token 502（P0-4.1）。
 4. **手机端刷新方式实测**：改用 `UNSUBSCRIBE` + `SUBSCRIBE` `walle/{t}/device/+/online`
-   触发 retained 回放，替代 `discovery/query`；验证通过后可删除 discovery 主题、
+   触发 retained 回放，替代 `discovery/query/request`；验证通过后可删除 discovery 主题、
    处理逻辑与 `DISCOVERY_MIN_INTERVAL_SEC` / `DISCOVERY_JITTER_SEC`。
 5. **linux-demo 实机验证**：`kill -9` 子进程清理、断网恢复、摄像头插拔、声卡不可用与
    24h soak（P1-5.3）；CI 接入 `.github/workflows/ci.yml`（P1-5.4，暂缓）。

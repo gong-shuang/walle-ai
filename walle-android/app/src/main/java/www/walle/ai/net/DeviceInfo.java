@@ -3,11 +3,11 @@ package www.walle.ai.net;
 import org.json.JSONObject;
 
 /**
- * 单台设备的最小身份信息，来源是设备端 {@code online} / {@code discovery/result} 报文。
+ * 单台设备的最小身份信息，来源是设备端 {@code online} / {@code discovery/query/response} 报文。
  * <p>
  * 设备端自 2026-11-10 起身份报文只含最小身份（device_id/uuid/版本/系统描述/类型/型号/
  * 主机名/IP/运行时长/时间戳）；MAC、序列号、CPU、内存/磁盘、启动时间等不再通过 MQTT 下发，
- * 设备详情统一走 {@code state/query}，由 {@link www.walle.ai.model.StatusSnapshot} 解析。
+ * 设备详情统一走 {@code state/query/request}，由 {@link www.walle.ai.model.StatusSnapshot} 解析。
  * <p>
  * 设备端每次重启都会重新生成 uuid（uuid5(MAC|IP|启动时间)），因此同一台机器
  * 在不同启动周期里 uuid 可能变化；{@code device_id} 与 {@code hostname} 相对稳定，

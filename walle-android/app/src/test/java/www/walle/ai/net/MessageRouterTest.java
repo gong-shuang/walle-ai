@@ -32,9 +32,7 @@ public class MessageRouterTest {
         @Override public void onCapabilityResult(JSONObject p) { record("capability", p); }
         @Override public void onVideoStartResult(JSONObject p) { record("video-start", p); }
         @Override public void onVideoStopResult(JSONObject p) { record("video-stop", p); }
-        @Override public void onCarMotorResult(JSONObject p) { record("car-motor", p); }
         @Override public void onCarServoStatusResult(JSONObject p) { record("car-servo-status", p); }
-        @Override public void onCarServoSetResult(JSONObject p) { record("car-servo-set", p); }
         @Override public void onIgnored(String topic, String reason) { ignored.add(topic); }
     }
 
@@ -44,19 +42,17 @@ public class MessageRouterTest {
         MessageRouter router = new MessageRouter(sink);
 
         router.route(BASE + "/online", "{\"online\":true}");
-        router.route(BASE + "/discovery/result", "{\"model\":\"Pi 5\"}");
-        router.route(BASE + "/state/result", "{\"cpu\":{}}");
-        router.route(BASE + "/alarm", "{\"event\":\"alarm\"}");
-        router.route(BASE + "/capability/result", "{\"cameras\":[]}");
-        router.route(BASE + "/video/start/result", "{\"result\":0}");
-        router.route(BASE + "/video/stop/result", "{\"result\":0}");
-        router.route(BASE + "/car/motor/result", "{\"result\":0}");
-        router.route(BASE + "/car/servo/status/result", "{\"result\":0}");
-        router.route(BASE + "/car/servo/result", "{\"result\":0}");
+        router.route(BASE + "/discovery/query/response", "{\"model\":\"Pi 5\"}");
+        router.route(BASE + "/state/query/response", "{\"cpu\":{}}");
+        router.route(BASE + "/alarm/report", "{\"event\":\"alarm\"}");
+        router.route(BASE + "/capability/query/response", "{\"cameras\":[]}");
+        router.route(BASE + "/video/start/response", "{\"result\":0}");
+        router.route(BASE + "/video/stop/response", "{\"result\":0}");
+        router.route(BASE + "/car/servo/status/query/response", "{\"result\":0}");
 
         assertEquals(List.of("online", "discovery", "state", "alarm",
-                "capability", "video-start", "video-stop", "car-motor",
-                "car-servo-status", "car-servo-set"), sink.events);
+                "capability", "video-start", "video-stop",
+                "car-servo-status"), sink.events);
     }
 
     @Test
@@ -64,7 +60,7 @@ public class MessageRouterTest {
         RecordingSink sink = new RecordingSink();
         MessageRouter router = new MessageRouter(sink);
 
-        router.route(BASE + "/state/result", "{\"cpu\":{}}");
+        router.route(BASE + "/state/query/response", "{\"cpu\":{}}");
 
         assertEquals("666feb85d43410b2", sink.lastPayload.optString("device_id"));
     }
@@ -75,19 +71,14 @@ public class MessageRouterTest {
         MessageRouter router = new MessageRouter(sink);
 
         // 告警 / 视频结果：2 秒内重复投递只处理一次
-        router.route(BASE + "/alarm", "{\"event\":\"alarm\",\"timestamp\":1}");
-        router.route(BASE + "/alarm", "{\"event\":\"alarm\",\"timestamp\":1}");
-        router.route(BASE + "/video/start/result", "{\"request_id\":\"v1\"}");
-        router.route(BASE + "/video/start/result", "{\"request_id\":\"v1\"}");
-        router.route(BASE + "/car/motor/result", "{\"request_id\":\"c1\"}");
-        router.route(BASE + "/car/motor/result", "{\"request_id\":\"c1\"}");
-        router.route(BASE + "/car/servo/status/result", "{\"request_id\":\"s1\"}");
-        router.route(BASE + "/car/servo/status/result", "{\"request_id\":\"s1\"}");
-        router.route(BASE + "/car/servo/result", "{\"request_id\":\"s2\"}");
-        router.route(BASE + "/car/servo/result", "{\"request_id\":\"s2\"}");
+        router.route(BASE + "/alarm/report", "{\"event\":\"alarm\",\"timestamp\":1}");
+        router.route(BASE + "/alarm/report", "{\"event\":\"alarm\",\"timestamp\":1}");
+        router.route(BASE + "/video/start/response", "{\"request_id\":\"v1\"}");
+        router.route(BASE + "/video/start/response", "{\"request_id\":\"v1\"}");
+        router.route(BASE + "/car/servo/status/query/response", "{\"request_id\":\"s1\"}");
+        router.route(BASE + "/car/servo/status/query/response", "{\"request_id\":\"s1\"}");
 
-        assertEquals(List.of("alarm", "video-start", "car-motor",
-                "car-servo-status", "car-servo-set"), sink.events);
+        assertEquals(List.of("alarm", "video-start", "car-servo-status"), sink.events);
     }
 
     @Test
@@ -95,8 +86,8 @@ public class MessageRouterTest {
         RecordingSink sink = new RecordingSink();
         MessageRouter router = new MessageRouter(sink);
 
-        router.route(BASE + "/state/result", "{\"datetime\":\"2026-10-30 12:00:00\"}");
-        router.route(BASE + "/state/result", "{\"datetime\":\"2026-10-30 12:00:00\"}");
+        router.route(BASE + "/state/query/response", "{\"datetime\":\"2026-10-30 12:00:00\"}");
+        router.route(BASE + "/state/query/response", "{\"datetime\":\"2026-10-30 12:00:00\"}");
 
         assertEquals(List.of("state", "state"), sink.events);
     }
@@ -106,8 +97,8 @@ public class MessageRouterTest {
         RecordingSink sink = new RecordingSink();
         MessageRouter router = new MessageRouter(sink);
 
-        router.route(BASE + "/alarm", "{\"event\":\"alarm\",\"timestamp\":1}");
-        router.route(BASE + "/alarm", "{\"event\":\"alarm\",\"timestamp\":2}");
+        router.route(BASE + "/alarm/report", "{\"event\":\"alarm\",\"timestamp\":1}");
+        router.route(BASE + "/alarm/report", "{\"event\":\"alarm\",\"timestamp\":2}");
 
         assertEquals(List.of("alarm", "alarm"), sink.events);
     }
@@ -118,10 +109,10 @@ public class MessageRouterTest {
         MessageRouter router = new MessageRouter(sink);
 
         router.route(BASE + "/unknown/resource", "{}");        // 未知资源
-        router.route(BASE + "/cmd/result", "{}");              // 已下线的远程命令应答
-        router.route("walle/home/discovery/query", "{}");       // 租户级发现主题（没有 device 段）
+        router.route(BASE + "/cmd/exec/response", "{}");       // 已下线的远程命令应答
+        router.route("walle/home/discovery/query/request", "{}"); // 租户级发现主题（没有 device 段）
         router.route("device/online", "{}");                   // 旧协议主题
-        router.route(BASE + "/state/result", "{not json");     // 非法 JSON
+        router.route(BASE + "/state/query/response", "{not json"); // 非法 JSON
 
         assertEquals(5, sink.ignored.size());
         assertTrue(sink.events.isEmpty());

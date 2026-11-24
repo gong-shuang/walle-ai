@@ -430,7 +430,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div class="tabPanel active" data-tab="device-list">
         <div class="tabHeader">
           <span class="tabTitle">设备列表</span>
-          <button id="btnRefreshDevices" class="btn" title="发送 discovery/query 刷新设备">↻ 刷新</button>
+          <button id="btnRefreshDevices" class="btn" title="发送 discovery/query/request 刷新设备">↻ 刷新</button>
         </div>
         <div id="deviceCardList" class="deviceCardGrid">
           <div class="deviceCardEmpty">等待设备发现…请先连接 MQTT 并点击刷新</div>
@@ -448,7 +448,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div class="cardHead">
         <div>
           <h2>设备状态</h2>
-          <small>state/query → state/result</small>
+          <small>state/query/request → state/query/response</small>
         </div>
         <span id="onlineBadge" class="badge bad">离线</span>
       </div>
@@ -457,7 +457,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         <div class="avatar">▤</div>
         <div style="min-width:0;flex:1">
           <h3 id="devName">未选择设备</h3>
-          <p id="devSub">从上方列表选择，或点「刷新」发送 discovery/query</p>
+          <p id="devSub">从上方列表选择，或点「刷新」发送 discovery/query/request</p>
           <div class="pills" id="devPills"></div>
         </div>
       </div>
@@ -496,7 +496,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
           <h2>实时画面</h2>
           <small>video/start|stop → WHEP 拉流</small>
         </div>
-        <button id="btnCapability" class="btn" type="button" disabled title="查询视频流状态（state/query）">刷新</button>
+        <button id="btnCapability" class="btn" type="button" disabled title="查询视频流状态（state/query/request）">刷新</button>
       </div>
       <div class="videoStage">
         <div class="videoWrap">
@@ -774,9 +774,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     video: { pc: null, location: '', room: '', camera: '', lastAlarmKey: '', connected: false, uiStreaming: null },
     mic: { on: false, starting: false, pc: null, stream: null, ac: null, analyser: null,
       raf: 0, room: '', location: '' },
-    car: { held: {}, timer: null, pendingRid: '', wasActive: false },
+    car: { held: {}, timer: null, wasActive: false },
     servo: { enabled: false, held: {}, pos: { 1: null, 2: null }, timer: null,
-      queryTimer: null, pendingQueryRid: '', pendingSetRid: '' },
+      queryTimer: null, pendingQueryRid: '' },
     record: { recording: false, filename: '', startedAt: '', startedTs: 0,
       list: [], usedBytes: 0, limitBytes: 0, durationTimer: null,
       pendingStart: null, pendingStop: null, pendingList: null, pendingDelete: null },
@@ -904,13 +904,13 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     this.opts.onMessage(topic, data, retain);
   };
   function subBase() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/device/+/'; }
-  function discoveryTopic() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/discovery/query'; }
-  var SUBS = ['online', 'discovery/result', 'state/result', 'capability/result',
-    'video/start/result', 'video/stop/result', 'car/motor/result',
-    'car/servo/status/result', 'car/servo/result', 'alarm',
-    'record/start/result', 'record/stop/result',
-    'record/list/result', 'record/delete/result',
-    'record/play/start/result', 'record/play/stop/result'];
+  function discoveryTopic() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/discovery/query/request'; }
+  var SUBS = ['online', 'discovery/query/response', 'state/query/response', 'capability/query/response',
+    'video/start/response', 'video/stop/response',
+    'car/servo/status/query/response', 'alarm/report',
+    'record/start/response', 'record/stop/response',
+    'record/list/query/response', 'record/delete/response',
+    'record/play/start/response', 'record/play/stop/response'];
 
   function setConn(kind, text) {
     el.connChip.className = 'chip ' + (kind === 'on' ? 'on' : 'bad');
@@ -953,20 +953,18 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function onMessage(topic, data, retain) {
     var dev = devOf(topic);
     if (/\/online$/.test(topic)) onOnline(dev, data);
-    else if (/\/discovery\/result$/.test(topic)) onDiscovery(dev, data);
-    else if (/\/state\/result$/.test(topic)) onState(dev, data);
-    else if (/\/capability\/result$/.test(topic)) onCapability(dev, data);
-    else if (/\/video\/start\/result$/.test(topic)) onVideoStartResult(dev, data);
-    else if (/\/video\/stop\/result$/.test(topic)) onVideoStopResult(dev, data);
-    else if (/\/car\/motor\/result$/.test(topic)) onCarMotorResult(dev, data);
-    else if (/\/car\/servo\/status\/result$/.test(topic)) onCarServoStatusResult(dev, data);
-    else if (/\/car\/servo\/result$/.test(topic)) onCarServoSetResult(dev, data);
-    else if (/\/record\/start\/result$/.test(topic)) onRecordStart(dev, data);
-    else if (/\/record\/stop\/result$/.test(topic)) onRecordStop(dev, data);
-    else if (/\/record\/list\/result$/.test(topic)) onRecordList(dev, data);
-    else if (/\/record\/delete\/result$/.test(topic)) onRecordDelete(dev, data);
-    else if (/\/record\/play\/start\/result$/.test(topic)) onRecordPlay(dev, data);
-    else if (/\/alarm$/.test(topic)) onAlarm(dev, data);
+    else if (/\/discovery\/query\/response$/.test(topic)) onDiscovery(dev, data);
+    else if (/\/state\/query\/response$/.test(topic)) onState(dev, data);
+    else if (/\/capability\/query\/response$/.test(topic)) onCapability(dev, data);
+    else if (/\/video\/start\/response$/.test(topic)) onVideoStartResult(dev, data);
+    else if (/\/video\/stop\/response$/.test(topic)) onVideoStopResult(dev, data);
+    else if (/\/car\/servo\/status\/query\/response$/.test(topic)) onCarServoStatusResult(dev, data);
+    else if (/\/record\/start\/response$/.test(topic)) onRecordStart(dev, data);
+    else if (/\/record\/stop\/response$/.test(topic)) onRecordStop(dev, data);
+    else if (/\/record\/list\/query\/response$/.test(topic)) onRecordList(dev, data);
+    else if (/\/record\/delete\/response$/.test(topic)) onRecordDelete(dev, data);
+    else if (/\/record\/play\/start\/response$/.test(topic)) onRecordPlay(dev, data);
+    else if (/\/alarm\/report$/.test(topic)) onAlarm(dev, data);
   }
   function devOf(topic) {
     var parts = topic.split('/');
@@ -1120,7 +1118,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         if (p.tries < STATE_MAX_TRIES) { attempt(); return; }
         stateFail('未收到本次请求的应答（request_id=' + p.rid + '）');
       }, STATE_WAIT_MS);
-      var ok = mqtt.publish(base(cfg.device) + '/state/query', { uuid: ui.uuid, request_id: p.rid });
+      var ok = mqtt.publish(base(cfg.device) + '/state/query/request', { uuid: ui.uuid, request_id: p.rid });
       if (!ok) stateFail('发送失败：MQTT 连接已断开');
     }
   }
@@ -1140,7 +1138,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
   function renderState() {
     var s = ui.state || {}, cpu = s.cpu || {}, mem = s.memory || {}, sys = s.system || {};
-    // state/result 不再带 online 字段，在线状态取设备列表（online/discovery）的结果
+    // state/query/response 不再带 online 字段，在线状态取设备列表（online/discovery）的结果
     var online = (ui.devices[cfg.device] || {}).online !== false;
     el.onlineBadge.className = 'badge ' + (online ? 'ok' : 'bad');
     el.onlineBadge.textContent = online ? '在线' : '离线';
@@ -1206,7 +1204,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     el.btnCapability.disabled = !!ui.videoRefreshing || !can;
     el.btnCapability.textContent = ui.videoRefreshing ? '刷新中…' : '刷新';
     el.btnCapability.title = can
-      ? '查询视频流状态（state/query）并校正按钮与提示'
+      ? '查询视频流状态（state/query/request）并校正按钮与提示'
       : 'MQTT 未连接 / 设备离线 / 缺少 uuid';
   }
   function requestCapability() {
@@ -1221,7 +1219,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       ui.pendingCap = null;
     }, CAP_WAIT_MS);
     ui.pendingCap = p;
-    if (!mqtt.publish(base(cfg.device) + '/capability/query', { uuid: ui.uuid, request_id: id })) {
+    if (!mqtt.publish(base(cfg.device) + '/capability/query/request', { uuid: ui.uuid, request_id: id })) {
       clearTimeout(p.timer);
       ui.pendingCap = null;
       return false;
@@ -1234,7 +1232,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (ui.pendingCap && ui.pendingCap.timer) clearTimeout(ui.pendingCap.timer);
     ui.pendingCap = null;
     ui.cap = data;
-    // capability/query 仍在连接/切换设备时下发，但结果不再回显到画面提示区
+    // capability/query/request 仍在连接/切换设备时下发，但结果不再回显到画面提示区
     var cams = (data.cameras || []).filter(function (c) { return c && c.node; });
     if (!cams.length) {
       ui.video.camera = '';
@@ -1291,7 +1289,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       if (!ui.video.pc) setVideoMsg(streaming ? '设备已在推流' + (rm ? '（room ' + rm + '）' : '') : '设备未推流，先「开始推流」', streaming ? 'ok' : null);
     }
   }
-  // 刷新按钮：查一次 state，用 state/result.video 校正按钮与提示
+  // 刷新按钮：查一次 state，用 state/query/response.video 校正按钮与提示
   function refreshVideoState() {
     if (!mqtt || !mqtt.connected) { setVideoMsg('MQTT 未连接，无法刷新画面状态', 'err'); return; }
     if (!cfg.device) { setVideoMsg('未选择设备，无法刷新画面状态', 'err'); return; }
@@ -1300,15 +1298,15 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (ui.videoRefreshing) return;
     ui.videoRefreshing = true;
     updateVideoRefreshButton();
-    setVideoMsg('正在查询视频流状态（state/query）…', null);
+    setVideoMsg('正在查询视频流状态（state/query/request）…', null);
     queryState(false, function (data) {
       ui.videoRefreshing = false;
       updateVideoRefreshButton();
-      if (!data) { setVideoMsg('刷新失败：未收到 state/result', 'err'); return; }
+      if (!data) { setVideoMsg('刷新失败：未收到 state/query/response', 'err'); return; }
       reconcileVideoState();
     });
   }
-  // 用 state/result.video 校正本页按钮状态与「停止推流」下方的提示文字
+  // 用 state/query/response.video 校正本页按钮状态与「停止推流」下方的提示文字
   function reconcileVideoState() {
     var v = (ui.state && ui.state.video) || {};
     var streaming = v.streaming === true;
@@ -1336,7 +1334,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (!mqtt || !mqtt.connected || !cfg.device) { setVideoMsg('MQTT 未连接或未选择设备', 'err'); return; }
     if (!ui.uuid) { setVideoMsg('尚未取得设备 uuid', 'err'); return; }
     var cam = ui.video.camera || ((ui.cap.cameras || []).filter(function (c) { return c && c.node; })[0] || {}).node;
-    if (!cam) { setVideoMsg('没有可用摄像头（capability/result 为空）', 'err'); return; }
+    if (!cam) { setVideoMsg('没有可用摄像头（capability/query/response 为空）', 'err'); return; }
     var rm = (ui.video.room || room()).trim();
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(rm)) { setVideoMsg('房间号必须为 1–64 位字母、数字、_ 或 -', 'err'); return; }
     ui.video.room = rm; cfg.videoRoom = rm; saveCfg();
@@ -1350,7 +1348,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     ui.pendingVideo = { rid: id, timer: setTimeout(function () {
       if (!ui.pendingVideo) return;
       ui.pendingVideo = null;
-      setVideoMsg('等待 video/start/result 超时（10s）', 'err');
+      setVideoMsg('等待 video/start/response 超时（10s）', 'err');
       applyVideoUi();
     }, 10000) };
   }
@@ -1386,7 +1384,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     ui.pendingVideoStop = { rid: id, timer: setTimeout(function () {
       if (!ui.pendingVideoStop) return;
       ui.pendingVideoStop = null;
-      setVideoMsg('等待 video/stop/result 超时（10s）', 'err');
+      setVideoMsg('等待 video/stop/response 超时（10s）', 'err');
     }, 10000) };
   }
   function onVideoStopResult(dev, data) {
@@ -1774,10 +1772,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       { uuid: ui.uuid, request_id: id })) {
       setRecMsg('record/start/request 发送失败', 'err'); return;
     }
-    setRecMsg('已请求开始录像，等待 record/start/result…', null);
+    setRecMsg('已请求开始录像，等待 record/start/response…', null);
     ui.record.pendingStart = { rid: id, timer: setTimeout(function () {
       ui.record.pendingStart = null;
-      setRecMsg('等待 record/start/result 超时（10s）', 'err');
+      setRecMsg('等待 record/start/response 超时（10s）', 'err');
       applyRecordUi();
     }, REC_WAIT_MS) };
     applyRecordUi();
@@ -1817,7 +1815,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     setRecMsg('已请求停止录像…', null);
     ui.record.pendingStop = { rid: id, timer: setTimeout(function () {
       ui.record.pendingStop = null;
-      setRecMsg('等待 record/stop/result 超时（10s）', 'err');
+      setRecMsg('等待 record/stop/response 超时（10s）', 'err');
       applyRecordUi();
     }, REC_WAIT_MS) };
     applyRecordUi();
@@ -1849,13 +1847,13 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     }
     if (ui.record.pendingList) return;
     var id = rid();
-    if (!mqtt.publish(base(cfg.device) + '/record/list/query',
+    if (!mqtt.publish(base(cfg.device) + '/record/list/query/request',
       { uuid: ui.uuid, request_id: id })) {
-      setRecMsg('record/list/query 发送失败', 'err'); return;
+      setRecMsg('record/list/query/request 发送失败', 'err'); return;
     }
     ui.record.pendingList = { rid: id, timer: setTimeout(function () {
       ui.record.pendingList = null;
-      setRecMsg('等待 record/list/result 超时（5s）', 'err');
+      setRecMsg('等待 record/list/query/response 超时（5s）', 'err');
       applyRecordUi();
     }, REC_LIST_WAIT_MS) };
     applyRecordUi();
@@ -1945,7 +1943,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     setRecMsg('正在删除 ' + filename + ' …', null);
     ui.record.pendingDelete = { rid: id, filename: filename, timer: setTimeout(function () {
       ui.record.pendingDelete = null;
-      setRecMsg('等待 record/delete/result 超时（5s）', 'err');
+      setRecMsg('等待 record/delete/response 超时（5s）', 'err');
     }, REC_LIST_WAIT_MS) };
   }
   function onRecordDelete(dev, data) {
@@ -1990,7 +1988,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     ui.player.pending = { rid: id, timer: setTimeout(function () {
       ui.player.pending = null;
       el.playerMsg.className = 'recordMsg err';
-      el.playerMsg.textContent = '等待 record/play/start/result 超时（10s）';
+      el.playerMsg.textContent = '等待 record/play/start/response 超时（10s）';
     }, REC_PLAY_WAIT_MS) };
   }
   function onRecordPlay(dev, data) {
@@ -2175,12 +2173,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var payload = carPayload();
     payload.uuid = ui.uuid;
     payload.request_id = id;
-    if (!mqtt.publish(base(cfg.device) + '/car/motor/set', payload)) {
-      carSetStatus('car/motor/set 发送失败：MQTT 已断开', 'err');
+    if (!mqtt.publish(base(cfg.device) + '/car/motor/set/cmd', payload)) {
+      carSetStatus('car/motor/set/cmd 发送失败：MQTT 已断开', 'err');
       carStopLoop();
       return;
     }
-    ui.car.pendingRid = id;
     ui.car.wasActive = true;
     var m = carActiveMove(), r = carActiveRotate();
     var label = m ? m.toUpperCase() : '';
@@ -2192,13 +2189,12 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     ui.car.wasActive = false;
     if (!mqtt || !mqtt.connected || !cfg.device || !ui.uuid) return;
     var id = rid();
-    mqtt.publish(base(cfg.device) + '/car/motor/set', {
+    mqtt.publish(base(cfg.device) + '/car/motor/set/cmd', {
       uuid: ui.uuid,
       request_id: id,
       move: { forward: 0, back: 0, left: 0, right: 0 },
       rotate: { left: false, right: false }
     });
-    ui.car.pendingRid = id;
   }
   function carPress(key) {
     var kind = CAR_KEYS[key];
@@ -2242,17 +2238,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     } else {
       ui.car.wasActive = false;
     }
-  }
-  function onCarMotorResult(dev, data) {
-    if (dev !== cfg.device) return;
-    if (data.request_id && ui.car.pendingRid && data.request_id !== ui.car.pendingRid) return;
-    if (data.result === 0) {
-      if (!carHasActive()) carSetStatus('已停止', 'ok');
-      return;
-    }
-    carSetStatus('车控失败：result=' + data.result + ' · ' + (data.cause || ''), 'err');
-    // 设备已停车或链路不可用：页面同时松开按键，避免继续重发。
-    carReleaseAll(false);
   }
 
   // ---------------------------------------------------------------- 相机方位舵机
@@ -2324,7 +2309,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       servoClearQueryTimer();
       ui.servo.pos = { 1: null, 2: null };
       ui.servo.pendingQueryRid = '';
-      ui.servo.pendingSetRid = '';
     }
     servoUpdateButtons();
     if (text !== undefined) servoSetStatus(text, kind || null);
@@ -2337,15 +2321,14 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (!servoPrereqOk()) return;
     servoClearQueryTimer();
     var id = rid();
-    if (!mqtt.publish(base(cfg.device) + '/car/servo/status/query', {
+    if (!mqtt.publish(base(cfg.device) + '/car/servo/status/query/request', {
       uuid: ui.uuid, request_id: id, ids: [1, 2], include_offset: false
     })) {
-      servoSetStatus('car/servo/status/query 发送失败：MQTT 已断开', 'err');
+      servoSetStatus('car/servo/status/query/request 发送失败：MQTT 已断开', 'err');
       servoUpdateButtons();
       return;
     }
     ui.servo.pendingQueryRid = id;
-    ui.servo.pendingSetRid = '';
     servoSetStatus('查询舵机位置…', null);
     servoUpdateButtons();
     ui.servo.queryTimer = setTimeout(function () {
@@ -2413,15 +2396,14 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (!servoPrereqOk()) { servoStopLoop(); return; }
 
     var id = rid();
-    if (!mqtt.publish(base(cfg.device) + '/car/servo/set', {
+    if (!mqtt.publish(base(cfg.device) + '/car/servo/set/cmd', {
       uuid: ui.uuid, request_id: id, servos: targets, duration: SERVO_DURATION
     })) {
-      servoSetStatus('car/servo/set 发送失败：MQTT 已断开', 'err');
+      servoSetStatus('car/servo/set/cmd 发送失败：MQTT 已断开', 'err');
       servoStopLoop();
       return;
     }
     targets.forEach(function (t) { ui.servo.pos[t.id] = t.position; });
-    ui.servo.pendingSetRid = id;
     var label = targets.map(function (t) { return t.id + '号 ' + t.position; }).join(' · ');
     servoSetStatus('已设置 ' + label, 'ok');
     servoUpdateButtons();
@@ -2468,32 +2450,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       servoSetEnabled(false, '相机方位未启用', null);
     }
   }
-  function onCarServoSetResult(dev, data) {
-    if (dev !== cfg.device) return;
-    if (!ui.servo.enabled) return;
-    if (data.request_id && ui.servo.pendingSetRid && data.request_id !== ui.servo.pendingSetRid) return;
-    ui.servo.pendingSetRid = '';
-    if (data.result === 0) {
-      (data.applied || []).forEach(function (item) {
-        if (item && (item.id === 1 || item.id === 2) && typeof item.position === 'number') {
-          ui.servo.pos[item.id] = item.position;
-        }
-      });
-      servoUpdateButtons();
-      var parts = (data.applied || []).map(function (item) {
-        return item.id + '号 ' + item.position;
-      });
-      var text = '已设置 ' + (parts.join(' · ') || 'ok');
-      if ((data.skipped || []).length) {
-        text += '；跳过 ' + data.skipped.map(function (item) { return item.id + '号'; }).join('、');
-      }
-      servoSetStatus(text, 'ok');
-      return;
-    }
-    servoReleaseAll();
-    servoDisable('舵机设置失败：result=' + data.result + ' · ' + (data.cause || ''));
-  }
-
   function waitIce(pc) {
     return new Promise(function (resolve) {
       if (!pc || pc.iceGatheringState === 'complete') return resolve();
@@ -2673,7 +2629,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (sendStop !== false && wasOn && mqtt && mqtt.connected && cfg.device) {
       var payload = { uuid: ui.uuid, request_id: rid() };
       if (rm) payload.room_number = rm;
-      try { mqtt.publish(base(cfg.device) + '/phone/audio/stop', payload); } catch (e) {}
+      try { mqtt.publish(base(cfg.device) + '/phone/audio/stop/request', payload); } catch (e) {}
     }
     ui.mic.room = '';
     setVideoMsg('语音通话已关闭', null);
@@ -2750,9 +2706,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         setTimeout(function () { reject(new Error('WHIP 媒体连接超时（10s）')); }, 10000);
       })]);
       if (ui.mic.pc !== pc) return;
-      if (!mqtt.publish(base(cfg.device) + '/phone/audio/send',
+      if (!mqtt.publish(base(cfg.device) + '/phone/audio/send/request',
         { uuid: ui.uuid, request_id: rid(), room_number: rm })) {
-        throw new Error('phone/audio/send 发送失败');
+        throw new Error('phone/audio/send/request 发送失败');
       }
       ui.mic.on = true; ui.mic.starting = false;
       setMicUi(true, false);

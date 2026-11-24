@@ -41,17 +41,18 @@ class TopicTest(unittest.TestCase):
 
     def test_device_topic_and_subscriptions(self):
         with mock.patch.multiple(config, MQTT_TENANT="t.1", DEVICE_ID="dev-1"):
-            self.assertEqual(main.device_topic("state/query"),
-                             "walle/t_1/device/dev-1/state/query")
-            self.assertEqual(main.tenant_topic("discovery/query"),
-                             "walle/t_1/discovery/query")
+            self.assertEqual(main.device_topic("state/query/request"),
+                             "walle/t_1/device/dev-1/state/query/request")
+            self.assertEqual(main.tenant_topic("discovery/query/request"),
+                             "walle/t_1/discovery/query/request")
             topics = [topic for topic, _qos in main.subscriptions()]
         self.assertEqual(len(topics), 7)
-        self.assertIn("walle/t_1/discovery/query", topics)
+        self.assertIn("walle/t_1/discovery/query/request", topics)
 
     def test_request_result_pairs(self):
         for req, res in main.REQUEST_TO_RESULT.items():
-            self.assertTrue(res.endswith("/result"), f"{req} 的应答 {res} 命名不合约定")
+            self.assertTrue(req.endswith("/request"), f"{req} 的请求命名不合约定")
+            self.assertTrue(res.endswith("/response"), f"{req} 的应答 {res} 命名不合约定")
         for req in main.REQUEST_HANDLERS:
             self.assertIn(req, main.REQUEST_TO_RESULT)
         # discovery 是租户级广播，单独走 handle_device_query，不在 REQUEST_HANDLERS

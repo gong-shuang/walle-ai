@@ -20,7 +20,7 @@ import www.walle.ai.net.AlarmStore;
 /**
  * 本地告警持久化（技术债 N11）。
  *
- * <p>只存告警：设备状态（state/result）<b>不落盘</b>——它表示「当前时刻这台设备的状态」，
+ * <p>只存告警：设备状态（state/query/response）<b>不落盘</b>——它表示「当前时刻这台设备的状态」，
  * 只有在选中一台在线设备、设备回包之后才有意义；缓存下来的旧快照会变成「看起来在线、数据却是昨天的」
  * 假象。设备列表本来就只展示在线设备，状态页每次都是现查。</p>
  *
@@ -260,7 +260,7 @@ public class LocalDb implements AlarmStore.Persistence {
         public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
             Log.i(TAG, "数据库升级 " + oldVersion + " -> " + newVersion);
             if (oldVersion < 2) {
-                // v1 曾短暂存过设备状态快照（state/result）。状态只对「当前在线设备」有意义，
+                // v1 曾短暂存过设备状态快照（state/query/response）。状态只对「当前在线设备」有意义，
                 // 落盘的旧快照会让人误以为设备在线且数据新鲜，故整表删除。
                 db.execSQL("DROP TABLE IF EXISTS status");
             }

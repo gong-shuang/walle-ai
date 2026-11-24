@@ -80,10 +80,10 @@ walle-agent ready: clientid=agent-b851fdde tenant=home chat=walle/home/agents/ag
 <<< SUB topic=walle/home/agents/agent-b851fdde/chat/request qos=1 retain=False ts=23:19:15
 { "request_id": "web-9f3c1a2b", "device": "0580a65014af4d0a", "text": "状态" }
 
->>> PUB topic=walle/home/device/0580a65014af4d0a/state/query qos=1 retain=False ts=23:19:15
+>>> PUB topic=walle/home/device/0580a65014af4d0a/state/query/request qos=1 retain=False ts=23:19:15
 { "request_id": "agent-web-12ab34", "uuid": "a26d..." }
 
-<<< SUB topic=walle/home/device/0580a65014af4d0a/state/result qos=1 retain=False ts=23:19:15
+<<< SUB topic=walle/home/device/0580a65014af4d0a/state/query/response qos=1 retain=False ts=23:19:15
 
 >>> PUB topic=walle/home/agents/agent-b851fdde/chat/response qos=1 retain=False ts=23:19:16
 { "request_id": "web-9f3c1a2b", "ok": true, "reply": "状态查询完成..." }
@@ -106,7 +106,7 @@ walle-agent ready: clientid=agent-b851fdde tenant=home chat=walle/home/agents/ag
 | 用途 | 主题 |
 |---|---|
 | 设备控制/回执 | `walle/{tenant}/device/{device}/{resource}` |
-| 发现 | `walle/{tenant}/discovery/query` |
+| 发现 | `walle/{tenant}/discovery/query/request` |
 | 对话 | `walle/{tenant}/agents/{clientid}/chat/request|response`、`/online`（retained） |
 
 任何位置都不带版本段（没有 `v1`）。

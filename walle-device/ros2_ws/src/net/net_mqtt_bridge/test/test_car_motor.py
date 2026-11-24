@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""car/motor/set 报文校验与轮速预算测试。"""
+"""car/motor/set/cmd 报文校验与轮速预算测试。"""
 
 import pytest
 
@@ -145,21 +145,6 @@ def test_boundary_speeds_are_valid(value):
     assert twist == (value, 0.0, 0.0)
 
 
-def test_result_payload_echoes_request_id_and_uses_car_topic():
-    class Dummy(car_motor.CarMotorMixin):
-        lan_ip = "192.168.1.10"
-
-        def __init__(self):
-            self.topic = ""
-            self.payload = None
-
-        def publish_json(self, topic, payload):
-            self.topic = topic
-            self.payload = payload
-
-    dummy = Dummy()
-    dummy._publish_car_motor_result("req-1", car_motor.RESULT_OK, car_motor.CAUSE_OK)
-    assert dummy.topic == config.RES_CAR_MOTOR_RESULT
-    assert dummy.payload["request_id"] == "req-1"
-    assert dummy.payload["result"] == car_motor.RESULT_OK
-    assert dummy.payload["cause"] == car_motor.CAUSE_OK
+def test_topic_is_continuous_command_without_response():
+    assert config.REQ_CAR_MOTOR_SET == "car/motor/set/cmd"
+    assert config.REQ_CAR_MOTOR_SET not in config.REQUEST_TO_RESULT

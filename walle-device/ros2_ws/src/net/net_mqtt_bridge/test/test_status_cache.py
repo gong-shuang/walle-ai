@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P2-1.1：state/query 复用监控采样快照的测试。"""
+"""P2-1.1：state/query/request 复用监控采样快照的测试。"""
 
 import json
 import threading
@@ -61,7 +61,7 @@ def test_build_status_reuses_monitor_sample(monkeypatch):
     assert status["video"]["streaming"] is False
     assert "battery" not in status, "没有电池数据时不返回 battery 分组"
     assert "sonar" not in status, "没有声呐数据时不返回 sonar 分组"
-    assert "alarms" not in status, "V1.8 起 state/result 不再返回 alarms 分组"
+    assert "alarms" not in status, "V1.8 起 state/query/response 不再返回 alarms 分组"
 
 
 def test_build_status_includes_sensor_groups_when_available(monkeypatch):

@@ -20,11 +20,10 @@
 | `walle/{tenant}/agents/{agent}/chat/request` | 浏览器 → agent | 1 | false |
 | `walle/{tenant}/agents/{agent}/chat/response` | agent → 浏览器 | 1 | false |
 | `walle/{tenant}/agents/{agent}/online` | agent → 浏览器/所有人 | 1 | **true** |
-| `walle/{tenant}/device/{device}/car/motor/set` | agent 或浏览器 → 设备 | 1 | false |
-| `walle/{tenant}/device/{device}/car/motor/result` | 设备 → agent/浏览器 | 1 | false |
-| `walle/{tenant}/device/{device}/state/query` | agent → 设备 | 1 | false |
-| `walle/{tenant}/device/{device}/state/result` | 设备 → agent/浏览器 | 1 | false |
-| `walle/{tenant}/discovery/query` | 浏览器 → 设备（租户级广播） | 1 | false |
+| `walle/{tenant}/device/{device}/car/motor/set/cmd` | agent 或浏览器 → 设备 | 1 | false |
+| `walle/{tenant}/device/{device}/state/query/request` | agent → 设备 | 1 | false |
+| `walle/{tenant}/device/{device}/state/query/response` | 设备 → agent/浏览器 | 1 | false |
+| `walle/{tenant}/discovery/query/request` | 浏览器 → 设备（租户级广播） | 1 | false |
 
 浏览器订阅 `walle/{tenant}/agents/+/online` 与 `walle/{tenant}/agents/+/chat/response`，一次覆盖所有 agent。
 
@@ -83,7 +82,7 @@
 {"ok":true,"action":"status","device":"0580a65014af4d0a","status":{...health...},
  "reply":"状态查询完成，详见下方状态。"}
 {"ok":true,"action":"stop","device":"0580a65014af4d0a",
- "result":{"published":true,"topic":"walle/home/device/0580a65014af4d0a/car/motor/set",
+ "result":{"published":true,"topic":"walle/home/device/0580a65014af4d0a/car/motor/set/cmd",
            "payload":{...},"rc":0},"mqtt":{...}}
 ```
 
@@ -145,7 +144,7 @@ agent 不发送「超时」响应；超时由前端本地判定（见第 6 节�
 1. 设备零速帧（不依赖 agent）：
 
 ```json
-topic: walle/home/device/0580a65014af4d0a/car/motor/set
+topic: walle/home/device/0580a65014af4d0a/car/motor/set/cmd
 {
   "uuid": "a26d28f2-8ac0-50cd-a2e0-8c392949e698",
   "request_id": "web-estop-3f2a1c",
@@ -169,7 +168,7 @@ agent 侧按 `text` 解析为 stop，`intent` 字段当前不参与判断。
 ```erlang
 {allow, {username, "home"},    all,      ["walle/home/#"]}.
 {allow, {username, "apple"},   publish,  ["walle/home/device/${clientid}/#"]}.
-{allow, {username, "apple"},   subscribe,["walle/home/device/${clientid}/#", "walle/home/discovery/query"]}.
+{allow, {username, "apple"},   subscribe,["walle/home/device/${clientid}/#", "walle/home/discovery/query/request"]}.
 {allow, {username, "agent-b851fdde"}, all, ["walle/home/agents/${clientid}/#"]}.
 {allow, {username, "agent-b851fdde"}, all, ["walle/home/device/#"]}.
 {deny,  all, all, ["walle/#"]}.
@@ -199,8 +198,8 @@ agent 侧按 `text` 解析为 stop，`intent` 字段当前不参与判断。
 ```
 <<< SUB topic=walle/home/agents/agent-b851fdde/chat/request qos=1 retain=False
 >>> PUB topic=walle/home/agents/agent-b851fdde/chat/response qos=1 retain=False
->>> PUB topic=walle/home/device/0580a65014af4d0a/car/motor/set qos=1 retain=False
-<<< SUB topic=walle/home/device/0580a65014af4d0a/car/motor/result qos=1 retain=False
+>>> PUB topic=walle/home/device/0580a65014af4d0a/car/motor/set/cmd qos=1 retain=False
+<<< SUB topic=walle/home/device/0580a65014af4d0a/state/query/response qos=1 retain=False
 ```
 
 非 debug 时终端安静，关键事件写 `log/car_agent.log`。

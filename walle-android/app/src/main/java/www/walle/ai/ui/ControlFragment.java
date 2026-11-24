@@ -117,7 +117,7 @@ public class ControlFragment extends Fragment {
     @Override
     public void onStart() {
         super.onStart();
-        // 隐藏的子页也会走 onStart：此时不能查能力，否则启动/切页会多发 capability/query
+        // 隐藏的子页也会走 onStart：此时不能查能力，否则启动/切页会多发 capability/query/request
         if (!isHidden()) viewModel.onScreenVisible();
     }
 
@@ -148,7 +148,7 @@ public class ControlFragment extends Fragment {
     }
 
     /**
-     * 设备列表里显式点了某台设备：立即查一次能力（与状态页的 state/query 配对）。
+     * 设备列表里显式点了某台设备：立即查一次能力（与状态页的 state/query/request 配对）。
      * <p>即使本页当前不可见也要查，这样用户点「控制」tab 时能力已经就绪、不需再发一次。</p>
      */
     public void onDeviceSwitched() {

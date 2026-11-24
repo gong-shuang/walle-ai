@@ -63,7 +63,7 @@ class RpiMonitorBase:
         self._camera_cache_lock = threading.Lock()
         # 上一次应答 discovery 的时间（单调时钟），用于限频
         self._last_discovery_at = 0.0
-        # 监控循环产出的最新采样快照，state/query 直接复用（避免请求线程再等 1s）
+        # 监控循环产出的最新采样快照，state/query/request 直接复用（避免请求线程再等 1s）
         self.status_snapshot = None
         self.snapshot_lock = threading.Lock()
         # 设备能力后台探测缓存：查询只读缓存，首次未就绪时等待 CAPABILITY_FIRST_WAIT
@@ -181,7 +181,7 @@ class RpiMonitorBase:
 
         注意两种主题层级不同：
           · 设备级请求：walle/{tenant}/device/{device}/{resource}   （至少 5 段）
-          · 发现广播  ：walle/{tenant}/discovery/query               （4 段，没有 device 段）
+          · 发现广播  ：walle/{tenant}/discovery/query/request       （5 段，没有 device 段）
         发现主题先按完整主题特判；其余主题第 3 段必须是固定的 device。
         """
         if topic == tenant_topic(REQ_DISCOVERY):

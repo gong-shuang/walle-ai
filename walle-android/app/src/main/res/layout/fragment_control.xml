@@ -37,7 +37,7 @@
                 android:popupBackground="@drawable/bg_popup_dark" />
         </LinearLayout>
 
-        <!-- 音频外设能力（capability/result 的 audio 分组）：麦克风 / 音响 -->
+        <!-- 音频外设能力（capability/query/response 的 audio 分组）：麦克风 / 音响 -->
         <TextView
             android:id="@+id/tvAudioInfo"
             android:layout_width="match_parent"

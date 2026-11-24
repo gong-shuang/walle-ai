@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""状态采集、state/query 应答、周期监控循环与进程启动/退出。"""
+"""状态采集、state/query/request 应答、周期监控循环与进程启动/退出。"""
 import logging
 import os
 import platform
@@ -17,8 +17,8 @@ from ld_protocol import *
 from ld_utils import *
 
 class MonitorStatusMixin:
-    """状态采集、state/query、监控循环与进程生命周期。"""
-    # ---------- state/query 状态采集 ----------
+    """状态采集、state/query/request、监控循环与进程生命周期。"""
+    # ---------- state/query/request 状态采集 ----------
 
     def sample_once(self, interval=1.0):
         """做一次 interval 秒的实时采样，返回 (各核CPU%, 网络快照, 每网卡速率, 总rx, 总tx)"""
@@ -138,7 +138,7 @@ class MonitorStatusMixin:
 
     def _video_status(self):
         """
-        当前推流状态快照（state/result 的 video 分组）。
+        当前推流状态快照（state/query/response 的 video 分组）。
 
         数据复用推流时写入的 self.video_meta；进程已退出（poll() 非 None，看护线程
         还来不及清理）也按未推流返回，避免误报 streaming=true。未推流时除
@@ -175,7 +175,7 @@ class MonitorStatusMixin:
         """
         校验订阅报文 JSON 里的 uuid 是否与本地一致。
         返回 (是否通过, 解析后的 dict)。不通过时静默忽略该消息（只记日志，不回复）。
-        discovery/query 不调用本方法（免校验）。
+        discovery/query/request 不调用本方法（免校验）。
         """
         if not payload.strip():
             logging.warning("忽略 %s：报文为空（必须带 uuid）", topic)

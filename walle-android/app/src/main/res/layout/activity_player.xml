@@ -153,7 +153,7 @@
         app:thumbTint="@color/brand_primary"
         app:trackTint="#4D38BDF8" />
     <!--
-      右下角舵机摇杆：默认隐藏，收到 car/servo/status/result 后显示。
+      右下角舵机摇杆：默认隐藏，收到 car/servo/status/query/response 后显示。
       上/下 = 1 号舵机 -/+100，左/右 = 2 号舵机 +/-100，斜向同时调整两个舵机。
     -->
     <www.walle.ai.ui.JoystickView

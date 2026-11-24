@@ -112,7 +112,7 @@ def detect_microphone():
       3) pactl 不可用/未运行（精简系统常见）→ 退化为 ffmpeg 试读一次。
 
     返回 {"available","device","reason","codec","bitrate"}，
-    该结构会原样回填到 video/start/result 的 audio 字段，便于 App/日志排查。
+    该结构会原样回填到 video/start/response 的 audio 字段，便于 App/日志排查。
     """
     info = {
         "available": False,
@@ -143,7 +143,7 @@ def detect_microphone():
 
 def probe_audio_capture():
     """
-    麦克风（录音）能力，供 capability/result 上报。
+    麦克风（录音）能力，供 capability/query/response 上报。
 
     可用性判定复用 detect_microphone（含 VIDEO_AUDIO_ENABLE 开关与 ffmpeg 兜底），
     附带 pactl 列出的真实录音源清单（排除 *.monitor）。
@@ -165,7 +165,7 @@ def probe_audio_capture():
 
 def probe_audio_playback():
     """
-    音响/扬声器（播放）能力，供 capability/result 上报。
+    音响/扬声器（播放）能力，供 capability/query/response 上报。
 
     返回 {"available","device","volume_percent","muted","sinks","reason"}：
       available:       是否存在音频输出设备

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""capability/query：外设能力探测与后台缓存。"""
+"""capability/query/request：外设能力探测与后台缓存。"""
 
 import copy
 import logging
@@ -15,7 +15,7 @@ from .record import RECORD_ENABLED
 
 class CapabilityMixin:
     def build_capability(self):
-        """采集本机外设能力（摄像头 + 麦克风 + 音响），生成 capability/result 报文"""
+        """采集本机外设能力（摄像头 + 麦克风 + 音响），生成 capability/query/response 报文"""
         t0 = time.time()
         cameras, cam_error = ([], "摄像头能力探测已关闭（CAM_ENABLE=False）")
         if config.CAM_ENABLE:
@@ -194,6 +194,6 @@ class CapabilityMixin:
                          age, result["summary"]["probe_cost_ms"],
                          f"，探测异常: {result['probe'].get('error')}" if result["probe"].get("error") else "")
         except Exception:
-            logging.exception("上报 capability/result 失败")
+            logging.exception("上报 capability/query/response 失败")
 
     # ---------- video/start 推流 ----------

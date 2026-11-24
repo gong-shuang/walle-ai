@@ -3,7 +3,7 @@
 """car-agent：网页对话 -> 意图 -> MQTT 车控指令。
 
 设计约束：
-  - 通过 MQTT 主题控制：walle/{tenant}/device/{device}/car/motor/set；
+  - 通过 MQTT 主题控制：walle/{tenant}/device/{device}/car/motor/set/cmd；
     tenant 取服务端 MQTT 账号名，device 取页面当前选中的设备。
   - 运动指令通过 MQTT 真实下发；急停优先，随时可零速打断。
   - 简单指令走确定性解析；复杂语句可选走 LLM（默认关闭；失败则提示，不猜）。
@@ -569,8 +569,7 @@ class Agent:
             # 代价是也会收到同租户其他设备的消息，按 topic 中的 device 分流即可。
             prefix = "walle/{}/device/+".format(self.tenant)
             subscriptions = [
-                (prefix + "/car/motor/result", 1),
-                (prefix + "/state/result", 1),
+                (prefix + "/state/query/response", 1),
                 (prefix + "/online", 1),
             ]
             client.subscribe(subscriptions)
@@ -774,13 +773,13 @@ class Agent:
             while not self.abort.is_set():
                 if time.monotonic() - t0 >= duration:
                     break
-                self._publish(device, "car/motor/set", payload)
+                self._publish(device, "car/motor/set/cmd", payload)
                 time.sleep(period)
         finally:
             zero = self._payload(device, {"action": "stop"}, request_id)
             if zero is not None:
                 for _ in range(3):
-                    self._publish(device, "car/motor/set", zero)
+                    self._publish(device, "car/motor/set/cmd", zero)
                     time.sleep(0.05)
             with self.state_lock:
                 if self.active_device == device:
@@ -842,14 +841,14 @@ class Agent:
         if zero is None:
             res = {"published": False, "error": "uuid_unknown"}
         else:
-            res = self._publish(target, "car/motor/set", zero)
+            res = self._publish(target, "car/motor/set/cmd", zero)
         log().info("stop requested by %s device=%s result=%s", username, target,
                    json.dumps(res, ensure_ascii=False))
         return {"ok": True, "action": "stop", "device": target, "result": res,
                 "mqtt": self.mqtt_status()}
 
     def link_test(self, username=None, device=None):
-        """非运动链路验证：向指定设备发 state/query，等 state/result。"""
+        """非运动链路验证：向指定设备发 state/query/request，等 state/query/response。"""
         if not (self.mqtt_client and self.mqtt_connected):
             return {"ok": False, "error": "mqtt_not_connected",
                     "mqtt": self.mqtt_status()}
@@ -868,7 +867,7 @@ class Agent:
         self.link_dev = device
         self.link_result = None
         self.link_event.clear()
-        res = self._publish(device, "state/query",
+        res = self._publish(device, "state/query/request",
                             {"uuid": uuid, "request_id": rid})
         got = self.link_event.wait(timeout=6.0)
         out = {

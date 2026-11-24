@@ -63,14 +63,14 @@ def device_uuid(monkeypatch):
 
 def test_verify_uuid_accepts_matching_uuid(device_uuid):
     payload = json.dumps({"uuid": device_uuid, "request_id": "req-1"})
-    ok, data = RpiMonitor.verify_uuid(payload, "state/query")
+    ok, data = RpiMonitor.verify_uuid(payload, "state/query/request")
     assert ok is True
     assert data["request_id"] == "req-1"
 
 
 def test_verify_uuid_is_case_insensitive(device_uuid):
     payload = json.dumps({"uuid": device_uuid.upper()})
-    ok, _ = RpiMonitor.verify_uuid(payload, "state/query")
+    ok, _ = RpiMonitor.verify_uuid(payload, "state/query/request")
     assert ok is True
 
 
@@ -84,7 +84,7 @@ def test_verify_uuid_is_case_insensitive(device_uuid):
     json.dumps({"uuid": "00000000-0000-0000-0000-000000000000"}),
 ])
 def test_verify_uuid_rejects_invalid_payload(device_uuid, payload):
-    ok, data = RpiMonitor.verify_uuid(payload, "state/query")
+    ok, data = RpiMonitor.verify_uuid(payload, "state/query/request")
     assert ok is False
     assert data is None
 
@@ -124,8 +124,7 @@ def test_device_topic_base_sanitizes_segments():
 
 
 def test_car_motor_topics_and_realtime_dispatch_registered():
-    assert (config.REQUEST_TO_RESULT[config.REQ_CAR_MOTOR_SET]
-            == config.RES_CAR_MOTOR_RESULT)
+    assert config.REQ_CAR_MOTOR_SET.endswith("/cmd")
     assert (config.REQUEST_HANDLERS[config.REQ_CAR_MOTOR_SET]
             == "handle_car_motor_set")
     assert config.REQ_CAR_MOTOR_SET in config.REALTIME_REQUESTS
@@ -140,11 +139,21 @@ def test_car_servo_status_topics_and_dispatch_registered():
 
 
 def test_car_servo_set_topics_and_realtime_dispatch_registered():
-    assert (config.REQUEST_TO_RESULT[config.REQ_CAR_SERVO_SET]
-            == config.RES_CAR_SERVO_SET_RESULT)
+    assert config.REQ_CAR_SERVO_SET.endswith("/cmd")
     assert (config.REQUEST_HANDLERS[config.REQ_CAR_SERVO_SET]
             == "handle_car_servo_set")
     assert config.REQ_CAR_SERVO_SET in config.REALTIME_REQUESTS
+
+
+def test_topic_naming_convention():
+    """请求-应答对：请求 /request、应答 /response；持续控制 /cmd；上报 /report。"""
+    for req, res in config.REQUEST_TO_RESULT.items():
+        assert req.endswith("/request"), f"请求主题缺少 /request: {req}"
+        assert res.endswith("/response"), f"应答主题缺少 /response: {res}"
+    assert config.REQ_CAR_MOTOR_SET.endswith("/cmd")
+    assert config.REQ_CAR_SERVO_SET.endswith("/cmd")
+    assert config.RES_ONLINE == "online"
+    assert config.RES_ALARM.endswith("/report")
 
 
 def test_debug_allows_plaintext_mqtt_on_1883(valid_mqtt_config, monkeypatch):

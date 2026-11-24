@@ -98,26 +98,24 @@ MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE", "").strip()      # 留空则用系
 TLS_PORTS = (8883, 8084)
 
 # ---- 主题命名约定（完整主题 = walle/{tenant}/device/{device}/{资源}）----
-#   请求按语义命名：查询 .../query、动作 .../request、持续控制 .../set；
-#   应答统一 .../result，且**只在收到对应请求后发布**，绝不主动上报；
-#   主动上报只有 online（上线/下线）与 alarm（告警/USB 插拔）两个。
+#   请求-应答对：请求 .../request、应答 .../response，且应答只在收到对应请求后发布；
+#   持续设置且不需要应答：.../cmd；
+#   主动上报：online（上线/下线）与 alarm/report（告警/USB 插拔）。
 # ---- 应答（设备 -> App）----
-RES_DISCOVERY_RESULT = "discovery/result"           # 收到 discovery/query 后发布（设备身份详情）
-RES_STATE_RESULT = "state/result"                   # 收到 state/query 后发布（状态快照）
-RES_CAPABILITY_RESULT = "capability/result"         # 收到 capability/query 后发布
-RES_VIDEO_START_RESULT = "video/start/result"       # 收到 video/start/request 后发布
-RES_VIDEO_STOP_RESULT = "video/stop/result"         # 收到 video/stop/request 后发布
-RES_PHONE_AUDIO_SEND_RESULT = "phone/audio/send/result"   # 收到 phone/audio/send 后发布
-RES_PHONE_AUDIO_STOP_RESULT = "phone/audio/stop/result"   # 收到 phone/audio/stop 后发布
-RES_CAR_MOTOR_RESULT = "car/motor/result"                 # 收到 car/motor/set 后发布
-RES_CAR_SERVO_STATUS_RESULT = "car/servo/status/result"   # 收到 car/servo/status/query 后发布
-RES_CAR_SERVO_SET_RESULT = "car/servo/result"             # 收到 car/servo/set 后发布
-RES_RECORD_START_RESULT = "record/start/result"           # 收到 record/start/request 后发布
-RES_RECORD_STOP_RESULT = "record/stop/result"             # 收到 record/stop/request 后发布
-RES_RECORD_LIST_RESULT = "record/list/result"             # 收到 record/list/query 后发布
-RES_RECORD_DELETE_RESULT = "record/delete/result"         # 收到 record/delete/request 后发布
-RES_RECORD_PLAY_START_RESULT = "record/play/start/result"  # 收到 record/play/start/request 后发布
-RES_RECORD_PLAY_STOP_RESULT = "record/play/stop/result"   # 收到 record/play/stop/request 后发布
+RES_DISCOVERY_RESULT = "discovery/query/response"   # 收到 discovery/query/request 后发布（设备身份详情）
+RES_STATE_RESULT = "state/query/response"           # 收到 state/query/request 后发布（状态快照）
+RES_CAPABILITY_RESULT = "capability/query/response" # 收到 capability/query/request 后发布
+RES_VIDEO_START_RESULT = "video/start/response"     # 收到 video/start/request 后发布
+RES_VIDEO_STOP_RESULT = "video/stop/response"       # 收到 video/stop/request 后发布
+RES_PHONE_AUDIO_SEND_RESULT = "phone/audio/send/response"   # 收到 phone/audio/send/request 后发布
+RES_PHONE_AUDIO_STOP_RESULT = "phone/audio/stop/response"   # 收到 phone/audio/stop/request 后发布
+RES_CAR_SERVO_STATUS_RESULT = "car/servo/status/query/response"   # 收到 car/servo/status/query/request 后发布
+RES_RECORD_START_RESULT = "record/start/response"           # 收到 record/start/request 后发布
+RES_RECORD_STOP_RESULT = "record/stop/response"             # 收到 record/stop/request 后发布
+RES_RECORD_LIST_RESULT = "record/list/query/response"       # 收到 record/list/query/request 后发布
+RES_RECORD_DELETE_RESULT = "record/delete/response"         # 收到 record/delete/request 后发布
+RES_RECORD_PLAY_START_RESULT = "record/play/start/response"  # 收到 record/play/start/request 后发布
+RES_RECORD_PLAY_STOP_RESULT = "record/play/stop/response"   # 收到 record/play/stop/request 后发布
 
 # ---- 主动上报（设备 -> App，不必等查询）----
 RES_ONLINE = "online"                       # retained + 遗嘱
@@ -128,41 +126,41 @@ RES_ONLINE = "online"                       # retained + 遗嘱
 # 但多台手机同时点刷新仍会让 N 台设备同时回包，因此设备侧再加两道保护：
 DISCOVERY_JITTER_SEC = 0.8                  # 首次应答前的随机延迟上限（秒），避免同时回包
 DISCOVERY_MIN_INTERVAL_SEC = 2.0            # 同一台设备两次应答的最小间隔（秒）
-RES_ALARM = "alarm"                         # 告警 / 恢复 / USB 插拔
+RES_ALARM = "alarm/report"                  # 告警 / 恢复 / USB 插拔
 
 # ---- 订阅的请求（App -> 设备）----
-REQ_DISCOVERY = "discovery/query"
-REQ_STATE = "state/query"
-REQ_CAPABILITY = "capability/query"
+REQ_DISCOVERY = "discovery/query/request"
+REQ_STATE = "state/query/request"
+REQ_CAPABILITY = "capability/query/request"
 REQ_VIDEO_START = "video/start/request"
 REQ_VIDEO_STOP = "video/stop/request"
-REQ_PHONE_AUDIO_SEND = "phone/audio/send"     # 手机麦上行：App 开始往 {room}_audio 推音频
-REQ_PHONE_AUDIO_STOP = "phone/audio/stop"     # 手机麦上行：App 停止推音频
-REQ_CAR_MOTOR_SET = "car/motor/set"           # 持续控制：最新一条覆盖旧状态
-REQ_CAR_SERVO_STATUS = "car/servo/status/query"   # 查询 PWM 舵机位置/偏移
-REQ_CAR_SERVO_SET = "car/servo/set"              # 设置 PWM 舵机绝对位置
+REQ_PHONE_AUDIO_SEND = "phone/audio/send/request"   # 手机麦上行：App 开始往 {room}_audio 推音频
+REQ_PHONE_AUDIO_STOP = "phone/audio/stop/request"   # 手机麦上行：App 停止推音频
+REQ_CAR_MOTOR_SET = "car/motor/set/cmd"           # 持续控制：最新一条覆盖旧状态，无应答
+REQ_CAR_SERVO_STATUS = "car/servo/status/query/request"   # 查询 PWM 舵机位置/偏移
+REQ_CAR_SERVO_SET = "car/servo/set/cmd"              # 设置 PWM 舵机绝对位置，无应答
 REQ_RECORD_START = "record/start/request"        # 开始录像
 REQ_RECORD_STOP = "record/stop/request"          # 停止录像
-REQ_RECORD_LIST = "record/list/query"            # 查询录像列表
+REQ_RECORD_LIST = "record/list/query/request"    # 查询录像列表
 REQ_RECORD_DELETE = "record/delete/request"      # 删除录像文件
 REQ_RECORD_PLAY_START = "record/play/start/request"  # 播放录像（ffmpeg 推 fmp4 → SRS）
 REQ_RECORD_PLAY_STOP = "record/play/stop/request"    # 停止录像推流
 
-# ---- car/servo/set 常量 ----
+# ---- car/servo/set/cmd 常量 ----
 CAR_SERVO_POSITION_MIN = 800
 CAR_SERVO_POSITION_MAX = 2200
 CAR_SERVO_DURATION_MIN = 0.1
 CAR_SERVO_DURATION_MAX = 5.0
 CAR_SERVO_DURATION_DEFAULT = 1.0
 
-# ---- car/servo/status/query 常量 ----
+# ---- car/servo/status/query/request 常量 ----
 CAR_SERVO_IDS = (1, 2)              # 当前小车：ID1 上下、ID2 左右
 CAR_SERVO_ID_MIN = 1                # 控制板 PWM 舵机 ID 范围 1–4
 CAR_SERVO_ID_MAX = 4
 CAR_SERVO_READ_TIMEOUT_SEC = 2.0    # SDK 单次读取超时
 CAR_SERVO_QUERY_GRACE_SEC = 1.0     # 服务调用额外宽限
 
-# ---- car/motor/set 常量（协议固定值，改协议时同步文档 §4.10）----
+# ---- car/motor/set/cmd 常量（协议固定值，改协议时同步文档 §4.10）----
 CAR_MOTOR_LINEAR_MIN = 0.5          # 允许的线速度下限（m/s）
 CAR_MOTOR_LINEAR_MAX = 1.0          # 允许的线速度上限（m/s）
 CAR_MOTOR_ANGULAR_SPEED = 2.5       # 固定角速度（rad/s）
@@ -337,9 +335,7 @@ REQUEST_TO_RESULT = {
     REQ_VIDEO_STOP: RES_VIDEO_STOP_RESULT,
     REQ_PHONE_AUDIO_SEND: RES_PHONE_AUDIO_SEND_RESULT,
     REQ_PHONE_AUDIO_STOP: RES_PHONE_AUDIO_STOP_RESULT,
-    REQ_CAR_MOTOR_SET: RES_CAR_MOTOR_RESULT,
     REQ_CAR_SERVO_STATUS: RES_CAR_SERVO_STATUS_RESULT,
-    REQ_CAR_SERVO_SET: RES_CAR_SERVO_SET_RESULT,
     REQ_RECORD_START: RES_RECORD_START_RESULT,
     REQ_RECORD_STOP: RES_RECORD_STOP_RESULT,
     REQ_RECORD_LIST: RES_RECORD_LIST_RESULT,
@@ -411,7 +407,7 @@ def subscriptions():
 
 # ---- 监控阈值（均可用环境变量覆盖，写进 /etc/walle-ai.conf 即可）----
 MONITOR_INTERVAL = int(os.environ.get("MONITOR_INTERVAL", "5"))          # 采样周期（秒）
-# 首次采样提前到 1s 完成，让 state/query 尽快命中缓存（后续仍按 MONITOR_INTERVAL）
+# 首次采样提前到 1s 完成，让 state/query/request 尽快命中缓存（后续仍按 MONITOR_INTERVAL）
 STATUS_PRIME_INTERVAL = min(1.0, MONITOR_INTERVAL)
 THRESH_CPU = float(os.environ.get("THRESH_CPU", "90.0"))                 # CPU 使用率 %
 THRESH_MEM = float(os.environ.get("THRESH_MEM", "90.0"))                 # 内存使用率 %
@@ -450,7 +446,7 @@ SKIP_FSTYPE = {"tmpfs", "devtmpfs", "squashfs", "iso9660", "overlay", "aufs", "f
 CAM_CMD_TIMEOUT = 8                      # 单条 v4l2-ctl 命令超时（秒）
 CAM_ENABLE = _env_flag("CAM_ENABLE", True)   # 不需要摄像头能力查询时置 False
 
-# ---- 能力缓存（capability/query：后台探测，查询只读缓存）----
+# ---- 能力缓存（capability/query/request：后台探测，查询只读缓存）----
 CAPABILITY_CACHE_TTL = float(os.environ.get("CAPABILITY_CACHE_TTL", "120"))  # 缓存有效期（秒）
 CAPABILITY_CACHE_ONLY = _env_flag("CAPABILITY_CACHE_ONLY", False)  # True=查询只读缓存，不等待首次探测
 CAPABILITY_FIRST_WAIT = float(os.environ.get("CAPABILITY_FIRST_WAIT", "3"))   # 首次查询等待探测的秒数上限

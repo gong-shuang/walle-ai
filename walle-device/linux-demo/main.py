@@ -17,17 +17,17 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     请求（App -> 设备）                          应答（设备 -> App）                      说明
     ------------------------------------------------------------------------------------------------
     —                                          .../online                          主动上报（retained + LWT）
-    —                                          .../alarm                           主动上报（告警 / USB）
-    walle/{t}/discovery/query                  .../discovery/result                 设备发现（租户级广播）
-    .../state/query                             .../state/result                     状态快照
-    .../capability/query                      .../capability/result                  设备能力（摄像头/麦克风/音响等外设）
-    .../video/start/request                     .../video/start/result               开始推流（动作）
-    .../video/stop/request                      .../video/stop/result                停止推流（动作）
-    .../phone/audio/send                        .../phone/audio/send/result            手机麦上行·开（App 发起）
-    .../phone/audio/stop                        .../phone/audio/stop/result            手机麦上行·关（App 发起）
+    —                                          .../alarm/report                    主动上报（告警 / USB）
+    walle/{t}/discovery/query/request           .../discovery/query/response         设备发现（租户级广播）
+    .../state/query/request                     .../state/query/response             状态快照
+    .../capability/query/request                .../capability/query/response        设备能力（摄像头/麦克风/音响等外设）
+    .../video/start/request                     .../video/start/response             开始推流（动作）
+    .../video/stop/request                      .../video/stop/response              停止推流（动作）
+    .../phone/audio/send/request                .../phone/audio/send/response        手机麦上行·开（App 发起）
+    .../phone/audio/stop/request                .../phone/audio/stop/response        手机麦上行·关（App 发起）
 
-    命名约定：请求按语义划分 —— 查询 /query、动作 /request；
-    应答一律 /result，且只在收到对应请求后才发布，只有 online 与 alarm 是主动上报。
+    命名约定：请求-应答对的请求 .../request、应答 .../response；
+    持续设置且不需要应答的 .../cmd；主动上报为 online 与 alarm/report。
 
     除 discovery 广播外，设备只订阅自己子树下的「请求类」主题，
     不订通配子树（避免收到自己发布的上报报文）。

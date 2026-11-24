@@ -46,57 +46,58 @@ public class TopicNamesTest {
 
     @Test
     public void requestTopics() {
-        assertEquals(BASE + "/state/query", TopicNames.stateQuery(TENANT, DEVICE));
-        assertEquals(BASE + "/capability/query", TopicNames.capabilityQuery(TENANT, DEVICE));
+        assertEquals(BASE + "/state/query/request", TopicNames.stateQuery(TENANT, DEVICE));
+        assertEquals(BASE + "/capability/query/request", TopicNames.capabilityQuery(TENANT, DEVICE));
         assertEquals(BASE + "/video/start/request", TopicNames.videoStartRequest(TENANT, DEVICE));
         assertEquals(BASE + "/video/stop/request", TopicNames.videoStopRequest(TENANT, DEVICE));
-        assertEquals("walle/home/discovery/query", TopicNames.discoveryQuery(TENANT));
+        assertEquals("walle/home/discovery/query/request", TopicNames.discoveryQuery(TENANT));
+        assertEquals(BASE + "/car/motor/set/cmd", TopicNames.carMotorSet(TENANT, DEVICE));
+        assertEquals(BASE + "/car/servo/status/query/request",
+                TopicNames.carServoStatusQuery(TENANT, DEVICE));
+        assertEquals(BASE + "/car/servo/set/cmd", TopicNames.carServoSet(TENANT, DEVICE));
     }
 
     @Test
     public void responseTopics() {
         assertEquals(BASE + "/online", TopicNames.online(TENANT, DEVICE));
-        assertEquals(BASE + "/alarm", TopicNames.alarm(TENANT, DEVICE));
-        assertEquals(BASE + "/discovery/result", TopicNames.discoveryResult(TENANT, DEVICE));
-        assertEquals(BASE + "/state/result", TopicNames.stateResult(TENANT, DEVICE));
-        assertEquals(BASE + "/capability/result",
+        assertEquals(BASE + "/alarm/report", TopicNames.alarm(TENANT, DEVICE));
+        assertEquals(BASE + "/discovery/query/response",
+                TopicNames.discoveryResult(TENANT, DEVICE));
+        assertEquals(BASE + "/state/query/response", TopicNames.stateResult(TENANT, DEVICE));
+        assertEquals(BASE + "/capability/query/response",
                 TopicNames.capabilityResult(TENANT, DEVICE));
-        assertEquals(BASE + "/video/start/result", TopicNames.videoStartResult(TENANT, DEVICE));
-        assertEquals(BASE + "/video/stop/result", TopicNames.videoStopResult(TENANT, DEVICE));
-        assertEquals(BASE + "/car/motor/result", TopicNames.carMotorResult(TENANT, DEVICE));
-        assertEquals(BASE + "/car/motor/set", TopicNames.carMotorSet(TENANT, DEVICE));
-        assertEquals(BASE + "/car/servo/status/result",
+        assertEquals(BASE + "/video/start/response",
+                TopicNames.videoStartResult(TENANT, DEVICE));
+        assertEquals(BASE + "/video/stop/response",
+                TopicNames.videoStopResult(TENANT, DEVICE));
+        assertEquals(BASE + "/car/servo/status/query/response",
                 TopicNames.carServoStatusResult(TENANT, DEVICE));
-        assertEquals(BASE + "/car/servo/status/query",
-                TopicNames.carServoStatusQuery(TENANT, DEVICE));
-        assertEquals(BASE + "/car/servo/result",
-                TopicNames.carServoResult(TENANT, DEVICE));
-        assertEquals(BASE + "/car/servo/set",
-                TopicNames.carServoSet(TENANT, DEVICE));
     }
 
     @Test
     public void namingConventionIsEnforced() {
-        // 请求：查询 /query、动作 /request
-        assertTrue(TopicNames.stateQuery(TENANT, DEVICE).endsWith("/query"));
-        assertTrue(TopicNames.capabilityQuery(TENANT, DEVICE).endsWith("/query"));
-        assertTrue(TopicNames.discoveryQuery(TENANT).endsWith("/query"));
+        // 请求-应答对：请求 /request、应答 /response
+        assertTrue(TopicNames.stateQuery(TENANT, DEVICE).endsWith("/request"));
+        assertTrue(TopicNames.capabilityQuery(TENANT, DEVICE).endsWith("/request"));
+        assertTrue(TopicNames.discoveryQuery(TENANT).endsWith("/request"));
         assertTrue(TopicNames.videoStartRequest(TENANT, DEVICE).endsWith("/request"));
         assertTrue(TopicNames.videoStopRequest(TENANT, DEVICE).endsWith("/request"));
+        assertTrue(TopicNames.stateResult(TENANT, DEVICE).endsWith("/response"));
+        assertTrue(TopicNames.capabilityResult(TENANT, DEVICE).endsWith("/response"));
 
-        // 应答：一律 /result
-        assertTrue(TopicNames.stateResult(TENANT, DEVICE).endsWith("/result"));
-        assertTrue(TopicNames.capabilityResult(TENANT, DEVICE).endsWith("/result"));
+        // 持续设置且无应答：/cmd
+        assertTrue(TopicNames.carMotorSet(TENANT, DEVICE).endsWith("/cmd"));
+        assertTrue(TopicNames.carServoSet(TENANT, DEVICE).endsWith("/cmd"));
 
-        // 主动上报：不以 /result 结尾
-        assertFalse(TopicNames.online(TENANT, DEVICE).endsWith("/result"));
-        assertFalse(TopicNames.alarm(TENANT, DEVICE).endsWith("/result"));
+        // 主动上报：online 单独；alarm 用 /report
+        assertTrue(TopicNames.alarm(TENANT, DEVICE).endsWith("/report"));
+        assertFalse(TopicNames.online(TENANT, DEVICE).endsWith("/report"));
     }
 
     @Test
     public void subscriptionsCoverAllResponsesAndAvoidWildcards() {
         String[] subs = TopicNames.responseSubscriptions(TENANT);
-        assertEquals(10, subs.length);
+        assertEquals(8, subs.length);
         for (String s : subs) {
             assertTrue("不应订通配子树: " + s, !s.endsWith("/#"));
             assertTrue("订阅必须以 walle/home/device/+ 开头: " + s,
@@ -104,37 +105,41 @@ public class TopicNamesTest {
         }
         String joined = String.join(",", subs);
         for (String expected : new String[]{
-                "/online", "/alarm", "/discovery/result", "/state/result",
-                "/capability/result", "/video/start/result", "/video/stop/result",
-                "/car/motor/result", "/car/servo/status/result", "/car/servo/result"}) {
+                "/online", "/alarm/report", "/discovery/query/response",
+                "/state/query/response", "/capability/query/response",
+                "/video/start/response", "/video/stop/response",
+                "/car/servo/status/query/response"}) {
             assertTrue("缺少订阅: " + expected, joined.contains(expected));
         }
-        // 请求类主题不能被订阅，否则会收到自己发出的报文
-        assertFalse(joined.contains("/query"));
-        assertFalse(joined.contains("/request"));
+        // 请求类/持续控制主题不能被订阅，否则会收到自己发出的报文
+        for (String s : subs) {
+            assertFalse("不应订阅请求主题: " + s, s.endsWith("/request"));
+            assertFalse("不应订阅持续控制主题: " + s, s.endsWith("/cmd"));
+        }
     }
 
     @Test
     public void parseHandlesDeviceAndTenantLevelTopics() {
-        String[] p = TopicNames.parse(BASE + "/state/result");
+        String[] p = TopicNames.parse(BASE + "/state/query/response");
         assertEquals("home", p[0]);
         assertEquals(DEVICE, p[1]);
-        assertEquals("state/result", p[2]);
+        assertEquals("state/query/response", p[2]);
 
         // 租户级发现主题没有 device 段，不应被当成设备主题解析
-        assertNull(TopicNames.parse("walle/home/discovery/query"));
+        assertNull(TopicNames.parse("walle/home/discovery/query/request"));
         // 旧版带 v1 版本段的主题已废弃，不兼容
         assertNull(TopicNames.parse("walle/home/666feb85d43410b2/v1/state/query"));
         assertNull(TopicNames.parse("device/online"));
         assertNull(TopicNames.parse(null));
 
         // 设备名恰好是 discovery 时，带资源的主题仍应正常解析
-        String[] devDiscovery = TopicNames.parse("walle/home/device/discovery/state/query");
+        String[] devDiscovery = TopicNames.parse("walle/home/device/discovery/state/query/request");
         assertEquals("discovery", devDiscovery[1]);
-        assertEquals("state/query", devDiscovery[2]);
+        assertEquals("state/query/request", devDiscovery[2]);
 
-        assertEquals("state/result", TopicNames.resourceOf(BASE + "/state/result"));
-        assertEquals(DEVICE, TopicNames.deviceOf(BASE + "/state/result"));
+        assertEquals("state/query/response",
+                TopicNames.resourceOf(BASE + "/state/query/response"));
+        assertEquals(DEVICE, TopicNames.deviceOf(BASE + "/state/query/response"));
     }
 
     @Test

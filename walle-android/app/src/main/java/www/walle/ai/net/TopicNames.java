@@ -13,14 +13,15 @@ package www.walle.ai.net;
  *   <li>{@code device}（第 3 段）：固定字面量 {@code device}，与租户级广播区分；</li>
  *   <li>{@code device}（第 4 段）：<b>稳定</b>的设备标识（{@code device_id}，回退 hostname、最后 uuid），
  *       不能用每次重启都会变的 uuid；</li>
- *   <li>{@code 资源}：请求按语义命名 —— 查询用 {@code .../query}、
- *       动作用 {@code .../request}（推流）、持续控制用 {@code .../set}（车控）；
- *       应答一律 {@code .../result}，且只在收到对应请求后发布；
- *       主动上报只有 {@code online} 与 {@code alarm}。</li>
+ *   <li>{@code 资源}：请求-应答对的请求以 {@code .../request} 结尾、应答以 {@code .../response}
+ *       结尾（如 {@code state/query/request} → {@code state/query/response}）；
+ *       持续设置且不需要应答的以 {@code .../cmd} 结尾（如 {@code car/motor/set/cmd}）；
+ *       主动上报以 {@code .../report} 结尾（{@code alarm/report}）；
+ *       {@code online} 单独保留，不带后缀。</li>
  * </ul>
  *
- * <p>示例：{@code walle/home/device/666feb85d43410b2/state/query} →
- * {@code walle/home/device/666feb85d43410b2/state/result}。</p>
+ * <p>示例：{@code walle/home/device/666feb85d43410b2/state/query/request} →
+ * {@code walle/home/device/666feb85d43410b2/state/query/response}。</p>
  *
  * <p>本类只做字符串拼装与解析，不依赖 Android，方便单测。任何一段都必须满足
  * {@code [A-Za-z0-9_-]{1,64}}，否则会被 {@link #sanitize(String)} 清洗或替换成哈希，
@@ -34,8 +35,8 @@ public final class TopicNames {
     /** 设备级主题的固定层级段：{@code walle/{tenant}/device/{device}/{resource}}。 */
     public static final String DEVICE_SEGMENT = "device";
 
-    /** 租户级设备发现主题的资源段（没有 device 段）。 */
-    private static final String DISCOVERY_QUERY = "discovery/query";
+    /** 租户级设备发现请求主题的资源段（没有 device 段）。 */
+    private static final String DISCOVERY_QUERY_REQUEST = "discovery/query/request";
 
     private static final int MAX_SEGMENT = 64;
 
@@ -53,23 +54,23 @@ public final class TopicNames {
     /** 设备发现请求失败 */
     public static final String KIND_DISCOVERY = "discovery";
     /** 状态查询失败 */
-    public static final String KIND_STATE = "state/query";
+    public static final String KIND_STATE = "state/query/request";
     /** 设备能力查询失败 */
-    public static final String KIND_CAPABILITY = "capability/query";
+    public static final String KIND_CAPABILITY = "capability/query/request";
     /** 推流启动失败 */
-    public static final String KIND_VIDEO_START = "video/start";
+    public static final String KIND_VIDEO_START = "video/start/request";
     /** 停止推流失败 */
-    public static final String KIND_VIDEO_STOP = "video/stop";
+    public static final String KIND_VIDEO_STOP = "video/stop/request";
     /** 开启手机麦克风音频上行失败 */
-    public static final String KIND_PHONE_AUDIO_SEND = "phone/audio/send";
+    public static final String KIND_PHONE_AUDIO_SEND = "phone/audio/send/request";
     /** 关闭手机麦克风音频上行失败 */
-    public static final String KIND_PHONE_AUDIO_STOP = "phone/audio/stop";
+    public static final String KIND_PHONE_AUDIO_STOP = "phone/audio/stop/request";
     /** 车控持续命令失败 */
-    public static final String KIND_CAR_MOTOR = "car/motor/set";
+    public static final String KIND_CAR_MOTOR = "car/motor/set/cmd";
     /** 舵机状态查询失败 */
-    public static final String KIND_CAR_SERVO_STATUS = "car/servo/status/query";
+    public static final String KIND_CAR_SERVO_STATUS = "car/servo/status/query/request";
     /** 舵机位置设置失败 */
-    public static final String KIND_CAR_SERVO_SET = "car/servo/set";
+    public static final String KIND_CAR_SERVO_SET = "car/servo/set/cmd";
 
     // ---------------------------------------------------------------- 清洗
 
@@ -112,142 +113,129 @@ public final class TopicNames {
         return ROOT + "/" + sanitize(tenant) + "/" + DEVICE_SEGMENT + "/" + sanitize(device);
     }
 
-    /** 租户级广播：设备发现（App → 设备），{@code walle/{tenant}/discovery/query}。 */
+    /** 租户级广播：设备发现（App → 设备），{@code walle/{tenant}/discovery/query/request}。 */
     public static String discoveryQuery(String tenant) {
-        return ROOT + "/" + sanitize(tenant) + "/" + DISCOVERY_QUERY;
+        return ROOT + "/" + sanitize(tenant) + "/" + DISCOVERY_QUERY_REQUEST;
     }
 
     // ================= 设备 → App =================
-    // 命名约定：请求用 .../query，应答用 .../result；以 /result 结尾的主题设备只在收到
-    // 对应查询时才发布，绝不主动上报。主动上报只有 online 与 alarm（不带 /result）。
+    // 命名约定：请求-应答对的请求用 .../request、应答用 .../response；.../response 只在收到
+    // 对应请求时才发布，绝不主动上报。主动上报只有 online（无后缀）与 alarm/report。
 
     /** 上线/下线（主动上报，retained + LWT）。 */
     public static String online(String tenant, String device) {
         return deviceBase(tenant, device) + "/online";
     }
 
-    /** 设备发现应答（收到 walle/{tenant}/discovery/query 后发布，payload 为身份详情）。 */
+    /** 设备发现应答（收到 walle/{tenant}/discovery/query/request 后发布）。 */
     public static String discoveryResult(String tenant, String device) {
-        return deviceBase(tenant, device) + "/discovery/result";
+        return deviceBase(tenant, device) + "/discovery/query/response";
     }
 
-    /** 状态快照（收到 state/query 后发布）。 */
+    /** 状态快照（收到 state/query/request 后发布）。 */
     public static String stateResult(String tenant, String device) {
-        return deviceBase(tenant, device) + "/state/result";
+        return deviceBase(tenant, device) + "/state/query/response";
     }
 
     /** 告警 / 恢复 / USB 插拔（主动上报）。 */
     public static String alarm(String tenant, String device) {
-        return deviceBase(tenant, device) + "/alarm";
+        return deviceBase(tenant, device) + "/alarm/report";
     }
 
-    /** 设备能力结果（收到 capability/query 后发布，含摄像头/麦克风/音响等外设）。 */
+    /** 设备能力结果（收到 capability/query/request 后发布，含摄像头/麦克风/音响等外设）。 */
     public static String capabilityResult(String tenant, String device) {
-        return deviceBase(tenant, device) + "/capability/result";
+        return deviceBase(tenant, device) + "/capability/query/response";
     }
 
     /** 推流启动结果（收到 video/start/request 后发布）。 */
     public static String videoStartResult(String tenant, String device) {
-        return deviceBase(tenant, device) + "/video/start/result";
+        return deviceBase(tenant, device) + "/video/start/response";
     }
 
     /** 停止推流结果（收到 video/stop/request 后发布）。 */
     public static String videoStopResult(String tenant, String device) {
-        return deviceBase(tenant, device) + "/video/stop/result";
+        return deviceBase(tenant, device) + "/video/stop/response";
     }
 
-    /** 车控持续命令结果（收到 car/motor/set 后发布）。 */
-    public static String carMotorResult(String tenant, String device) {
-        return deviceBase(tenant, device) + "/car/motor/result";
-    }
-
-    /** 舵机状态查询结果（收到 car/servo/status/query 后发布）。 */
+    /** 舵机状态查询结果（收到 car/servo/status/query/request 后发布）。 */
     public static String carServoStatusResult(String tenant, String device) {
-        return deviceBase(tenant, device) + "/car/servo/status/result";
-    }
-
-    /** 舵机位置设置结果（收到 car/servo/set 后发布）。 */
-    public static String carServoResult(String tenant, String device) {
-        return deviceBase(tenant, device) + "/car/servo/result";
+        return deviceBase(tenant, device) + "/car/servo/status/query/response";
     }
 
     /**
-     * App 需要订阅的主题（只订「设备 → App」的响应类，不订请求类）。
+     * App 需要订阅的主题（只订「设备 → App」的响应/上报类，不订请求类）。
      *
      * <p>为什么不直接订 {@code walle/{tenant}/#}：MQTT 3.1.1 没有 no-local 语义，
-     * 客户端会收到自己发布的报文。App 会在租户内发布 state/query、video/start/request 等请求，
-     * 订通配子树就会把自己的请求再收一遍（日志里表现为 {@code ← RECV walle/home/discovery/query}），
+     * 客户端会收到自己发布的报文。App 会在租户内发布 state/query/request 等请求，
+     * 订通配子树就会把自己的请求再收一遍（日志里表现为 {@code ← RECV walle/home/discovery/query/request}），
      * 白白浪费带宽并干扰排查。</p>
      */
     public static String[] responseSubscriptions(String tenant) {
         String base = ROOT + "/" + sanitize(tenant) + "/" + DEVICE_SEGMENT + "/+";
         return new String[]{
-                base + "/online",                  // 主动上报
-                base + "/alarm",                   // 主动上报
-                base + "/discovery/result",        // 查询应答
-                base + "/state/result",
-                base + "/capability/result",
-                base + "/video/start/result",
-                base + "/video/stop/result",
-                base + "/car/motor/result",
-                base + "/car/servo/status/result",
-                base + "/car/servo/result",
+                base + "/online",                            // 主动上报
+                base + "/alarm/report",                      // 主动上报
+                base + "/discovery/query/response",          // 查询应答
+                base + "/state/query/response",
+                base + "/capability/query/response",
+                base + "/video/start/response",
+                base + "/video/stop/response",
+                base + "/car/servo/status/query/response",
         };
     }
 
-    // ================= App → 设备（按语义命名）=================
+    // ================= App → 设备 =================
     /** 查询状态。 */
     public static String stateQuery(String tenant, String device) {
-        return deviceBase(tenant, device) + "/state/query";
+        return deviceBase(tenant, device) + "/state/query/request";
     }
 
     /** 查询设备能力（摄像头/麦克风/音响等外设）。 */
     public static String capabilityQuery(String tenant, String device) {
-        return deviceBase(tenant, device) + "/capability/query";
+        return deviceBase(tenant, device) + "/capability/query/request";
     }
 
-    /** 开始推流（动作类，用 /request）。 */
+    /** 开始推流（请求-应答对，用 /request）。 */
     public static String videoStartRequest(String tenant, String device) {
         return deviceBase(tenant, device) + "/video/start/request";
     }
 
-    /** 停止推流（动作类，用 /request）。 */
+    /** 停止推流（请求-应答对，用 /request）。 */
     public static String videoStopRequest(String tenant, String device) {
         return deviceBase(tenant, device) + "/video/stop/request";
     }
 
     /**
-     * 车控持续命令（App → 设备）：最新一条覆盖旧状态。
-     * <p>应答为父资源 {@code car/motor/result}，不是 {@code car/motor/set/result}。</p>
+     * 车控持续命令（App → 设备）：最新一条覆盖旧状态，无应答。
      */
     public static String carMotorSet(String tenant, String device) {
-        return deviceBase(tenant, device) + "/car/motor/set";
+        return deviceBase(tenant, device) + "/car/motor/set/cmd";
     }
 
     /** 舵机状态查询（App → 设备）。 */
     public static String carServoStatusQuery(String tenant, String device) {
-        return deviceBase(tenant, device) + "/car/servo/status/query";
+        return deviceBase(tenant, device) + "/car/servo/status/query/request";
     }
 
-    /** 舵机位置设置（App → 设备）。 */
+    /** 舵机位置设置（App → 设备，持续设置，无应答）。 */
     public static String carServoSet(String tenant, String device) {
-        return deviceBase(tenant, device) + "/car/servo/set";
+        return deviceBase(tenant, device) + "/car/servo/set/cmd";
     }
 
     /**
      * 开启手机麦克风上行（App → 设备，单向动作）。
      * <p>{@code phone/audio/*} 描述的是「手机侧发起的动作」，不是设备的推流；
-     * 设备收到后自行从 RTMP 拉 {@code {room}_audio} 播放。载荷含 room_number，设备据此拼拉流地址。
-     * 设备端会发布 {@code .../send/result} 回执；但当前 {@link #responseSubscriptions}
+     * 设备收到后自行从 WHEP 拉 {@code {room}_audio} 播放。载荷含 room_number，设备据此拼拉流地址。
+     * 设备端会发布 {@code .../send/response} 回执；但当前 {@link #responseSubscriptions}
      * 未订阅 phone/audio 应答，UI 收不到该回执（已知待修：应订阅并根据回执更新开关状态）。</p>
      */
     public static String phoneAudioSend(String tenant, String device) {
-        return deviceBase(tenant, device) + "/phone/audio/send";
+        return deviceBase(tenant, device) + "/phone/audio/send/request";
     }
 
     /** 关闭手机麦克风上行（App → 设备，单向动作）。 */
     public static String phoneAudioStop(String tenant, String device) {
-        return deviceBase(tenant, device) + "/phone/audio/stop";
+        return deviceBase(tenant, device) + "/phone/audio/stop/request";
     }
 
     // ---------------------------------------------------------------- 解析
@@ -264,7 +252,7 @@ public final class TopicNames {
         if (parts.length < 5 || parts[2].isEmpty() || parts[3].isEmpty() || parts[4].isEmpty()) {
             return null;
         }
-        // 租户级发现主题 walle/{tenant}/discovery/query 没有 device 段：
+        // 租户级发现主题 walle/{tenant}/discovery/query/request 没有 device 段：
         // 第 3 段必须是固定的 "device"，否则不当作设备主题。
         if (!DEVICE_SEGMENT.equals(parts[2])) return null;
         return new String[]{parts[1], parts[3], parts[4]};
@@ -272,7 +260,8 @@ public final class TopicNames {
 
     /**
      * 从主题里取出资源段（不含租户与设备），用于分发：
-     * {@code walle/t/device/d/state/result} → {@code state/result}；{@code walle/t/device/d/capability/result} → {@code capability/result}。
+     * {@code walle/t/device/d/state/query/response} → {@code state/query/response}；
+     * {@code walle/t/device/d/capability/query/response} → {@code capability/query/response}。
      */
     public static String resourceOf(String topic) {
         String[] p = parse(topic);

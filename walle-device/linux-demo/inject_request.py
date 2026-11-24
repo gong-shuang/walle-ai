@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """本地请求注入：模拟 App 向设备发送请求，便于没有手机时联调。
 
-默认只发只读查询（state/query、capability/query），不会触发推流或播放；
+默认只发只读查询（state/query/request、capability/query/request），不会触发推流或播放；
 video/* 与 phone/audio/* 动作必须显式用 --action 指定。--dry-run 只打印
 主题与报文，不连接 Broker；因此可以先确认报文再实际发送。
 
@@ -59,16 +59,17 @@ def build_requests(actions, uuid, room_number="", video_device="", request_id=""
     """构造 [(请求主题, 报文, 应答主题)]；uuid 为空时用占位符（dry-run/预览）。"""
     items = []
     for action in actions:
+        req = ACTION_MAP.get(action, action)
         payload = {"uuid": uuid or "<device_uuid>",
                    "request_id": request_id or _new_rid()}
-        if action == REQ_VIDEO_START:
+        if req == REQ_VIDEO_START:
             payload.update({"video_device": video_device, "room_number": room_number})
-        elif action == REQ_PHONE_AUDIO_SEND:
+        elif req == REQ_PHONE_AUDIO_SEND:
             payload["room_number"] = room_number
-        elif action in (REQ_VIDEO_STOP, REQ_PHONE_AUDIO_STOP) and room_number:
+        elif req in (REQ_VIDEO_STOP, REQ_PHONE_AUDIO_STOP) and room_number:
             payload["room_number"] = room_number
-        items.append((device_topic(action), payload,
-                      device_topic(REQUEST_TO_RESULT[action])))
+        items.append((device_topic(req), payload,
+                      device_topic(REQUEST_TO_RESULT[req])))
     return items
 
 

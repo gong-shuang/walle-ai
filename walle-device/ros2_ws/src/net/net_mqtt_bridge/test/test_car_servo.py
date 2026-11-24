@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""car/servo/status/query 报文校验与结果封装测试。"""
+"""car/servo/status/query/request 报文校验与结果封装测试。"""
 
 import pytest
 
@@ -138,24 +138,6 @@ def test_set_command_errors(data):
     assert cmd is None or cmd["applied"] == []
 
 
-def test_set_result_payload_contains_applied_and_skipped():
-    class Dummy(car_servo.CarServoMixin):
-        lan_ip = "192.168.1.10"
-
-        def __init__(self):
-            self.topic = ""
-            self.payload = None
-
-        def publish_json(self, topic, payload):
-            self.topic = topic
-            self.payload = payload
-
-    dummy = Dummy()
-    dummy._publish_car_servo_set_result(
-        "req-2", 0, "ok", 1.0,
-        [{"id": 1, "position": 1400}],
-        [{"id": 2, "position": 2400, "reason": "超出范围 800–2200"}])
-    assert dummy.topic == config.RES_CAR_SERVO_SET_RESULT
-    assert dummy.payload["request_id"] == "req-2"
-    assert dummy.payload["applied"][0]["position"] == 1400
-    assert dummy.payload["skipped"][0]["id"] == 2
+def test_set_topic_is_continuous_command_without_response():
+    assert config.REQ_CAR_SERVO_SET == "car/servo/set/cmd"
+    assert config.REQ_CAR_SERVO_SET not in config.REQUEST_TO_RESULT

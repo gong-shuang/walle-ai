@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""系统监控采样、阈值告警与 state/query 快照。"""
+"""系统监控采样、阈值告警与 state/query/response 快照。"""
 
 import logging
 import os
@@ -221,14 +221,14 @@ class MonitorMixin:
             return self.status_sample
 
     def _update_status_sample(self, cores, per_iface, total_rx, total_tx, interval):
-        """monitor_loop 每轮写入 state/query 快照（P2-1.1）。"""
+        """monitor_loop 每轮写入 state/query/request 快照（P2-1.1）。"""
         sample = (cores, per_iface, total_rx, total_tx, interval, time.monotonic())
         with self.status_sample_lock:
             self.status_sample = sample
 
     def build_status(self):
         """
-        state/query 的状态快照。
+        state/query/response 的状态快照。
 
         P2-1.1：优先复用 monitor_loop 最近一次采样结果，查询路径不再阻塞采样；
         监控尚未产出第一份快照（启动 1s 内或自检脚本）时才现场采样兜底。
@@ -326,7 +326,7 @@ class MonitorMixin:
         return status
 
     def _video_status(self):
-        """state/result 的 video 分组：独立运行没有推流；ROS 模式下由 node.py 覆盖。"""
+        """state/query/response 的 video 分组：独立运行没有推流；ROS 模式下由 node.py 覆盖。"""
         return {
             "streaming": False,
             "room_number": None,
@@ -348,7 +348,7 @@ class MonitorMixin:
         first = True
 
         while not self.stop_event.is_set():
-            # 首次采样提前到 1s，让 state/query 尽快命中缓存
+            # 首次采样提前到 1s，让 state/query/request 尽快命中缓存
             wait = config.STATUS_PRIME_INTERVAL if first else config.MONITOR_INTERVAL
             first = False
             if self.stop_event.wait(wait):

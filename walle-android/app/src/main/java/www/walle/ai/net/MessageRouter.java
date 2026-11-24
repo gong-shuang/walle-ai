@@ -43,14 +43,8 @@ public class MessageRouter {
 
         void onVideoStopResult(JSONObject payload);
 
-        /** car/motor/result：车控持续命令回执。 */
-        void onCarMotorResult(JSONObject payload);
-
-        /** car/servo/status/result：舵机状态查询回执。 */
+        /** car/servo/status/query/response：舵机状态查询回执。 */
         void onCarServoStatusResult(JSONObject payload);
-
-        /** car/servo/result：舵机位置设置回执。 */
-        void onCarServoSetResult(JSONObject payload);
 
         /** 无法识别的主题/资源（默认只打日志）。 */
         default void onIgnored(String topic, String reason) {
@@ -81,7 +75,7 @@ public class MessageRouter {
         }
         String[] parts = TopicNames.parse(topic);
         if (parts == null) {
-            // 租户级发现主题 walle/{tenant}/discovery/query 没有 device 段，不是报文入口
+            // 租户级发现主题 walle/{tenant}/discovery/query/request 没有 device 段，不是报文入口
             sink.onIgnored(topic, "主题层级不足");
             return;
         }
@@ -109,33 +103,27 @@ public class MessageRouter {
             case "online":
                 sink.onOnline(json);
                 break;
-            case "alarm":
+            case "alarm/report":
                 if (!isDuplicate("alarm", json)) sink.onAlarm(json);
                 break;
-            // 查询应答（.../result）
-            case "discovery/result":
+            // 查询应答（.../response）
+            case "discovery/query/response":
                 sink.onDiscoveryResult(json);
                 break;
-            case "state/result":
+            case "state/query/response":
                 sink.onStateResult(json);
                 break;
-            case "capability/result":
+            case "capability/query/response":
                 if (!isDuplicate("capability", json)) sink.onCapabilityResult(json);
                 break;
-            case "video/start/result":
+            case "video/start/response":
                 if (!isDuplicate("video/start", json)) sink.onVideoStartResult(json);
                 break;
-            case "video/stop/result":
+            case "video/stop/response":
                 if (!isDuplicate("video/stop", json)) sink.onVideoStopResult(json);
                 break;
-            case "car/motor/result":
-                if (!isDuplicate("car/motor", json)) sink.onCarMotorResult(json);
-                break;
-            case "car/servo/status/result":
+            case "car/servo/status/query/response":
                 if (!isDuplicate("car/servo/status", json)) sink.onCarServoStatusResult(json);
-                break;
-            case "car/servo/result":
-                if (!isDuplicate("car/servo/set", json)) sink.onCarServoSetResult(json);
                 break;
             default:
                 sink.onIgnored(topic, "未知资源 " + resource);

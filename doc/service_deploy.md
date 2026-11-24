@@ -409,7 +409,7 @@ mosquitto_pub -h www.example.com -p 8883 --cafile /etc/ssl/certs/ca-certificates
 ## 10. 在 EMQX Web 配置 ACL 规则
 
 > 目标：App 账号只能访问自己租户；每台设备使用独立账号，只能读写自己的子树。
-> `uuid` 会随 `discovery/result` 与 retained `online` 明文下发，**不是鉴权凭证**；
+> `uuid` 会随 `discovery/query/response` 与 retained `online` 明文下发，**不是鉴权凭证**；
 > 真正的访问边界是 Broker ACL。
 
 Dashboard → **访问控制 → 授权（Authorization）** → 添加 **File** 授权源，把下面内容放到文件**最前面**（并把它排到授权源顺序的第一位，EMQX 按顺序匹配、第一条命中即生效）：
@@ -424,7 +424,7 @@ Dashboard → **访问控制 → 授权（Authorization）** → 添加 **File**
        ["walle/+/device/${clientid}/#"]}.
 {allow, {username, {re, "^dev_[A-Za-z0-9_-]+$"}}, subscribe,
        ["walle/+/device/${clientid}/#",
-        "walle/+/discovery/query"]}.
+        "walle/+/discovery/query/request"]}.
 
 %% 未命中一律拒绝；保留 EMQX 自带的 $SYS 规则，不要覆盖删除
 {deny, all}.
@@ -440,13 +440,13 @@ Dashboard → **访问控制 → 授权（Authorization）** → 添加 **File**
 | `{username, {re, "^home$"}}` | 匹配 App 账号（正则全匹配）；`all` = 既可发布也可订阅 |
 | `walle/home/#` | 该租户的整棵子树（`#` 只能出现在末尾） |
 | `walle/+/device/${clientid}/#` | 设备只能访问自己 `clientid` 对应的设备子树；`+` 为租户段通配 |
-| `walle/+/discovery/query` | 设备接收租户内发现广播所必需 |
+| `walle/+/discovery/query/request` | 设备接收租户内发现广播所必需 |
 | `publish` / `subscribe` | 分别控制发布与订阅 |
 | `{deny, all}.` | 未命中规则一律拒绝 |
 
 > - **每台设备一个账号**（如 `dev_3f2a...`），不要把多台设备共用一个 `RaspPi5`；设备端 `MQTT_USERNAME` 填自己的账号。
 > - `clientid` 必须等于设备 `device_id`（`main.py` 已用 `device_id` 作为 clientid），否则 `${clientid}` 展开后与主题对不上。
-> - 如果只允许固定租户，把 `walle/+/device/${clientid}/#` 改为 `walle/home/device/${clientid}/#`，发现主题改为 `walle/home/discovery/query`。
+> - 如果只允许固定租户，把 `walle/+/device/${clientid}/#` 改为 `walle/home/device/${clientid}/#`，发现主题改为 `walle/home/discovery/query/request`。
 > - 修改后保存即热加载，无需重启。
 
 ### 10.1 验证 ACL（两台设备 + App）

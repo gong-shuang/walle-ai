@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""设备能力后台探测、缓存与 capability/query 应答。"""
+"""设备能力后台探测、缓存与 capability/query/request 应答。"""
 import json
 import logging
 import threading
@@ -15,11 +15,11 @@ from ld_audio import *
 from ld_media import rtmp_url_ready
 
 class MonitorCapabilityMixin:
-    """能力后台探测、缓存与 capability/query 应答。"""
-    # ---------- capability/query 设备能力查询（摄像头/麦克风/音响等外设） ----------
+    """能力后台探测、缓存与 capability/query/request 应答。"""
+    # ---------- capability/query/request 设备能力查询（摄像头/麦克风/音响等外设） ----------
 
     def cameras_cached(self):
-        """摄像头探测结果缓存：capability/query 不再每次都跑 v4l2-ctl；USB 插拔时失效。"""
+        """摄像头探测结果缓存：capability/query/request 不再每次都跑 v4l2-ctl；USB 插拔时失效。"""
         now = time.time()
         with self._camera_cache_lock:
             if self._camera_cache and self._camera_cache[0] > now:
@@ -123,7 +123,7 @@ class MonitorCapabilityMixin:
         }
 
     def _probe_capability(self):
-        """实际执行 v4l2-ctl / pactl 探测，生成 capability/result 内容（仅后台线程调用）。"""
+        """实际执行 v4l2-ctl / pactl 探测，生成 capability/query/response 内容（仅后台线程调用）。"""
         t0 = time.time()
         cameras, cam_error = ([], "摄像头能力探测已关闭（CAM_ENABLE=False）")
         if CAM_ENABLE:
@@ -206,4 +206,4 @@ class MonitorCapabilityMixin:
                          result["summary"]["probe_cost_ms"],
                          f"，探测异常: {result['probe']['error']}" if result["probe"]["error"] else "")
         except Exception:
-            logging.exception("上报 capability/result 失败")
+            logging.exception("上报 capability/query/response 失败")

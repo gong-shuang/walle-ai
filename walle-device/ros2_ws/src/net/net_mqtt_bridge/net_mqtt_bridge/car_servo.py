@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""car/servo/status/query：PWM 舵机状态查询的校验与结果封装。
+"""car/servo/status/query/request：PWM 舵机状态查询的校验与结果封装。
 
 协议约定见 doc/MQTT_protocol_convention.md §4.11：
   - 请求可选 ids（默认 [1,2]）、include_offset（默认 false）；
@@ -145,10 +145,10 @@ class CarServoMixin:
         }
         self.publish_json(config.RES_CAR_SERVO_STATUS_RESULT, payload)
         if result_code == RESULT_OK:
-            logging.debug("car/servo/status/query 结果 -> request_id=%s result=0",
+            logging.debug("car/servo/status/query/request 结果 -> request_id=%s result=0",
                           payload["request_id"] or "-")
         else:
-            logging.warning("car/servo/status/query 结果 -> request_id=%s result=%s cause=%s",
+            logging.warning("car/servo/status/query/request 结果 -> request_id=%s result=%s cause=%s",
                             payload["request_id"] or "-", result_code, cause)
         return payload
 
@@ -175,45 +175,14 @@ class CarServoMixin:
         self._publish_car_servo_status_result(
             rid, RESULT_LINK_DOWN, CAUSE_LINK_DOWN, servos)
 
-    def _publish_car_servo_set_result(self, request_id, result_code, cause,
-                                      duration, applied, skipped):
-        payload = {
-            "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
-            "hostname": config.HOSTNAME,
-            "ip": self.lan_ip,
-            "request_id": str(request_id or ""),
-            "result": result_code,
-            "cause": cause,
-            "duration": duration,
-            "applied": applied,
-            "skipped": skipped,
-            "timestamp": now_ts(),
-            "datetime": now_str(),
-        }
-        self.publish_json(config.RES_CAR_SERVO_SET_RESULT, payload)
-        if result_code == RESULT_OK:
-            logging.debug("car/servo/set 结果 -> request_id=%s result=0 applied=%s skipped=%s",
-                          payload["request_id"] or "-", applied, skipped)
-        else:
-            logging.warning("car/servo/set 结果 -> request_id=%s result=%s cause=%s",
-                            payload["request_id"] or "-", result_code, cause)
-        return payload
-
     def handle_car_servo_set(self, payload):
-        """独立运行时没有 ROS set_state 发布者，直接返回链路不可用。"""
+        """独立运行时没有 ROS set_state 发布者，只记录链路不可用。"""
         ok, data = self.verify_uuid(payload, config.REQ_CAR_SERVO_SET)
         if not ok:
             return
-        rid = self._rid(data)
-        result, cause, cmd = parse_set_command(data)
-        if result == RESULT_OK:
-            result, cause = RESULT_LINK_DOWN, CAUSE_LINK_DOWN
-        duration = cmd["duration"] if cmd else config.CAR_SERVO_DURATION_DEFAULT
-        applied = [] if result != RESULT_OK else cmd["applied"]
-        skipped = cmd["skipped"] if cmd else []
-        self._publish_car_servo_set_result(
-            rid, result, cause, duration, applied, skipped)
+        logging.warning(
+            "car/servo/set/cmd request_id=%s 未执行：舵机控制链路不可用（独立运行模式）",
+            self._rid(data) or "-")
 
 
 class CarServoStatusNodeMixin:
@@ -258,7 +227,7 @@ class CarServoStatusNodeMixin:
         return box.get('response')
 
     def _handle_car_servo_status(self, payload):
-        """car/servo/status/query：读取 PWM 舵机位置/偏移并返回状态。"""
+        """car/servo/status/query/request：读取 PWM 舵机位置/偏移并返回状态。"""
         if self._shutting_down:
             return
         ok, data = self.agent.verify_uuid(
@@ -319,7 +288,7 @@ class CarServoStatusNodeMixin:
             self.agent._publish_car_servo_status_result(
                 rid, RESULT_LINK_DOWN, CAUSE_LINK_DOWN, servos)
         self.get_logger().debug(
-            'car/servo/status/query request_id=%s ids=%s include_offset=%s all_ok=%s'
+            'car/servo/status/query/request request_id=%s ids=%s include_offset=%s all_ok=%s'
             % (rid or '-', ids, include_offset, all_ok))
 
     def setup_car_servo_set(self, topic):
@@ -327,7 +296,7 @@ class CarServoStatusNodeMixin:
         self._servo_set_pub = self.create_publisher(SetPWMServoState, topic, 10)
 
     def _handle_car_servo_set(self, payload):
-        """car/servo/set：按绝对位置设置一个或多个 PWM 舵机。"""
+        """car/servo/set/cmd：按绝对位置设置一个或多个 PWM 舵机（无 MQTT 应答）。"""
         if self._shutting_down:
             return
         ok, data = self.agent.verify_uuid(
@@ -338,11 +307,9 @@ class CarServoStatusNodeMixin:
         rid = self.agent._rid(data)
         result, cause, cmd = parse_set_command(data)
         if result != RESULT_OK:
-            duration = cmd["duration"] if cmd else self._agent_mod.CAR_SERVO_DURATION_DEFAULT
-            applied = [] if not cmd else cmd["applied"]
-            skipped = cmd["skipped"] if cmd else []
-            self.agent._publish_car_servo_set_result(
-                rid, result, cause, duration, applied, skipped)
+            self.get_logger().warn(
+                'car/servo/set/cmd request_id=%s 未执行：result=%s cause=%s'
+                % (rid or '-', result, cause))
             return
 
         try:
@@ -350,9 +317,9 @@ class CarServoStatusNodeMixin:
         except Exception:  # noqa: BLE001
             subscribers = 1
         if subscribers == 0:
-            self.agent._publish_car_servo_set_result(
-                rid, RESULT_LINK_DOWN, CAUSE_LINK_DOWN,
-                cmd["duration"], [], [])
+            self.get_logger().warn(
+                'car/servo/set/cmd request_id=%s 未执行：舵机控制链路不可用'
+                % (rid or '-'))
             return
 
         from ros_robot_controller_msgs.msg import PWMServoState, SetPWMServoState
@@ -366,14 +333,11 @@ class CarServoStatusNodeMixin:
         try:
             self._servo_set_pub.publish(msg)
         except Exception:  # noqa: BLE001
-            self.agent._publish_car_servo_set_result(
-                rid, RESULT_LINK_DOWN, CAUSE_LINK_DOWN,
-                cmd["duration"], [], [])
+            self.get_logger().warn(
+                'car/servo/set/cmd request_id=%s 发布失败：舵机控制链路不可用'
+                % (rid or '-'))
             return
 
-        self.agent._publish_car_servo_set_result(
-            rid, RESULT_OK, CAUSE_OK, cmd["duration"],
-            cmd["applied"], cmd["skipped"])
         self.get_logger().debug(
-            'car/servo/set request_id=%s applied=%s skipped=%s duration=%.2f'
+            'car/servo/set/cmd request_id=%s applied=%s skipped=%s duration=%.2f'
             % (rid or '-', cmd["applied"], cmd["skipped"], cmd["duration"]))

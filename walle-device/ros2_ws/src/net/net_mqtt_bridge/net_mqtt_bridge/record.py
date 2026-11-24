@@ -240,7 +240,7 @@ class RecordNodeMixin:
             extra['error'] = resp.cause
         self.agent._publish_record_start_result(
             req, int(resp.result), resp.cause or 'ok', extra)
-        # 维护 state/result 的 recording 分组（仅成功时更新）
+        # 维护 state/query/response 的 recording 分组（仅成功时更新）
         if resp.result == 0:
             self.agent.recording_state = {
                 'recording': True, 'filename': resp.filename or None}

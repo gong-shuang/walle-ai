@@ -47,8 +47,10 @@ def topic_pair_errors():
     """请求/应答主题配对自检：任何改名或漏配都应在这里报错。"""
     errors = []
     for req, res in REQUEST_TO_RESULT.items():
-        if not res.endswith("/result"):
-            errors.append(f"应答主题 {res} 未以 /result 结尾")
+        if not req.endswith("/request"):
+            errors.append(f"请求主题 {req} 未以 /request 结尾")
+        if not res.endswith("/response"):
+            errors.append(f"应答主题 {res} 未以 /response 结尾")
         if req != REQ_DISCOVERY and req not in REQUEST_HANDLERS:
             errors.append(f"请求主题 {req} 没有处理函数")
     for req in REQUEST_HANDLERS:

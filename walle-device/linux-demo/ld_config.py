@@ -119,17 +119,17 @@ MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE", "").strip()      # 留空则用系
 MQTT_DISCONNECT_STOP_SEC = int(os.environ.get("MQTT_DISCONNECT_STOP_SEC", "60"))
 
 # ---- 主题命名约定（完整主题 = walle/{tenant}/device/{device}/{资源}）----
-#   请求按语义命名：查询 .../query、动作 .../request；
-#   应答统一 .../result，且**只在收到对应请求后发布**，绝不主动上报；
-#   主动上报只有 online（上线/下线）与 alarm（告警/USB 插拔）两个。
+#   请求-应答对：请求 .../request、应答 .../response，且应答只在收到对应请求后发布；
+#   持续设置且不需要应答：.../cmd；
+#   主动上报：online（上线/下线）与 alarm/report（告警/USB 插拔）。
 # ---- 应答（设备 -> App）----
-RES_DISCOVERY_RESULT = "discovery/result"           # 收到 discovery/query 后发布（设备身份详情）
-RES_STATE_RESULT = "state/result"                   # 收到 state/query 后发布（状态快照）
-RES_CAPABILITY_RESULT = "capability/result"         # 收到 capability/query 后发布
-RES_VIDEO_START_RESULT = "video/start/result"       # 收到 video/start/request 后发布
-RES_VIDEO_STOP_RESULT = "video/stop/result"         # 收到 video/stop/request 后发布
-RES_PHONE_AUDIO_SEND_RESULT = "phone/audio/send/result"   # 收到 phone/audio/send 后发布
-RES_PHONE_AUDIO_STOP_RESULT = "phone/audio/stop/result"   # 收到 phone/audio/stop 后发布
+RES_DISCOVERY_RESULT = "discovery/query/response"   # 收到 discovery/query/request 后发布（设备身份详情）
+RES_STATE_RESULT = "state/query/response"           # 收到 state/query/request 后发布（状态快照）
+RES_CAPABILITY_RESULT = "capability/query/response" # 收到 capability/query/request 后发布
+RES_VIDEO_START_RESULT = "video/start/response"     # 收到 video/start/request 后发布
+RES_VIDEO_STOP_RESULT = "video/stop/response"       # 收到 video/stop/request 后发布
+RES_PHONE_AUDIO_SEND_RESULT = "phone/audio/send/response"   # 收到 phone/audio/send/request 后发布
+RES_PHONE_AUDIO_STOP_RESULT = "phone/audio/stop/response"   # 收到 phone/audio/stop/request 后发布
 
 # ---- 主动上报（设备 -> App，不必等查询）----
 RES_ONLINE = "online"                       # retained + 遗嘱
@@ -140,16 +140,16 @@ RES_ONLINE = "online"                       # retained + 遗嘱
 # 但多台手机同时点刷新仍会让 N 台设备同时回包，因此设备侧再加两道保护：
 DISCOVERY_JITTER_SEC = 0.8                  # 首次应答前的随机延迟上限（秒），避免同时回包
 DISCOVERY_MIN_INTERVAL_SEC = 2.0            # 同一台设备两次应答的最小间隔（秒）
-RES_ALARM = "alarm"                         # 告警 / 恢复 / USB 插拔
+RES_ALARM = "alarm/report"                  # 告警 / 恢复 / USB 插拔
 
 # ---- 订阅的请求（App -> 设备）----
-REQ_DISCOVERY = "discovery/query"
-REQ_STATE = "state/query"
-REQ_CAPABILITY = "capability/query"
+REQ_DISCOVERY = "discovery/query/request"
+REQ_STATE = "state/query/request"
+REQ_CAPABILITY = "capability/query/request"
 REQ_VIDEO_START = "video/start/request"
 REQ_VIDEO_STOP = "video/stop/request"
-REQ_PHONE_AUDIO_SEND = "phone/audio/send"     # 手机麦上行：App 开始往 {room}_audio 推音频
-REQ_PHONE_AUDIO_STOP = "phone/audio/stop"     # 手机麦上行：App 停止推音频
+REQ_PHONE_AUDIO_SEND = "phone/audio/send/request"   # 手机麦上行：App 开始往 {room}_audio 推音频
+REQ_PHONE_AUDIO_STOP = "phone/audio/stop/request"   # 手机麦上行：App 停止推音频
 
 # ---- 设备标识 ----
 HOSTNAME = socket.gethostname()

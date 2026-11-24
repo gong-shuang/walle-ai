@@ -142,7 +142,7 @@ class ProtocolMixin:
 
         注意两种主题层级不同：
           · 设备级请求：walle/{tenant}/device/{device}/{resource}   （至少 5 段）
-          · 发现广播  ：walle/{tenant}/discovery/query               （4 段，没有 device 段）
+          · 发现广播  ：walle/{tenant}/discovery/query/request       （5 段，没有 device 段）
         发现主题先按完整主题特判；其余主题第 3 段必须是固定的 device。
         """
         if topic == config.tenant_topic(config.REQ_DISCOVERY):
@@ -273,7 +273,7 @@ class ProtocolMixin:
             "uuid_source": {                      # uuid 生成依据，便于服务端核对
                 "mac": mac,
                 "ip": self.lan_ip,
-                "note": "uuid5(MAC|IP|启动时间)，每次重启会变化，请用 discovery/query 获取最新值",
+                "note": "uuid5(MAC|IP|启动时间)，每次重启会变化，请用 discovery/query/request 获取最新值",
             },
             "os": {
                 "name": get_os_pretty_name(),        # 系统版本，如 Debian GNU/Linux 12 (bookworm)
@@ -303,7 +303,7 @@ class ProtocolMixin:
     def build_online_payload(self, online=True):
         """online（retained/LWT）只发最小身份，字段与 linux-demo 保持一致。
 
-        完整身份（MAC/序列号/磁盘/系统详情）只通过 discovery/query 返回，避免订阅该
+        完整身份（MAC/序列号/磁盘/系统详情）只通过 discovery/query/response 返回，避免订阅该
         租户主题的客户端长期读取敏感信息；这里跳过磁盘扫描，避免阻塞连接路径。
         """
         info = self.build_device_info(include_disk=False)
@@ -340,7 +340,7 @@ class ProtocolMixin:
         if config.DISCOVERY_JITTER_SEC > 0:
             time.sleep(random.uniform(0, config.DISCOVERY_JITTER_SEC))
         try:
-            # 与 online 保持完全一致：列表页只展示最小身份，设备详情走 state/query
+            # 与 online 保持完全一致：列表页只展示最小身份，设备详情走 state/query/request
             payload = self.build_online_payload(True)
             self.publish_json(config.RES_DISCOVERY_RESULT, payload)
             logging.info("已响应设备发现查询 -> %s（request_id=%s，型号=%s 主机名=%s）",
@@ -349,14 +349,14 @@ class ProtocolMixin:
         except Exception:
             logging.exception("上报 %s 失败", config.device_topic(config.RES_DISCOVERY_RESULT))
 
-    # ---------- capability/query 设备能力查询（摄像头/麦克风/音响等外设） ----------
+    # ---------- capability/query/request 设备能力查询（摄像头/麦克风/音响等外设） ----------
 
     @staticmethod
     def verify_uuid(payload, topic):
         """
         校验订阅报文 JSON 里的 uuid 是否与本地一致。
         返回 (是否通过, 解析后的 dict)。不通过时静默忽略该消息（只记日志，不回复）。
-        discovery/query 不调用本方法（免校验）。
+        discovery/query/request 不调用本方法（免校验）。
         """
         if not payload.strip():
             logging.warning("忽略 %s：报文为空（必须带 uuid）", topic)

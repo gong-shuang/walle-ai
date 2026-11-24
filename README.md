@@ -128,7 +128,7 @@ adb install walle-android-0.1.1.apk
 检查手机与设备是否在同一网络、Broker 是否监听、用户名密码是否正确；同 `clientId` 多端登录会被互相踢下线（App 会自动重连）。设置页里能看到具体失败原因（超时 / 凭据被拒 / 端口协议不匹配等）。
 
 **设备列表为空？**
-设备端需先连接同一 Broker 并保持在线。点击「重新扫描」会在本租户内广播 `walle/{tenant}/discovery/query`，设备在 3 秒内回复即会出现。
+设备端需先连接同一 Broker 并保持在线。点击「重新扫描」会在本租户内广播 `walle/{tenant}/discovery/query/request`，设备在 3 秒内回复即会出现。
 
 **推流后黑屏？**
 确认设备端已启动推流、WHEP 服务可访问、`room_number` 与 App 拼接的地址一致。切换摄像头会复用原房间号，不会新建会话。

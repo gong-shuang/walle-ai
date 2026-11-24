@@ -79,7 +79,7 @@ class MonitorIdentityMixin:
             "uuid_source": {                      # uuid 生成依据，便于服务端核对
                 "mac": mac,
                 "ip": self.lan_ip,
-                "note": "uuid5(MAC|IP|启动时间)，每次重启会变化，请用 discovery/query 获取最新值",
+                "note": "uuid5(MAC|IP|启动时间)，每次重启会变化，请用 discovery/query/request 获取最新值",
             },
             "os": {
                 "name": get_os_pretty_name(),        # 系统版本，如 Debian GNU/Linux 12 (bookworm)
@@ -109,7 +109,7 @@ class MonitorIdentityMixin:
     def build_online_payload(self, online=True):
         """online（retained/LWT）只发最小身份：设备号、版本、型号、主机名、IP、运行时长。
 
-        完整身份（MAC/序列号/磁盘/系统详情）只通过 discovery/query 返回，避免订阅该
+        完整身份（MAC/序列号/磁盘/系统详情）只通过 discovery/query/response 返回，避免订阅该
         租户主题的客户端长期读取敏感信息。使用身份缓存，避免磁盘扫描。
         """
         info = self._online_info()
@@ -154,7 +154,7 @@ class MonitorIdentityMixin:
 
     def _publish_discovery_result(self, rid):
         try:
-            # 与 online 保持完全一致：列表页只展示最小身份，设备详情走 state/query
+            # 与 online 保持完全一致：列表页只展示最小身份，设备详情走 state/query/request
             payload = self.build_online_payload(True)
             self.publish_json(RES_DISCOVERY_RESULT, payload)
             logging.info("已响应设备发现查询 -> %s（request_id=%s，型号=%s 主机名=%s）",

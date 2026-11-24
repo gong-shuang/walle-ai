@@ -97,7 +97,7 @@ public class PlayerActivity extends AppCompatActivity {
     private String micTarget = "";
     private MqttManager mgr;
 
-    // —— 车控摇杆（左下角，car/motor/set）——
+    // —— 车控摇杆（左下角，car/motor/set/cmd）——
     /** 目标设备：真实 uuid 优先，回退主题键。 */
     private String carTarget = "";
     /** 摇杆的线速度，与 Web 测试页保持一致（协议要求 0.5–1.0 m/s）。 */
@@ -126,7 +126,7 @@ public class PlayerActivity extends AppCompatActivity {
         }
     };
 
-    // —— 舵机摇杆（右下角，car/servo/set）——
+    // —— 舵机摇杆（右下角，car/servo/set/cmd）——
     /** 每次步进的舵机位置增量。 */
     private static final int SERVO_STEP = 100;
     /** 按住时的重发周期，与舵机 duration=1.0 对齐。 */
@@ -453,7 +453,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     // endregion
 
-    // region 车控摇杆（car/motor/set）
+    // region 车控摇杆（car/motor/set/cmd）
 
     /**
      * 摇杆位置 → 方向：上下为前进/后退，左右为左旋/右旋，斜向同时下发。
@@ -522,7 +522,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     // endregion
 
-    // region 舵机摇杆（car/servo/set）
+    // region 舵机摇杆（car/servo/set/cmd）
 
     /**
      * 舵机摇杆方向（与车轮摇杆相同的 8 扇区判定）：
@@ -577,7 +577,7 @@ public class PlayerActivity extends AppCompatActivity {
 
         binding.spinnerCamera.setVisibility(ui.showSpinner() ? View.VISIBLE : View.GONE);
 
-        // 收到 car/servo/status/result（拿到舵机位置）后才显示右下角舵机摇杆
+        // 收到 car/servo/status/query/response（拿到舵机位置）后才显示右下角舵机摇杆
         if (!ui.servoReady) stopServoControl();
         binding.servoJoystick.setVisibility(ui.servoReady ? View.VISIBLE : View.GONE);
 
