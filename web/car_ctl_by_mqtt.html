@@ -1394,6 +1394,22 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       applyVideoUi();
     }, 10000) };
   }
+  // 推流应答本身就是权威结果：直接同步「运行状态」卡片，不再额外发 baseState/query
+  function applyVideoRunState(streaming, data) {
+    ui.cap = ui.cap || {};
+    var v = ui.cap.video || {};
+    v.streaming = streaming === true;
+    if (streaming) {
+      v.room_number = (data && data.room_number) ? String(data.room_number) : (ui.video.room || null);
+      if (data && data.video_device) v.video_device = data.video_device;
+      if (data && data.audio !== undefined) v.audio = data.audio;
+    } else {
+      v.room_number = null;
+      v.video_device = null;
+    }
+    ui.cap.video = v;
+    renderRunState();
+  }
   function onVideoStartResult(dev, data) {
     if (dev !== cfg.device) return;
     if (ui.pendingVideo && data.request_id && data.request_id !== ui.pendingVideo.rid) return;
@@ -1403,14 +1419,13 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       var rm = String(data.room_number || ui.video.room || '').trim();
       ui.video.room = rm;
       if (rm) { cfg.videoRoom = rm; saveCfg(); }
+      applyVideoRunState(true, data);
       applyVideoUi();
       var act = data.action === 'already_streaming' ? '设备已在推流' : '推流成功';
       setVideoMsg(act + '（room ' + (rm || '—') + '）。点「连接画面」开始拉流。', 'ok');
-      queryState();
     } else {
       applyVideoUi();
       setVideoMsg('推流失败：result=' + data.result + ' · ' + (data.cause || '') + (data.error ? ' · ' + data.error : ''), 'err');
-      queryState();
     }
   }
   function videoStop() {
@@ -1437,13 +1452,13 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       ui.video.streaming = false;
       ui.video.room = '';
       closeWhep(true);
+      applyVideoRunState(false, null);
       applyVideoUi();
       setVideoMsg('推流已停止' + (data.stopped ? '（' + (data.room_number || '') + '）' : '') + '，已关闭 WHEP 会话', 'ok');
     } else {
       applyVideoUi();
       setVideoMsg('停止推流：result=' + data.result + ' · ' + (data.cause || data.error || ''), 'err');
     }
-    queryState();
   }
   // ---------------------------------------------------------------- 告警
   var TOKEN_KEY = 'walle_demo_token';
