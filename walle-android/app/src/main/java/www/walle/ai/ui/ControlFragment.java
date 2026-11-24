@@ -148,7 +148,7 @@ public class ControlFragment extends Fragment {
     }
 
     /**
-     * 设备列表里显式点了某台设备：立即查一次能力（与状态页的 state/query/request 配对）。
+     * 设备列表里显式点了某台设备：立即查一次能力（与状态页的 baseState/query/request 配对）。
      * <p>即使本页当前不可见也要查，这样用户点「控制」tab 时能力已经就绪、不需再发一次。</p>
      */
     public void onDeviceSwitched() {

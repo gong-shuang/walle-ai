@@ -565,7 +565,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_STATE,
-                TopicNames.stateQuery(tenant, deviceSegment(key)), body.toString());
+                TopicNames.baseStateQuery(tenant, deviceSegment(key)), body.toString());
         return rid;
     }
 

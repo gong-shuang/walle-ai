@@ -110,7 +110,7 @@ public class MessageRouter {
             case "discovery/query/response":
                 sink.onDiscoveryResult(json);
                 break;
-            case "state/query/response":
+            case "baseState/query/response":
                 sink.onStateResult(json);
                 break;
             case "capability/query/response":

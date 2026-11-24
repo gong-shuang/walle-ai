@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""系统监控采样、阈值告警与 state/query/response 快照。"""
+"""系统监控采样、阈值告警与 baseState/query/response 快照。"""
 
 import logging
 import os
@@ -13,7 +13,6 @@ import psutil
 from . import config
 from .identity import (get_pi_model, human_mbps, human_rate, human_size,
                        now_str, now_ts)
-from .record import RECORD_ENABLED
 
 
 def get_cpu_temp():
@@ -221,14 +220,14 @@ class MonitorMixin:
             return self.status_sample
 
     def _update_status_sample(self, cores, per_iface, total_rx, total_tx, interval):
-        """monitor_loop 每轮写入 state/query/request 快照（P2-1.1）。"""
+        """monitor_loop 每轮写入 baseState/query/request 快照（P2-1.1）。"""
         sample = (cores, per_iface, total_rx, total_tx, interval, time.monotonic())
         with self.status_sample_lock:
             self.status_sample = sample
 
     def build_status(self):
         """
-        state/query/response 的状态快照。
+        baseState/query/response 的状态快照。
 
         P2-1.1：优先复用 monitor_loop 最近一次采样结果，查询路径不再阻塞采样；
         监控尚未产出第一份快照（启动 1s 内或自检脚本）时才现场采样兜底。
@@ -253,16 +252,6 @@ class MonitorMixin:
         disk_total = sum(m["total_bytes"] for m in mounts)
         disk_used = sum(m["used_bytes"] for m in mounts)
         disk_free = sum(m["free_bytes"] for m in mounts)
-        # 录像状态由 node.py 在 record start/stop 应答后维护；独立运行/测试时缺省为未录像
-        # enable 来自 walle_camera.conf 的 record.enabled（配置关闭时 App 隐藏录像入口）
-        state = getattr(self, "recording_state", None) or {}
-        recording = {
-            "enable": RECORD_ENABLED,
-            "recording": bool(state.get("recording")),
-            "filename": state.get("filename"),
-        }
-        # 电池电压 / 前方声呐距离（V1.7）：读取 ROS 回调维护的最新采样
-        sensors = self.sensor_status()
 
         status = {
             "device_id": config.DEVICE_ID,
@@ -316,17 +305,11 @@ class MonitorMixin:
                 "count": len(usb),
                 "devices": list(usb.values()),
             },
-            "recording": recording,
-            "video": self._video_status(),
         }
-        # 没有对应传感器（age_sec 为 null）时不返回该分组，App 直接隐藏卡片
-        for key in ("battery", "sonar"):
-            if sensors[key]["age_sec"] is not None:
-                status[key] = sensors[key]
         return status
 
     def _video_status(self):
-        """state/query/response 的 video 分组：独立运行没有推流；ROS 模式下由 node.py 覆盖。"""
+        """内部推流状态（v1.10 起不再进入 baseState/query/response）；ROS 模式下由 node.py 覆盖。"""
         return {
             "streaming": False,
             "room_number": None,
@@ -348,7 +331,7 @@ class MonitorMixin:
         first = True
 
         while not self.stop_event.is_set():
-            # 首次采样提前到 1s，让 state/query/request 尽快命中缓存
+            # 首次采样提前到 1s，让 baseState/query/request 尽快命中缓存
             wait = config.STATUS_PRIME_INTERVAL if first else config.MONITOR_INTERVAL
             first = False
             if self.stop_event.wait(wait):

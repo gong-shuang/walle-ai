@@ -19,7 +19,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     —                                          .../online                          主动上报（retained + LWT）
     —                                          .../alarm/report                    主动上报（告警 / USB）
     walle/{t}/discovery/query/request           .../discovery/query/response         设备发现（租户级广播）
-    .../state/query/request                     .../state/query/response             状态快照
+    .../baseState/query/request                     .../baseState/query/response             状态快照
     .../capability/query/request                .../capability/query/response        设备能力（摄像头/麦克风/音响等外设）
     .../video/start/request                     .../video/start/response             开始推流（动作）
     .../video/stop/request                      .../video/stop/response              停止推流（动作）

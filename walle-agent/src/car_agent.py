@@ -569,7 +569,7 @@ class Agent:
             # 代价是也会收到同租户其他设备的消息，按 topic 中的 device 分流即可。
             prefix = "walle/{}/device/+".format(self.tenant)
             subscriptions = [
-                (prefix + "/state/query/response", 1),
+                (prefix + "/baseState/query/response", 1),
                 (prefix + "/online", 1),
             ]
             client.subscribe(subscriptions)
@@ -848,7 +848,7 @@ class Agent:
                 "mqtt": self.mqtt_status()}
 
     def link_test(self, username=None, device=None):
-        """非运动链路验证：向指定设备发 state/query/request，等 state/query/response。"""
+        """非运动链路验证：向指定设备发 baseState/query/request，等 baseState/query/response。"""
         if not (self.mqtt_client and self.mqtt_connected):
             return {"ok": False, "error": "mqtt_not_connected",
                     "mqtt": self.mqtt_status()}
@@ -867,7 +867,7 @@ class Agent:
         self.link_dev = device
         self.link_result = None
         self.link_event.clear()
-        res = self._publish(device, "state/query/request",
+        res = self._publish(device, "baseState/query/request",
                             {"uuid": uuid, "request_id": rid})
         got = self.link_event.wait(timeout=6.0)
         out = {

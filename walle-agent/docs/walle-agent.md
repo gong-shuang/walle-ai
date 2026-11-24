@@ -80,10 +80,10 @@ walle-agent ready: clientid=agent-b851fdde tenant=home chat=walle/home/agents/ag
 <<< SUB topic=walle/home/agents/agent-b851fdde/chat/request qos=1 retain=False ts=23:19:15
 { "request_id": "web-9f3c1a2b", "device": "0580a65014af4d0a", "text": "状态" }
 
->>> PUB topic=walle/home/device/0580a65014af4d0a/state/query/request qos=1 retain=False ts=23:19:15
+>>> PUB topic=walle/home/device/0580a65014af4d0a/baseState/query/request qos=1 retain=False ts=23:19:15
 { "request_id": "agent-web-12ab34", "uuid": "a26d..." }
 
-<<< SUB topic=walle/home/device/0580a65014af4d0a/state/query/response qos=1 retain=False ts=23:19:15
+<<< SUB topic=walle/home/device/0580a65014af4d0a/baseState/query/response qos=1 retain=False ts=23:19:15
 
 >>> PUB topic=walle/home/agents/agent-b851fdde/chat/response qos=1 retain=False ts=23:19:16
 { "request_id": "web-9f3c1a2b", "ok": true, "reply": "状态查询完成..." }

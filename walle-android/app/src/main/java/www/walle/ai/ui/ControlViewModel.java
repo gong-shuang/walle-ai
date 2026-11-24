@@ -17,7 +17,6 @@ import java.util.List;
 import www.walle.ai.R;
 import www.walle.ai.model.CameraCapability;
 import www.walle.ai.model.DeviceCapability;
-import www.walle.ai.model.StatusSnapshot;
 import www.walle.ai.net.ConnState;
 import www.walle.ai.net.DeviceInfo;
 import www.walle.ai.net.MqttManager;
@@ -168,10 +167,10 @@ public class ControlViewModel extends MqttViewModel {
     }
 
     /**
-     * 设备列表里显式点了某台设备：立即查一次能力（与状态页的 state/query/request 配对）。
+     * 设备列表里显式点了某台设备：立即查一次能力（与状态页的 baseState/query/request 配对）。
      *
      * <p>只要用户点设备就发 —— 不做「能力已加载就跳过」的去重，保证每次点击都正好是
-     * state/query/request + capability/query/request 两个主题。后台的设备上线 / 列表变化广播不会走到这里。</p>
+     * baseState/query/request + capability/query/request 两个主题。后台的设备上线 / 列表变化广播不会走到这里。</p>
      */
     public void onDeviceSwitched() {
         if (phase == Phase.LIVE && mgr.getSelectedKey().equals(activeUuid)) return;  // 推流中的设备不打断
@@ -258,43 +257,6 @@ public class ControlViewModel extends MqttViewModel {
             selectedNode = cameras.get(0).node;
             status = app().getString(R.string.video_cameras_found, cameras.size());
         }
-        publish();
-        // 任务 1：状态页的 state/query/request 结果会广播到本 VM（见 onMachineStatus）；
-        // 这里再补读一次 MqttManager 的状态缓存兜底，两个路径都不额外发报文。
-        tryTakeover(mgr.getStatus(capUuid));
-    }
-
-    /**
-     * 接管探测（任务 1）：state/query/response 广播到所有 Listener，挑「当前设备 + 正在推流」的接管。
-     * 不发自己的 state/query/request——状态页查询/周期结果路过时就够用了。
-     */
-    @Override
-    public void onMachineStatus(JSONObject payload) {
-        if (payload == null) return;
-        String uuid = payload.optString("uuid", "");
-        if (!uuid.isEmpty() && !uuid.equals(capUuid)) return;
-        tryTakeover(payload);
-    }
-
-    private void tryTakeover(JSONObject payload) {
-        if (payload == null) return;
-        if (phase != Phase.IDLE || !activeRoom.isEmpty()) return;
-
-        StatusSnapshot snap = StatusSnapshot.parse(payload);
-        if (snap == null || snap.video == null || !snap.video.takeoverReady()) return;
-
-        activeUuid = capUuid;
-        activeRoom = snap.video.roomNumber;
-        activeCamera = snap.video.videoDevice;
-        // 推流摄像头在能力清单里时，Spinner 跟着选中，保持 UI 一致
-        for (CameraCapability.Camera c : cameras) {
-            if (c.node.equals(activeCamera)) {
-                selectedNode = c.node;
-                break;
-            }
-        }
-        phase = Phase.LIVE;
-        status = "● 推流中（已接管设备正在进行的推流）";
         publish();
     }
 

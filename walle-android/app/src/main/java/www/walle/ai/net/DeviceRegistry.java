@@ -21,7 +21,7 @@ public class DeviceRegistry {
 
     /** 已发现的设备，键为 {@link DeviceInfo#key()} */
     private final Map<String, DeviceInfo> devices = new LinkedHashMap<>();
-    /** 每台设备最近一次 state/query/response 快照，键同上 */
+    /** 每台设备最近一次 baseState/query/response 快照，键同上 */
     private final Map<String, JSONObject> statusByKey = new LinkedHashMap<>();
 
     private volatile String selectedKey = "";
@@ -78,7 +78,7 @@ public class DeviceRegistry {
 
     // ---------------------------------------------------------------- 写入
 
-    /** 缓存一次 state/query/response 快照（键用报文里的 uuid）。 */
+    /** 缓存一次 baseState/query/response 快照（键用报文里的 uuid）。 */
     public void putStatus(String key, JSONObject status) {
         if (key == null || key.isEmpty() || status == null) return;
         synchronized (this) {

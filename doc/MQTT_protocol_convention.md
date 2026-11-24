@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.9）
+# MQTT 协议约定（文档版本 v1.10）
 
 > 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`；ROS2 车控为
 > `walle-device/ros2_ws/src/net/net_mqtt_bridge`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
-> - 本文档的版本：v1.9 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.10 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -41,32 +41,41 @@ walle/{tenant}/device/{device}/{resource}
 3. 所有只有下发，没有应答的主题，都以 `.../cmd` 结尾；
 4. 所有的主动上报主题，都以 `.../report` 结尾；
 
+基础功能：
 | # | 协议 | App → 设备（请求） | 设备 → App（应答/上报） | 类型 | 版本 | 备注 |
 |---|---|---|---|---|---|---|
 | 1 | 上线/下线 | — | `walle/{t}/device/{d}/online` | 主动上报（retained + LWT） | v1.1 | v1.1最小化json报文 |
 | 2 | 设备发现 | `walle/{t}/discovery/query/request` | `walle/{t}/device/{d}/discovery/query/response` | 请求-应答（按需、限频） | v1.1 | v1.1最小化json报文 |
-| 3 | 状态查询 | `walle/{t}/device/{d}/state/query/request` | `walle/{t}/device/{d}/state/query/response` | 请求-应答 | v1.4 | v1.4精简json报文；v1.7增补电池/声呐，移除alarms |
+| 3 | 基础状态查询 | `walle/{t}/device/{d}/baseState/query/request` | `walle/{t}/device/{d}/baseState/query/response` | 请求-应答 | v1.4 | v1.4精简json报文；v1.7增补电池/声呐，移除alarms；v1.10精简json报文 |
 | 4 | 设备能力 | `walle/{t}/device/{d}/capability/query/request` | `walle/{t}/device/{d}/capability/query/response` | 请求-应答 | v1.4 | v1.1后台缓存探测，v1.4精简json报文 |
-| 5 | 开始推流 | `walle/{t}/device/{d}/video/start/request` | `walle/{t}/device/{d}/video/start/response` | 请求-应答 | v1.0 |  |
-| 6 | 停止推流 | `walle/{t}/device/{d}/video/stop/request` | `walle/{t}/device/{d}/video/stop/response` | 请求-应答 | v1.0 |  |
-| 7 | 告警 | — | `walle/{t}/device/{d}/alarm/report` | 主动上报 | v1.0 | v1.6 增补电池低压/前方障碍告警 |
-| 8 | 手机音频上行·开 | `walle/{t}/device/{d}/phone/audio/send/request` | `walle/{t}/device/{d}/phone/audio/send/response` | 单向动作（App 不订阅应答） | v1.0 |  |
-| 9 | 手机音频上行·关 | `walle/{t}/device/{d}/phone/audio/stop/request` | `walle/{t}/device/{d}/phone/audio/stop/response` | 单向动作（App 不订阅应答） | v1.0 |  |
-| 10 | 远程命令执行 | `walle/{t}/device/{d}/cmd/exec/request` | `walle/{t}/device/{d}/cmd/exec/response` | 请求-应答 | v1.1 | v1.1已删除 |
-| 11 | 电机持续控制 | `walle/{t}/device/{d}/car/motor/set/cmd` | - | 持续控制（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车；v1.7 前方障碍禁前进 |
-| 12 | 舵机状态查询 | `walle/{t}/device/{d}/car/servo/status/query/request` | `walle/{t}/device/{d}/car/servo/status/query/response` | 请求-应答 | v1.2 | 默认只读位置，不读 offset |
-| 13 | 舵机位置设置 | `walle/{t}/device/{d}/car/servo/set/cmd` | - | 持续控制（最新状态覆盖） | v1.2 | 绝对位置；单舵机越界只跳过该舵机 |
-| 14 | 开始录像 | `walle/{t}/device/{d}/record/start/request` | `walle/{t}/device/{d}/record/start/response` | 请求-应答 | v1.3 | 本地 fMP4 落盘 |
-| 15 | 停止录像 | `walle/{t}/device/{d}/record/stop/request` | `walle/{t}/device/{d}/record/stop/response` | 请求-应答 | v1.3 | 停止当前录像会话 |
-| 16 | 录像列表 | `walle/{t}/device/{d}/record/list/query/request` | `walle/{t}/device/{d}/record/list/query/response` | 请求-应答 | v1.3 | 返回历史录像与播放地址 |
-| 17 | 删除录像 | `walle/{t}/device/{d}/record/delete/request` | `walle/{t}/device/{d}/record/delete/response` | 请求-应答 | v1.3 | 删除指定录像文件 |
-| 18 | 播放录像 | `walle/{t}/device/{d}/record/play/start/request` | `walle/{t}/device/{d}/record/play/start/response` | 请求-应答 | v1.5 | ffmpeg 推 fmp4 → SRS，App 拉流 |
-| 19 | 停止播放 | `walle/{t}/device/{d}/record/play/stop/request` | `walle/{t}/device/{d}/record/play/stop/response` | 请求-应答 | v1.5 | 停止录像点播推流 |
+| 5 | 告警上报 | — | `walle/{t}/device/{d}/alarm/report` | 主动上报 | v1.0 | v1.6 增补电池低压/前方障碍告警 |
+| 6 | 远程命令执行 | `walle/{t}/device/{d}/cmd/exec/request` | `walle/{t}/device/{d}/cmd/exec/response` | 请求-应答 | v1.1 | v1.1已删除 |
+
+
+视频语音功能：
+| # | 协议 | App → 设备（请求） | 设备 → App（应答/上报） | 类型 | 版本 | 备注 |
+|---|---|---|---|---|---|---|
+| 1 | 开始推流 | `walle/{t}/device/{d}/video/start/request` | `walle/{t}/device/{d}/video/start/response` | 请求-应答 | v1.0 |  |
+| 2 | 停止推流 | `walle/{t}/device/{d}/video/stop/request` | `walle/{t}/device/{d}/video/stop/response` | 请求-应答 | v1.0 |  |
+| 3 | 手机音频上行·开 | `walle/{t}/device/{d}/phone/audio/send/request` | `walle/{t}/device/{d}/phone/audio/send/response` | 单向动作（App 不订阅应答） | v1.0 |  |
+| 4 | 手机音频上行·关 | `walle/{t}/device/{d}/phone/audio/stop/request` | `walle/{t}/device/{d}/phone/audio/stop/response` | 单向动作（App 不订阅应答） | v1.0 |  |
+| 5 | 开始录像 | `walle/{t}/device/{d}/record/start/request` | `walle/{t}/device/{d}/record/start/response` | 请求-应答 | v1.3 | 本地 fMP4 落盘 |
+| 6 | 停止录像 | `walle/{t}/device/{d}/record/stop/request` | `walle/{t}/device/{d}/record/stop/response` | 请求-应答 | v1.3 | 停止当前录像会话 |
+| 7 | 录像列表 | `walle/{t}/device/{d}/record/list/query/request` | `walle/{t}/device/{d}/record/list/query/response` | 请求-应答 | v1.3 | 返回历史录像与播放地址 |
+| 8 | 删除录像 | `walle/{t}/device/{d}/record/delete/request` | `walle/{t}/device/{d}/record/delete/response` | 请求-应答 | v1.3 | 删除指定录像文件 |
+| 9 | 播放录像 | `walle/{t}/device/{d}/record/play/start/request` | `walle/{t}/device/{d}/record/play/start/response` | 请求-应答 | v1.5 | ffmpeg 推 fmp4 → SRS，App 拉流 |
+| 10 | 停止播放 | `walle/{t}/device/{d}/record/play/stop/request` | `walle/{t}/device/{d}/record/play/stop/response` | 请求-应答 | v1.5 | 停止录像点播推流 |
+
+外部设备功能：
+| 1 | 电机持续控制 | `walle/{t}/device/{d}/car/motor/set/cmd` | - | 持续控制（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车；v1.7 前方障碍禁前进 |
+| 2 | 舵机状态查询 | `walle/{t}/device/{d}/car/servo/status/query/request` | `walle/{t}/device/{d}/car/servo/status/query/response` | 请求-应答 | v1.2 | 默认只读位置，不读 offset |
+| 3 | 舵机位置设置 | `walle/{t}/device/{d}/car/servo/set/cmd` | - | 持续控制（最新状态覆盖） | v1.2 | 绝对位置；单舵机越界只跳过该舵机 |
+
 
 > `{t}` = tenant，`{d}` = device_id。
-> 8/9 只承载「开/关」控制，音频本身走独立 RTMP（§4.8）。
-> 14–17 录像由 `record_video_node` 订阅 `/image_raw` 编码为 fMP4 落盘。
-> 18/19 录像点播：设备端 ffmpeg 用 `-c copy` 把 fMP4 转封装为 FLV 推到 SRS，App 通过返回的 `flv_url` / `whep_url` 拉流；支持 `offset_sec` 从指定时间点开始。
+> 手机音频上行·开/关 只承载「开/关」控制，音频本身走独立 RTMP（§4.8）。
+> 录像 start/stop/list/delete 由 `record_video_node` 订阅 `/image_raw` 编码为 fMP4 落盘。
+> 录像点播（record/play/start|stop）：设备端 ffmpeg 用 `-c copy` 把 fMP4 转封装为 FLV 推到 SRS，App 通过返回的 `flv_url` / `whep_url` 拉流；支持 `offset_sec` 从指定时间点开始。
 
 ---
 
@@ -103,8 +112,8 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 
 | 后缀 | 语义 | 例子 |
 |---|---|---|
-| `…/request` | 请求（查询或动作，请求-应答对的发起方） | `state/query/request`、`video/start/request` |
-| `…/response` | 应答，**只在收到对应请求后发布**，绝不主动上报 | `state/query/response`、`video/start/response` |
+| `…/request` | 请求（查询或动作，请求-应答对的发起方） | `baseState/query/request`、`video/start/request` |
+| `…/response` | 应答，**只在收到对应请求后发布**，绝不主动上报 | `baseState/query/response`、`video/start/response` |
 | `…/cmd` | 持续设置命令（有副作用；最新一条覆盖旧状态，不排队，**无应答**） | `car/motor/set/cmd` |
 | `…/report` | 主动上报 | `alarm/report` |
 | 无后缀 | 仅 `online`（上线/下线） | `online` |
@@ -127,7 +136,7 @@ QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 
 「键排序后的 JSON 签名 + 2 秒窗口」去重，但只针对**一次性事件**：
 `alarm/report`、`capability/query/response`、`video/start/response`、`video/stop/response`、`car/servo/status/query/response`
 （重复处理会出事，例如推流结果重复 → 播放器初始化两次）。
-`online` 与 `state/query/response` 是幂等的（同一份状态重复应用无害），**不去重**。
+`online` 与 `baseState/query/response` 是幂等的（同一份状态重复应用无害），**不去重**。
 
 ### 2.6 retained 只给 online，发现靠回放而非轮询（N7）
 
@@ -221,7 +230,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 > 2026-11-10 起，retained `online` **不再包含** `mac`、`serial`、`os`、`cpu`、内存/磁盘
 > 总量、`boot_time`、`uuid_source` 等身份细节；这些字段不再通过 MQTT 下发，
-> 设备详情请使用 `state/query/request`（§4.3）。
+> 设备详情请使用 `baseState/query/request`（§4.3）。
 
 **注意**：`online: false` 的遗嘱只由 broker 代发；设备端正常关机也应主动发一次。
 App 侧重复 online 不去重（幂等）。
@@ -237,7 +246,7 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 
 **作用**：设备列表页的按需刷新。应答内容与 §4.1 的 `online` **完全一致**（同一份
 `build_online_payload`），只含最小身份字段，`online` 固定为 `true`，不再返回完整身份。
-设备详情请使用 §4.3 `state/query/request`。
+设备详情请使用 §4.3 `baseState/query/request`。
 
 - 请求：`walle/{t}/discovery/query/request`（租户级，没有 device 段）
 - 应答：`walle/{t}/device/{d}/discovery/query/response`
@@ -264,27 +273,26 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 > `discovery`）。解析时必须先按完整主题特判 discovery，再校验 `device` 段——两端
 > （`TopicNames.parse`、`main._handle_request`）都这么处理，别改没。
 
-### 4.3 状态查询 state/query/request → state/query/response（V1.4，V1.7 增补 battery / sonar，移除 alarms）
+### 4.3 基础状态查询 baseState/query/request → baseState/query/response（V1.4，V1.7 增补 battery / sonar，移除 alarms，V1.10 精简为六组）
 
-**作用**：拉取设备运行状态，驱动状态页所有卡片。CPU/网络数据复用监控循环的
-最近一次采样（`MONITOR_INTERVAL`，默认 5s），USB 列表复用 `check_usb` 的维护结果，
-**查询路径不再阻塞采样**；内存/磁盘/推流在应答时读取。
+**作用**：拉取设备基础运行状态，驱动状态页 CPU/内存/磁盘/网络/USB 卡片。CPU/网络数据复用
+监控循环的最近一次采样（`MONITOR_INTERVAL`，默认 5s），USB 列表复用 `check_usb` 的维护结果，
+**查询路径不再阻塞采样**；内存/磁盘在应答时读取。
 
 **V1.4 变更（报文精简，只保留原始数值）**：`cpu` 去掉 `per_core_percent[]` 与 `frequency_mhz`；
 `memory` 去掉 `swap` 与所有 `*_human`；`disk` 由逐挂载点列表改为聚合总量且不带 `*_human`；
-`network` 去掉 `interfaces[]`、`total_rx/tx_rate`；`alarms.thresholds` 去掉 `network_rate_human`；
-新增 `recording` 分组（`enable` 取自 `record.enabled`，另含实时录像状态）；
-`usb` 只统计用户视角的 USB 设备（过滤 root hub 与 Hub）。**App 端需同步调整 `StatusSnapshot` 解析。**
-
-**V1.7 增补**：新增 `battery`（电池电压）与 `sonar`（前方超声波距离）两个分组，
-数据直接取 ROS 回调维护的最新采样，**不额外触发采集**。两组都是可选的：旧设备端或
-没有对应传感器的设备不返回，App 按 null 处理并显示「—」。
+`network` 去掉 `interfaces[]`、`total_rx/tx_rate`；`usb` 只统计用户视角的 USB 设备
+（过滤 root hub 与 Hub）。**App 端需同步调整 `StatusSnapshot` 解析。**
 
 **V1.7 变更**：移除 `alarms` 分组（原 `active` / `thresholds`）。当前告警状态以
-`alarm/report` 主题的主动上报为准（App 告警中心自行维护），状态查询不再返回告警列表和阈值。
+`alarm/report` 主题的主动上报为准（App 告警中心自行维护）。
 
-- 请求：`walle/{t}/device/{d}/state/query/request`
-- 应答：`walle/{t}/device/{d}/state/query/response`
+**V1.10 变更**：`baseState/query/response` 只保留 `system`、`cpu`、`memory`、`disk`、`network`、
+`usb` 六个分组；移除 `recording`、`video`、`battery`、`sonar`。录像状态由 `record/*` 主题维护，
+推流状态以 `video/start|stop/response` 为准，电池/声呐仍通过 `alarm/report` 上报。
+
+- 请求：`walle/{t}/device/{d}/baseState/query/request`
+- 应答：`walle/{t}/device/{d}/baseState/query/response`
 
 请求字段：
 
@@ -304,19 +312,10 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 | `disk` | 全部真实磁盘的**聚合总量**：`total_bytes`、`used_bytes`、`free_bytes`、`percent`。统计口径：排除 zram（内存压缩盘）；同一设备只算一次（log2ram 会把根分区再挂到 /var/log.hdd，不去重总量翻倍），同设备优先取 `/` 挂载点 |
 | `network` | `sample_interval_sec`、`total_rx_bytes_per_sec`、`total_tx_bytes_per_sec` |
 | `usb` | `count`、`devices[]`。只统计用户视角的 USB 设备：跳过 root hub（usbN 节点）与 Hub 类设备（`bDeviceClass=09`，含板载/外接 Hub）；Hub 下挂的设备仍单独出现；板载蓝牙等功能芯片保留。插拔 Hub 不触发告警 |
-| `battery` | **V1.7** 电池电压：`voltage_v`（V，两位小数）、`available`（采样是否在 `BATTERY_STALE_SEC` 内，默认 15s）、`age_sec`（距最近一次采样的秒数）。数据源 `/ros_robot_controller/battery`（mV→V）；从未收到电池数据时不返回该分组 |
-| `sonar` | **V1.7** 前方超声波距离：`distance_cm`（cm，一位小数）、`available`（采样是否在 `SONAR_STALE_SEC` 内，默认 1s）、`age_sec`（同 `battery`）。数据源 `/sonar_controller/get_distance`（mm→cm）；读数为 -1 时不更新距离，`available` 会随 `age_sec` 超时变为 false；从未收到声呐数据时不返回该分组 |
-| `recording` | `enable`（录像功能是否开启，取自 `walle_camera.conf` 的 `record.enabled`）、`recording`（是否正在录像）、`filename`（正在录像的文件名，未录像为 null）。`recording`/`filename` 由 record start/stop 成功应答维护；record_video_node 异常退出时该状态可能滞后。`enable=false` 时 App 应隐藏录像入口 |
-| `video` | 推流状态（任务 1）：`streaming`、`room_number`、`video_device`、`audio`（推流时的音频信息，无音频/未推流为 null）、`pid`、`started_at`、`uptime_sec`；未推流时 `streaming=false` 且其余字段全为 null。数据来自推流时记录的 `video_meta`，ffmpeg 异常退出后看护线程清理，下一次查询即 `streaming=false` |
 
 **采样时效**：`cpu` / `network` 的 `sample_interval_sec` 是监控循环的实际采样周期；
 `sample_age_sec` 表示这份 CPU/网络数据距采样时刻的秒数（0 ~ 采样周期）。设备刚启动、
 监控尚未产出第一份快照时，查询会现场补采一次（约 0.2s）兜底。
-
-**video 分组的用途**：App 控制页进入时查一次状态，若 `video.streaming=true` 且
-`room_number`/`video_device` 齐全，直接用该房间号拼 WHEP 地址拉流，**自动接管设备正在
-进行的推流**，无需用户再点「开始推流」。App 侧只认自己这次查询的 `request_id`
-（`ControlViewModel.takeoverRid`），状态页的周期查询不会触发接管。
 
 解析入口（App 唯一）：`model/StatusSnapshot.java`。契约测试：`StatusSnapshotTest`
 （缺分组归空、异常数值归一为 null 等）。**状态是实时查询数据，不落盘**
@@ -490,7 +489,7 @@ App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapabi
 - 障碍急停必须在设备本地闭环完成（声呐/车控节点直接限速或停车），**不得依赖 MQTT
   往返**；`alarm/report` 只负责通知，不负责刹车。
 - 告警主题不承载连续遥测：实时电压、实时距离不要按采样周期发布，否则会把 App 告警
-  列表（200 条滚动）冲掉。需要实时表盘时走 `state/query/response` 或另设低频遥测主题。
+  列表（200 条滚动）冲掉。需要实时表盘时走 `baseState/query/response` 或另设低频遥测主题。
 - 设备端不持久化告警（不建 SQLite、不写盘），告警历史由服务端数据库保存。
 
 ### 4.8 手机麦克风上行 phone/audio/send|stop/request（控制面）＋ WebRTC WHIP/WHEP（媒体面）（V1.0）
@@ -1127,6 +1126,27 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 7. 变更记录
+
+### 2026-11-24：基础状态查询改名 baseState 并精简为六组（文档 v1.10）
+
+**变更类型**：破坏性变更（主题改名 + 响应字段删减，不保留兼容）。
+
+**变更内容**
+
+- 主题：`state/query/request|response` → `baseState/query/request|response`。
+- `baseState/query/response` 只保留 `system`、`cpu`、`memory`、`disk`、`network`、`usb`
+  六个分组；移除 `recording`、`video`、`battery`、`sonar`。
+- 录像状态由 `record/*` 主题维护；推流状态以 `video/start|stop/response` 为准；
+  电池/声呐继续通过 `alarm/report` 上报。
+- Android（`TopicNames` / `MessageRouter` / `StatusSnapshot` / 状态页 / 控制页）、
+  Web 状态卡片与视频 UI、设备端 `build_status` 同步调整；App 控制页取消基于状态查询的推流接管。
+
+**影响与兼容性**：App、Web、设备端必须同版本部署；旧版客户端查不到新主题。
+状态页不再显示电池/声呐/推流/录像，相关入口改由能力查询与对应的 request/response 驱动。
+
+**验证方式**：设备端 `pytest -q .../net_mqtt_bridge/test` 与
+`python3 -m unittest discover -s walle-device/linux-demo/test -t walle-device/linux-demo`；
+App `./gradlew :app:testDebugUnitTest`。
 
 ### 2026-11-24：主题后缀统一为 request/response/cmd/report（文档 v1.9）
 

@@ -30,8 +30,7 @@ public class StatusSnapshotTest {
             + "  \"interfaces\":{\"wlan0\":{\"rx_rate\":\"1 MB/s\",\"tx_rate\":\"200 KB/s\"},"
             + "                   \"eth0\":{\"rx_rate\":\"200 KB/s\",\"tx_rate\":\"100 KB/s\"}}},"
             + "\"usb\":{\"count\":1,\"devices\":[{\"product\":\"USB Camera\",\"manufacturer\":\"ACME\","
-            + "  \"vendor_id\":\"1d6b\",\"product_id\":\"0002\",\"block_nodes\":[\"sda1\"]}]},"
-            + "\"alarms\":{\"active\":[\"CPU 温度过高\"]}"
+            + "  \"vendor_id\":\"1d6b\",\"product_id\":\"0002\",\"block_nodes\":[\"sda1\"]}]}"
             + "}";
 
     @Test
@@ -74,9 +73,6 @@ public class StatusSnapshotTest {
         assertEquals("USB Camera", s.usb.devices.get(0).title);
         assertEquals("ACME", s.usb.devices.get(0).manufacturer);
         assertEquals("sda1", s.usb.devices.get(0).blockNodes.get(0));
-
-        assertEquals(1, s.activeAlarms.size());
-        assertEquals("CPU 温度过高", s.activeAlarms.get(0));
     }
 
     @Test
@@ -89,7 +85,6 @@ public class StatusSnapshotTest {
         assertNull(s.network);
         assertNull(s.usb);
         assertTrue(s.disks.isEmpty());
-        assertTrue(s.activeAlarms.isEmpty());
         assertEquals("", s.hostname);
         assertEquals(0L, s.uptimeSeconds);
     }
@@ -121,43 +116,15 @@ public class StatusSnapshotTest {
     }
 
     @Test
-    public void parsesStreamingVideoGroup() {
+    public void missingVideoAndAlarmGroupsAreIgnored() {
+        // v1.10 起 baseState/query/response 不再返回 video / alarms / recording / battery / sonar
         StatusSnapshot s = StatusSnapshot.parse(json(
-                "{\"video\":{\"streaming\":true,\"room_number\":\"545754\","
-                + "\"video_device\":\"/dev/video0\",\"pid\":12345,"
-                + "\"started_at\":\"2026-10-30 18:47:42\",\"uptime_sec\":128.5,"
-                + "\"audio\":{\"available\":true,\"device\":\"default\"}}}"));
-        assertNotNull(s.video);
-        assertTrue(s.video.streaming);
-        assertTrue(s.video.takeoverReady());
-        assertEquals("545754", s.video.roomNumber);
-        assertEquals("/dev/video0", s.video.videoDevice);
-        assertEquals(12345, s.video.pid);
-        assertEquals("2026-10-30 18:47:42", s.video.startedAt);
-        assertEquals(128.5, s.video.uptimeSec, 0.001);
-        assertTrue(s.video.audioAvailable);
-    }
-
-    @Test
-    public void idleVideoGroupIsNotTakeoverReady() {
-        StatusSnapshot s = StatusSnapshot.parse(json(
-                "{\"video\":{\"streaming\":false,\"room_number\":null,\"video_device\":null,"
-                + "\"audio\":null,\"pid\":null,\"started_at\":null,\"uptime_sec\":null}}"));
-        assertNotNull(s.video);
-        assertTrue(!s.video.streaming);
-        assertTrue(!s.video.takeoverReady());
-        assertEquals("", s.video.roomNumber);
-        assertEquals("", s.video.videoDevice);
-        assertEquals(-1, s.video.pid);
-        assertEquals(-1, s.video.uptimeSec, 0.001);
-        assertTrue(!s.video.audioAvailable);
-    }
-
-    @Test
-    public void missingVideoGroupYieldsNull() {
-        // 旧设备端没有 video 分组：按「未推流」处理，不能崩
-        StatusSnapshot s = StatusSnapshot.parse(json("{\"datetime\":\"t\"}"));
-        assertNull(s.video);
+                "{\"datetime\":\"t\",\"video\":{\"streaming\":true},"
+                + "\"recording\":{\"recording\":true},\"battery\":{\"voltage_v\":7.6},"
+                + "\"sonar\":{\"distance_cm\":24.5},\"alarms\":{\"active\":[\"x\"]}}"));
+        assertNotNull(s);
+        assertNull(s.system);
+        assertNull(s.cpu);
     }
 
     private static JSONObject json(String raw) {

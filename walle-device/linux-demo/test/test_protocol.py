@@ -41,8 +41,8 @@ class TopicTest(unittest.TestCase):
 
     def test_device_topic_and_subscriptions(self):
         with mock.patch.multiple(config, MQTT_TENANT="t.1", DEVICE_ID="dev-1"):
-            self.assertEqual(main.device_topic("state/query/request"),
-                             "walle/t_1/device/dev-1/state/query/request")
+            self.assertEqual(main.device_topic("baseState/query/request"),
+                             "walle/t_1/device/dev-1/baseState/query/request")
             self.assertEqual(main.tenant_topic("discovery/query/request"),
                              "walle/t_1/discovery/query/request")
             topics = [topic for topic, _qos in main.subscriptions()]

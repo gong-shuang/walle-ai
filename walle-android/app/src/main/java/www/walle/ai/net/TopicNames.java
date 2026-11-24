@@ -14,14 +14,14 @@ package www.walle.ai.net;
  *   <li>{@code device}（第 4 段）：<b>稳定</b>的设备标识（{@code device_id}，回退 hostname、最后 uuid），
  *       不能用每次重启都会变的 uuid；</li>
  *   <li>{@code 资源}：请求-应答对的请求以 {@code .../request} 结尾、应答以 {@code .../response}
- *       结尾（如 {@code state/query/request} → {@code state/query/response}）；
+ *       结尾（如 {@code baseState/query/request} → {@code baseState/query/response}）；
  *       持续设置且不需要应答的以 {@code .../cmd} 结尾（如 {@code car/motor/set/cmd}）；
  *       主动上报以 {@code .../report} 结尾（{@code alarm/report}）；
  *       {@code online} 单独保留，不带后缀。</li>
  * </ul>
  *
- * <p>示例：{@code walle/home/device/666feb85d43410b2/state/query/request} →
- * {@code walle/home/device/666feb85d43410b2/state/query/response}。</p>
+ * <p>示例：{@code walle/home/device/666feb85d43410b2/baseState/query/request} →
+ * {@code walle/home/device/666feb85d43410b2/baseState/query/response}。</p>
  *
  * <p>本类只做字符串拼装与解析，不依赖 Android，方便单测。任何一段都必须满足
  * {@code [A-Za-z0-9_-]{1,64}}，否则会被 {@link #sanitize(String)} 清洗或替换成哈希，
@@ -54,7 +54,7 @@ public final class TopicNames {
     /** 设备发现请求失败 */
     public static final String KIND_DISCOVERY = "discovery";
     /** 状态查询失败 */
-    public static final String KIND_STATE = "state/query/request";
+    public static final String KIND_STATE = "baseState/query/request";
     /** 设备能力查询失败 */
     public static final String KIND_CAPABILITY = "capability/query/request";
     /** 推流启动失败 */
@@ -132,9 +132,9 @@ public final class TopicNames {
         return deviceBase(tenant, device) + "/discovery/query/response";
     }
 
-    /** 状态快照（收到 state/query/request 后发布）。 */
-    public static String stateResult(String tenant, String device) {
-        return deviceBase(tenant, device) + "/state/query/response";
+    /** 状态快照（收到 baseState/query/request 后发布）。 */
+    public static String baseStateResult(String tenant, String device) {
+        return deviceBase(tenant, device) + "/baseState/query/response";
     }
 
     /** 告警 / 恢复 / USB 插拔（主动上报）。 */
@@ -166,7 +166,7 @@ public final class TopicNames {
      * App 需要订阅的主题（只订「设备 → App」的响应/上报类，不订请求类）。
      *
      * <p>为什么不直接订 {@code walle/{tenant}/#}：MQTT 3.1.1 没有 no-local 语义，
-     * 客户端会收到自己发布的报文。App 会在租户内发布 state/query/request 等请求，
+     * 客户端会收到自己发布的报文。App 会在租户内发布 baseState/query/request 等请求，
      * 订通配子树就会把自己的请求再收一遍（日志里表现为 {@code ← RECV walle/home/discovery/query/request}），
      * 白白浪费带宽并干扰排查。</p>
      */
@@ -176,7 +176,7 @@ public final class TopicNames {
                 base + "/online",                            // 主动上报
                 base + "/alarm/report",                      // 主动上报
                 base + "/discovery/query/response",          // 查询应答
-                base + "/state/query/response",
+                base + "/baseState/query/response",
                 base + "/capability/query/response",
                 base + "/video/start/response",
                 base + "/video/stop/response",
@@ -186,8 +186,8 @@ public final class TopicNames {
 
     // ================= App → 设备 =================
     /** 查询状态。 */
-    public static String stateQuery(String tenant, String device) {
-        return deviceBase(tenant, device) + "/state/query/request";
+    public static String baseStateQuery(String tenant, String device) {
+        return deviceBase(tenant, device) + "/baseState/query/request";
     }
 
     /** 查询设备能力（摄像头/麦克风/音响等外设）。 */
@@ -260,7 +260,7 @@ public final class TopicNames {
 
     /**
      * 从主题里取出资源段（不含租户与设备），用于分发：
-     * {@code walle/t/device/d/state/query/response} → {@code state/query/response}；
+     * {@code walle/t/device/d/baseState/query/response} → {@code baseState/query/response}；
      * {@code walle/t/device/d/capability/query/response} → {@code capability/query/response}。
      */
     public static String resourceOf(String topic) {

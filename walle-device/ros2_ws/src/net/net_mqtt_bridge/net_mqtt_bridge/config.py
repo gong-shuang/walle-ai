@@ -103,7 +103,7 @@ TLS_PORTS = (8883, 8084)
 #   主动上报：online（上线/下线）与 alarm/report（告警/USB 插拔）。
 # ---- 应答（设备 -> App）----
 RES_DISCOVERY_RESULT = "discovery/query/response"   # 收到 discovery/query/request 后发布（设备身份详情）
-RES_STATE_RESULT = "state/query/response"           # 收到 state/query/request 后发布（状态快照）
+RES_STATE_RESULT = "baseState/query/response"           # 收到 baseState/query/request 后发布（状态快照）
 RES_CAPABILITY_RESULT = "capability/query/response" # 收到 capability/query/request 后发布
 RES_VIDEO_START_RESULT = "video/start/response"     # 收到 video/start/request 后发布
 RES_VIDEO_STOP_RESULT = "video/stop/response"       # 收到 video/stop/request 后发布
@@ -130,7 +130,7 @@ RES_ALARM = "alarm/report"                  # 告警 / 恢复 / USB 插拔
 
 # ---- 订阅的请求（App -> 设备）----
 REQ_DISCOVERY = "discovery/query/request"
-REQ_STATE = "state/query/request"
+REQ_STATE = "baseState/query/request"
 REQ_CAPABILITY = "capability/query/request"
 REQ_VIDEO_START = "video/start/request"
 REQ_VIDEO_STOP = "video/stop/request"
@@ -386,13 +386,13 @@ def subscriptions():
     walle/{t}/device/{d}/#：MQTT 3.1.1 会把客户端自己发布的报文也投递回来，
     订全子树会收到自己发的 response/alarm，白白浪费带宽。
 
-    当前层级：3 层（state/query/request 等）、4 层（phone/audio/*/request 等）、
+    当前层级：3 层（baseState/query/request 等）、4 层（phone/audio/*/request 等）、
     5 层（car/servo/status/query/request）；持续控制为 4 层（car/.../set/cmd）。
     新增不同层数的请求/控制主题时，需要在这里补一条对应模式。
     """
     base = device_topic_base()
     return [
-        (f"{base}/+/+/request", MQTT_QOS),       # state/query/request、video/start/request、record/*/request
+        (f"{base}/+/+/request", MQTT_QOS),       # baseState/query/request、video/start/request、record/*/request
         (f"{base}/+/+/+/request", MQTT_QOS),     # phone/audio/*/request、record/list|play/*/request
         (f"{base}/+/+/+/+/request", MQTT_QOS),   # car/servo/status/query/request
         (f"{base}/+/+/+/cmd", MQTT_QOS),         # car/motor/set/cmd、car/servo/set/cmd
@@ -401,7 +401,7 @@ def subscriptions():
 
 # ---- 监控阈值（均可用环境变量覆盖，写进 /etc/walle-ai.conf 即可）----
 MONITOR_INTERVAL = int(os.environ.get("MONITOR_INTERVAL", "5"))          # 采样周期（秒）
-# 首次采样提前到 1s 完成，让 state/query/request 尽快命中缓存（后续仍按 MONITOR_INTERVAL）
+# 首次采样提前到 1s 完成，让 baseState/query/request 尽快命中缓存（后续仍按 MONITOR_INTERVAL）
 STATUS_PRIME_INTERVAL = min(1.0, MONITOR_INTERVAL)
 THRESH_CPU = float(os.environ.get("THRESH_CPU", "90.0"))                 # CPU 使用率 %
 THRESH_MEM = float(os.environ.get("THRESH_MEM", "90.0"))                 # 内存使用率 %

@@ -21,8 +21,8 @@
 | `walle/{tenant}/agents/{agent}/chat/response` | agent → 浏览器 | 1 | false |
 | `walle/{tenant}/agents/{agent}/online` | agent → 浏览器/所有人 | 1 | **true** |
 | `walle/{tenant}/device/{device}/car/motor/set/cmd` | agent 或浏览器 → 设备 | 1 | false |
-| `walle/{tenant}/device/{device}/state/query/request` | agent → 设备 | 1 | false |
-| `walle/{tenant}/device/{device}/state/query/response` | 设备 → agent/浏览器 | 1 | false |
+| `walle/{tenant}/device/{device}/baseState/query/request` | agent → 设备 | 1 | false |
+| `walle/{tenant}/device/{device}/baseState/query/response` | 设备 → agent/浏览器 | 1 | false |
 | `walle/{tenant}/discovery/query/request` | 浏览器 → 设备（租户级广播） | 1 | false |
 
 浏览器订阅 `walle/{tenant}/agents/+/online` 与 `walle/{tenant}/agents/+/chat/response`，一次覆盖所有 agent。
@@ -199,7 +199,7 @@ agent 侧按 `text` 解析为 stop，`intent` 字段当前不参与判断。
 <<< SUB topic=walle/home/agents/agent-b851fdde/chat/request qos=1 retain=False
 >>> PUB topic=walle/home/agents/agent-b851fdde/chat/response qos=1 retain=False
 >>> PUB topic=walle/home/device/0580a65014af4d0a/car/motor/set/cmd qos=1 retain=False
-<<< SUB topic=walle/home/device/0580a65014af4d0a/state/query/response qos=1 retain=False
+<<< SUB topic=walle/home/device/0580a65014af4d0a/baseState/query/response qos=1 retain=False
 ```
 
 非 debug 时终端安静，关键事件写 `log/car_agent.log`。

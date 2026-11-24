@@ -19,7 +19,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     —                                          .../online                          主动上报（retained + LWT）
     —                                          .../alarm/report                    主动上报（告警 / USB）
     walle/{t}/discovery/query/request           .../discovery/query/response         设备发现（租户级广播）
-    .../state/query/request                     .../state/query/response             状态快照
+    .../baseState/query/request                     .../baseState/query/response             状态快照
     .../capability/query/request                .../capability/query/response        设备能力（摄像头/麦克风/音响等外设）
     .../video/start/request                     .../video/start/response             开始推流（动作）
     .../video/stop/request                      .../video/stop/response              停止推流（动作）
@@ -55,7 +55,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
 模块拆分（P2-2.1）：
     config.py       环境文件、MQTT 配置、主题与运行期常量
     identity.py     设备身份、网络信息与格式化
-    monitor.py      系统采样、阈值告警与 state/query/response 快照
+    monitor.py      系统采样、阈值告警与 baseState/query/response 快照
     protocol.py     MQTT 回调、请求分发、身份/状态查询
     capability.py   外设能力探测与缓存
     media.py        摄像头探测、ffmpeg 参数与日志
@@ -175,9 +175,9 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, SensorAlarmMixin, CapabilityMixin,
         self.audio_meta = {}
         # 上一次应答 discovery 的时间（单调时钟），用于限频
         self._last_discovery_at = 0.0
-        # state/query/response 的 recording 分组：由节点侧在 record start/stop 应答后更新
+        # 内部录像状态（v1.10 起不再进入 baseState/query/response）
         self.recording_state = {"recording": False, "filename": None}
-        # state/query/request 快照：monitor_loop 每次采样后写入，查询直接复用，
+        # baseState/query/request 快照：monitor_loop 每次采样后写入，查询直接复用，
         # 避免每次查询都阻塞采样 1s（P2-1.1）
         self.status_sample = None       # (cores, per_iface, total_rx, total_tx, interval, monotonic_ts)
         self.status_sample_lock = threading.Lock()
@@ -210,12 +210,12 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, SensorAlarmMixin, CapabilityMixin,
         # P2-1.2：外设能力探测放后台线程，查询只读缓存，避免 v4l2/pactl 阻塞请求
         threading.Thread(target=self._capability_loop, daemon=True,
                          name="capability-cache").start()
-        # P2-1.1：连接 broker 前先填充一次状态快照，保证上线后的首个 state/query/request 也能立即响应
+        # P2-1.1：连接 broker 前先填充一次状态快照，保证上线后的首个 baseState/query/request 也能立即响应
         try:
             sample = self.sample_once(0.2)
             self._update_status_sample(*sample)
         except Exception:
-            logging.exception("启动采样失败，state/query/request 将退化为现场采样")
+            logging.exception("启动采样失败，baseState/query/request 将退化为现场采样")
         # clean_session=True：每次连接都重新订阅，改了请求主题名也不会残留旧订阅
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
                                   client_id=config.DEVICE_ID, clean_session=True)

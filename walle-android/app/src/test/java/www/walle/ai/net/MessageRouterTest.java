@@ -43,7 +43,7 @@ public class MessageRouterTest {
 
         router.route(BASE + "/online", "{\"online\":true}");
         router.route(BASE + "/discovery/query/response", "{\"model\":\"Pi 5\"}");
-        router.route(BASE + "/state/query/response", "{\"cpu\":{}}");
+        router.route(BASE + "/baseState/query/response", "{\"cpu\":{}}");
         router.route(BASE + "/alarm/report", "{\"event\":\"alarm\"}");
         router.route(BASE + "/capability/query/response", "{\"cameras\":[]}");
         router.route(BASE + "/video/start/response", "{\"result\":0}");
@@ -60,7 +60,7 @@ public class MessageRouterTest {
         RecordingSink sink = new RecordingSink();
         MessageRouter router = new MessageRouter(sink);
 
-        router.route(BASE + "/state/query/response", "{\"cpu\":{}}");
+        router.route(BASE + "/baseState/query/response", "{\"cpu\":{}}");
 
         assertEquals("666feb85d43410b2", sink.lastPayload.optString("device_id"));
     }
@@ -86,8 +86,8 @@ public class MessageRouterTest {
         RecordingSink sink = new RecordingSink();
         MessageRouter router = new MessageRouter(sink);
 
-        router.route(BASE + "/state/query/response", "{\"datetime\":\"2026-10-30 12:00:00\"}");
-        router.route(BASE + "/state/query/response", "{\"datetime\":\"2026-10-30 12:00:00\"}");
+        router.route(BASE + "/baseState/query/response", "{\"datetime\":\"2026-10-30 12:00:00\"}");
+        router.route(BASE + "/baseState/query/response", "{\"datetime\":\"2026-10-30 12:00:00\"}");
 
         assertEquals(List.of("state", "state"), sink.events);
     }
@@ -112,7 +112,7 @@ public class MessageRouterTest {
         router.route(BASE + "/cmd/exec/response", "{}");       // 已下线的远程命令应答
         router.route("walle/home/discovery/query/request", "{}"); // 租户级发现主题（没有 device 段）
         router.route("device/online", "{}");                   // 旧协议主题
-        router.route(BASE + "/state/query/response", "{not json"); // 非法 JSON
+        router.route(BASE + "/baseState/query/response", "{not json"); // 非法 JSON
 
         assertEquals(5, sink.ignored.size());
         assertTrue(sink.events.isEmpty());

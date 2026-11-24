@@ -124,7 +124,7 @@ MQTT_DISCONNECT_STOP_SEC = int(os.environ.get("MQTT_DISCONNECT_STOP_SEC", "60"))
 #   主动上报：online（上线/下线）与 alarm/report（告警/USB 插拔）。
 # ---- 应答（设备 -> App）----
 RES_DISCOVERY_RESULT = "discovery/query/response"   # 收到 discovery/query/request 后发布（设备身份详情）
-RES_STATE_RESULT = "state/query/response"           # 收到 state/query/request 后发布（状态快照）
+RES_STATE_RESULT = "baseState/query/response"           # 收到 baseState/query/request 后发布（状态快照）
 RES_CAPABILITY_RESULT = "capability/query/response" # 收到 capability/query/request 后发布
 RES_VIDEO_START_RESULT = "video/start/response"     # 收到 video/start/request 后发布
 RES_VIDEO_STOP_RESULT = "video/stop/response"       # 收到 video/stop/request 后发布
@@ -144,7 +144,7 @@ RES_ALARM = "alarm/report"                  # 告警 / 恢复 / USB 插拔
 
 # ---- 订阅的请求（App -> 设备）----
 REQ_DISCOVERY = "discovery/query/request"
-REQ_STATE = "state/query/request"
+REQ_STATE = "baseState/query/request"
 REQ_CAPABILITY = "capability/query/request"
 REQ_VIDEO_START = "video/start/request"
 REQ_VIDEO_STOP = "video/stop/request"

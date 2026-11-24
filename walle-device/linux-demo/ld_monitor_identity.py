@@ -154,7 +154,7 @@ class MonitorIdentityMixin:
 
     def _publish_discovery_result(self, rid):
         try:
-            # 与 online 保持完全一致：列表页只展示最小身份，设备详情走 state/query/request
+            # 与 online 保持完全一致：列表页只展示最小身份，设备详情走 baseState/query/request
             payload = self.build_online_payload(True)
             self.publish_json(RES_DISCOVERY_RESULT, payload)
             logging.info("已响应设备发现查询 -> %s（request_id=%s，型号=%s 主机名=%s）",

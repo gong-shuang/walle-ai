@@ -46,7 +46,7 @@ public class TopicNamesTest {
 
     @Test
     public void requestTopics() {
-        assertEquals(BASE + "/state/query/request", TopicNames.stateQuery(TENANT, DEVICE));
+        assertEquals(BASE + "/baseState/query/request", TopicNames.baseStateQuery(TENANT, DEVICE));
         assertEquals(BASE + "/capability/query/request", TopicNames.capabilityQuery(TENANT, DEVICE));
         assertEquals(BASE + "/video/start/request", TopicNames.videoStartRequest(TENANT, DEVICE));
         assertEquals(BASE + "/video/stop/request", TopicNames.videoStopRequest(TENANT, DEVICE));
@@ -63,7 +63,7 @@ public class TopicNamesTest {
         assertEquals(BASE + "/alarm/report", TopicNames.alarm(TENANT, DEVICE));
         assertEquals(BASE + "/discovery/query/response",
                 TopicNames.discoveryResult(TENANT, DEVICE));
-        assertEquals(BASE + "/state/query/response", TopicNames.stateResult(TENANT, DEVICE));
+        assertEquals(BASE + "/baseState/query/response", TopicNames.baseStateResult(TENANT, DEVICE));
         assertEquals(BASE + "/capability/query/response",
                 TopicNames.capabilityResult(TENANT, DEVICE));
         assertEquals(BASE + "/video/start/response",
@@ -77,12 +77,12 @@ public class TopicNamesTest {
     @Test
     public void namingConventionIsEnforced() {
         // 请求-应答对：请求 /request、应答 /response
-        assertTrue(TopicNames.stateQuery(TENANT, DEVICE).endsWith("/request"));
+        assertTrue(TopicNames.baseStateQuery(TENANT, DEVICE).endsWith("/request"));
         assertTrue(TopicNames.capabilityQuery(TENANT, DEVICE).endsWith("/request"));
         assertTrue(TopicNames.discoveryQuery(TENANT).endsWith("/request"));
         assertTrue(TopicNames.videoStartRequest(TENANT, DEVICE).endsWith("/request"));
         assertTrue(TopicNames.videoStopRequest(TENANT, DEVICE).endsWith("/request"));
-        assertTrue(TopicNames.stateResult(TENANT, DEVICE).endsWith("/response"));
+        assertTrue(TopicNames.baseStateResult(TENANT, DEVICE).endsWith("/response"));
         assertTrue(TopicNames.capabilityResult(TENANT, DEVICE).endsWith("/response"));
 
         // 持续设置且无应答：/cmd
@@ -106,7 +106,7 @@ public class TopicNamesTest {
         String joined = String.join(",", subs);
         for (String expected : new String[]{
                 "/online", "/alarm/report", "/discovery/query/response",
-                "/state/query/response", "/capability/query/response",
+                "/baseState/query/response", "/capability/query/response",
                 "/video/start/response", "/video/stop/response",
                 "/car/servo/status/query/response"}) {
             assertTrue("缺少订阅: " + expected, joined.contains(expected));
@@ -120,26 +120,26 @@ public class TopicNamesTest {
 
     @Test
     public void parseHandlesDeviceAndTenantLevelTopics() {
-        String[] p = TopicNames.parse(BASE + "/state/query/response");
+        String[] p = TopicNames.parse(BASE + "/baseState/query/response");
         assertEquals("home", p[0]);
         assertEquals(DEVICE, p[1]);
-        assertEquals("state/query/response", p[2]);
+        assertEquals("baseState/query/response", p[2]);
 
         // 租户级发现主题没有 device 段，不应被当成设备主题解析
         assertNull(TopicNames.parse("walle/home/discovery/query/request"));
         // 旧版带 v1 版本段的主题已废弃，不兼容
-        assertNull(TopicNames.parse("walle/home/666feb85d43410b2/v1/state/query"));
+        assertNull(TopicNames.parse("walle/home/666feb85d43410b2/v1/baseState/query"));
         assertNull(TopicNames.parse("device/online"));
         assertNull(TopicNames.parse(null));
 
         // 设备名恰好是 discovery 时，带资源的主题仍应正常解析
-        String[] devDiscovery = TopicNames.parse("walle/home/device/discovery/state/query/request");
+        String[] devDiscovery = TopicNames.parse("walle/home/device/discovery/baseState/query/request");
         assertEquals("discovery", devDiscovery[1]);
-        assertEquals("state/query/request", devDiscovery[2]);
+        assertEquals("baseState/query/request", devDiscovery[2]);
 
-        assertEquals("state/query/response",
-                TopicNames.resourceOf(BASE + "/state/query/response"));
-        assertEquals(DEVICE, TopicNames.deviceOf(BASE + "/state/query/response"));
+        assertEquals("baseState/query/response",
+                TopicNames.resourceOf(BASE + "/baseState/query/response"));
+        assertEquals(DEVICE, TopicNames.deviceOf(BASE + "/baseState/query/response"));
     }
 
     @Test

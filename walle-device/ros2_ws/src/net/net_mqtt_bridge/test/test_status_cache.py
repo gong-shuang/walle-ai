@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P2-1.1：state/query/request 复用监控采样快照的测试。"""
+"""P2-1.1：baseState/query/request 复用监控采样快照的测试。"""
 
 import json
 import threading
@@ -10,7 +10,6 @@ import pytest
 import net_mqtt_bridge.agent as agent
 import net_mqtt_bridge.config as config
 import net_mqtt_bridge.monitor as monitor_mod
-import net_mqtt_bridge.record as record
 from net_mqtt_bridge.agent import RpiMonitor
 
 FIXED_UUID = "0f8fad5b-d9cb-469f-a165-70867728950e"
@@ -58,24 +57,8 @@ def test_build_status_reuses_monitor_sample(monkeypatch):
     assert status["network"]["total_rx_bytes_per_sec"] == 100.0
     assert status["network"]["total_tx_bytes_per_sec"] == 50.0
     assert status["sample_age_sec"] >= 0.0
-    assert status["video"]["streaming"] is False
-    assert "battery" not in status, "没有电池数据时不返回 battery 分组"
-    assert "sonar" not in status, "没有声呐数据时不返回 sonar 分组"
-    assert "alarms" not in status, "V1.8 起 state/query/response 不再返回 alarms 分组"
-
-
-def test_build_status_includes_sensor_groups_when_available(monkeypatch):
-    monitor = _bare_monitor()
-    monitor.status_sample = ([5.0], {}, 0.0, 0.0, 5.0, time.monotonic())
-    monkeypatch.setattr(monitor_mod, "disk_mounts", lambda: [])
-    monitor.update_battery_voltage(7.62)
-    monitor.update_obstacle_distance(245)
-
-    status = monitor.build_status()
-    assert status["battery"]["voltage_v"] == 7.62
-    assert status["battery"]["available"] is True
-    assert status["sonar"]["distance_cm"] == 24.5
-    assert status["sonar"]["available"] is True
+    for key in ("recording", "video", "battery", "sonar", "alarms"):
+        assert key not in status, f"V1.10 起 baseState/query/response 不再返回 {key} 分组"
 
 
 def test_build_status_falls_back_to_live_sample(monkeypatch):
@@ -110,5 +93,5 @@ def test_handle_query_status_responds_under_100ms(fixed_uuid, monkeypatch):
     assert resource == agent.RES_STATE_RESULT
     assert data["request_id"] == "r1"
     assert data["cpu"]["percent"] == 5.0
-    assert data["recording"] == {
-        "enable": record.RECORD_ENABLED, "recording": False, "filename": None}
+    for key in ("recording", "video", "battery", "sonar"):
+        assert key not in data, f"V1.10 起不再返回 {key} 分组"

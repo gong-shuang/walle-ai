@@ -240,7 +240,7 @@ class RecordNodeMixin:
             extra['error'] = resp.cause
         self.agent._publish_record_start_result(
             req, int(resp.result), resp.cause or 'ok', extra)
-        # 维护 state/query/response 的 recording 分组（仅成功时更新）
+        # 维护内部录像状态（v1.10 起不再进入 baseState/query/response，仅内部使用）
         if resp.result == 0:
             self.agent.recording_state = {
                 'recording': True, 'filename': resp.filename or None}

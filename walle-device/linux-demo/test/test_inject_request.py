@@ -17,13 +17,13 @@ class InjectRequestTest(unittest.TestCase):
     def test_build_query_payload(self):
         with mock.patch.object(inject.config, "MQTT_TENANT", "home"), \
                 mock.patch.object(inject.config, "DEVICE_ID", "dev1"):
-            items = inject.build_requests(["state/query", "capability/query"],
+            items = inject.build_requests(["baseState/query", "capability/query"],
                                           "uuid-1", request_id="rid-1")
         self.assertEqual([item[0] for item in items],
-                         ["walle/home/device/dev1/state/query/request",
+                         ["walle/home/device/dev1/baseState/query/request",
                           "walle/home/device/dev1/capability/query/request"])
         self.assertEqual([item[2] for item in items],
-                         ["walle/home/device/dev1/state/query/response",
+                         ["walle/home/device/dev1/baseState/query/response",
                           "walle/home/device/dev1/capability/query/response"])
         self.assertEqual(items[0][1], {"uuid": "uuid-1", "request_id": "rid-1"})
 

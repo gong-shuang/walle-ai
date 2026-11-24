@@ -202,13 +202,6 @@ public class StatusFragment extends Fragment {
             }
             container.addView(card);
         }
-
-        // ---------- 活动告警 ----------
-        if (!s.activeAlarms.isEmpty()) {
-            addCard("🚨 活动告警", String.join("\n", s.activeAlarms));
-        } else {
-            addCard("🚨 活动告警", "无活动告警");
-        }
     }
 
     // ---------------------------------------------------------------- 小组件

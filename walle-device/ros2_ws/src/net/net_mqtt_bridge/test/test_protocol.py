@@ -64,14 +64,14 @@ def device_uuid(monkeypatch):
 
 def test_verify_uuid_accepts_matching_uuid(device_uuid):
     payload = json.dumps({"uuid": device_uuid, "request_id": "req-1"})
-    ok, data = RpiMonitor.verify_uuid(payload, "state/query/request")
+    ok, data = RpiMonitor.verify_uuid(payload, "baseState/query/request")
     assert ok is True
     assert data["request_id"] == "req-1"
 
 
 def test_verify_uuid_is_case_insensitive(device_uuid):
     payload = json.dumps({"uuid": device_uuid.upper()})
-    ok, _ = RpiMonitor.verify_uuid(payload, "state/query/request")
+    ok, _ = RpiMonitor.verify_uuid(payload, "baseState/query/request")
     assert ok is True
 
 
@@ -85,7 +85,7 @@ def test_verify_uuid_is_case_insensitive(device_uuid):
     json.dumps({"uuid": "00000000-0000-0000-0000-000000000000"}),
 ])
 def test_verify_uuid_rejects_invalid_payload(device_uuid, payload):
-    ok, data = RpiMonitor.verify_uuid(payload, "state/query/request")
+    ok, data = RpiMonitor.verify_uuid(payload, "baseState/query/request")
     assert ok is False
     assert data is None
 

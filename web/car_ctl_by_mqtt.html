@@ -448,7 +448,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div class="cardHead">
         <div>
           <h2>设备状态</h2>
-          <small>state/query/request → state/query/response</small>
+          <small>baseState/query/request → baseState/query/response</small>
         </div>
         <span id="onlineBadge" class="badge bad">离线</span>
       </div>
@@ -476,10 +476,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         <div class="detail"><span>网络 下行/上行</span><b id="dNet">—</b></div>
         <div class="detail"><span>磁盘（聚合）</span><b id="dDisk">—</b></div>
         <div class="detail"><span>USB 设备</span><b id="dUsb">—</b></div>
-        <div class="detail"><span>电池电压</span><b id="dBattery">—</b></div>
-        <div class="detail"><span>声呐距离</span><b id="dSonar">—</b></div>
-        <div class="detail"><span>视频推流</span><b id="dVideo">—</b></div>
-        <div class="detail"><span>录像状态</span><b id="dRec">—</b></div>
       </div>
 
       <div class="cardFoot">
@@ -496,7 +492,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
           <h2>实时画面</h2>
           <small>video/start|stop → WHEP 拉流</small>
         </div>
-        <button id="btnCapability" class="btn" type="button" disabled title="查询视频流状态（state/query/request）">刷新</button>
+        <button id="btnCapability" class="btn" type="button" disabled title="重新查询摄像头能力（capability/query/request）">刷新</button>
       </div>
       <div class="videoStage">
         <div class="videoWrap">
@@ -755,7 +751,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   var el = {};
   ['deviceSelect', 'connChip', 'connText', 'btnSettings', 'onlineBadge', 'devName', 'devSub',
    'devPills', 'mCpu', 'bCpu', 'mTemp', 'bTemp', 'mMem', 'bMem', 'mUptime', 'bUp', 'dHost', 'dOs', 'dLoad', 'dNet',
-   'dDisk', 'dUsb', 'dBattery', 'dSonar', 'dVideo', 'dRec', 'stateTime', 'autoState', 'btnState', 'btnCapability', 'videoEl',
+   'dDisk', 'dUsb', 'stateTime', 'autoState', 'btnState', 'btnCapability', 'videoEl',
    'videoEmpty', 'videoHint', 'btnVideoAction', 'btnVideoStop', 'btnVideoSound',
    'btnMic', 'voiceCard', 'micMeterFill',
    'videoMsg', 'alarmList', 'btnAlarmClear', 'carStatus', 'servoStatus', 'servoEnable',
@@ -770,8 +766,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     .forEach(function (k) { el[k] = document.getElementById(k); });
 
   var ui = { online: false, uuid: '', devices: {}, state: {}, cap: {}, pendingVideo: null,
-    pendingCap: null, pendingVideoStop: null, discoveryRid: '', videoRefreshing: false,
-    video: { pc: null, location: '', room: '', camera: '', lastAlarmKey: '', connected: false, uiStreaming: null },
+    pendingCap: null, pendingVideoStop: null, discoveryRid: '',
+    video: { pc: null, location: '', room: '', camera: '', lastAlarmKey: '', connected: false, streaming: false, uiStreaming: null },
     mic: { on: false, starting: false, pc: null, stream: null, ac: null, analyser: null,
       raf: 0, room: '', location: '' },
     car: { held: {}, timer: null, wasActive: false },
@@ -905,7 +901,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   };
   function subBase() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/device/+/'; }
   function discoveryTopic() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/discovery/query/request'; }
-  var SUBS = ['online', 'discovery/query/response', 'state/query/response', 'capability/query/response',
+  var SUBS = ['online', 'discovery/query/response', 'baseState/query/response', 'capability/query/response',
     'video/start/response', 'video/stop/response',
     'car/servo/status/query/response', 'alarm/report',
     'record/start/response', 'record/stop/response',
@@ -954,7 +950,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var dev = devOf(topic);
     if (/\/online$/.test(topic)) onOnline(dev, data);
     else if (/\/discovery\/query\/response$/.test(topic)) onDiscovery(dev, data);
-    else if (/\/state\/query\/response$/.test(topic)) onState(dev, data);
+    else if (/\/baseState\/query\/response$/.test(topic)) onState(dev, data);
     else if (/\/capability\/query\/response$/.test(topic)) onCapability(dev, data);
     else if (/\/video\/start\/response$/.test(topic)) onVideoStartResult(dev, data);
     else if (/\/video\/stop\/response$/.test(topic)) onVideoStopResult(dev, data);
@@ -1118,7 +1114,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         if (p.tries < STATE_MAX_TRIES) { attempt(); return; }
         stateFail('未收到本次请求的应答（request_id=' + p.rid + '）');
       }, STATE_WAIT_MS);
-      var ok = mqtt.publish(base(cfg.device) + '/state/query/request', { uuid: ui.uuid, request_id: p.rid });
+      var ok = mqtt.publish(base(cfg.device) + '/baseState/query/request', { uuid: ui.uuid, request_id: p.rid });
       if (!ok) stateFail('发送失败：MQTT 连接已断开');
     }
   }
@@ -1138,7 +1134,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
   function renderState() {
     var s = ui.state || {}, cpu = s.cpu || {}, mem = s.memory || {}, sys = s.system || {};
-    // state/query/response 不再带 online 字段，在线状态取设备列表（online/discovery）的结果
+    // baseState/query/response 不再带 online 字段，在线状态取设备列表（online/discovery）的结果
     var online = (ui.devices[cfg.device] || {}).online !== false;
     el.onlineBadge.className = 'badge ' + (online ? 'ok' : 'bad');
     el.onlineBadge.textContent = online ? '在线' : '离线';
@@ -1163,21 +1159,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     el.dDisk.textContent = (disk.percent == null && !dTotal) ? '—'
       : (Math.round(disk.percent || 0) + '%' + (dTotal ? ' · ' + dUsed + ' / ' + dTotal : ''));
     el.dUsb.textContent = s.usb ? ((s.usb.count || 0) + ' 个设备') : '—';
-    // V1.7：battery / sonar 为可选分组，设备端无传感器时不返回
-    var bat = s.battery || {}, sonar = s.sonar || {};
-    el.dBattery.textContent = (bat.available && bat.voltage_v != null)
-      ? Number(bat.voltage_v).toFixed(2) + ' V' : '—';
-    el.dSonar.textContent = (sonar.available && sonar.distance_cm != null)
-      ? Number(sonar.distance_cm).toFixed(1) + ' cm' : '—';
-    var v = s.video || {};
-    el.dVideo.textContent = v.streaming ? ('推流中 · room=' + (v.room_number || '—') + ' · ' + (v.video_device || '—')) : '未推流';
-    if (v.streaming && v.room_number) {
-      ui.video.room = String(v.room_number);
-    }
-    if (v.streaming && v.video_device) ui.video.camera = v.video_device;
-    // recording 分组：enable=录像功能是否开启，recording=是否正在录像
-    var rec = s.recording || {};
-    el.dRec.textContent = rec.enable === false ? '功能未开启' : (rec.recording ? '录像中' : '空闲');
     applyVideoUi();
   }
   function fmtDur(sec) {
@@ -1201,10 +1182,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function updateVideoRefreshButton() {
     if (!el.btnCapability) return;
     var can = canQueryCapability();
-    el.btnCapability.disabled = !!ui.videoRefreshing || !can;
-    el.btnCapability.textContent = ui.videoRefreshing ? '刷新中…' : '刷新';
+    el.btnCapability.disabled = !can;
+    el.btnCapability.textContent = '刷新';
     el.btnCapability.title = can
-      ? '查询视频流状态（state/query/request）并校正按钮与提示'
+      ? '重新查询摄像头能力（capability/query/request）'
       : 'MQTT 未连接 / 设备离线 / 缺少 uuid';
   }
   function requestCapability() {
@@ -1238,7 +1219,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       ui.video.camera = '';
       return;
     }
-    var want = (ui.state.video && ui.state.video.video_device) || ui.video.camera || cams[0].node;
+    var want = ui.video.camera || cams[0].node;
     ui.video.camera = cams.some(function (c) { return c.node === want; }) ? want : cams[0].node;
   }
   function room() {
@@ -1253,9 +1234,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     el.videoMsg.className = 'videoMsg' + (kind ? ' ' + kind : '');
   }
   function applyVideoUi() {
-    var v = (ui.state && ui.state.video) || {};
-    var streaming = v.streaming === true;
-    var rm = streaming && v.room_number ? String(v.room_number) : '';
+    var streaming = ui.video.streaming === true;
+    var rm = streaming && ui.video.room ? String(ui.video.room) : '';
     var connected = !!(ui.video.pc && ui.video.connected);
     var offline = !!(cfg.device && ui.devices[cfg.device] && ui.devices[cfg.device].online === false);
     var can = !!(mqtt && mqtt.connected && cfg.device && ui.uuid && !offline);
@@ -1289,48 +1269,17 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       if (!ui.video.pc) setVideoMsg(streaming ? '设备已在推流' + (rm ? '（room ' + rm + '）' : '') : '设备未推流，先「开始推流」', streaming ? 'ok' : null);
     }
   }
-  // 刷新按钮：查一次 state，用 state/query/response.video 校正按钮与提示
+  // 刷新按钮：重新查询摄像头能力（baseState/query/response 不再包含 video）
   function refreshVideoState() {
-    if (!mqtt || !mqtt.connected) { setVideoMsg('MQTT 未连接，无法刷新画面状态', 'err'); return; }
-    if (!cfg.device) { setVideoMsg('未选择设备，无法刷新画面状态', 'err'); return; }
-    if (!ui.uuid) { setVideoMsg('缺少设备 uuid（等待 online/discovery 回填）', 'err'); return; }
-    if (ui.offline[cfg.device] || (ui.devices[cfg.device] && ui.devices[cfg.device].online === false)) { setVideoMsg('设备离线，无法刷新画面状态', 'err'); return; }
-    if (ui.videoRefreshing) return;
-    ui.videoRefreshing = true;
-    updateVideoRefreshButton();
-    setVideoMsg('正在查询视频流状态（state/query/request）…', null);
-    queryState(false, function (data) {
-      ui.videoRefreshing = false;
-      updateVideoRefreshButton();
-      if (!data) { setVideoMsg('刷新失败：未收到 state/query/response', 'err'); return; }
-      reconcileVideoState();
-    });
-  }
-  // 用 state/query/response.video 校正本页按钮状态与「停止推流」下方的提示文字
-  function reconcileVideoState() {
-    var v = (ui.state && ui.state.video) || {};
-    var streaming = v.streaming === true;
-    var devRoom = streaming && v.room_number ? String(v.room_number) : '';
-    var connected = !!(ui.video.pc && ui.video.connected);
-    var uiRoom = ui.video.room ? String(ui.video.room) : '';
-    if (!streaming) {
-      // 设备已停止推流：清掉本页残留画面，按钮回到「开始推流」
-      if (ui.video.pc) closeWhep(true);
-      ui.video.room = '';
-      ui.video.uiStreaming = false;
-      applyVideoUi();
-      setVideoMsg('设备未推流，状态已同步；点「开始推流」启动', 'ok');
+    if (!canQueryCapability()) {
+      setVideoMsg('MQTT 未连接 / 设备离线 / 缺少 uuid', 'err');
       return;
     }
-    // 设备在推流，但本页连的是旧房间：先断开，再按新房间接管
-    if (connected && uiRoom && uiRoom !== devRoom) closeWhep(true);
-    ui.video.room = devRoom;
-    applyVideoUi();
-    if (ui.video.pc && ui.video.connected) setVideoMsg('画面与设备一致：推流中 · room ' + devRoom, 'ok');
-    else setVideoMsg('设备正在推流（room ' + devRoom + '），点「连接画面」接管', 'ok');
+    setVideoMsg('正在刷新摄像头列表（capability/query/request）…', null);
+    if (!requestCapability()) setVideoMsg('刷新失败：MQTT 未连接 / 设备离线', 'err');
   }
   function videoStart() {
-    if ((ui.state.video || {}).streaming === true) { setVideoMsg('设备已在推流，无需重复开始；请直接连接画面', 'ok'); applyVideoUi(); return; }
+    if (ui.video.streaming === true) { setVideoMsg('设备已在推流，无需重复开始；请直接连接画面', 'ok'); applyVideoUi(); return; }
     if (!mqtt || !mqtt.connected || !cfg.device) { setVideoMsg('MQTT 未连接或未选择设备', 'err'); return; }
     if (!ui.uuid) { setVideoMsg('尚未取得设备 uuid', 'err'); return; }
     var cam = ui.video.camera || ((ui.cap.cameras || []).filter(function (c) { return c && c.node; })[0] || {}).node;
@@ -1357,11 +1306,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (ui.pendingVideo && data.request_id && data.request_id !== ui.pendingVideo.rid) return;
     if (ui.pendingVideo) { clearTimeout(ui.pendingVideo.timer); ui.pendingVideo = null; }
     if (data.result === 0) {
+      ui.video.streaming = true;
       ui.video.room = data.room_number || ui.video.room || room();
       cfg.videoRoom = ui.video.room; saveCfg();
       if (data.video_device) ui.video.camera = data.video_device;
-      ui.state.video = { streaming: true, room_number: ui.video.room,
-        video_device: data.video_device || ui.video.camera };
       applyVideoUi();
       setVideoMsg('推流成功（' + (data.action || 'started') + ' · room ' + ui.video.room + '）。点「连接画面」开始拉流。', 'ok');
       queryState();
@@ -1392,8 +1340,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (ui.pendingVideoStop && data.request_id && data.request_id !== ui.pendingVideoStop.rid) return;
     if (ui.pendingVideoStop) { clearTimeout(ui.pendingVideoStop.timer); ui.pendingVideoStop = null; }
     if (data.result === 0) {
-      ui.state.video = { streaming: false, room_number: null, video_device: null, audio: null,
-        pid: null, started_at: null, uptime_sec: null };
+      ui.video.streaming = false;
       ui.video.room = '';
       closeWhep(true);
       applyVideoUi();
@@ -2771,9 +2718,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   el.btnCapability.addEventListener('click', refreshVideoState);
   el.btnVideoAction.addEventListener('click', function () {
     if (ui.video.pc) { closeWhep(true); setVideoMsg('已断开 WHEP 会话', null); return; }
-    if ((ui.state.video || {}).streaming !== true) { videoStart(); return; }
-    var rm = (ui.video.room || (ui.state.video && ui.state.video.room_number) || room()).trim();
-    if (!/^[A-Za-z0-9_-]{1,64}$/.test(rm)) { setVideoMsg('请先填写合法房间号，或从 state 中接管已有推流', 'err'); return; }
+    if (ui.video.streaming !== true) { videoStart(); return; }
+    var rm = (ui.video.room || room()).trim();
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(rm)) { setVideoMsg('请先填写合法房间号，或点「开始推流」启动', 'err'); return; }
     ui.video.room = rm; cfg.videoRoom = rm; saveCfg();
     startWhep(rm);
   });

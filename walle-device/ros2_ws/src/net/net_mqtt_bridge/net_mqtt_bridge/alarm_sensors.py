@@ -183,7 +183,7 @@ class SensorAlarmMixin:
         return fresh and distance <= THRESH_OBSTACLE_CM
 
     def sensor_status(self):
-        """state/query/response 的 battery / sonar 分组（查询时读取最新采样，不阻塞）。"""
+        """baseState/query/response 的 battery / sonar 分组（查询时读取最新采样，不阻塞）。"""
         with self._sensor_lock:
             now = time.monotonic()
             voltage = self._battery_latest_voltage

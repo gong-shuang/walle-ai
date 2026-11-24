@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """本地请求注入：模拟 App 向设备发送请求，便于没有手机时联调。
 
-默认只发只读查询（state/query/request、capability/query/request），不会触发推流或播放；
+默认只发只读查询（baseState/query/request、capability/query/request），不会触发推流或播放；
 video/* 与 phone/audio/* 动作必须显式用 --action 指定。--dry-run 只打印
 主题与报文，不连接 Broker；因此可以先确认报文再实际发送。
 
@@ -38,7 +38,7 @@ from ld_protocol import *        # noqa: F401,F403
 from ld_utils import *           # noqa: F401,F403
 
 ACTION_MAP = {
-    "state/query": REQ_STATE,
+    "baseState/query": REQ_STATE,
     "capability/query": REQ_CAPABILITY,
     "video/start": REQ_VIDEO_START,
     "video/stop": REQ_VIDEO_STOP,
@@ -46,7 +46,7 @@ ACTION_MAP = {
     "phone/audio/stop": REQ_PHONE_AUDIO_STOP,
 }
 ACTION_CHOICES = tuple(ACTION_MAP)
-DEFAULT_ACTIONS = ("state/query", "capability/query")
+DEFAULT_ACTIONS = ("baseState/query", "capability/query")
 # 这些动作会真正占用摄像头/声卡，必须显式指定
 DEVICE_ACTIONS = (REQ_VIDEO_START, REQ_PHONE_AUDIO_SEND)
 
@@ -86,7 +86,7 @@ def parse_args(argv=None):
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__)
     parser.add_argument("--action", action="append", choices=ACTION_CHOICES,
-                        help="可重复；默认只发 state/query 与 capability/query")
+                        help="可重复；默认只发 baseState/query 与 capability/query")
     parser.add_argument("--room-number", default="", help="房间号（video/start、phone/audio/send 必填）")
     parser.add_argument("--video-device", default="",
                         help="摄像头节点（默认 CAMERA_DEVICE 或 /dev/video0）")
