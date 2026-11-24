@@ -16,7 +16,7 @@ LINUX_DEMO = Path(__file__).resolve().parent.parent
 class RemoteCmdRemovedTest(unittest.TestCase):
     def test_no_remote_command_topics(self):
         topics = [topic for topic, _qos in main.subscriptions()]
-        self.assertEqual(len(topics), 5)
+        self.assertEqual(len(topics), 6)
         for topic in topics:
             self.assertNotIn("cmd/exec", topic)
             self.assertNotIn("cmd/result", topic)

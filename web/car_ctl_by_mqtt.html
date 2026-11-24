@@ -721,6 +721,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 (function () {
   'use strict';
 
+  // 与 Android app/build.gradle 的 versionCode / versionName 保持一致
+  var WEB_VERSION_CODE = 3;
+  var WEB_VERSION_NAME = '0.1.3';
+
   var LS_KEY = 'walle_web_v2';
   var DEFAULTS = {
     server: 'https://www.baidong.xyz',
@@ -822,6 +826,23 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     }
     return id;
   }
+  function clientOnlineTopic() {
+    return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/client/' + clientIdNow() + '/online';
+  }
+  function clientPresencePayload(online) {
+    return {
+      client_id: clientIdNow(),
+      client_name: 'Web',
+      version_code: WEB_VERSION_CODE,
+      version_name: WEB_VERSION_NAME,
+      online: online === true,
+      timestamp: Math.floor(Date.now() / 1000)
+    };
+  }
+  function publishClientPresence(online) {
+    if (!mqtt || !mqtt.connected) return false;
+    return mqtt.publish(clientOnlineTopic(), clientPresencePayload(online), true);
+  }
 
   var TE = new TextEncoder();
   function u8(s) { return TE.encode(String(s)); }
@@ -872,14 +893,23 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   MqttWS.prototype.stopPing = function () { if (this.pingTimer) { clearInterval(this.pingTimer); this.pingTimer = null; } };
   MqttWS.prototype.connectPacket = function () {
     var keep = Math.max(5, Math.min(300, Number(this.opts.keepalive) || 60));
-    return packet(0x10, [
+    var hasWill = !!(this.opts.willTopic && this.opts.willPayload);
+    // MQTT 5 CONNECT flags：username/password/clean start + will(flag|QoS1|retain)
+    var flags = 0xC2 | (hasWill ? 0x04 | 0x08 | 0x20 : 0);
+    var parts = [
       strField('MQTT'),
-      new Uint8Array([5, 0xC2, keep >> 8, keep & 255]),
-      new Uint8Array([0]),
-      strField(this.opts.clientId),
-      strField(this.opts.user),
-      strField(this.opts.pass)
-    ]);
+      new Uint8Array([5, flags, keep >> 8, keep & 255]),
+      new Uint8Array([0]),                  // CONNECT properties
+      strField(this.opts.clientId)
+    ];
+    if (hasWill) {
+      parts.push(new Uint8Array([0]));      // Will properties
+      parts.push(strField(this.opts.willTopic));
+      parts.push(strField(this.opts.willPayload));
+    }
+    parts.push(strField(this.opts.user));
+    parts.push(strField(this.opts.pass));
+    return packet(0x10, parts);
   };
   MqttWS.prototype.next = function () { var n = this.nextId++; if (this.nextId > 65535) this.nextId = 1; return n; };
   MqttWS.prototype.subscribe = function (topic) {
@@ -888,10 +918,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     this.ws.send(packet(0x82, [new Uint8Array([id >> 8, id & 255]), new Uint8Array([0]), strField(topic), new Uint8Array([1])]));
     return true;
   };
-  MqttWS.prototype.publish = function (topic, payload) {
+  MqttWS.prototype.publish = function (topic, payload, retain) {
     if (!this.connected) return false;
     var id = this.next();
-    this.ws.send(packet(0x32, [strField(topic), new Uint8Array([id >> 8, id & 255]), new Uint8Array([0]), u8(JSON.stringify(payload))]));
+    var first = 0x32 | (retain ? 0x01 : 0x00);   // PUBLISH QoS1 + 可选 retain
+    this.ws.send(packet(first, [strField(topic), new Uint8Array([id >> 8, id & 255]), new Uint8Array([0]), u8(JSON.stringify(payload))]));
     return true;
   };
   MqttWS.prototype.subAll = function () {
@@ -953,14 +984,18 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
   function rebuildMqtt() {
     clearTimeout(reconnectTimer); reconnectTimer = null;
+    publishClientPresence(false);
     if (mqtt && mqtt.ws) { try { mqtt.ws.onclose = null; mqtt.ws.close(); } catch (e) {} }
     mqtt = new MqttWS();
     mqtt.topics = SUBS.map(function (r) { return subBase() + r; });
     mqtt.connect({
       url: wsUrlNow(), user: cfg.user, pass: cfg.pass, clientId: clientIdNow(), keepalive: cfg.keepalive,
+      willTopic: clientOnlineTopic(),
+      willPayload: JSON.stringify(clientPresencePayload(false)),
       onStatus: function (kind, text) {
         setConn(kind === 'on' ? 'on' : 'bad', text);
         if (kind === 'on') {
+          publishClientPresence(true);
           if (carHasActive()) { carEnsureLoop(); carSendNow(); }
           else carSetStatus('按住 w/s 移动，a/d 旋转 · 0.6 m/s', null);
           // 设备状态由 retained online 消息触发 onOnline 查询；这里不再延迟补发 baseState，
@@ -2924,6 +2959,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (document.hidden) { carReleaseAll(true); servoReleaseAll(); }
   });
   window.addEventListener('pagehide', function () {
+    publishClientPresence(false);
     carReleaseAll(true); servoReleaseAll(); closeWhep(true); stopMic(true);
   });
 

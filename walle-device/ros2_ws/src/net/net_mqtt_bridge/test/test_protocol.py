@@ -79,6 +79,7 @@ def test_subscriptions_cover_all_requests_with_layer_patterns():
         base + "/+/+/+/+/request",
         base + "/+/+/+/cmd",
         discovery,
+        agent.tenant_topic("client/+/online"),
     ]
     # 只订请求/持续控制，不订 # 整棵子树，避免收回自己发布的 response/alarm
     assert all("#" not in topic for topic in topics)
@@ -97,6 +98,49 @@ def test_device_topic_base_sanitizes_segments():
     assert agent.device_topic_base(
         "user@example.com", "dev:1") == "walle/user_example_com/device/dev_1"
     assert agent.device_topic_base("", "") == "walle/unknown/device/unknown"
+
+
+def test_client_presence_online_and_offline():
+    import threading
+
+    monitor = object.__new__(RpiMonitor)
+    monitor.client_presence = {}
+    monitor.client_presence_lock = threading.Lock()
+    topic = agent.client_online_topic("web-abc12345")
+
+    monitor._handle_client_presence(topic, json.dumps({
+        "client_id": "web-abc12345",
+        "client_name": "Web",
+        "version_code": 3,
+        "version_name": "0.1.3",
+        "online": True,
+        "timestamp": 1763000000,
+    }))
+    assert monitor.client_is_online("web-abc12345") is True
+
+    monitor._handle_client_presence(topic, json.dumps({
+        "client_id": "web-abc12345",
+        "client_name": "Web",
+        "online": False,
+        "timestamp": 1763000100,
+    }))
+    assert monitor.client_is_online("web-abc12345") is False
+
+
+def test_client_presence_rejects_id_mismatch():
+    import threading
+
+    monitor = object.__new__(RpiMonitor)
+    monitor.client_presence = {}
+    monitor.client_presence_lock = threading.Lock()
+    topic = agent.client_online_topic("web-abc12345")
+
+    monitor._handle_client_presence(topic, json.dumps({
+        "client_id": "web-other999",
+        "online": True,
+    }))
+
+    assert monitor.client_presence == {}
 
 
 def test_car_motor_topics_and_realtime_dispatch_registered():

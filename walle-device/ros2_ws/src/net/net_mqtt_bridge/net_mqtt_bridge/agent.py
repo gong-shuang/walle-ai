@@ -169,6 +169,9 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, SensorAlarmMixin, CapabilityMixin,
         self.audio_proc = None
         self.audio_lock = threading.Lock()
         self.audio_meta = {}
+        # App/Web 客户端在线状态：client_id -> {online, client_name, ...}
+        self.client_presence = {}
+        self.client_presence_lock = threading.Lock()
         # 上一次应答 discovery 的时间（单调时钟），用于限频
         self._last_discovery_at = 0.0
         # 内部录像状态（v1.10 起不再进入 baseState/query/response）

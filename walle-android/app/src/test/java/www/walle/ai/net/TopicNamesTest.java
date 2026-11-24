@@ -58,6 +58,12 @@ public class TopicNamesTest {
     }
 
     @Test
+    public void clientOnlineTopic() {
+        assertEquals("walle/home/client/web-abc12345/online",
+                TopicNames.clientOnline(TENANT, "web-abc12345"));
+    }
+
+    @Test
     public void responseTopics() {
         assertEquals(BASE + "/online", TopicNames.online(TENANT, DEVICE));
         assertEquals(BASE + "/alarm/report", TopicNames.alarm(TENANT, DEVICE));

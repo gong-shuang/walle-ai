@@ -46,6 +46,53 @@ class ProtocolMixin:
         logging.warning("MQTT 连接断开（reason_code=%s），paho 将自动重连", reason_code)
 
     @staticmethod
+    def _is_client_presence_topic(topic):
+        """是否为 walle/{tenant}/client/{client_id}/online。"""
+        parts = str(topic or "").split("/")
+        return (len(parts) == 5 and parts[0] == config.TOPIC_ROOT
+                and parts[1] == config.sanitize_segment(config.MQTT_TENANT)
+                and parts[2] == config.CLIENT_SEGMENT
+                and parts[4] == "online")
+
+    def _handle_client_presence(self, topic, payload):
+        """记录 App/Web 客户端在线状态；只做记录，不回复。"""
+        data = self._safe_json(payload)
+        if not data:
+            logging.warning("忽略 %s：报文为空或不是 JSON 对象", topic)
+            return
+        client_id = str(data.get("client_id") or "").strip()
+        topic_client_id = topic.split("/")[3]
+        if not client_id or client_id != topic_client_id:
+            logging.warning("忽略 %s：client_id 与主题不一致（收到=%s）",
+                            topic, client_id or "<空>")
+            return
+        online = data.get("online") is True
+        record = {
+            "client_id": client_id,
+            "client_name": str(data.get("client_name") or "")[:64],
+            "version_code": data.get("version_code"),
+            "version_name": str(data.get("version_name") or "")[:32],
+            "online": online,
+            "timestamp": data.get("timestamp") or now_ts(),
+            "last_seen": now_ts(),
+        }
+        with self.client_presence_lock:
+            self.client_presence[client_id] = record
+        if online:
+            logging.info("客户端上线: %s（%s，版本 %s/%s）", client_id,
+                         record["client_name"] or "-",
+                         record["version_name"] or "-", record["version_code"])
+        else:
+            logging.info("客户端离线: %s（%s）", client_id,
+                         record["client_name"] or "-")
+
+    def client_is_online(self, client_id):
+        """指定客户端当前是否在线（供后续控制权租约使用）。"""
+        with self.client_presence_lock:
+            item = self.client_presence.get(str(client_id or ""))
+        return bool(item and item.get("online"))
+
+    @staticmethod
     def _redact_payload(payload):
         """脱敏后的报文，仅用于 DEBUG 日志。"""
         sensitive = {"password", "secret", "whip_secret", "token", "key",
@@ -80,6 +127,9 @@ class ProtocolMixin:
             except (json.JSONDecodeError, TypeError, ValueError):
                 _rx_text = payload
             logging.info("[MQTT-RX] %s\n%s", msg.topic, _rx_text)
+        if self._is_client_presence_topic(msg.topic):
+            self._handle_client_presence(msg.topic, payload)
+            return
         if msg.topic.startswith(config.TOPIC_ROOT + "/"):
             self._handle_request(msg.topic, payload)
         else:

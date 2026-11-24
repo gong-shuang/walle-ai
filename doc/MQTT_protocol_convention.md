@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.12）
+# MQTT 协议约定（文档版本 v1.13）
 
 > 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`；ROS2 车控为
 > `walle-device/ros2_ws/src/net/net_mqtt_bridge`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
-> - 本文档的版本：v1.12 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.13 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -156,8 +156,9 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 干扰排查。所以两端都不订 `#` 整棵子树：
 
 - App 订 8 条精确响应主题：`walle/{t}/device/+` 下的 `online`、`alarm/report`、6 条 `…/response`（见 `TopicNames.responseSubscriptions`）
-- 设备端订 5 条：4 条按层数的 `+` 模式（`+/+/request`、`+/+/+/request`、`+/+/+/+/request`、`+/+/+/cmd`）+ 1 条租户级 `discovery/query/request`（见 `config.subscriptions()`）。
-  `+` 只匹配一层，因此只命中请求/持续控制，不会收到自己发布的 response/report；新增不同层数的请求主题时需补一条模式。
+- 设备端订 6 条：4 条按层数的 `+` 模式（`+/+/request`、`+/+/+/request`、`+/+/+/+/request`、`+/+/+/cmd`）
+  + 1 条租户级 `discovery/query/request` + 1 条客户端在线状态 `client/+/online`（见 `config.subscriptions()`）。
+  `+` 只匹配一层，因此只命中请求/持续控制与客户端 presence，不会收到自己发布的 response/report；新增不同层数的请求主题时需补一条模式。
 
 ---
 
@@ -1079,7 +1080,59 @@ App 用返回的 `flv_url` / `whep_url` 拉流播放。同一时刻只允许一�
 
 ---
 
-## 5. 修改协议的流程（改前必读）
+### 4.18 客户端在线状态 client/{client_id}/online（V1.13）
+
+**作用**：让设备端知道 App/Web 客户端是否在线，为后续控制权租约（holder 掉线自动释放）
+提供依据。该主题是**租户级**的，不挂在 `device` 段下。
+
+- 主题：`walle/{t}/client/{client_id}/online`
+- 类型：主动上报（**retained + LWT**，QoS1）
+- 请求/应答：无；设备端只订阅记录，不回复
+
+**主题段**：
+
+| 段 | 说明 |
+|---|---|
+| `{t}` | 租户，= App/Web 登录的 MQTT 用户名（清洗后） |
+| `client` | 固定字面量，区分设备主题 |
+| `{client_id}` | 客户端持久化标识；Web 存 localStorage，App 存 SharedPreferences |
+| `online` | 固定字面量 |
+
+**报文**：
+
+```json
+{
+  "client_id": "web-1a2b3c4d",
+  "client_name": "Web",
+  "version_code": 3,
+  "version_name": "0.1.3",
+  "online": true,
+  "timestamp": 1763000000
+}
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `client_id` | 是 | 必须与主题第 4 段一致；同一客户端刷新/重启后保持不变 |
+| `client_name` | 否 | 展示名，如 `Web`、`Android Pixel 7` |
+| `version_code` | 否 | 客户端版本号（整数） |
+| `version_name` | 否 | 客户端版本名（字符串） |
+| `online` | 是 | `true` 上线 / `false` 下线 |
+| `timestamp` | 是 | Unix 秒 |
+
+**两端约定**：
+
+- 连接成功后立即发布 `online:true`，**retained**；
+- 连接时设置遗嘱：同一主题、同一 `client_id`、`online:false`、retained；
+- 主动断开（退出登录/关闭页面）尽量先发布 `online:false` 再断开；
+- 异常掉线由 Broker 代发遗嘱；
+- 页面刷新会短暂出现 `false` → `true`，消费方需容忍（控制权租约应加 grace）；
+- 设备端订阅 `walle/{t}/client/+/online`，按 `client_id` 维护在线表。
+
+> 注意：`client_id` 是客户端自报的显示/关联标识，不是权限凭证。控制权校验仍需
+> `control_token`；presence 只用于判断持有者是否掉线。
+
+
 
 1. **先改本文档**，让文档成为讨论与评审的载体。
 2. 同步修改两端实现，对照表见 §6。命名约定由自检强制，不要发明新的后缀语义。
@@ -1109,6 +1162,26 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 7. 变更记录
+
+### 2026-11-25：新增客户端在线状态 client/{client_id}/online（文档 v1.13）
+
+**变更类型**：非破坏性增量（新增租户级客户端在线主题）。
+
+**变更内容**
+
+- 新增主题 `walle/{t}/client/{client_id}/online`，retained + LWT，QoS1；
+  App/Web 连接成功后发布 `online:true`，遗嘱与主动断开时发布 `online:false`。
+- 报文包含 `client_id`、`client_name`、`version_code`、`version_name`、
+  `online`、`timestamp`；设备端订阅 `walle/{t}/client/+/online` 并维护客户端在线表。
+- `client_id` 必须是持久化标识（Web 存 localStorage，App 存 SharedPreferences），
+  刷新页面/重启浏览器不能变化；topic 第 4 段与报文 `client_id` 必须一致。
+- 该主题不参与 request/response 配对，没有 `request_id`；设备端只记录，不回复。
+
+**影响与兼容性**：纯新增主题，不改变现有设备协议；旧客户端不发布 presence 时，
+设备端只是看不到该客户端在线状态，不影响原有控制/查询。
+
+**验证方式**：Web/App 连接后观察设备日志 `客户端上线`；关闭页面/断开 App 后观察
+`客户端下线`；刷新页面应表现为短暂的 offline → online。
 
 ### 2026-11-24：彻底删除 uuid（文档 v1.12）
 

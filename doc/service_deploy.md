@@ -418,13 +418,14 @@ Dashboard → **访问控制 → 授权（Authorization）** → 添加 **File**
 %% App：读写本租户整棵子树（home 换成 App 实际登录用户名）
 {allow, {username, {re, "^home$"}}, all, ["walle/home/#"]}.
 
-%% 设备：只读写自己的子树，并能收到租户内的发现广播
+%% 设备：只读写自己的子树，并能收到租户内的发现广播 + 客户端在线状态
 %% 每台设备一个独立账号，建议命名 dev_<device_id>
 {allow, {username, {re, "^dev_[A-Za-z0-9_-]+$"}}, publish,
        ["walle/+/device/${clientid}/#"]}.
 {allow, {username, {re, "^dev_[A-Za-z0-9_-]+$"}}, subscribe,
        ["walle/+/device/${clientid}/#",
-        "walle/+/discovery/query/request"]}.
+        "walle/+/discovery/query/request",
+        "walle/+/client/+/online"]}.
 
 %% 未命中一律拒绝；保留 EMQX 自带的 $SYS 规则，不要覆盖删除
 {deny, all}.
@@ -441,6 +442,7 @@ Dashboard → **访问控制 → 授权（Authorization）** → 添加 **File**
 | `walle/home/#` | 该租户的整棵子树（`#` 只能出现在末尾） |
 | `walle/+/device/${clientid}/#` | 设备只能访问自己 `clientid` 对应的设备子树；`+` 为租户段通配 |
 | `walle/+/discovery/query/request` | 设备接收租户内发现广播所必需 |
+| `walle/+/client/+/online` | 设备接收 App/Web 客户端在线状态（用于控制权租约掉线释放） |
 | `publish` / `subscribe` | 分别控制发布与订阅 |
 | `{deny, all}.` | 未命中规则一律拒绝 |
 

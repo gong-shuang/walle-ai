@@ -35,6 +35,9 @@ public final class TopicNames {
     /** 设备级主题的固定层级段：{@code walle/{tenant}/device/{device}/{resource}}。 */
     public static final String DEVICE_SEGMENT = "device";
 
+    /** 客户端在线状态主题的固定层级段：{@code walle/{tenant}/client/{client_id}/online}。 */
+    public static final String CLIENT_SEGMENT = "client";
+
     /** 租户级设备发现请求主题的资源段（没有 device 段）。 */
     private static final String DISCOVERY_QUERY_REQUEST = "discovery/query/request";
 
@@ -116,6 +119,12 @@ public final class TopicNames {
     /** 租户级广播：设备发现（App → 设备），{@code walle/{tenant}/discovery/query/request}。 */
     public static String discoveryQuery(String tenant) {
         return ROOT + "/" + sanitize(tenant) + "/" + DISCOVERY_QUERY_REQUEST;
+    }
+
+    /** 客户端在线状态：{@code walle/{tenant}/client/{client_id}/online}（retained + LWT）。 */
+    public static String clientOnline(String tenant, String clientId) {
+        return ROOT + "/" + sanitize(tenant) + "/" + CLIENT_SEGMENT + "/"
+                + sanitize(clientId) + "/online";
     }
 
     // ================= 设备 → App =================

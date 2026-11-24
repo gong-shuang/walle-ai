@@ -52,6 +52,9 @@ class RpiMonitorBase:
         self.audio_proc = None
         self.audio_lock = threading.Lock()
         self.audio_meta = {}
+        # App/Web 客户端在线状态：client_id -> {online, client_name, ...}
+        self.client_presence = {}
+        self.client_presence_lock = threading.Lock()
         # 最近一次非主动停止的手机音频播放；重新开始播放后发 recover 并清空
         self.audio_lost = None
         # 摄像头能力缓存：(过期时间, cameras, error)；USB 插拔事件会清空
@@ -112,10 +115,60 @@ class RpiMonitorBase:
         logging.info("收到消息 %s（%d 字节）", msg.topic, len(msg.payload))
         if logging.getLogger().isEnabledFor(logging.DEBUG):
             logging.debug("收到消息 %s: %s", msg.topic, mask_payload(payload))
+        if self._is_client_presence_topic(msg.topic):
+            self._handle_client_presence(msg.topic, payload)
+            return
         if msg.topic.startswith(TOPIC_ROOT + "/"):
             self._handle_request(msg.topic, payload)
         else:
             logging.warning("忽略非本协议主题: %s", msg.topic)
+
+    @staticmethod
+    def _is_client_presence_topic(topic):
+        """是否为 walle/{tenant}/client/{client_id}/online。"""
+        parts = str(topic or "").split("/")
+        return (len(parts) == 5 and parts[0] == TOPIC_ROOT
+                and parts[1] == sanitize_segment(config.MQTT_TENANT)
+                and parts[2] == CLIENT_SEGMENT
+                and parts[4] == "online")
+
+    def _handle_client_presence(self, topic, payload):
+        """记录 App/Web 客户端在线状态；只做记录，不回复。"""
+        data = self._safe_json(payload)
+        if not data:
+            logging.warning("忽略 %s：报文为空或不是 JSON 对象", topic)
+            return
+        client_id = str(data.get("client_id") or "").strip()
+        topic_client_id = topic.split("/")[3]
+        if not client_id or client_id != topic_client_id:
+            logging.warning("忽略 %s：client_id 与主题不一致（收到=%s）",
+                            topic, client_id or "<空>")
+            return
+        online = data.get("online") is True
+        record = {
+            "client_id": client_id,
+            "client_name": str(data.get("client_name") or "")[:64],
+            "version_code": data.get("version_code"),
+            "version_name": str(data.get("version_name") or "")[:32],
+            "online": online,
+            "timestamp": data.get("timestamp") or now_ts(),
+            "last_seen": now_ts(),
+        }
+        with self.client_presence_lock:
+            self.client_presence[client_id] = record
+        if online:
+            logging.info("客户端上线: %s（%s，版本 %s/%s）", client_id,
+                         record["client_name"] or "-",
+                         record["version_name"] or "-", record["version_code"])
+        else:
+            logging.info("客户端离线: %s（%s）", client_id,
+                         record["client_name"] or "-")
+
+    def client_is_online(self, client_id):
+        """指定客户端当前是否在线（供后续控制权租约使用）。"""
+        with self.client_presence_lock:
+            item = self.client_presence.get(str(client_id or ""))
+        return bool(item and item.get("online"))
 
     # ---------- 发布封装 ----------
 

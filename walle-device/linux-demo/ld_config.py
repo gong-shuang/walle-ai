@@ -176,6 +176,8 @@ MQTT_TENANT = os.environ.get("MQTT_TENANT", "").strip()
 TOPIC_ROOT = "walle"
 # 设备级主题的固定层级段：walle/{tenant}/device/{device}/{resource}
 DEVICE_SEGMENT = "device"
+# 客户端在线状态主题的固定层级段：walle/{tenant}/client/{client_id}/online
+CLIENT_SEGMENT = "client"
 
 
 def validate_config():

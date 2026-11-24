@@ -1,6 +1,7 @@
 package www.walle.ai.net;
 
 import android.content.Context;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -14,12 +15,15 @@ import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
+import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import www.walle.ai.BuildConfig;
 
 /**
  * MQTT 传输层：只负责「连接 / 重连 / 订阅 / 发布」这些与协议语义无关的事。
@@ -118,10 +122,11 @@ public class MqttClient {
 
     /** 配置变更后重连（断开 + 重连都在连接线程里做）。 */
     public void reconnect(MqttConfig cfg) {
-        this.config = cfg;
         connExecutor.execute(() -> {
             synchronized (MqttClient.this) {
+                publishPresence(false);
                 disconnectInternal();
+                this.config = cfg;
                 connectInternal();
             }
         });
@@ -130,6 +135,7 @@ public class MqttClient {
     public void disconnect() {
         connExecutor.execute(() -> {
             synchronized (MqttClient.this) {
+                publishPresence(false);
                 disconnectInternal();
                 setState(ConnState.DISCONNECTED, "已断开");
             }
@@ -169,6 +175,9 @@ public class MqttClient {
             opts.setConnectionTimeout(15);
             opts.setAutomaticReconnect(cfg.autoReconnect);
             opts.setMqttVersion(MqttConnectOptions.MQTT_VERSION_3_1_1);
+            // 客户端在线状态：遗嘱设为 online:false；连上后发布 retained online:true
+            String presenceTopic = presenceTopic();
+            opts.setWill(presenceTopic, presencePayload(false), Topics.QOS, true);
             if (cfg.tls) {
                 // ssl:// 下 Paho 用系统 CA + 证书链校验；主机名必须与证书 SAN 一致
                 opts.setHttpsHostnameVerificationEnabled(true);
@@ -178,6 +187,7 @@ public class MqttClient {
                 @Override
                 public void connectComplete(boolean reconnect, String serverURI) {
                     setState(ConnState.CONNECTED, "已连接 " + serverURI);
+                    publishPresence(true);
                     main.post(() -> listener.onConnected(reconnect));
                 }
 
@@ -317,6 +327,42 @@ public class MqttClient {
 
     private String clientIdNow() {
         return client == null ? "" : client.getClientId();
+    }
+
+    // ---------------------------------------------------------------- 客户端在线状态
+
+    /** walle/{tenant}/client/{client_id}/online：主题段与报文 client_id 都做 sanitize。 */
+    private String presenceTopic() {
+        if (config == null) return "";
+        return TopicNames.clientOnline(TopicNames.tenantOf(config.username), clientIdNow());
+    }
+
+    private byte[] presencePayload(boolean online) {
+        try {
+            JSONObject body = new JSONObject();
+            body.put("client_id", TopicNames.sanitize(clientIdNow()));
+            body.put("client_name", ("Android " + (Build.MODEL == null ? "" : Build.MODEL)).trim());
+            body.put("version_code", BuildConfig.VERSION_CODE);
+            body.put("version_name", BuildConfig.VERSION_NAME);
+            body.put("online", online);
+            body.put("timestamp", System.currentTimeMillis() / 1000);
+            return body.toString().getBytes(StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return ("{\"client_id\":\"" + TopicNames.sanitize(clientIdNow())
+                    + "\",\"online\":" + online + "}").getBytes(StandardCharsets.UTF_8);
+        }
+    }
+
+    /** 发布客户端在线状态；offline 时短暂等待发送完成，尽量让设备端及时看到。 */
+    private void publishPresence(boolean online) {
+        MqttAsyncClient c = client;
+        if (c == null || !c.isConnected()) return;
+        try {
+            IMqttDeliveryToken token = c.publish(presenceTopic(), presencePayload(online), Topics.QOS, true);
+            if (!online) token.waitForCompletion(500);
+        } catch (Exception e) {
+            Log.w(TAG, "publish presence failed online=" + online, e);
+        }
     }
 
     private static int reasonCode(Throwable t) {

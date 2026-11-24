@@ -46,8 +46,9 @@ class TopicTest(unittest.TestCase):
             self.assertEqual(main.tenant_topic("discovery/query/request"),
                              "walle/t_1/discovery/query/request")
             topics = [topic for topic, _qos in main.subscriptions()]
-        self.assertEqual(len(topics), 5)
+        self.assertEqual(len(topics), 6)
         self.assertIn("walle/t_1/discovery/query/request", topics)
+        self.assertIn("walle/t_1/client/+/online", topics)
         self.assertIn("walle/t_1/device/dev-1/+/+/request", topics)
         self.assertIn("walle/t_1/device/dev-1/+/+/+/request", topics)
         self.assertIn("walle/t_1/device/dev-1/+/+/+/+/request", topics)
@@ -64,6 +65,25 @@ class TopicTest(unittest.TestCase):
 
 
 class RequestValidationTest(unittest.TestCase):
+    def test_client_presence(self):
+        mon = main.RpiMonitor()
+        topic = main.client_online_topic("web-abc12345")
+        mon._handle_client_presence(topic, json.dumps({
+            "client_id": "web-abc12345",
+            "client_name": "Web",
+            "version_code": 3,
+            "version_name": "0.1.3",
+            "online": True,
+            "timestamp": 1763000000,
+        }))
+        self.assertTrue(mon.client_is_online("web-abc12345"))
+
+        mon._handle_client_presence(topic, json.dumps({
+            "client_id": "web-abc12345",
+            "online": False,
+        }))
+        self.assertFalse(mon.client_is_online("web-abc12345"))
+
     def test_parse_request(self):
         data = main.RpiMonitor.parse_request(
             json.dumps({"request_id": "r1"}), "topic")
