@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.13）
+# MQTT 协议约定（文档版本 v1.14）
 
 > 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`；ROS2 车控为
 > `walle-device/ros2_ws/src/net/net_mqtt_bridge`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
-> - 本文档的版本：v1.13 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.14 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -210,6 +210,19 @@ v1.12 起请求不再携带 `uuid`，设备端也不再调用 `verify_uuid`。�
 历史行为（已废弃）：除 `discovery/query/request` 外，所有请求必须带与设备当前值一致的
 `uuid`，否则设备端静默忽略（只记日志、不回复）。该机制因 uuid 每次重启变化、
 客户端缓存旧值会导致“设备在线但请求无响应”，已在 v1.12 完全移除。
+
+### 3.5 App → 设备公共字段（V1.14）
+
+所有 App/Web 发往设备的 `.../request` 与 `.../cmd` 报文，统一携带：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `client_id` | string | App/Web 的 MQTT client_id（持久化，经 `sanitize`）。与客户端 presence 主题 `client/{client_id}/online` 中的值一致。 |
+| `client_name` | string | 客户端展示名，如 `Web`、`Android Pixel 7`；与 presence 报文中的 `client_name` 一致。 |
+
+- 包括 `discovery/query/request`、查询请求、控制请求和 `.../cmd`；
+- 设备端当前不校验这两个字段，仅用于日志、审计和后续控制权租约；
+- 旧设备会忽略未知字段，旧客户端不携带时新设备也能正常处理。
 
 ---
 
@@ -1162,6 +1175,26 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 7. 变更记录
+
+### 2026-11-25：所有客户端请求补充 client_id / client_name（文档 v1.14）
+
+**变更类型**：非破坏性增量（请求报文新增字段，设备端忽略未知字段）。
+
+**变更内容**
+
+- 所有 App/Web 发往设备的 `.../request` 与 `.../cmd` 报文统一增加 `client_id` 与 `client_name`；
+  包括 `discovery/query/request`、`baseState`/`runState` 查询、视频/音频/录像动作和车控命令。
+- `client_id` 使用客户端持久化的 MQTT client_id（Web 存 localStorage，App 存 SharedPreferences），
+  与 presence 主题 `walle/{t}/client/{client_id}/online` 保持一致。
+- `client_name` 与 presence 报文一致：Web 为 `Web`，App 为 `Android <机型>`。
+- Android 在 `MqttManager.putRequestMeta()` 中统一注入；Web 在 `MqttWS.publish()` 中
+  对 `/request` 与 `/cmd` 主题统一注入。
+- 设备端暂不校验这两个字段，后续控制权租约直接复用。
+
+**影响与兼容性**：旧设备忽略新字段；旧客户端不携带时新设备也能正常工作。
+
+**验证方式**：抓取任意 `.../request` 或 `.../cmd` 报文，应包含 `client_id` 与 `client_name`；
+设备端日志中的字段与客户端 presence 报文一致。
 
 ### 2026-11-25：新增客户端在线状态 client/{client_id}/online（文档 v1.13）
 

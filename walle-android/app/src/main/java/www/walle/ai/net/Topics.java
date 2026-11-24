@@ -1,5 +1,7 @@
 package www.walle.ai.net;
 
+import android.os.Build;
+
 import www.walle.ai.BuildConfig;
 
 /**
@@ -22,4 +24,9 @@ public final class Topics {
 
     public static final int KEEP_ALIVE = 60;
     public static final int QOS = 1;
+
+    /** Android 客户端展示名；presence 与所有请求报文共用，保证两处一致。 */
+    public static String clientName() {
+        return ("Android " + (Build.MODEL == null ? "" : Build.MODEL)).trim();
+    }
 }

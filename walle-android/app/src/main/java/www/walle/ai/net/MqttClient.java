@@ -1,7 +1,6 @@
 package www.walle.ai.net;
 
 import android.content.Context;
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -341,7 +340,7 @@ public class MqttClient {
         try {
             JSONObject body = new JSONObject();
             body.put("client_id", TopicNames.sanitize(clientIdNow()));
-            body.put("client_name", ("Android " + (Build.MODEL == null ? "" : Build.MODEL)).trim());
+            body.put("client_name", Topics.clientName());
             body.put("version_code", BuildConfig.VERSION_CODE);
             body.put("version_name", BuildConfig.VERSION_NAME);
             body.put("online", online);

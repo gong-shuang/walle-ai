@@ -224,7 +224,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
         try {
-            body.put("request_id", rid);
+            putRequestMeta(body, rid);
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_VIDEO_START,
@@ -241,7 +241,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
         try {
-            body.put("request_id", rid);
+            putRequestMeta(body, rid);
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_CAPABILITY,
@@ -259,7 +259,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         JSONObject body = new JSONObject();
         try {
             if (roomNumber != null && !roomNumber.isEmpty()) body.put("room_number", roomNumber);
-            body.put("request_id", rid);
+            putRequestMeta(body, rid);
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_VIDEO_STOP,
@@ -290,7 +290,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         JSONObject body = new JSONObject();
         try {
             body.put("room_number", room);
-            body.put("request_id", rid);
+            putRequestMeta(body, rid);
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_PHONE_AUDIO_SEND,
@@ -310,7 +310,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
             if (roomNumber != null && !roomNumber.trim().isEmpty()) {
                 body.put("room_number", roomNumber.trim());
             }
-            body.put("request_id", rid);
+            putRequestMeta(body, rid);
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_PHONE_AUDIO_STOP,
@@ -349,7 +349,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
             move.put("right", right);
             rotate.put("left", rotateLeft);
             rotate.put("right", rotateRight);
-            body.put("request_id", rid);
+            putRequestMeta(body, rid);
             body.put("move", move);
             body.put("rotate", rotate);
         } catch (JSONException ignore) {
@@ -398,7 +398,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
         try {
-            body.put("request_id", rid);
+            putRequestMeta(body, rid);
             body.put("ids", idArray);
             body.put("include_offset", includeOffset);
         } catch (JSONException ignore) {
@@ -455,7 +455,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
         try {
-            body.put("request_id", rid);
+            putRequestMeta(body, rid);
             body.put("servos", servos);
             body.put("duration", duration);
         } catch (JSONException ignore) {
@@ -487,7 +487,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
         try {
-            body.put("request_id", rid);
+            putRequestMeta(body, rid);
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_DISCOVERY, TopicNames.discoveryQuery(tenant), body.toString());
@@ -504,7 +504,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
         try {
-            body.put("request_id", rid);
+            putRequestMeta(body, rid);
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_STATE,
@@ -527,6 +527,13 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         String deviceId = payload.optString("device_id", "");
         if (deviceId.isEmpty()) return true;
         return TopicNames.sanitize(deviceId).equals(deviceSegment(deviceKey));
+    }
+
+    /** 所有 App → 设备请求/命令的公共字段：request_id + client_id + client_name。 */
+    private void putRequestMeta(JSONObject body, String rid) throws JSONException {
+        body.put("request_id", rid);
+        body.put("client_id", TopicNames.sanitize(config == null ? "" : config.clientId));
+        body.put("client_name", Topics.clientName());
     }
 
     private static String newRequestId() {

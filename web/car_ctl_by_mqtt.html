@@ -826,13 +826,14 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     }
     return id;
   }
+  function clientName() { return 'Web'; }
   function clientOnlineTopic() {
     return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/client/' + clientIdNow() + '/online';
   }
   function clientPresencePayload(online) {
     return {
       client_id: clientIdNow(),
-      client_name: 'Web',
+      client_name: clientName(),
       version_code: WEB_VERSION_CODE,
       version_name: WEB_VERSION_NAME,
       online: online === true,
@@ -922,7 +923,15 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (!this.connected) return false;
     var id = this.next();
     var first = 0x32 | (retain ? 0x01 : 0x00);   // PUBLISH QoS1 + 可选 retain
-    this.ws.send(packet(first, [strField(topic), new Uint8Array([id >> 8, id & 255]), new Uint8Array([0]), u8(JSON.stringify(payload))]));
+    // 所有发给设备的 .../request 与 .../cmd 统一补 client_id / client_name
+    var body = payload;
+    if (/(\/request|\/cmd)$/.test(topic) && payload && typeof payload === 'object') {
+      body = Object.assign({}, payload, {
+        client_id: clientIdNow(),
+        client_name: clientName()
+      });
+    }
+    this.ws.send(packet(first, [strField(topic), new Uint8Array([id >> 8, id & 255]), new Uint8Array([0]), u8(JSON.stringify(body))]));
     return true;
   };
   MqttWS.prototype.subAll = function () {
