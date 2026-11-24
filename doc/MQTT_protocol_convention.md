@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.10）
+# MQTT 协议约定（文档版本 v1.11）
 
 > 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`；ROS2 车控为
 > `walle-device/ros2_ws/src/net/net_mqtt_bridge`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
-> - 本文档的版本：v1.10 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.11 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -55,7 +55,7 @@ walle/{tenant}/device/{device}/{resource}
 视频语音功能：
 | # | 协议 | App → 设备（请求） | 设备 → App（应答/上报） | 类型 | 版本 | 备注 |
 |---|---|---|---|---|---|---|
-| 1 | 开始推流 | `walle/{t}/device/{d}/video/start/request` | `walle/{t}/device/{d}/video/start/response` | 请求-应答 | v1.0 |  |
+| 1 | 开始推流 | `walle/{t}/device/{d}/video/start/request` | `walle/{t}/device/{d}/video/start/response` | 请求-应答 | v1.11 | v1.11 请求去掉 video_device/room_number，设备端用默认摄像头并自动生成 8 位房间号 |
 | 2 | 停止推流 | `walle/{t}/device/{d}/video/stop/request` | `walle/{t}/device/{d}/video/stop/response` | 请求-应答 | v1.0 |  |
 | 3 | 手机音频上行·开 | `walle/{t}/device/{d}/phone/audio/send/request` | `walle/{t}/device/{d}/phone/audio/send/response` | 单向动作（App 不订阅应答） | v1.0 |  |
 | 4 | 手机音频上行·关 | `walle/{t}/device/{d}/phone/audio/stop/request` | `walle/{t}/device/{d}/phone/audio/stop/response` | 单向动作（App 不订阅应答） | v1.0 |  |
@@ -352,9 +352,9 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 推流/手机音频复用进程状态，录像复用录像节点状态，电机/舵机由车控节点维护，
 电池/声呐复用传感器最新采样。
 
-### 4.5 开始推流 video/start/request → video/start/response（V1.0）
+### 4.5 开始推流 video/start/request → video/start/response（V1.11）
 
-**作用**：让设备端用 ffmpeg 把摄像头画面推到流媒体服务（RTMP），App 拿到
+**作用**：让设备端用默认摄像头推流到流媒体服务（RTMP），客户端从应答中拿到
 `room_number` 后拼 WHEP 地址拉流播放（`BuildConfig.WHEP_URL_TEMPLATE`）。
 
 - 请求：`walle/{t}/device/{d}/video/start/request`
@@ -365,28 +365,35 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 | 字段 | 必填 | 校验 |
 |---|---|---|
 | `uuid` | 是 | 不匹配静默忽略 |
-| `video_device` | 是 | 必须匹配 `^/dev/video\d+$` 且节点存在，否则 `result=-1` |
-| `room_number` | 是 | 1–64 位 `[A-Za-z0-9_-]`（要拼进 RTMP URL，严格白名单），非法 `result=-2` |
 | `request_id` | 是 | 配对用 |
+
+**V1.11 变更（重要）**：请求不再包含 `video_device` / `room_number`。
+
+- 摄像头由设备端固定使用默认设备（ROS2 `video_webrtc_bridge` 的 `camera_device`；
+  linux-demo 的 `CAMERA_DEVICE`，未配置时取探测到的第一个 USB 采集节点）；
+- 房间号由设备端自动生成 **8 位随机字符**（小写字母 + 数字），客户端不得自行指定，
+  也不能缓存旧房间号发起推流。
+
+处理语义：
+
+- 当前**没有推流**：用默认摄像头开始推流，并在应答里返回新生成的 `room_number`；
+  设备没有可用摄像头时返回 `result=-1`；
+- 当前**已在推流**：直接返回 `result=0`、`action=already_streaming` 和当前
+  `room_number`，不重连、不重启、不切换摄像头。
 
 应答字段：
 
 | 字段 | 说明 |
 |---|---|
-| `result` | **0** 成功 / **-1** 没有此摄像头设备 / **-2** 命令执行失败（能力关闭、参数非法、ffmpeg 启动失败） |
-| `cause` | 可读原因：`ok` / `没有此摄像头设备` / `命令执行失败` |
-| `video_device` / `room_number` / `request_id` | 回显 |
-| `action` | `started` / `restarted` / `already_streaming` / `failed` |
+| `result` | **0** 成功（新启动或已在推流）/ **-1** 此设备没有摄像头 / **-2** 命令执行失败（能力关闭、未配置 secret、等待图像超时、编码进程启动失败） |
+| `cause` | 可读原因：`ok` / `此设备没有摄像头` / `命令执行失败` |
+| `video_device` | 实际使用的默认摄像头（没有摄像头时可能为 null） |
+| `room_number` | 设备生成的 8 位房间号（成功时必有，客户端必须用它拼 WHEP 地址） |
+| `request_id` | 原样回显 |
+| `action` | `started` / `already_streaming` / `failed` |
 | `rtmp_url` | **已脱敏**（secret 打码），仅用于日志展示 |
-| `pid`、`started_at`、`startup_grace_sec` | 进程信息 |
-| `previous_room_number` / `previous_video_device` | `restarted` 时的旧值 |
+| `pid`、`started_at`、`startup_grace_sec` | 进程信息（`already_streaming` 时是当前流的） |
 | `error` | `failed` 时的具体错误 |
-
-**房间号复用语义（重要）**：
-
-- 请求参数与当前推流**完全一致**（同 device 同 room）→ 回 `result=0, action=already_streaming`，**不重连不重启**；
-- 任一参数不同 → 先停旧流再用新参数推（同一时刻设备只有一路流）；
-- 因此 App 切换摄像头时**复用同一 room_number**，避免 WHEP 侧重新协商导致黑屏。
 
 ### 4.6 停止推流 video/stop/request → video/stop/response（V1.0）
 
@@ -1113,6 +1120,32 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 7. 变更记录
+
+### 2026-11-24：video/start 请求去掉 video_device / room_number（文档 v1.11）
+
+**变更类型**：破坏性变更（请求字段删减 + 设备端行为调整，不保留兼容）。
+
+**变更内容**
+
+- `video/start/request` 只保留 `{uuid, request_id}`，删除 `video_device`、`room_number`。
+- 摄像头由设备端固定使用默认设备：ROS2 用 `video_webrtc_bridge` 的 `camera_device`，
+  linux-demo 用 `CAMERA_DEVICE`（未配置时取探测到的第一个 USB 采集节点）。
+- 房间号由设备端自动生成 8 位随机字符（小写字母 + 数字），并在
+  `video/start/response.room_number` 返回；客户端必须用它拼 WHEP 地址。
+- 当前未推流：用默认摄像头开始推流；没有摄像头返回 `result=-1`。
+- 当前已在推流：直接返回 `result=0`、`action=already_streaming` 和当前 `room_number`，
+  不再停流重启，也不再支持通过本主题切换摄像头。
+- Android（`MqttManager` / 控制页 / 全屏页）、Web 控制页、设备端
+  （`video_webrtc_bridge` / `net_mqtt_bridge` / linux-demo）同步调整；
+  旧客户端仍可发请求（多余字段被忽略），但会因使用自己生成的房间号而拉不到流。
+
+**影响与兼容性**：App、Web、设备端必须同版本部署；旧版客户端无法正确播放新推流。
+
+**验证方式**：`pytest -q walle-device/ros2_ws/src/video/video_webrtc_bridge/test`；
+`python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test`；
+`cd walle-device/linux-demo && python3 -m unittest discover -s test -t .`；
+实机发送 `{uuid, request_id}` 应收到含 8 位 `room_number` 的应答，
+再次发送应返回 `already_streaming` 与同一 `room_number`。
 
 ### 2026-11-24：设备能力查询改为运行状态查询 runState（文档 v1.10）
 

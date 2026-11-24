@@ -189,29 +189,8 @@ public class PlayerViewModel extends MqttViewModel {
      */
     public void selectCamera(int position) {
         if (position < 0 || position >= cameras.size()) return;
-        String node = cameras.get(position).node;
-        if (node.isEmpty()) return;
-        if (waiting) {
-            // 切换在途：忽略新选择，仅重发一次状态让 spinner 弹回
-            publish();
-            return;
-        }
-        if (node.equals(currentCamera)) {
-            publish();
-            return;
-        }
-        MqttManager.VideoRequest req = mgr.startVideoStream(deviceKey, node, room);
-        if (req == null || !req.isSent()) {
-            status = "摄像头切换请求未发出";
-            publish();
-            return;
-        }
-        pendingCamera = currentCamera;
-        currentCamera = node;
-        waitingRid = orEmpty(req.requestId);
-        waiting = true;
-        status = "正在切换摄像头…";
-        handler.postDelayed(switchTimeout, SWITCH_TIMEOUT_MS);
+        // V1.11：设备端固定使用默认摄像头，App 端不再支持切换
+        status = "设备端自动选择摄像头，不支持切换";
         publish();
     }
 

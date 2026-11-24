@@ -4,6 +4,8 @@
 import logging
 import os
 import re
+import secrets
+import string
 import subprocess
 import threading
 import time
@@ -28,8 +30,6 @@ class MonitorVideoMixin:
             "uuid": config.DEVICE_UUID,
             "hostname": HOSTNAME,
             "ip": self.lan_ip,
-            "video_device": req.get("video_device"),
-            "room_number": req.get("room_number"),
             "request_id": self._rid(req),
             "result": result_code,
             "cause": cause,
@@ -239,84 +239,46 @@ class MonitorVideoMixin:
                          daemon=True, name="video-watch").start()
         return proc, None
 
+    @staticmethod
+    def _new_room_number():
+        """设备端生成 8 位随机房间号（小写字母 + 数字）。"""
+        alphabet = string.ascii_lowercase + string.digits
+        return "".join(secrets.choice(alphabet) for _ in range(8))
+
+    def _default_camera_node(self):
+        """默认摄像头：优先 CAMERA_DEVICE，否则取探测到的第一个 USB 采集节点。"""
+        if CAMERA_DEVICE:
+            return CAMERA_DEVICE
+        cameras, error = self.cameras_cached()
+        if cameras:
+            return cameras[0]["node"]
+        logging.warning("未发现可用的默认摄像头：%s", error or "无 /dev/videoN")
+        return ""
+
     def handle_video_request(self, payload):
         # 该主题必须校验 uuid
         ok, data = self.verify_uuid(payload, REQ_VIDEO_START)
         if not ok:
             return
 
-        video_device = str(data.get("video_device") or "").strip()
-        room_number = str(data.get("room_number") or "").strip()
-        # 注意：这里曾重建 dict 时漏掉 request_id，导致应答回显成空串、App 严格配对后丢弃结果
-        req = self._video_req(data, video_device, room_number)
+        # V1.11：请求只带 uuid + request_id，摄像头与房间号都由设备端决定
+        req = self._video_req(data)
 
         if not VIDEO_ENABLE:
             self._publish_video_result(req, -2, "命令执行失败",
                                        {"error": "推流能力已关闭（VIDEO_ENABLE=False）"})
             return
 
-        # 1) 摄像头设备是否存在 + USB 采集节点/分辨率 preflight
-        if not video_device or not os.path.exists(video_device):
-            self._publish_video_result(
-                req, -1, "没有此摄像头设备",
-                {"error": f"设备节点不存在: {video_device or '<空>'}",
-                 "cameras": self.camera_nodes()})
-            return
-        ok_cam, cam_error = camera_preflight(video_device)
-        if not ok_cam:
-            self._publish_video_result(
-                req, -1, "没有此摄像头设备",
-                {"error": cam_error, "cameras": self.camera_nodes()})
-            return
-        video_size, size_note = pick_video_size(video_device)
-        if not video_size:
-            self._publish_video_result(
-                req, -1, "没有此摄像头设备",
-                {"error": size_note, "cameras": self.camera_nodes()})
-            return
-        if size_note:
-            logging.warning("%s", size_note)
-        encoder, encoder_note = pick_video_encoder()
-        if encoder_note:
-            logging.warning("%s", encoder_note)
-        logging.info("推流参数: %s %s %s", video_size, encoder, VIDEO_BITRATE)
-
-        # 2) 房间号白名单（要拼进 RTMP URL，必须严格校验）
-        if not re.match(VIDEO_ROOM_PATTERN, room_number):
-            self._publish_video_result(
-                req, -2, "命令执行失败",
-                {"error": "room_number 不合法（只允许 1-64 位字母/数字/下划线/短横线）"})
-            return
-
-        # 2.1) Oryx 推流 secret：每台服务器不同，部署时用 MEDIA_SERVER_SECRET 注入。
-        #      没配置时不提前拦下，ffmpeg 会因为鉴权失败一直重连，看起来像“推流成功但黑屏”。
-        ok_url, url_error = rtmp_url_ready()
-        if not ok_url:
-            self._publish_video_result(req, -2, "命令执行失败", {"error": url_error})
-            return
-        rtmp_url = build_rtmp_url(room_number)
-        masked_rtmp = mask_rtmp_url(rtmp_url)
-
-        # 3) 已有推流时：video_device 和 room_number 都一样 → 不处理（不重连、不重启）
-        #    任一不同 → 停掉旧的，用新参数重新推流
+        # 1) 已在推流：直接返回当前房间号，不重连、不重启
         with self.video_lock:
             cur_proc = self.video_proc
             cur_meta = dict(self.video_meta)
-        streaming = bool(cur_proc is not None and cur_proc.poll() is None)
-        if streaming and (
-            cur_meta.get("video_device") == video_device
-            and cur_meta.get("room_number") == room_number
-        ):
-            logging.info(
-                "推流请求与当前推流一致（device=%s room=%s），不重复推流",
-                video_device, room_number,
-            )
+        if cur_proc is not None and cur_proc.poll() is None:
             self._publish_video_result(req, 0, "ok", {
                 "action": "already_streaming",
-                "note": "相同 video_device 和 room_number 已在推流，本次不做处理",
-                "video_device": video_device,
-                "room_number": room_number,
-                "rtmp_url": masked_rtmp,
+                "video_device": cur_meta.get("video_device"),
+                "room_number": cur_meta.get("room_number"),
+                "rtmp_url": cur_meta.get("rtmp_url"),
                 "video_size": cur_meta.get("video_size"),
                 "encoder": cur_meta.get("encoder"),
                 "pid": cur_meta.get("pid"),
@@ -328,10 +290,52 @@ class MonitorVideoMixin:
             })
             return
 
-        # 3.1) 参数有变化（或旧进程已退出）：先停旧的，保证同一时刻只有一路推流
-        previous_room = cur_meta.get("room_number") if streaming else None
-        previous_device = cur_meta.get("video_device") if streaming else None
-        self._stop_video_stream("收到新的推流请求")
+        # 2) 没有推流：使用默认摄像头；没有摄像头直接返回 -1
+        video_device = self._default_camera_node()
+        if not video_device or not os.path.exists(video_device):
+            self._publish_video_result(
+                req, -1, "没有此摄像头设备",
+                {"video_device": video_device or None, "room_number": None,
+                 "error": f"设备节点不存在: {video_device or '<空>'}",
+                 "cameras": self.camera_nodes()})
+            return
+        ok_cam, cam_error = camera_preflight(video_device)
+        if not ok_cam:
+            self._publish_video_result(
+                req, -1, "没有此摄像头设备",
+                {"video_device": video_device, "room_number": None,
+                 "error": cam_error, "cameras": self.camera_nodes()})
+            return
+        video_size, size_note = pick_video_size(video_device)
+        if not video_size:
+            self._publish_video_result(
+                req, -1, "没有此摄像头设备",
+                {"video_device": video_device, "room_number": None,
+                 "error": size_note, "cameras": self.camera_nodes()})
+            return
+        if size_note:
+            logging.warning("%s", size_note)
+        encoder, encoder_note = pick_video_encoder()
+        if encoder_note:
+            logging.warning("%s", encoder_note)
+        logging.info("推流参数: %s %s %s", video_size, encoder, VIDEO_BITRATE)
+
+        # 3) 房间号由设备端生成（要拼进 RTMP URL，必须过白名单）
+        room_number = self._new_room_number()
+        if not re.match(VIDEO_ROOM_PATTERN, room_number):
+            self._publish_video_result(
+                req, -2, "命令执行失败",
+                {"error": "生成的 room_number 不合法"})
+            return
+
+        # 3.1) Oryx 推流 secret：每台服务器不同，部署时用 MEDIA_SERVER_SECRET 注入。
+        #      没配置时不提前拦下，ffmpeg 会因为鉴权失败一直重连，看起来像“推流成功但黑屏”。
+        ok_url, url_error = rtmp_url_ready()
+        if not ok_url:
+            self._publish_video_result(req, -2, "命令执行失败", {"error": url_error})
+            return
+        rtmp_url = build_rtmp_url(room_number)
+        masked_rtmp = mask_rtmp_url(rtmp_url)
 
         # 4) 检测麦克风：有可用录音源就带上声音，否则纯视频（-an）
         audio = detect_microphone()
@@ -345,6 +349,8 @@ class MonitorVideoMixin:
         proc, err = self._start_video_stream(
             video_device, room_number, audio, rtmp_url, video_size, encoder)
         extra = {
+            "video_device": video_device,
+            "room_number": room_number,
             "rtmp_url": masked_rtmp,
             "video_size": video_size,
             "framerate": VIDEO_FRAMERATE,
@@ -356,11 +362,7 @@ class MonitorVideoMixin:
             "pid": proc.pid if proc else None,
             "audio": audio,
         }
-        extra["action"] = "restarted" if previous_room else "started"
-        if previous_room:
-            extra["previous_room_number"] = previous_room
-        if previous_device:
-            extra["previous_video_device"] = previous_device
+        extra["action"] = "started"
         if proc is None:
             extra["action"] = "failed"
             extra["error"] = err

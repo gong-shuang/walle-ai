@@ -86,7 +86,7 @@ public class ControlViewModel extends MqttViewModel {
         }
 
         public boolean canPlay() {
-            return !cameras.isEmpty() && connected && hasDevice;
+            return connected && hasDevice;
         }
     }
 
@@ -251,7 +251,8 @@ public class ControlViewModel extends MqttViewModel {
         audioPlayback = cap.audioPlayback;
         if (cameras.isEmpty()) {
             selectedNode = "";
-            status = app().getString(R.string.video_no_camera);
+            // V1.11：摄像头由设备端在收到 video/start 时自动选择，这里不再要求能力里有摄像头
+            status = app().getString(R.string.video_tap_to_play);
             if (!cap.probeError.isEmpty()) Log.w(TAG, "探测异常: " + cap.probeError);
         } else {
             selectedNode = cameras.get(0).node;
@@ -264,22 +265,7 @@ public class ControlViewModel extends MqttViewModel {
 
     public void selectCamera(String node) {
         if (node == null || node.isEmpty() || node.equals(selectedNode)) return;
-        if (pendingCamera != null) return;          // 切换中，忽略再次选择
-
-        if (phase == Phase.LIVE && !activeRoom.isEmpty()) {
-            MqttManager.VideoRequest req = mgr.startVideoStream(activeUuid, node, activeRoom);
-            if (!req.isSent()) {
-                emit(toast, "摄像头切换请求未发出");
-                return;
-            }
-            pendingCamera = node;
-            pendingSwitchRid = req.requestId;
-            phase = Phase.SWITCHING;
-            status = "正在切换摄像头…";
-            armTimeout();
-            publish();
-            return;
-        }
+        // V1.11：设备端固定使用默认摄像头，不再支持 App 端切换
         selectedNode = node;
         publish();
     }
@@ -294,22 +280,17 @@ public class ControlViewModel extends MqttViewModel {
             emit(toast, app().getString(R.string.video_no_device));
             return;
         }
-        CameraCapability.Camera cam = selectedCamera();
-        if (cam == null) {
-            emit(toast, app().getString(R.string.video_no_camera));
+        // V1.11：请求只带 uuid + request_id，摄像头与房间号由设备端决定
+        String rid = mgr.startVideoStream(uuid);
+        if (rid.isEmpty()) {
             return;
         }
         activeUuid = uuid;
-        MqttManager.VideoRequest req = mgr.startVideoStream(uuid, cam.node);
-        if (!req.isSent()) {
-            activeUuid = "";
-            return;
-        }
-        activeRoom = req.room;
-        activeCamera = cam.node;
-        pendingStartRid = req.requestId;
+        activeRoom = "";
+        activeCamera = "";
+        pendingStartRid = rid;
         phase = Phase.STARTING;
-        status = app().getString(R.string.video_starting, activeRoom);
+        status = app().getString(R.string.video_starting);
         armTimeout();
         publish();
     }
@@ -353,11 +334,21 @@ public class ControlViewModel extends MqttViewModel {
 
         pendingStartRid = "";
         if (result == 0) {
-            String room = payload.optString("room_number", activeRoom);
-            if (room.isEmpty()) room = activeRoom;
-            activeRoom = room;
-            phase = Phase.LIVE;
-            status = "● 推流中";
+            // V1.11：房间号由设备端生成，必须从应答里取
+            String room = payload.optString("room_number", "");
+            if (room.isEmpty()) {
+                activeUuid = "";
+                activeRoom = "";
+                activeCamera = "";
+                phase = Phase.IDLE;
+                status = app().getString(R.string.video_start_failed, "设备未返回 room_number");
+            } else {
+                activeRoom = room;
+                String camera = payload.optString("video_device", "");
+                if (!camera.isEmpty()) activeCamera = camera;
+                phase = Phase.LIVE;
+                status = "● 推流中";
+            }
         } else {
             activeUuid = "";
             activeRoom = "";
@@ -471,13 +462,6 @@ public class ControlViewModel extends MqttViewModel {
         phase = Phase.IDLE;
         status = app().getString(R.string.video_tap_to_play);
         publish();
-    }
-
-    public CameraCapability.Camera selectedCamera() {
-        for (CameraCapability.Camera c : cameras) {
-            if (c.node.equals(selectedNode)) return c;
-        }
-        return cameras.isEmpty() ? null : cameras.get(0);
     }
 
     private void armTimeout() {

@@ -92,13 +92,8 @@ def test_verify_uuid_rejects_invalid_payload(device_uuid, payload):
 
 def test_video_request_keeps_request_id():
     monitor = object.__new__(RpiMonitor)
-    req = monitor._video_req(
-        {"request_id": "req-2"}, "/dev/video0", "room1")
-    assert req == {
-        "video_device": "/dev/video0",
-        "room_number": "room1",
-        "request_id": "req-2",
-    }
+    req = monitor._video_req({"request_id": "req-2"})
+    assert req == {"request_id": "req-2"}
 
 
 def test_subscriptions_cover_all_requests_with_layer_patterns():

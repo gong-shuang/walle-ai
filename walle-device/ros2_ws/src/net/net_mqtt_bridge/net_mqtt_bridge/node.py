@@ -13,7 +13,6 @@ MQTT 协议入口（唯一 MQTT 客户端）：
 
 import logging
 import os
-import re
 import threading
 import time
 
@@ -336,30 +335,18 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
         return box.get('response')
     # ------------------------------------------------------------------ 推流请求
     def _handle_video_start(self, payload):
+        # V1.11：请求只带 uuid + request_id；默认摄像头与房间号都由设备端决定
         ok, data = self.agent.verify_uuid(
             payload, self._agent_mod.REQ_VIDEO_START)
         if not ok:
             return
 
-        video_device = str(data.get('video_device') or '').strip()
-        room_number = str(data.get('room_number') or '').strip()
-        req = self.agent._video_req(data, video_device, room_number)
+        req = self.agent._video_req(data)
 
         if not self._agent_mod.VIDEO_ENABLE:
             self.agent._publish_video_result(
                 req, -2, '命令执行失败',
                 {'error': '推流能力已关闭（VIDEO_ENABLE=False）'})
-            return
-        if (not re.match(r'^/dev/video\d+$', video_device)
-                or not os.path.exists(video_device)):
-            self.agent._publish_video_result(
-                req, -1, '没有此摄像头设备',
-                {'error': '设备节点不存在: %s' % (video_device or '<空>')})
-            return
-        if not re.match(self._agent_mod.VIDEO_ROOM_PATTERN, room_number):
-            self.agent._publish_video_result(
-                req, -2, '命令执行失败',
-                {'error': 'room_number 不合法（只允许 1-64 位字母/数字/下划线/短横线）'})
             return
         if not self._agent_mod.rtmp_secret_ready():
             self.agent._publish_video_result(
@@ -369,8 +356,6 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
 
         srv_req = VideoStreamControl.Request()
         srv_req.start = True
-        srv_req.video_device = video_device
-        srv_req.room_number = room_number
         resp = self._call_video(srv_req)
         if resp is None:
             self.agent._publish_video_result(
@@ -381,6 +366,8 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
 
         extra = {
             'action': resp.action or ('failed' if resp.result != 0 else 'started'),
+            'video_device': resp.video_device or None,
+            'room_number': resp.room_number or None,
             'rtmp_url': resp.rtmp_url or None,
             'command': resp.command or None,
             'pid': int(resp.pid) if resp.pid > 0 else None,
@@ -394,16 +381,9 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
                 'bitrate': resp.audio_bitrate or None,
                 'reason': resp.audio_reason or None,
             },
-            'video_device': video_device,
-            'room_number': room_number,
         }
         if resp.started_ts > 0:
             extra['uptime_sec'] = round(time.time() - resp.started_ts, 1)
-        if resp.action == 'already_streaming':
-            extra['note'] = '相同 video_device 和 room_number 已在推流，本次不做处理'
-        if resp.action == 'restarted':
-            extra['previous_room_number'] = resp.previous_room_number or None
-            extra['previous_video_device'] = resp.previous_video_device or None
         if resp.result != 0:
             extra['action'] = resp.action or 'failed'
             extra['error'] = resp.error or resp.cause or '未知错误'

@@ -794,7 +794,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 
   var ui = { online: false, uuid: '', devices: {}, state: {}, cap: {}, pendingVideo: null,
     pendingCap: null, capRefreshing: false, pendingVideoStop: null, discoveryRid: '',
-    video: { pc: null, location: '', room: '', camera: '', lastAlarmKey: '', connected: false, streaming: false, uiStreaming: null },
+    video: { pc: null, location: '', room: '', lastAlarmKey: '', connected: false, streaming: false, uiStreaming: null },
     mic: { on: false, starting: false, pc: null, stream: null, ac: null, analyser: null,
       raf: 0, room: '', location: '' },
     car: { held: {}, timer: null, wasActive: false },
@@ -1243,7 +1243,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         ui.video.room = String(video.room_number);
         cfg.videoRoom = ui.video.room; saveCfg();
       }
-      if (video.video_device) ui.video.camera = video.video_device;
     }
     renderRunState();
     applyVideoUi();
@@ -1347,7 +1346,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     el.btnVideoStop.className = 'btn' + (streaming ? ' danger' : '');
     el.btnVideoStop.title = streaming ? '停止设备推流并关闭本页 WHEP 画面' : '设备未推流，无需停止';
     updateVideoRefreshButton();
-    if (!streaming && !ui.video.pc) el.videoHint.textContent = '设备当前未推流。选择摄像头后点「开始推流」。';
+    if (!streaming && !ui.video.pc) el.videoHint.textContent = '设备当前未推流。点「开始推流」由设备使用默认摄像头推流。';
     else if (streaming && !ui.video.pc) el.videoHint.textContent = '设备正在推流' + (rm ? '（room ' + rm + '）' : '') + '，点「连接画面」接管。';
     if (ui.video.uiStreaming !== streaming) {
       ui.video.uiStreaming = streaming;
@@ -1380,18 +1379,14 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (ui.video.streaming === true) { setVideoMsg('设备已在推流，无需重复开始；请直接连接画面', 'ok'); applyVideoUi(); return; }
     if (!mqtt || !mqtt.connected || !cfg.device) { setVideoMsg('MQTT 未连接或未选择设备', 'err'); return; }
     if (!ui.uuid) { setVideoMsg('尚未取得设备 uuid', 'err'); return; }
-    var cam = ui.video.camera || ((ui.cap.cameras || []).filter(function (c) { return c && c.node; })[0] || {}).node;
-    if (!cam) { setVideoMsg('没有可用摄像头（runState/query/response 为空）', 'err'); return; }
-    var rm = (ui.video.room || room()).trim();
-    if (!/^[A-Za-z0-9_-]{1,64}$/.test(rm)) { setVideoMsg('房间号必须为 1–64 位字母、数字、_ 或 -', 'err'); return; }
-    ui.video.room = rm; cfg.videoRoom = rm; saveCfg();
+    // V1.11：请求不再带 video_device / room_number，摄像头与房间号均由设备端决定
     var id = rid();
     if (!mqtt.publish(base(cfg.device) + '/video/start/request',
-      { uuid: ui.uuid, video_device: cam, room_number: rm, request_id: id })) {
+      { uuid: ui.uuid, request_id: id })) {
       setVideoMsg('video/start/request 发送失败', 'err'); return;
     }
     if (ui.pendingVideo) clearTimeout(ui.pendingVideo.timer);
-    setVideoMsg('已请求推流：' + cam + ' · room ' + rm + '，等待 result…', null);
+    setVideoMsg('已请求设备推流（使用默认摄像头），等待 room_number…', null);
     ui.pendingVideo = { rid: id, timer: setTimeout(function () {
       if (!ui.pendingVideo) return;
       ui.pendingVideo = null;
@@ -1405,11 +1400,12 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (ui.pendingVideo) { clearTimeout(ui.pendingVideo.timer); ui.pendingVideo = null; }
     if (data.result === 0) {
       ui.video.streaming = true;
-      ui.video.room = data.room_number || ui.video.room || room();
-      cfg.videoRoom = ui.video.room; saveCfg();
-      if (data.video_device) ui.video.camera = data.video_device;
+      var rm = String(data.room_number || ui.video.room || '').trim();
+      ui.video.room = rm;
+      if (rm) { cfg.videoRoom = rm; saveCfg(); }
       applyVideoUi();
-      setVideoMsg('推流成功（' + (data.action || 'started') + ' · room ' + ui.video.room + '）。点「连接画面」开始拉流。', 'ok');
+      var act = data.action === 'already_streaming' ? '设备已在推流' : '推流成功';
+      setVideoMsg(act + '（room ' + (rm || '—') + '）。点「连接画面」开始拉流。', 'ok');
       queryState();
     } else {
       applyVideoUi();
@@ -1420,7 +1416,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function videoStop() {
     if (!mqtt || !mqtt.connected || !cfg.device) { setVideoMsg('MQTT 未连接或未选择设备', 'err'); return; }
     if (!ui.uuid) { setVideoMsg('尚未取得设备 uuid', 'err'); return; }
-    var rm = ui.video.room || room();
+    var rm = String(ui.video.room || '').trim();
     var id = rid();
     var payload = { uuid: ui.uuid, request_id: id };
     if (rm) payload.room_number = rm;
@@ -2813,8 +2809,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   el.btnVideoAction.addEventListener('click', function () {
     if (ui.video.pc) { closeWhep(true); setVideoMsg('已断开 WHEP 会话', null); return; }
     if (ui.video.streaming !== true) { videoStart(); return; }
-    var rm = (ui.video.room || room()).trim();
-    if (!/^[A-Za-z0-9_-]{1,64}$/.test(rm)) { setVideoMsg('请先填写合法房间号，或点「开始推流」启动', 'err'); return; }
+    var rm = String(ui.video.room || '').trim();
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(rm)) { setVideoMsg('尚未取得设备的 room_number，请点「刷新」重新查询运行状态', 'err'); return; }
     ui.video.room = rm; cfg.videoRoom = rm; saveCfg();
     startWhep(rm);
   });

@@ -10,8 +10,6 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.List;
-import java.util.Locale;
-import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -70,21 +68,6 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         default void onDeliveryError(String kind, String error) {}
     }
 
-    /** 一次视频请求：request_id 用于结果配对，room 为空表示请求未发出。 */
-    public static final class VideoRequest {
-        public final String requestId;
-        public final String room;
-
-        VideoRequest(String requestId, String room) {
-            this.requestId = requestId;
-            this.room = room;
-        }
-
-        public boolean isSent() {
-            return !room.isEmpty();
-        }
-    }
-
     private static volatile MqttManager instance;
 
     public static MqttManager get(Context ctx) {
@@ -108,10 +91,6 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     private volatile MqttConfig config;
     /** 租户标识 = MQTT 用户名（清洗后）。 */
     private volatile String tenant = "";
-
-    /** 全局保存的推流房间号（6 位数字），控制页每次发起推流时生成，后续拉流复用。 */
-    private volatile String videoRoomNumber = "";
-    private final Random roomRandom = new Random();
 
     private MqttManager(Context ctx) {
         this.appCtx = ctx;
@@ -236,12 +215,25 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
 
     // ---------------------------------------------------------------- 请求（App → 设备）
 
-    /** 最近一次生成并下发给设备的 room_number，未发起过推流时为空串。 */
-    public String getVideoRoomNumber() {
-        return videoRoomNumber;
+    /** 开始推流：设备端自动使用默认摄像头并生成 8 位房间号。返回本次 request_id。 */
+    public String startVideoStream(String uuid) {
+        if (uuid == null || uuid.isEmpty()) {
+            notifyDeliveryError(TopicNames.KIND_VIDEO_START, "请先在设备页选择设备");
+            return "";
+        }
+        final String rid = newRequestId();
+        JSONObject body = new JSONObject();
+        try {
+            body.put("uuid", uuid);
+            body.put("request_id", rid);
+        } catch (JSONException ignore) {
+        }
+        client.publish(TopicNames.KIND_VIDEO_START,
+                TopicNames.videoStartRequest(tenant, deviceSegment(uuid)), body.toString());
+        return rid;
     }
 
-    /** 查询指定设备的摄像头能力。返回本次 request_id。 */
+    /** 查询指定设备的运行状态（含音频能力）。返回本次 request_id。 */
     public String requestCapability(String uuid) {
         if (uuid == null || uuid.isEmpty()) {
             notifyDeliveryError(TopicNames.KIND_CAPABILITY, "请先在设备页选择设备");
@@ -257,46 +249,6 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         client.publish(TopicNames.KIND_CAPABILITY,
                 TopicNames.capabilityQuery(tenant, deviceSegment(uuid)), body.toString());
         return rid;
-    }
-
-    public VideoRequest startVideoStream(String uuid, String videoDevice) {
-        return startVideoStream(uuid, videoDevice, null);
-    }
-
-    /**
-     * 开始推流，可指定房间号。
-     * <p>切换摄像头等场景需要沿用原房间号：设备换摄像头后仍推到同一个 room，
-     * App 侧继续用同一 WHEP 地址拉流，避免两端房间号不一致导致黑屏。</p>
-     *
-     * @param roomNumber 非空则复用；为空/非法则重新随机生成
-     * @return request_id + 实际使用的房间号；uuid 或视频设备为空时 room 为 ""
-     */
-    public VideoRequest startVideoStream(String uuid, String videoDevice, String roomNumber) {
-        if (uuid == null || uuid.isEmpty()) {
-            notifyDeliveryError(TopicNames.KIND_VIDEO_START, "请先在设备页选择设备");
-            return new VideoRequest("", "");
-        }
-        if (videoDevice == null || videoDevice.isEmpty()) {
-            notifyDeliveryError(TopicNames.KIND_VIDEO_START, "未选择摄像头设备");
-            return new VideoRequest("", "");
-        }
-        String room = roomNumber == null ? "" : roomNumber.trim();
-        if (!room.matches("[A-Za-z0-9_-]{1,64}")) {
-            room = String.format(Locale.US, "%06d", roomRandom.nextInt(1_000_000));
-        }
-        videoRoomNumber = room;
-        final String rid = newRequestId();
-        JSONObject body = new JSONObject();
-        try {
-            body.put("uuid", uuid);
-            body.put("video_device", videoDevice);
-            body.put("room_number", room);
-            body.put("request_id", rid);
-        } catch (JSONException ignore) {
-        }
-        client.publish(TopicNames.KIND_VIDEO_START,
-                TopicNames.videoStartRequest(tenant, deviceSegment(uuid)), body.toString());
-        return new VideoRequest(rid, room);
     }
 
     /** 停止推流：带 room_number 时设备端会校验，不一致不会误停。返回 request_id。 */

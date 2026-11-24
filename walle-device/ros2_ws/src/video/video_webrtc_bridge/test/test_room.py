@@ -3,7 +3,12 @@
 
 import pytest
 
-from video_webrtc_bridge.node import DEFAULT_ROOM_PATTERN, valid_room_number
+from video_webrtc_bridge.node import (
+    DEFAULT_ROOM_PATTERN,
+    ROOM_NUMBER_LENGTH,
+    generate_room_number,
+    valid_room_number,
+)
 
 
 @pytest.mark.parametrize("room", [
@@ -43,3 +48,15 @@ def test_custom_pattern_is_fully_matched():
 
 def test_default_pattern_value():
     assert DEFAULT_ROOM_PATTERN == r"^[A-Za-z0-9_-]{1,64}$"
+
+
+def test_generate_room_number_is_eight_alnum_chars():
+    room = generate_room_number()
+    assert len(room) == ROOM_NUMBER_LENGTH == 8
+    assert room.isalnum()
+    assert room.islower()
+    assert valid_room_number(room)
+
+
+def test_generate_room_number_varies():
+    assert len({generate_room_number() for _ in range(50)}) > 1

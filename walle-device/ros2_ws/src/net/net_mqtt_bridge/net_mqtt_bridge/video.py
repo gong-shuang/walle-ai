@@ -21,8 +21,6 @@ class VideoMixin:
             "uuid": config.DEVICE_UUID,
             "hostname": config.HOSTNAME,
             "ip": self.lan_ip,
-            "video_device": req.get("video_device"),
-            "room_number": req.get("room_number"),
             "request_id": self._rid(req),
             "result": result_code,
             "cause": cause,
@@ -70,9 +68,7 @@ class VideoMixin:
         ok, data = self.verify_uuid(payload, config.REQ_VIDEO_START)
         if not ok:
             return
-        video_device = str(data.get("video_device") or "").strip()
-        room_number = str(data.get("room_number") or "").strip()
-        req = self._video_req(data, video_device, room_number)
+        req = self._video_req(data)
         self._publish_video_result(
             req, -2, "命令执行失败",
             {"error": "当前进程不提供推流；请通过 ROS 节点 video_webrtc_bridge 推流"})

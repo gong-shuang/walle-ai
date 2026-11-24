@@ -8,11 +8,11 @@ video/* 与 phone/audio/* 动作必须显式用 --action 指定。--dry-run 只�
 
 示例：
     # 只打印主题与报文，不连接
-    python3 inject_request.py --dry-run --action video/start --room-number demo
+    python3 inject_request.py --dry-run --action video/start
     # 查询状态与能力，并打印设备返回的结果
     python3 inject_request.py
     # 触发推流（会真正占用摄像头），用完手动停止
-    python3 inject_request.py --action video/start --room-number demo
+    python3 inject_request.py --action video/start
     python3 inject_request.py --action video/stop
 
 设备 uuid 默认从 retained `online` 读取（要求设备在线）；也可 --uuid 指定。
@@ -47,24 +47,20 @@ ACTION_MAP = {
 }
 ACTION_CHOICES = tuple(ACTION_MAP)
 DEFAULT_ACTIONS = ("baseState/query", "runState/query")
-# 这些动作会真正占用摄像头/声卡，必须显式指定
-DEVICE_ACTIONS = (REQ_VIDEO_START, REQ_PHONE_AUDIO_SEND)
 
 
 def _new_rid():
     return f"inject-{secrets.token_hex(4)}"
 
 
-def build_requests(actions, uuid, room_number="", video_device="", request_id=""):
+def build_requests(actions, uuid, room_number="", request_id=""):
     """构造 [(请求主题, 报文, 应答主题)]；uuid 为空时用占位符（dry-run/预览）。"""
     items = []
     for action in actions:
         req = ACTION_MAP.get(action, action)
         payload = {"uuid": uuid or "<device_uuid>",
                    "request_id": request_id or _new_rid()}
-        if req == REQ_VIDEO_START:
-            payload.update({"video_device": video_device, "room_number": room_number})
-        elif req == REQ_PHONE_AUDIO_SEND:
+        if req == REQ_PHONE_AUDIO_SEND:
             payload["room_number"] = room_number
         elif req in (REQ_VIDEO_STOP, REQ_PHONE_AUDIO_STOP) and room_number:
             payload["room_number"] = room_number
@@ -87,9 +83,7 @@ def parse_args(argv=None):
         epilog=__doc__)
     parser.add_argument("--action", action="append", choices=ACTION_CHOICES,
                         help="可重复；默认只发 baseState/query 与 runState/query")
-    parser.add_argument("--room-number", default="", help="房间号（video/start、phone/audio/send 必填）")
-    parser.add_argument("--video-device", default="",
-                        help="摄像头节点（默认 CAMERA_DEVICE 或 /dev/video0）")
+    parser.add_argument("--room-number", default="", help="房间号（phone/audio/send 必填；video/start 由设备自动生成）")
     parser.add_argument("--device-id", default="", help="目标设备号（默认按本机硬件指纹计算）")
     parser.add_argument("--uuid", default="", help="设备 uuid（默认从 retained online 读取）")
     parser.add_argument("--request-id", default="", help="请求 id（默认自动生成）")
@@ -183,16 +177,15 @@ def main(argv=None):
             return 2
 
     config.DEVICE_ID = _resolve_device_id(args.device_id)
-    video_device = args.video_device or CAMERA_DEVICE or "/dev/video0"
     need_room = [name for name, topic in ACTION_MAP.items()
-                 if topic in actions and topic in DEVICE_ACTIONS]
+                 if topic in actions and topic == REQ_PHONE_AUDIO_SEND]
     if need_room and not args.room_number:
         print(f"错误：{', '.join(need_room)} 需要 --room-number", file=sys.stderr)
         return 2
 
     if args.dry_run:
         print_requests(build_requests(actions, args.uuid, args.room_number,
-                                      video_device, args.request_id))
+                                      args.request_id))
         return 0
 
     print(f"目标设备：{device_topic_base()}  uuid={args.uuid or '（从 online 读取）'}")
@@ -201,8 +194,7 @@ def main(argv=None):
     try:
         _connect(client, args.timeout)
         uuid = args.uuid or _fetch_uuid(client, args.timeout)
-        items = build_requests(actions, uuid, args.room_number,
-                               video_device, args.request_id)
+        items = build_requests(actions, uuid, args.room_number, args.request_id)
         expected = {payload["request_id"]: result_topic
                     for _topic, payload, result_topic in items}
         result_topics = set(expected.values())

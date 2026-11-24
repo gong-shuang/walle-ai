@@ -13,6 +13,8 @@ App 继续用 WHEP 拉流。停止指令或 MQTT 网关心跳丢失时自动停�
 
 import os
 import re
+import secrets
+import string
 import subprocess
 import tempfile
 import threading
@@ -32,6 +34,9 @@ from interfaces.msg import VideoStreamStatus
 from interfaces.srv import VideoStreamControl
 
 DEFAULT_ROOM_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
+# V1.11：房间号由设备端自动生成，客户端不再指定
+ROOM_NUMBER_LENGTH = 8
+ROOM_NUMBER_ALPHABET = string.ascii_lowercase + string.digits
 
 # H.264 编码器（P2-1.3）：auto 优先 Rockchip MPP 硬件编码，其次 V4L2 M2M，最后 libx264
 MPP_H264_ENCODER = "mpph264enc"
@@ -47,6 +52,11 @@ def valid_room_number(room, pattern=DEFAULT_ROOM_PATTERN):
     忘了加锚点，也不会放过 ``room/../x`` 这类前缀匹配。
     """
     return re.fullmatch(pattern, room or "") is not None
+
+
+def generate_room_number(length=ROOM_NUMBER_LENGTH):
+    """生成设备端随机房间号（默认 8 位小写字母 + 数字）。"""
+    return "".join(secrets.choice(ROOM_NUMBER_ALPHABET) for _ in range(length))
 
 
 def select_encoder(preference, hw_available, mpp_available=False):
@@ -480,25 +490,36 @@ class VideoWebrtcBridge(Node):
         response.audio_reason = audio.get("reason") or ""
 
     def _handle_start(self, request, response):
-        device = (request.video_device or "").strip()
-        room = (request.room_number or "").strip()
-        response.video_device = device
-        response.room_number = room
+        # V1.11：请求不再携带 video_device / room_number。
+        # 摄像头固定使用配置的默认设备，房间号由设备端随机生成并在应答中返回。
+        device = (self.camera_device or "").strip()
         # 能收到启动请求说明网关在线，刷新心跳，避免启动宽限期被看门狗误杀
         self._last_heartbeat = time.monotonic()
 
+        with self._lock:
+            proc = self._proc
+            streaming = bool(proc is not None and proc.poll() is None)
+            if streaming:
+                # 已在推流：直接成功返回当前房间号，不重连、不重启
+                response.result = 0
+                response.cause = "ok"
+                response.action = "already_streaming"
+                response.video_device = self._device
+                response.room_number = self._room
+                response.pid = int(proc.pid)
+                response.rtmp_url = self._rtmp_url
+                response.command = self._command
+                response.started_at = self._started_at
+                response.started_ts = self._started_ts
+                self._fill_audio(response, self._audio)
+                return response
+
+        response.video_device = device
         if not re.match(r"^/dev/video\d+$", device) or not os.path.exists(device):
             response.result = -1
             response.cause = "没有此摄像头设备"
             response.action = "failed"
-            response.error = "设备节点不存在: %s" % (device or "<空>")
-            return response
-
-        if not valid_room_number(room, self.room_pattern):
-            response.result = -2
-            response.cause = "命令执行失败"
-            response.action = "failed"
-            response.error = "room_number 不合法（只允许 1-64 位字母/数字/下划线/短横线）"
+            response.error = "默认摄像头不存在: %s" % (device or "<空>")
             return response
 
         if not self._rtmp_secret_ready():
@@ -508,31 +529,7 @@ class VideoWebrtcBridge(Node):
             response.error = "未配置 Oryx 推流 secret（请在 /etc/walle-ai.conf 设置 MEDIA_SERVER_SECRET）"
             return response
 
-        if device != self.camera_device:
-            self.get_logger().warning(
-                "请求的 %s 不是当前图像源 %s，将按 %s 推流"
-                % (device, self.camera_device, self.image_topic))
-
-        with self._lock:
-            proc = self._proc
-            streaming = bool(proc is not None and proc.poll() is None)
-            same = streaming and self._room == room and self._device == device
-            prev_room = self._room if streaming else ""
-            prev_device = self._device if streaming else ""
-            if same:
-                response.result = 0
-                response.cause = "ok"
-                response.action = "already_streaming"
-                response.pid = int(proc.pid)
-                response.rtmp_url = self._rtmp_url
-                response.command = self._command
-                response.started_at = self._started_at
-                response.started_ts = self._started_ts
-                self._fill_audio(response, self._audio)
-                return response
-
-        if streaming:
-            self._stop_stream("收到新的推流请求")
+        room = generate_room_number()
 
         # 等第一帧，确定分辨率和编码格式
         self._starting = True
@@ -657,14 +654,14 @@ class VideoWebrtcBridge(Node):
 
         response.result = 0
         response.cause = "ok"
-        response.action = "restarted" if prev_room else "started"
+        response.action = "started"
+        response.video_device = device
+        response.room_number = room
         response.pid = int(proc.pid)
         response.rtmp_url = masked_url
         response.command = command_text
         response.started_at = started_at
         response.started_ts = started_ts
-        response.previous_room_number = prev_room
-        response.previous_video_device = prev_device
         self._fill_audio(response, audio)
         self._publish_status()
         self.get_logger().info(

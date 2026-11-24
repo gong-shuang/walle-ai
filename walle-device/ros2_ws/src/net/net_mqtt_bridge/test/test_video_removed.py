@@ -45,7 +45,6 @@ def test_standalone_video_start_points_to_ros_bridge(fixed_uuid):
     monitor, published = _bare_monitor()
     payload = json.dumps({
         "uuid": FIXED_UUID, "request_id": "v1",
-        "video_device": "/dev/video0", "room_number": "room1",
     })
     monitor.handle_video_request(payload)
 

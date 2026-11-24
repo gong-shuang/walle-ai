@@ -75,7 +75,7 @@
     <string name="video_no_camera">设备未检测到摄像头</string>
     <string name="video_cameras_found">已发现 %1$d 个摄像头，点击画面开始推流</string>
     <string name="video_max_res">最高 %1$s</string>
-    <string name="video_starting">正在启动推流（房间号 %1$s）…</string>
+    <string name="video_starting">正在请求设备推流…</string>
     <string name="video_start_failed">推流启动失败：%1$s</string>
     <string name="video_play_error">视频连接失败：%1$s</string>
     <string name="video_stop_failed">停止推流失败：%1$s</string>

@@ -139,11 +139,9 @@ class RpiMonitorBase:
         """取请求里的 request_id（统一字符串；缺省为空串）。"""
         return str((data or {}).get("request_id") or "")
 
-    def _video_req(self, data, video_device, room_number):
-        """推流请求的归一化副本：用于构造应答报文，必须把 request_id 一并带上。"""
+    def _video_req(self, data):
+        """推流请求的归一化副本：V1.11 起应答只回显 request_id（房间号由设备生成）。"""
         return {
-            "video_device": video_device,
-            "room_number": room_number,
             "request_id": self._rid(data),
         }
 
