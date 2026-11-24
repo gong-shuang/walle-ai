@@ -83,8 +83,10 @@ def _trace(direction, topic, payload, qos=0, retain=False):
         except Exception:  # noqa: BLE001
             body = str(payload)
     arrow = ">>> PUB" if direction == "OUT" else "<<< SUB"
-    print("\n{} topic={} qos={} retain={} ts={}".format(
-        arrow, topic, qos, retain, time.strftime("%H:%M:%S")))
+    now = time.time()
+    print("\n{} topic={} qos={} retain={} ts={}.{:03d}".format(
+        arrow, topic, qos, retain,
+        time.strftime("%H:%M:%S", time.localtime(now)), int(now * 1000) % 1000))
     print(body, flush=True)
 
 
