@@ -793,7 +793,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     .forEach(function (k) { el[k] = document.getElementById(k); });
 
   var ui = { online: false, uuid: '', devices: {}, state: {}, cap: {}, pendingVideo: null,
-    pendingCap: null, pendingVideoStop: null, discoveryRid: '',
+    pendingCap: null, capRefreshing: false, pendingVideoStop: null, discoveryRid: '',
     video: { pc: null, location: '', room: '', camera: '', lastAlarmKey: '', connected: false, streaming: false, uiStreaming: null },
     mic: { on: false, starting: false, pc: null, stream: null, ac: null, analyser: null,
       raf: 0, room: '', location: '' },
@@ -963,6 +963,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
           servoDisable('MQTT 已断开');
           if (ui.pendingCap && ui.pendingCap.timer) clearTimeout(ui.pendingCap.timer);
           ui.pendingCap = null;
+          if (ui.capRefreshing) { ui.capRefreshing = false; setVideoMsg('MQTT 已断开', 'err'); }
           updateVideoRefreshButton();
           clearRecPending();
           setRecMsg('MQTT 已断开', 'err');
@@ -1246,6 +1247,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     }
     renderRunState();
     applyVideoUi();
+    // 兜底：手动刷新的应答即使已被 pendingCap 覆盖，也要结束「正在刷新」提示
+    if (ui.capRefreshing) { ui.capRefreshing = false; setVideoMsg('运行状态已刷新（runState/query/response）', 'ok'); }
     if (cb) cb(true);
   }
   function setRunMetric(node, text, active) {
@@ -1357,8 +1360,21 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       setVideoMsg('MQTT 未连接 / 设备离线 / 缺少 uuid', 'err');
       return;
     }
+    el.btnCapability.disabled = true;
+    ui.capRefreshing = true;
     setVideoMsg('正在刷新运行状态（runState/query/request）…', null);
-    if (!requestCapability()) setVideoMsg('刷新失败：MQTT 未连接 / 设备离线', 'err');
+    var sent = requestCapability(function (ok) {
+      if (!ui.capRefreshing) return;   // 断开/重复点击等路径已清理
+      ui.capRefreshing = false;
+      updateVideoRefreshButton();
+      if (ok) setVideoMsg('运行状态已刷新（runState/query/response）', 'ok');
+      else setVideoMsg('刷新失败：5s 内未收到 runState/query/response', 'err');
+    });
+    if (!sent) {
+      ui.capRefreshing = false;
+      updateVideoRefreshButton();
+      setVideoMsg('刷新失败：MQTT 未连接 / 设备离线', 'err');
+    }
   }
   function videoStart() {
     if (ui.video.streaming === true) { setVideoMsg('设备已在推流，无需重复开始；请直接连接画面', 'ok'); applyVideoUi(); return; }
