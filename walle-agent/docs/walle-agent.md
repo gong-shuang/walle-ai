@@ -97,7 +97,7 @@ walle-agent ready: clientid=agent-b851fdde tenant=home chat=walle/home/agents/ag
 
 | 方式 | 说明 |
 |---|---|
-| retained `walle/{tenant}/agents/{clientid}/status` | 含 `online`、`name`、`version`、`capabilities`；异常掉线由 LWT 发 `online:false` |
+| retained `walle/{tenant}/agents/{clientid}/online` | 含 `online`、`name`、`version`、`capabilities`；异常掉线由 LWT 发 `online:false` |
 | 发 `chat/request` 文本「状态」 | 返回设备 CPU/内存/温度/电量/声呐等运行状态 |
 | `log/car_agent.log` | 本地排障用；启动成功后含 `walle-agent ready: clientid=...` |
 
@@ -107,6 +107,6 @@ walle-agent ready: clientid=agent-b851fdde tenant=home chat=walle/home/agents/ag
 |---|---|
 | 设备控制/回执 | `walle/{tenant}/device/{device}/{resource}` |
 | 发现 | `walle/{tenant}/discovery/query` |
-| 对话 | `walle/{tenant}/agents/{clientid}/chat/request|response`、`/status`（retained） |
+| 对话 | `walle/{tenant}/agents/{clientid}/chat/request|response`、`/online`（retained） |
 
 任何位置都不带版本段（没有 `v1`）。

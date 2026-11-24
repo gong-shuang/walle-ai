@@ -264,7 +264,8 @@ def chat_topic(resource):
 
 
 def agent_status_topic():
-    return "walle/{}/agents/{}/status".format(server_tenant(), agent_identity())
+    # 与设备端 walle/{t}/device/{d}/online 对齐：online 主题承载在线状态（retained + LWT）
+    return "walle/{}/agents/{}/online".format(server_tenant(), agent_identity())
 
 
 def topic_for(device, resource):

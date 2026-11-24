@@ -19,14 +19,14 @@
 |---|---|---|---|
 | `walle/{tenant}/agents/{agent}/chat/request` | 浏览器 → agent | 1 | false |
 | `walle/{tenant}/agents/{agent}/chat/response` | agent → 浏览器 | 1 | false |
-| `walle/{tenant}/agents/{agent}/status` | agent → 浏览器/所有人 | 1 | **true** |
+| `walle/{tenant}/agents/{agent}/online` | agent → 浏览器/所有人 | 1 | **true** |
 | `walle/{tenant}/device/{device}/car/motor/set` | agent 或浏览器 → 设备 | 1 | false |
 | `walle/{tenant}/device/{device}/car/motor/result` | 设备 → agent/浏览器 | 1 | false |
 | `walle/{tenant}/device/{device}/state/query` | agent → 设备 | 1 | false |
 | `walle/{tenant}/device/{device}/state/result` | 设备 → agent/浏览器 | 1 | false |
 | `walle/{tenant}/discovery/query` | 浏览器 → 设备（租户级广播） | 1 | false |
 
-浏览器订阅 `walle/{tenant}/agents/+/status` 与 `walle/{tenant}/agents/+/chat/response`，一次覆盖所有 agent。
+浏览器订阅 `walle/{tenant}/agents/+/online` 与 `walle/{tenant}/agents/+/chat/response`，一次覆盖所有 agent。
 
 ## 3. 请求 JSON（chat/request）
 
@@ -104,7 +104,7 @@
 `error` 实际取值集合：`mqtt_not_connected`、`uuid_unknown`、`busy`、`no_device`、`agent_exception`。
 agent 不发送「超时」响应；超时由前端本地判定（见第 6 节）。
 
-## 5. status 与 LWT
+## 5. online 与 LWT
 
 ```json
 {
@@ -126,6 +126,7 @@ agent 不发送「超时」响应；超时由前端本地判定（见第 6 节�
 }
 ```
 
+- 主题后缀与设备端 `device/{device}/online` 对齐；载荷仍是完整 status（含 `name`、`version`、`capabilities`）。
 - `agent` 恒为 clientid；`name` 为展示名，`AGENT_NAME` 为空时等于 clientid。
 - 上线时发布 retained `online:true`；LWT 使用同一结构、`online:false`，由 broker 在异常掉线时代发。
 - 正常退出时也会主动发布一次离线报文。
@@ -136,7 +137,7 @@ agent 不发送「超时」响应；超时由前端本地判定（见第 6 节�
 - 前端以 `pending[request_id]` 记录在途请求；收到响应按 `request_id` 匹配，不匹配直接丢弃。
 - 20 秒未收到响应：删除 pending、解锁发送按钮、提示「agent 超时未响应（20s）」。
 - `busy` 是前端本地锁：同一时刻只允许一条在途对话请求。
-- 多 agent：`agents/+/status` 全量维护；选择优先级为 `sessionStorage['walle_agent']` → 最近 `ts` 的在线 agent；选中项离线后自动回落到第一个在线项。
+- 多 agent：`agents/+/online` 全量维护；选择优先级为 `sessionStorage['walle_agent']` → 最近 `ts` 的在线 agent；选中项离线后自动回落到第一个在线项。
 - 下拉文案为 `name`，`title` 为 clientid；`capabilities.llm=true` 时追加 `· LLM`。
 
 ## 7. 急停（两条独立消息）
