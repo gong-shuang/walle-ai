@@ -30,8 +30,8 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     命名约定：请求-应答对的请求 .../request、应答 .../response；
     持续设置且不需要应答的 .../cmd；主动上报为 online 与 alarm/report。
 
-    除 discovery 广播外，设备只订阅自己子树下的「请求类」主题，
-    不订通配子树（避免收到自己发布的上报报文）。
+    除 discovery 广播外，设备端用按层数的 `+` 模式只订阅请求/持续控制主题，
+    不订 `#` 整棵子树（避免收到自己发布的 response/report）。
 
 安全：所有请求报文必须带匹配的 uuid（本次运行实例标识），否则静默忽略；
       设备连接用独立 MQTT 账号，Broker 侧按 walle/{tenant}/device/${clientid}/# 授权。

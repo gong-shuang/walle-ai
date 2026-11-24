@@ -5,6 +5,7 @@ import json
 import uuid as uuidlib
 
 import pytest
+from paho.mqtt.client import topic_matches_sub
 
 import net_mqtt_bridge.agent as agent
 import net_mqtt_bridge.config as config
@@ -100,21 +101,29 @@ def test_video_request_keeps_request_id():
     }
 
 
-def test_subscriptions_are_device_scoped_without_wildcards():
+def test_subscriptions_cover_all_requests_with_layer_patterns():
     topics = [topic for topic, _qos in agent.subscriptions()]
     base = agent.device_topic_base()
     discovery = agent.tenant_topic(agent.REQ_DISCOVERY)
 
-    assert len(topics) == len(set(topics))
-    assert all("#" not in topic and "+" not in topic for topic in topics)
-    assert all(topic.startswith(base + "/") or topic == discovery
-               for topic in topics)
-    assert base + "/" + agent.REQ_STATE in topics
-    assert base + "/" + agent.REQ_VIDEO_START in topics
-    assert base + "/" + agent.REQ_CAR_MOTOR_SET in topics
-    assert base + "/" + agent.REQ_CAR_SERVO_STATUS in topics
-    assert base + "/" + agent.REQ_CAR_SERVO_SET in topics
-    assert discovery in topics
+    assert topics == [
+        base + "/+/+/request",
+        base + "/+/+/+/request",
+        base + "/+/+/+/+/request",
+        base + "/+/+/+/cmd",
+        discovery,
+    ]
+    # 只订请求/持续控制，不订 # 整棵子树，避免收回自己发布的 response/alarm
+    assert all("#" not in topic for topic in topics)
+
+    for req in config.REQUEST_TO_RESULT:
+        full = discovery if req == config.REQ_DISCOVERY else base + "/" + req
+        assert any(topic_matches_sub(topic, full) for topic in topics), \
+            f"{req} 没有被任何订阅模式覆盖"
+    assert not any(topic_matches_sub(topic, base + "/" + config.RES_STATE_RESULT)
+                   for topic in topics)
+    assert not any(topic_matches_sub(topic, base + "/" + config.RES_ALARM)
+                   for topic in topics)
 
 
 def test_device_topic_base_sanitizes_segments():

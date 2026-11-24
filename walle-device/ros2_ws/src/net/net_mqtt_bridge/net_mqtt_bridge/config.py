@@ -380,28 +380,22 @@ REALTIME_REQUESTS = frozenset({REQ_CAR_MOTOR_SET, REQ_CAR_SERVO_SET})
 SERVO_REQUESTS = frozenset({REQ_CAR_SERVO_STATUS})
 
 def subscriptions():
-    """本设备要订阅的主题（只有请求类 + 租户内发现广播）。
+    """本设备要订阅的主题（只有请求类/持续控制 + 租户内发现广播）。
 
-    不订 walle/{t}/device/{d}/#：MQTT 3.1.1 会把客户端自己发布的报文也投递回来，
-    订全子树会收到自己发的 state/alarm，白白浪费带宽。
+    用按层数的 `+` 模式只匹配以 /request 或 /cmd 结尾的资源，不订
+    walle/{t}/device/{d}/#：MQTT 3.1.1 会把客户端自己发布的报文也投递回来，
+    订全子树会收到自己发的 response/alarm，白白浪费带宽。
+
+    当前层级：3 层（state/query/request 等）、4 层（phone/audio/*/request 等）、
+    5 层（car/servo/status/query/request）；持续控制为 4 层（car/.../set/cmd）。
+    新增不同层数的请求/控制主题时，需要在这里补一条对应模式。
     """
     base = device_topic_base()
     return [
-        (f"{base}/{REQ_STATE}", MQTT_QOS),
-        (f"{base}/{REQ_CAPABILITY}", MQTT_QOS),
-        (f"{base}/{REQ_VIDEO_START}", MQTT_QOS),
-        (f"{base}/{REQ_VIDEO_STOP}", MQTT_QOS),
-        (f"{base}/{REQ_PHONE_AUDIO_SEND}", MQTT_QOS),
-        (f"{base}/{REQ_PHONE_AUDIO_STOP}", MQTT_QOS),
-        (f"{base}/{REQ_CAR_MOTOR_SET}", MQTT_QOS),
-        (f"{base}/{REQ_CAR_SERVO_STATUS}", MQTT_QOS),
-        (f"{base}/{REQ_CAR_SERVO_SET}", MQTT_QOS),
-        (f"{base}/{REQ_RECORD_START}", MQTT_QOS),
-        (f"{base}/{REQ_RECORD_STOP}", MQTT_QOS),
-        (f"{base}/{REQ_RECORD_LIST}", MQTT_QOS),
-        (f"{base}/{REQ_RECORD_DELETE}", MQTT_QOS),
-        (f"{base}/{REQ_RECORD_PLAY_START}", MQTT_QOS),
-        (f"{base}/{REQ_RECORD_PLAY_STOP}", MQTT_QOS),
+        (f"{base}/+/+/request", MQTT_QOS),       # state/query/request、video/start/request、record/*/request
+        (f"{base}/+/+/+/request", MQTT_QOS),     # phone/audio/*/request、record/list|play/*/request
+        (f"{base}/+/+/+/+/request", MQTT_QOS),   # car/servo/status/query/request
+        (f"{base}/+/+/+/cmd", MQTT_QOS),         # car/motor/set/cmd、car/servo/set/cmd
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
     ]
 

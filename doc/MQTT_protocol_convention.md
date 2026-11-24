@@ -136,13 +136,14 @@ QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 
 回放出来时自动兜底一次）。设备端对 discovery 应答做了**限频（2 秒/台）+ 随机抖动
 （≤0.8 秒）**，避免多台手机同时扫描时回包风暴。
 
-### 2.7 不订通配子树
+### 2.7 不订 `#` 整棵子树
 
 MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求再收一遍，浪费带宽、
-干扰排查。所以两端都只订**精确的响应/请求主题清单**：
+干扰排查。所以两端都不订 `#` 整棵子树：
 
-- App 订 8 条：`walle/{t}/device/+` 下的 `online`、`alarm/report`、6 条 `…/response`（见 `TopicNames.responseSubscriptions`）
-- 设备端订 16 条：15 条设备级请求（含 `phone/audio/send|stop/request`、`car/motor/set/cmd`、`car/servo/status/query/request`、`car/servo/set/cmd`）+ 1 条租户级 `discovery/query/request`（见 `config.subscriptions()`）
+- App 订 8 条精确响应主题：`walle/{t}/device/+` 下的 `online`、`alarm/report`、6 条 `…/response`（见 `TopicNames.responseSubscriptions`）
+- 设备端订 5 条：4 条按层数的 `+` 模式（`+/+/request`、`+/+/+/request`、`+/+/+/+/request`、`+/+/+/cmd`）+ 1 条租户级 `discovery/query/request`（见 `config.subscriptions()`）。
+  `+` 只匹配一层，因此只命中请求/持续控制，不会收到自己发布的 response/report；新增不同层数的请求主题时需补一条模式。
 
 ---
 
