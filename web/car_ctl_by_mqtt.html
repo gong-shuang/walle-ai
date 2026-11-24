@@ -955,7 +955,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         if (kind === 'on') {
           if (carHasActive()) { carEnsureLoop(); carSendNow(); }
           else carSetStatus('按住 w/s 移动，a/d 旋转 · 0.6 m/s', null);
-          if (cfg.device) setTimeout(queryState, 600);
+          // 设备状态由 retained online 消息触发 onOnline 查询；这里不再延迟补发 baseState，
+          // 否则会和 onOnline/手动刷新同时发出两次请求
           setTimeout(function () { if (!Object.keys(ui.devices).length) discover(); }, 900);
         } else if (kind === 'closed' || kind === 'error') {
           carReleaseAll(false);
