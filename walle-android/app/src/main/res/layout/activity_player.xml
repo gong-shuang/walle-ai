@@ -104,6 +104,22 @@
             android:popupBackground="@drawable/bg_popup_dark"
             android:dropDownVerticalOffset="6dp" />
 
+        <!-- 控制权租约：空闲时显示「获取」，自己持有时显示「释放」 -->
+        <TextView
+            android:id="@+id/leaseButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_overlay_scrim"
+            android:gravity="center"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="8dp"
+            android:text="@string/lease_free"
+            android:textColor="@color/white"
+            android:textSize="14sp" />
+
         <!-- 麦克风开关（反向音频：手机 → 设备端），默认关闭 -->
         <TextView
             android:id="@+id/micButton"

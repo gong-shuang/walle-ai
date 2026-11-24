@@ -65,6 +65,7 @@ class MonitorCapabilityMixin:
             "servo": {"moving": False},
             "battery": {"voltage_v": None, "available": False},
             "sonar": {"distance_cm": None, "available": False},
+            "control_holder": self.control_holder_snapshot(),
         }
 
     def handle_capability_query(self, payload):

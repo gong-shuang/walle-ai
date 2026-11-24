@@ -330,6 +330,9 @@ class MonitorMixin:
         first = True
 
         while not self.stop_event.is_set():
+            reason = self.control_lease.tick(time.time())
+            if reason:
+                logging.info("控制权租约已释放（%s）", reason)
             # 首次采样提前到 1s，让 baseState/query/request 尽快命中缓存
             wait = config.STATUS_PRIME_INTERVAL if first else config.MONITOR_INTERVAL
             first = False

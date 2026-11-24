@@ -13,6 +13,7 @@ from ld_config import *
 from ld_protocol import *
 from ld_utils import *
 from ld_media import *
+from ld_control import ControlLease, MonitorControlMixin  # noqa: F401
 
 class RpiMonitorBase:
     def __init__(self):
@@ -55,6 +56,10 @@ class RpiMonitorBase:
         # App/Web 客户端在线状态：client_id -> {online, client_name, ...}
         self.client_presence = {}
         self.client_presence_lock = threading.Lock()
+        # 控制权租约（单 holder，内存态；设备重启清空）
+        self.control_lease = ControlLease(
+            CONTROL_LEASE_TTL_SEC, CONTROL_OFFLINE_GRACE_SEC)
+        self._last_control_denied_log = 0.0
         # 最近一次非主动停止的手机音频播放；重新开始播放后发 recover 并清空
         self.audio_lost = None
         # 摄像头能力缓存：(过期时间, cameras, error)；USB 插拔事件会清空
@@ -156,6 +161,8 @@ class RpiMonitorBase:
         }
         with self.client_presence_lock:
             self.client_presence[client_id] = record
+        if hasattr(self, "control_lease"):
+            self.control_lease.on_presence(client_id, online, time.time())
         if online:
             logging.info("客户端上线: %s（%s，版本 %s/%s）", client_id,
                          record["client_name"] or "-",
@@ -246,6 +253,15 @@ class RpiMonitorBase:
         resource = parts[4]
         handler_name = REQUEST_HANDLERS.get(resource)
         if handler_name:
+            # 控制权租约：查询始终放行（持有者续租）；控制类必须匹配当前 holder，
+            # 没有 holder 时 fail-open，所有人都可以执行。
+            if resource not in CONTROL_EXEMPT_REQUESTS:
+                data = self._safe_json(payload)
+                client_id = str(data.get("client_id") or "")
+                allowed, _is_holder = self.control_lease.touch(client_id, time.time())
+                if resource not in QUERY_REQUESTS and not allowed:
+                    self.publish_control_denied(resource, data)
+                    return
             kind = "query" if resource in QUERY_RESOURCES else "action"
             self._submit_request(kind, getattr(self, handler_name), payload)
         else:

@@ -41,7 +41,9 @@ def test_response_contains_only_runtime_groups():
     assert set(data) == {
         "device_id", "hostname", "ip", "timestamp", "datetime", "request_id",
         "video", "phone_audio", "recording", "motor", "servo", "battery", "sonar",
+        "control_holder",
     }
+    assert data["control_holder"] is None
     for field in REMOVED_FIELDS:
         assert field not in data
 

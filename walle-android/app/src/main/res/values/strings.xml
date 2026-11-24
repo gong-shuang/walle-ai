@@ -120,6 +120,12 @@
     <!-- 播放页：控制相机（舵机状态查询） -->
     <string name="camera_control">控制相机</string>
 
+    <!-- 控制权租约（独占使用设备） -->
+    <string name="lease_free">控制权：空闲</string>
+    <string name="lease_self">释放控制权</string>
+    <string name="lease_other">控制权：%1$s</string>
+    <string name="lease_occupied">设备控制权限已被别人占用</string>
+
     <!-- 设置fragment-->
     <string name="settings_version">v0.1.1.1</string>
 </resources>

@@ -10,10 +10,13 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import www.walle.ai.data.LocalDb;
+import www.walle.ai.model.ControlHolder;
 
 /**
  * MQTT 门面（facade）：对 UI 暴露「设备 / 状态 / 视频 / 连接状态」这些业务 API，
@@ -64,6 +67,12 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         /** car/servo/status/query/response：舵机状态查询回执 */
         default void onCarServoStatusResult(JSONObject payload) {}
 
+        /** control/acquire/response：获取/续租控制权回执 */
+        default void onControlAcquireResult(JSONObject payload) {}
+
+        /** control/release/response：释放控制权回执 */
+        default void onControlReleaseResult(JSONObject payload) {}
+
         /** 发布失败；kind 取值见 {@link TopicNames#KIND_STATE} 等常量 */
         default void onDeliveryError(String kind, String error) {}
     }
@@ -85,6 +94,8 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     private final MqttConfigStore store;
     private final DeviceRegistry registry = new DeviceRegistry();
     private final MessageRouter router = new MessageRouter(this);
+    /** 每台设备当前的控制权 holder；key 为设备主题段。null/缺失表示空闲。 */
+    private final Map<String, ControlHolder> controlHolders = new ConcurrentHashMap<>();
 
     private final MqttClient client;
 
@@ -494,6 +505,84 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         return rid;
     }
 
+    // ---------------------------------------------------------------- 控制权租约
+
+    /**
+     * 获取/续租设备控制权：{@code control/acquire/request}。
+     *
+     * <p>设备端 fail-open：没有 holder 时所有人可以直接控制；有人 acquire 后才形成独占锁。
+     * 同一 client_id 重复 acquire 会续租（result=0, action=renewed）。</p>
+     */
+    public String acquireControl(String deviceKey) {
+        if (deviceKey == null || deviceKey.isEmpty()) {
+            notifyDeliveryError(TopicNames.KIND_CONTROL_ACQUIRE, "请先在设备页选择设备");
+            return "";
+        }
+        final String rid = newRequestId();
+        JSONObject body = new JSONObject();
+        try {
+            putRequestMeta(body, rid);
+        } catch (JSONException ignore) {
+        }
+        client.publish(TopicNames.KIND_CONTROL_ACQUIRE,
+                TopicNames.controlAcquireRequest(tenant, deviceSegment(deviceKey)), body.toString());
+        return rid;
+    }
+
+    /** 释放设备控制权：{@code control/release/request}（只有 holder 本人能释放）。 */
+    public String releaseControl(String deviceKey) {
+        if (deviceKey == null || deviceKey.isEmpty()) {
+            notifyDeliveryError(TopicNames.KIND_CONTROL_RELEASE, "请先在设备页选择设备");
+            return "";
+        }
+        final String rid = newRequestId();
+        JSONObject body = new JSONObject();
+        try {
+            body.put("request_id", rid);
+            body.put("client_id", selfClientId());
+        } catch (JSONException ignore) {
+        }
+        client.publish(TopicNames.KIND_CONTROL_RELEASE,
+                TopicNames.controlReleaseRequest(tenant, deviceSegment(deviceKey)), body.toString());
+        return rid;
+    }
+
+    /** 最近一次从 runState / control 应答里看到的 holder；null 表示空闲。 */
+    public ControlHolder getControlHolder(String deviceKey) {
+        if (deviceKey == null || deviceKey.isEmpty()) return null;
+        return controlHolders.get(deviceSegment(deviceKey));
+    }
+
+    /** 当前设备是否可控制：无 holder（fail-open）或 holder 是自己。 */
+    public boolean canControl(String deviceKey) {
+        ControlHolder holder = getControlHolder(deviceKey);
+        return holder == null || holder.self;
+    }
+
+    /** 设备拒绝控制：应答里带 error_code=control_denied。 */
+    public static boolean isControlDenied(JSONObject payload) {
+        return payload != null && "control_denied".equals(payload.optString("error_code", ""));
+    }
+
+    /** 当前 App 的 client_id（与请求报文里的一致）。 */
+    private String selfClientId() {
+        return TopicNames.sanitize(config == null ? "" : config.clientId);
+    }
+
+    /** 从报文里更新 holder 缓存（报文没有 control_holder 字段时保持原值）。 */
+    private void applyControlHolder(JSONObject payload) {
+        if (payload == null || !payload.has("control_holder")) return;
+        String key = TopicNames.sanitize(payload.optString("device_id", ""));
+        if (key.isEmpty() || "unknown".equals(key)) return;
+        ControlHolder holder = ControlHolder.parse(
+                payload.optJSONObject("control_holder"), selfClientId());
+        if (holder == null) {
+            controlHolders.remove(key);
+        } else {
+            controlHolders.put(key, holder);
+        }
+    }
+
     /** 向当前选中设备查询状态。返回本次 request_id。 */
     public String requestStatus() {
         String key = registry.selectedKey();
@@ -577,6 +666,11 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     @Override
     public void onOnline(JSONObject payload) {
         DeviceInfo added = registry.applyOnline(payload);
+        if (payload != null && !payload.optBoolean("online", true)) {
+            // 设备掉线：租约缓存已无意义（设备侧会在 presence grace 后释放）
+            String key = TopicNames.sanitize(payload.optString("device_id", ""));
+            if (!key.isEmpty()) controlHolders.remove(key);
+        }
         for (Listener l : listeners) main.post(() -> l.onOnline(payload));
         if (added != null) {
             for (Listener l : listeners) main.post(() -> l.onDeviceAdded(added));
@@ -609,6 +703,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
 
     @Override
     public void onCapabilityResult(JSONObject payload) {
+        applyControlHolder(payload);
         for (Listener l : listeners) main.post(() -> l.onCapability(payload));
     }
 
@@ -624,7 +719,20 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
 
     @Override
     public void onCarServoStatusResult(JSONObject payload) {
+        applyControlHolder(payload);
         for (Listener l : listeners) main.post(() -> l.onCarServoStatusResult(payload));
+    }
+
+    @Override
+    public void onControlAcquireResult(JSONObject payload) {
+        applyControlHolder(payload);
+        for (Listener l : listeners) main.post(() -> l.onControlAcquireResult(payload));
+    }
+
+    @Override
+    public void onControlReleaseResult(JSONObject payload) {
+        applyControlHolder(payload);
+        for (Listener l : listeners) main.post(() -> l.onControlReleaseResult(payload));
     }
 
     @Override

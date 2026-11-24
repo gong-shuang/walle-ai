@@ -16,6 +16,7 @@ import java.util.List;
 
 import www.walle.ai.R;
 import www.walle.ai.model.CameraCapability;
+import www.walle.ai.model.ControlHolder;
 import www.walle.ai.model.DeviceCapability;
 import www.walle.ai.net.ConnState;
 import www.walle.ai.net.MqttManager;
@@ -62,11 +63,14 @@ public class ControlViewModel extends MqttViewModel {
         public final DeviceCapability.AudioEnd audioCapture;
         /** 音响/扬声器能力（runState/query/response 的 audio.playback） */
         public final DeviceCapability.AudioEnd audioPlayback;
+        /** 当前控制权 holder；null 表示空闲（fail-open，可直接控制）。 */
+        public final ControlHolder controlHolder;
 
         UiState(List<CameraCapability.Camera> cameras, String selectedNode, boolean connected,
                 boolean hasDevice, boolean capabilityLoading, Phase phase, String status,
                 String room, String activeCamera, String deviceKey,
-                DeviceCapability.AudioEnd audioCapture, DeviceCapability.AudioEnd audioPlayback) {
+                DeviceCapability.AudioEnd audioCapture, DeviceCapability.AudioEnd audioPlayback,
+                ControlHolder controlHolder) {
             this.cameras = cameras;
             this.selectedNode = selectedNode;
             this.connected = connected;
@@ -79,10 +83,16 @@ public class ControlViewModel extends MqttViewModel {
             this.deviceKey = deviceKey;
             this.audioCapture = audioCapture;
             this.audioPlayback = audioPlayback;
+            this.controlHolder = controlHolder;
         }
 
         public boolean canPlay() {
             return connected && hasDevice;
+        }
+
+        /** 当前是否允许控制设备：无 holder（fail-open）或 holder 是自己。 */
+        public boolean canControl() {
+            return controlHolder == null || controlHolder.self;
         }
     }
 
@@ -256,6 +266,62 @@ public class ControlViewModel extends MqttViewModel {
         publish();
     }
 
+    // ---------------------------------------------------------------- 控制权租约
+
+    /** 获取/续租控制权。 */
+    public void acquireControl() {
+        String deviceKey = mgr.getSelectedKey();
+        if (deviceKey.isEmpty()) {
+            emit(toast, app().getString(R.string.video_no_device));
+            return;
+        }
+        String rid = mgr.acquireControl(deviceKey);
+        if (rid.isEmpty()) return;
+        status = "正在获取控制权…";
+        publish();
+    }
+
+    /** 释放控制权（只有持有者本人能释放）。 */
+    public void releaseControl() {
+        String deviceKey = mgr.getSelectedKey();
+        if (deviceKey.isEmpty()) {
+            emit(toast, app().getString(R.string.video_no_device));
+            return;
+        }
+        String rid = mgr.releaseControl(deviceKey);
+        if (rid.isEmpty()) return;
+        status = "正在释放控制权…";
+        publish();
+    }
+
+    @Override
+    public void onControlAcquireResult(JSONObject payload) {
+        if (payload == null || !mgr.isFromDevice(mgr.getSelectedKey(), payload)) return;
+        int result = payload.optInt("result", -1);
+        status = result == 0
+                ? "已获取控制权"
+                : "获取控制权失败：" + payload.optString("cause", "result=" + result);
+        publish();
+    }
+
+    @Override
+    public void onControlReleaseResult(JSONObject payload) {
+        if (payload == null || !mgr.isFromDevice(mgr.getSelectedKey(), payload)) return;
+        int result = payload.optInt("result", -1);
+        status = result == 0
+                ? "已释放控制权"
+                : "释放控制权失败：" + payload.optString("cause", "result=" + result);
+        publish();
+    }
+
+    /** 控制被拒绝时的可读文案：优先展示 holder 名称。 */
+    private String controlDeniedText(JSONObject payload) {
+        ControlHolder holder = mgr.getControlHolder(mgr.getSelectedKey());
+        String cause = payload == null ? "" : payload.optString("cause", "");
+        if (cause.isEmpty()) cause = app().getString(R.string.lease_occupied);
+        return holder == null ? cause : cause + "（" + holder.displayName() + "）";
+    }
+
     // ---------------------------------------------------------------- 用户操作
 
     public void selectCamera(String node) {
@@ -276,6 +342,10 @@ public class ControlViewModel extends MqttViewModel {
             return;
         }
         // V1.11：请求只带 request_id，摄像头与房间号由设备端决定
+        if (!mgr.canControl(deviceKey)) {
+            emit(toast, controlDeniedText(null));
+            return;
+        }
         String rid = mgr.startVideoStream(deviceKey);
         if (rid.isEmpty()) {
             return;
@@ -307,6 +377,19 @@ public class ControlViewModel extends MqttViewModel {
             return;
         }
         handler.removeCallbacks(videoTimeout);
+
+        if (MqttManager.isControlDenied(payload)) {
+            pendingStartRid = "";
+            pendingSwitchRid = "";
+            pendingCamera = null;
+            activeDeviceKey = "";
+            activeRoom = "";
+            activeCamera = "";
+            phase = Phase.IDLE;
+            status = controlDeniedText(payload);
+            publish();
+            return;
+        }
 
         if (switchResp) {
             pendingSwitchRid = "";
@@ -484,6 +567,7 @@ public class ControlViewModel extends MqttViewModel {
         }
         state.setValue(new UiState(cameras, selectedNode, connected, hasDevice,
                 capabilityLoading, phase, status, activeRoom, activeCamera,
-                mgr.getSelectedKey(), audioCapture, audioPlayback));
+                mgr.getSelectedKey(), audioCapture, audioPlayback,
+                mgr.getSelectedKey().isEmpty() ? null : mgr.getControlHolder(mgr.getSelectedKey())));
     }
 }

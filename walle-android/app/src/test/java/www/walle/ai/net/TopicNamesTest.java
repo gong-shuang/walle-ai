@@ -103,7 +103,7 @@ public class TopicNamesTest {
     @Test
     public void subscriptionsCoverAllResponsesAndAvoidWildcards() {
         String[] subs = TopicNames.responseSubscriptions(TENANT);
-        assertEquals(8, subs.length);
+        assertEquals(10, subs.length);
         for (String s : subs) {
             assertTrue("不应订通配子树: " + s, !s.endsWith("/#"));
             assertTrue("订阅必须以 walle/home/device/+ 开头: " + s,
@@ -114,7 +114,8 @@ public class TopicNamesTest {
                 "/online", "/alarm/report", "/discovery/query/response",
                 "/baseState/query/response", "/runState/query/response",
                 "/video/start/response", "/video/stop/response",
-                "/car/servo/status/query/response"}) {
+                "/car/servo/status/query/response",
+                "/control/acquire/response", "/control/release/response"}) {
             assertTrue("缺少订阅: " + expected, joined.contains(expected));
         }
         // 请求类/持续控制主题不能被订阅，否则会收到自己发出的报文

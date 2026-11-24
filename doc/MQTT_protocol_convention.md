@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.14）
+# MQTT 协议约定（文档版本 v1.15）
 
 > 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`；ROS2 车控为
 > `walle-device/ros2_ws/src/net/net_mqtt_bridge`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
-> - 本文档的版本：v1.14 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.15 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -50,6 +50,12 @@ walle/{tenant}/device/{device}/{resource}
 | 4 | 运行状态查询 | `walle/{t}/device/{d}/runState/query/request` | `walle/{t}/device/{d}/runState/query/response` | 请求-应答 | v1.10 | v1.10将capability改为运行状态查询并精简json报文 |
 | 5 | 告警上报 | — | `walle/{t}/device/{d}/alarm/report` | 主动上报 | v1.0 | v1.6 增补电池低压/前方障碍告警 |
 | 6 | 远程命令执行 | `walle/{t}/device/{d}/cmd/exec/request` | `walle/{t}/device/{d}/cmd/exec/response` | 请求-应答 | v1.1 | v1.1已删除 |
+
+控制权（独占使用）：
+| # | 协议 | App → 设备（请求） | 设备 → App（应答/上报） | 类型 | 版本 | 备注 |
+|---|---|---|---|---|---|---|
+| 1 | 获取控制权 | `walle/{t}/device/{d}/control/acquire/request` | `walle/{t}/device/{d}/control/acquire/response` | 请求-应答 | v1.15 | 无 holder 时 fail-open；同一 client 重复 acquire 会续租 |
+| 2 | 释放控制权 | `walle/{t}/device/{d}/control/release/request` | `walle/{t}/device/{d}/control/release/response` | 请求-应答 | v1.15 | 只有当前 holder 能释放 |
 
 
 视频语音功能：
@@ -221,7 +227,7 @@ v1.12 起请求不再携带 `uuid`，设备端也不再调用 `verify_uuid`。�
 | `client_name` | string | 客户端展示名，如 `Web`、`Android Pixel 7`；与 presence 报文中的 `client_name` 一致。 |
 
 - 包括 `discovery/query/request`、查询请求、控制请求和 `.../cmd`；
-- 设备端当前不校验这两个字段，仅用于日志、审计和后续控制权租约；
+- 设备端当前不校验这两个字段，仅用于日志、审计与控制权租约（§4.19）；
 - 旧设备会忽略未知字段，旧客户端不携带时新设备也能正常处理。
 
 ---
@@ -368,6 +374,7 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 | `servo` | 舵机：`moving`（是否处于 `duration` 动作窗口内） |
 | `battery` | 电池：`voltage_v`（V，两位小数）、`available`（采样是否新鲜）。无数据时 `voltage_v=null`、`available=false` |
 | `sonar` | 声呐：`distance_cm`（cm，一位小数）、`available`（采样是否新鲜）。无数据时 `distance_cm=null`、`available=false` |
+| `control_holder` | 当前控制权持有者（V1.15）；无 holder 时为 `null`。结构见 §4.19 |
 
 **采集方式（设备端）**：查询到达时现场采集，不跑 `v4l2-ctl` / `pactl`，无后台缓存：
 推流/手机音频复用进程状态，录像复用录像节点状态，电机/舵机由车控节点维护，
@@ -1095,8 +1102,8 @@ App 用返回的 `flv_url` / `whep_url` 拉流播放。同一时刻只允许一�
 
 ### 4.18 客户端在线状态 client/{client_id}/online（V1.13）
 
-**作用**：让设备端知道 App/Web 客户端是否在线，为后续控制权租约（holder 掉线自动释放）
-提供依据。该主题是**租户级**的，不挂在 `device` 段下。
+**作用**：让设备端知道 App/Web 客户端是否在线，作为控制权租约（§4.19）中
+holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `device` 段下。
 
 - 主题：`walle/{t}/client/{client_id}/online`
 - 类型：主动上报（**retained + LWT**，QoS1）
@@ -1142,8 +1149,125 @@ App 用返回的 `flv_url` / `whep_url` 拉流播放。同一时刻只允许一�
 - 页面刷新会短暂出现 `false` → `true`，消费方需容忍（控制权租约应加 grace）；
 - 设备端订阅 `walle/{t}/client/+/online`，按 `client_id` 维护在线表。
 
-> 注意：`client_id` 是客户端自报的显示/关联标识，不是权限凭证。控制权校验仍需
-> `control_token`；presence 只用于判断持有者是否掉线。
+> 注意：`client_id` 是客户端自报的显示/关联标识，**不是权限凭证**。控制权租约（§4.19）
+> 只用于同一租户内可信客户端之间的协作（提前约定“谁在用”），不能防伪造。
+
+### 4.19 控制权租约 control/acquire|release/request → .../response（V1.15）
+
+**作用**：同一租户下可能同时有多个 App/Web 在线。设备默认 **fail-open**：没有 holder 时
+所有人都可以直接控制；当某个客户端想独占设备（不希望自己的操作被别人打断）时，先
+`control/acquire` 取得 holder，用完再 `control/release`。
+
+**设备端判定规则**
+
+- 只读查询（`baseState`、`runState`、`car/servo/status`、`record/list`）始终放行；
+  持有者发查询会续租，非持有者不会；
+- 控制类请求（`video/*`、`phone/audio/*`、`record/start|stop|delete|play/*`、
+  `car/motor/set/cmd`、`car/servo/set/cmd`）必须匹配当前 holder，否则拒绝；
+- `control/acquire|release` 本身不参与租约校验；
+- 租约 TTL 900 秒：持有者的有效请求（查询或控制）都会续租；
+- holder 的 presence 离线后 **grace 10 秒**释放；grace 内重新上线则取消释放；
+- 设备重启后租约清空（纯内存，不落盘）。
+
+**获取/续租（App → 设备）**
+
+- 请求：`walle/{t}/device/{d}/control/acquire/request`
+
+```json
+{ "request_id": "a1b2c3d4", "client_id": "web-1a2b3c4d", "client_name": "Web" }
+```
+
+- 应答：`walle/{t}/device/{d}/control/acquire/response`
+
+```json
+{
+  "device_id": "666feb85d43410b2",
+  "hostname": "raspberrypi",
+  "ip": "192.168.1.20",
+  "request_id": "a1b2c3d4",
+  "result": 0,
+  "action": "granted",
+  "cause": "ok",
+  "lease_ttl_sec": 900,
+  "control_holder": {
+    "client_id": "web-1a2b3c4d",
+    "client_name": "Web",
+    "acquired_at": 1763000000,
+    "expires_at": 1763000900,
+    "remaining_sec": 900
+  },
+  "timestamp": 1763000000,
+  "datetime": "2026-11-25 12:00:00"
+}
+```
+
+| result | action | 含义 |
+|---|---|---|
+| 0 | `granted` | 原本空闲，获取成功 |
+| 0 | `renewed` | 同一 `client_id` 续租成功 |
+| 1 | `occupied` | 已被别人占用；`control_holder` 返回当前持有者 |
+| 2 | `invalid` | 缺少 `client_id` / `client_name` |
+
+**释放（App → 设备）**
+
+- 请求：`walle/{t}/device/{d}/control/release/request`
+
+```json
+{ "request_id": "e5f6a7b8", "client_id": "web-1a2b3c4d" }
+```
+
+- 应答：`walle/{t}/device/{d}/control/release/response`（公共字段同上）
+
+| result | action | 含义 |
+|---|---|---|
+| 0 | `released` | 释放成功 |
+| 0 | `already_free` | 当前本来就没有 holder |
+| 1 | `not_holder` | 不是当前持有者；`control_holder` 返回当前持有者 |
+| 2 | `invalid` | 缺少 `client_id` |
+
+**`control_holder` 对象**
+
+| 字段 | 说明 |
+|---|---|
+| `client_id` | 持有者客户端 ID |
+| `client_name` | 持有者展示名 |
+| `acquired_at` | 获取时间（Unix 秒） |
+| `expires_at` | 到期时间（Unix 秒） |
+| `remaining_sec` | 剩余秒数（设备端计算） |
+
+`control_holder` 为 `null` 表示空闲（fail-open）。
+
+**控制请求被拒绝**
+
+请求-应答类控制请求（如 `video/start/request`）被拒绝时，设备在对应 `.../response`
+里返回（字段与正常失败应答同构）：
+
+```json
+{
+  "device_id": "666feb85d43410b2",
+  "hostname": "raspberrypi",
+  "ip": "192.168.1.20",
+  "request_id": "v1a2b3c4",
+  "result": -4,
+  "cause": "设备控制权限已被别人占用",
+  "error_code": "control_denied",
+  "control_holder": { "client_id": "web-1a2b3c4d", "client_name": "Web",
+                      "acquired_at": 1763000000, "expires_at": 1763000900,
+                      "remaining_sec": 850 },
+  "timestamp": 1763000050,
+  "datetime": "2026-11-25 12:00:50"
+}
+```
+
+- `.../cmd`（车控、舵机）没有应答：设备端只记限频日志，不下发任何报文；
+  客户端应通过 `runState/query/response.control_holder` 或 acquire 失败提前判断。
+
+**客户端约定**
+
+- 不 acquire 也能控制（fail-open）；只有需要独占时才 acquire；
+- 申请得到 `occupied` 时展示 `control_holder.client_name`，不要自动重试抢占；
+- 收到 `error_code="control_denied"` 时同步 `control_holder` 并提示用户；
+- 持有者离线超过 grace 或 TTL 到期后，设备自动恢复 fail-open。
 
 
 
@@ -1175,6 +1299,29 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 7. 变更记录
+
+### 2026-11-25：新增设备控制权租约 control/acquire|release（文档 v1.15）
+
+**变更类型**：非破坏性增量（新增两个主题；runState 应答新增 `control_holder` 字段）。
+
+**变更内容**
+
+- 新增 `control/acquire/request → control/acquire/response`：获取/续租设备控制权；
+- 新增 `control/release/request → control/release/response`：释放控制权；
+- 设备默认 fail-open：没有 holder 时所有人都可以直接控制；有人 acquire 后才形成独占锁；
+- 租约 TTL 900 秒；持有者任意有效请求都会续租；holder 的客户端 presence 离线后
+  grace 10 秒自动释放；
+- 非 holder 的控制类请求被拒绝：请求-应答类返回 `result=-4`、`cause`、
+  `error_code="control_denied"` 与 `control_holder`；`.../cmd` 无应答，只记限频日志；
+- `runState/query/response` 新增 `control_holder`（对象或 null）；
+- 只读查询（baseState/runState/car servo status/record list）始终放行。
+
+**影响与兼容性**：旧客户端不发送 control 请求时行为不变（fail-open）；旧设备忽略新主题，
+新客户端 acquire 会超时，但可直接控制。不引入 `control_token`：`client_id` 是自报字段，
+租约只是同租户可信客户端之间的协作锁，不是安全凭证。
+
+**验证方式**：客户端 A acquire 后，客户端 B 的 `video/start/request` 应返回
+`error_code="control_denied"` 和 A 的 `control_holder`；A release 后 B 恢复正常。
 
 ### 2026-11-25：所有客户端请求补充 client_id / client_name（文档 v1.14）
 

@@ -74,6 +74,10 @@ public final class TopicNames {
     public static final String KIND_CAR_SERVO_STATUS = "car/servo/status/query/request";
     /** 舵机位置设置失败 */
     public static final String KIND_CAR_SERVO_SET = "car/servo/set/cmd";
+    /** 获取/续租控制权失败 */
+    public static final String KIND_CONTROL_ACQUIRE = "control/acquire/request";
+    /** 释放控制权失败 */
+    public static final String KIND_CONTROL_RELEASE = "control/release/request";
 
     // ---------------------------------------------------------------- 清洗
 
@@ -171,6 +175,16 @@ public final class TopicNames {
         return deviceBase(tenant, device) + "/car/servo/status/query/response";
     }
 
+    /** 获取/续租控制权结果（收到 control/acquire/request 后发布）。 */
+    public static String controlAcquireResult(String tenant, String device) {
+        return deviceBase(tenant, device) + "/control/acquire/response";
+    }
+
+    /** 释放控制权结果（收到 control/release/request 后发布）。 */
+    public static String controlReleaseResult(String tenant, String device) {
+        return deviceBase(tenant, device) + "/control/release/response";
+    }
+
     /**
      * App 需要订阅的主题（只订「设备 → App」的响应/上报类，不订请求类）。
      *
@@ -190,6 +204,8 @@ public final class TopicNames {
                 base + "/video/start/response",
                 base + "/video/stop/response",
                 base + "/car/servo/status/query/response",
+                base + "/control/acquire/response",
+                base + "/control/release/response",
         };
     }
 
@@ -229,6 +245,16 @@ public final class TopicNames {
     /** 舵机位置设置（App → 设备，持续设置，无应答）。 */
     public static String carServoSet(String tenant, String device) {
         return deviceBase(tenant, device) + "/car/servo/set/cmd";
+    }
+
+    /** 获取/续租控制权（App → 设备，请求-应答对）。 */
+    public static String controlAcquireRequest(String tenant, String device) {
+        return deviceBase(tenant, device) + "/control/acquire/request";
+    }
+
+    /** 释放控制权（App → 设备，请求-应答对）。 */
+    public static String controlReleaseRequest(String tenant, String device) {
+        return deviceBase(tenant, device) + "/control/release/request";
     }
 
     /**

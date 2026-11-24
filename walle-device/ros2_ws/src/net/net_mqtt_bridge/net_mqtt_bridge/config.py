@@ -17,7 +17,6 @@ from pathlib import Path
 #
 # 优先级：已存在的环境变量（shell / systemd） > 环境文件里的值。
 # 文件查找顺序：--env-file 指定 > $RPI_MONITOR_ENV > /etc/walle-ai.conf > ./walle-ai.conf
-
 ENV_CANDIDATES = ("/etc/walle-ai.conf", "walle-ai.conf")
 ENV_SOURCE = None      # 实际加载到的文件（None 表示没加载）
 
@@ -49,8 +48,7 @@ def _load_env_file(path):
                     os.environ[key] = value
         return True
     except OSError as exc:
-        # 生产环境 /etc/walle-ai.conf 为 600 root:root，由 systemd EnvironmentFile 注入；
-        # 手动开发请改用 scripts/start.sh，不要为了读取而放宽文件权限。
+        # 生产配置 600 root:root 由 systemd EnvironmentFile 注入；手动开发用 scripts/start.sh
         print(f"[warn] 读取环境文件失败 {path}: {exc}", file=sys.stderr)
         print("       若由 systemd 启动，配置已通过 EnvironmentFile 注入，可忽略；"
               "手动运行请改用 scripts/start.sh", file=sys.stderr)
@@ -58,8 +56,7 @@ def _load_env_file(path):
 
 def _init_env():
     """按优先级加载环境文件，返回加载到的路径。"""
-    # systemd EnvironmentFile 已注入时无需再读文件（生产配置为 600 root:root，
-    # 普通用户不可读，直接读会误报“不存在或不可读”）
+    # systemd 已注入时无需读文件（生产配置 600 root:root，普通用户不可读）
     required = ("MQTT_HOST", "MQTT_USERNAME", "MQTT_PASSWORD", "MQTT_TENANT")
     if all(os.environ.get(k) for k in required):
         return None
@@ -80,8 +77,7 @@ ENV_SOURCE = _init_env()
 
 # ---- 运行环境（prod/debug）/ MQTT ----
 WALLE_RUNTIME_ENV = os.environ.get("WALLE_RUNTIME_ENV", "prod").strip().lower()
-# 不提供默认 broker / 用户名：必须由 /etc/walle-ai.conf（或 systemd Environment=）注入。
-# 缺失时节点拒绝启动（validate_mqtt_config），避免设备误连演示服务器或使用默认凭据。
+# 不提供默认 broker / 用户名：缺失时拒绝启动（validate_mqtt_config），避免误连演示服务器
 MQTT_HOST = os.environ.get("MQTT_HOST", "").strip()
 _MQTT_PORT_RAW = os.environ.get("MQTT_PORT", "8883").strip()
 try:
@@ -98,9 +94,7 @@ MQTT_CA_FILE = os.environ.get("MQTT_CA_FILE", "").strip()      # 留空则用系
 TLS_PORTS = (8883, 8084)
 
 # ---- 主题命名约定（完整主题 = walle/{tenant}/device/{device}/{资源}）----
-#   请求-应答对：请求 .../request、应答 .../response，且应答只在收到对应请求后发布；
-#   持续设置且不需要应答：.../cmd；
-#   主动上报：online（上线/下线）与 alarm/report（告警/USB 插拔）。
+#   请求-应答对 .../request → .../response；持续设置 .../cmd；主动上报 online 与 alarm/report。
 # ---- 应答（设备 -> App）----
 RES_DISCOVERY_RESULT = "discovery/query/response"   # 收到 discovery/query/request 后发布（设备身份详情）
 RES_STATE_RESULT = "baseState/query/response"           # 收到 baseState/query/request 后发布（状态快照）
@@ -116,14 +110,15 @@ RES_RECORD_LIST_RESULT = "record/list/query/response"       # 收到 record/list
 RES_RECORD_DELETE_RESULT = "record/delete/response"         # 收到 record/delete/request 后发布
 RES_RECORD_PLAY_START_RESULT = "record/play/start/response"  # 收到 record/play/start/request 后发布
 RES_RECORD_PLAY_STOP_RESULT = "record/play/stop/response"   # 收到 record/play/stop/request 后发布
+RES_CONTROL_ACQUIRE = "control/acquire/response"             # 获取/续租控制权
+RES_CONTROL_RELEASE = "control/release/response"             # 释放控制权
 
 # ---- 主动上报（设备 -> App，不必等查询）----
 RES_ONLINE = "online"                       # retained + 遗嘱
 
 # ---- 设备发现防抖（N7）----
-# 正常情况下 App 不再自动广播 discovery，改为订阅 retained online 建列表；
-# discovery 只在「手动下拉刷新」和「一台设备都没回放出来」时出现。
-# 但多台手机同时点刷新仍会让 N 台设备同时回包，因此设备侧再加两道保护：
+# 正常情况 App 订阅 retained online 建列表，discovery 只在手动刷新；
+# 多台手机同时刷新仍会同时回包，因此设备侧再加两道保护：
 DISCOVERY_JITTER_SEC = 0.8                  # 首次应答前的随机延迟上限（秒），避免同时回包
 DISCOVERY_MIN_INTERVAL_SEC = 2.0            # 同一台设备两次应答的最小间隔（秒）
 RES_ALARM = "alarm/report"                  # 告警 / 恢复 / USB 插拔
@@ -145,6 +140,8 @@ REQ_RECORD_LIST = "record/list/query/request"    # 查询录像列表
 REQ_RECORD_DELETE = "record/delete/request"      # 删除录像文件
 REQ_RECORD_PLAY_START = "record/play/start/request"  # 播放录像（ffmpeg 推 fmp4 → SRS）
 REQ_RECORD_PLAY_STOP = "record/play/stop/request"    # 停止录像推流
+REQ_CONTROL_ACQUIRE = "control/acquire/request"      # 获取/续租控制权
+REQ_CONTROL_RELEASE = "control/release/request"      # 释放控制权
 
 # ---- car/servo/set/cmd 常量 ----
 CAR_SERVO_POSITION_MIN = 800
@@ -348,6 +345,8 @@ REQUEST_TO_RESULT = {
     REQ_RECORD_DELETE: RES_RECORD_DELETE_RESULT,
     REQ_RECORD_PLAY_START: RES_RECORD_PLAY_START_RESULT,
     REQ_RECORD_PLAY_STOP: RES_RECORD_PLAY_STOP_RESULT,
+    REQ_CONTROL_ACQUIRE: RES_CONTROL_ACQUIRE,
+    REQ_CONTROL_RELEASE: RES_CONTROL_RELEASE,
 }
 
 # 请求资源 → 处理函数名
@@ -367,6 +366,8 @@ REQUEST_HANDLERS = {
     REQ_RECORD_DELETE: "handle_record_delete",
     REQ_RECORD_PLAY_START: "handle_record_play",
     REQ_RECORD_PLAY_STOP: "handle_record_play_stop",
+    REQ_CONTROL_ACQUIRE: "handle_control_acquire",
+    REQ_CONTROL_RELEASE: "handle_control_release",
 }
 
 # 动作类请求：可能阻塞数秒（等首帧 / 推流宽限期 / 音频启动），单独线程池处理，
@@ -375,6 +376,7 @@ ACTION_REQUESTS = frozenset({
     REQ_VIDEO_START, REQ_VIDEO_STOP, REQ_PHONE_AUDIO_SEND, REQ_PHONE_AUDIO_STOP,
     REQ_RECORD_START, REQ_RECORD_STOP, REQ_RECORD_DELETE,
     REQ_RECORD_PLAY_START, REQ_RECORD_PLAY_STOP,
+    REQ_CONTROL_ACQUIRE, REQ_CONTROL_RELEASE,
 })
 
 # 实时请求：处理只做校验 + 发布 /cmd_vel，必须在 MQTT 回调线程内立即执行，
@@ -385,15 +387,21 @@ REALTIME_REQUESTS = frozenset({REQ_CAR_MOTOR_SET, REQ_CAR_SERVO_SET})
 # 不能占用 state/capability 查询线程，也不能和推流启动抢动作线程。
 SERVO_REQUESTS = frozenset({REQ_CAR_SERVO_STATUS})
 
+# 只读查询：始终放行；持有者发送会续租，非持有者不会。
+QUERY_REQUESTS = frozenset({
+    REQ_STATE, REQ_CAPABILITY, REQ_CAR_SERVO_STATUS, REQ_RECORD_LIST,
+})
+
+# 控制权管理本身不走租约校验（否则无法申请/释放）。
+CONTROL_EXEMPT_REQUESTS = frozenset({REQ_CONTROL_ACQUIRE, REQ_CONTROL_RELEASE})
+
 def subscriptions():
     """本设备要订阅的主题（只有请求类/持续控制 + 租户内发现广播）。
 
-    用按层数的 `+` 模式只匹配以 /request 或 /cmd 结尾的资源，不订
-    walle/{t}/device/{d}/#：MQTT 3.1.1 会把客户端自己发布的报文也投递回来，
-    订全子树会收到自己发的 response/alarm，白白浪费带宽。
+    用按层数的 `+` 模式只匹配以 /request 或 /cmd 结尾的资源，不订整棵子树：
+    MQTT 3.1.1 会把客户端自己发布的报文也投递回来，白收 response/alarm。
 
-    当前层级：3 层（baseState/query/request 等）、4 层（phone/audio/*/request 等）、
-    5 层（car/servo/status/query/request）；持续控制为 4 层（car/.../set/cmd）。
+    当前层级：3/4/5 层请求，持续控制为 4 层（car/.../set/cmd）；
     新增不同层数的请求/控制主题时，需要在这里补一条对应模式。
     """
     base = device_topic_base()
@@ -408,6 +416,9 @@ def subscriptions():
 
 # ---- 监控阈值（均可用环境变量覆盖，写进 /etc/walle-ai.conf 即可）----
 MONITOR_INTERVAL = int(os.environ.get("MONITOR_INTERVAL", "5"))          # 采样周期（秒）
+# 控制权租约：15 分钟无有效请求自动释放；客户端 presence 离线后 grace 释放
+CONTROL_LEASE_TTL_SEC = int(os.environ.get("CONTROL_LEASE_TTL_SEC", "900"))
+CONTROL_OFFLINE_GRACE_SEC = int(os.environ.get("CONTROL_OFFLINE_GRACE_SEC", "10"))
 # 首次采样提前到 1s 完成，让 baseState/query/request 尽快命中缓存（后续仍按 MONITOR_INTERVAL）
 STATUS_PRIME_INTERVAL = min(1.0, MONITOR_INTERVAL)
 THRESH_CPU = float(os.environ.get("THRESH_CPU", "90.0"))                 # CPU 使用率 %
@@ -431,7 +442,6 @@ MAX_SERVO_BACKLOG = max(0, int(os.environ.get("MQTT_MAX_SERVO_BACKLOG", "2")))
 MQTT_DEBUG_JSON = os.environ.get("WALLE_RUNTIME_ENV", "prod").strip().lower() == "debug"
 
 # ---- 布尔环境变量 ----
-
 def _env_flag(name, default):
     """布尔环境变量：1/true/yes/on 为真，0/false/no/off 为假。"""
     raw = os.environ.get(name)
@@ -451,9 +461,8 @@ CAM_ENABLE = _env_flag("CAM_ENABLE", True)   # 不需要摄像头能力查询时
 VIDEO_ENABLE = _env_flag("VIDEO_ENABLE", True)  # 不需要推流能力时置 False
 VIDEO_FFMPEG_BIN = "ffmpeg"              # ffmpeg 可执行文件（不在 PATH 就写绝对路径）
 # ---- 媒体服务器（Oryx：视频 RTMP 推流 + 手机音频 WHEP 拉流）----
-# 只配服务器地址与推流 secret；端口与路径由协议固定：
-#   推流 rtmp://{host}:1935/live/{room}?secret={secret}
-#   拉流 https://{host}/rtc/v1/whep/?app=live&stream={stream}
+# 只配地址与 secret；端口/路径固定：推流 rtmp://{host}:1935/live/{room}?secret={secret}
+# 拉流 https://{host}/rtc/v1/whep/?app=live&stream={stream}
 MEDIA_SERVER_HOST = os.environ.get("MEDIA_SERVER_HOST", "").strip()
 # Oryx 控制台「推流鉴权」生成的 secret；重置后需同步更新 App 与设备
 MEDIA_SERVER_SECRET = os.environ.get("MEDIA_SERVER_SECRET", "").strip()
@@ -461,9 +470,8 @@ MEDIA_SERVER_SECRET = os.environ.get("MEDIA_SERVER_SECRET", "").strip()
 RECORD_PLAY_FFMPEG_BIN = os.environ.get("RECORD_PLAY_FFMPEG_BIN", "ffmpeg")
 # SRS HTTP-FLV 端口（Oryx 默认 8080），可通过环境变量覆盖
 RECORD_PLAY_FLV_PORT = int(os.environ.get("RECORD_PLAY_FLV_PORT", "8080"))
-VIDEO_LOG_FILE = "log/ffmpeg_{time}.log"  # ffmpeg 日志文件（相对路径以进程工作目录为基准）
-                                         # {time} 会替换成推流时刻，如 20261029_162650，
-                                         # 所以每次推流都是一个独立的日志文件；目录不存在会自动创建
+VIDEO_LOG_FILE = "log/ffmpeg_{time}.log"  # {time} 替换为推流时刻（如 20261029_162650），
+                                         # 每次推流独立日志；相对工作目录，目录自动创建
 VIDEO_LOG_MAX_BYTES = 20 * 1024 * 1024   # 单个日志超过 20MB 时在下次写入前滚动为 .1 备份
 VIDEO_ROOM_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"  # 房间号白名单，防注入/防拼错
 

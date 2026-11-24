@@ -33,6 +33,8 @@ public class MessageRouterTest {
         @Override public void onVideoStartResult(JSONObject p) { record("video-start", p); }
         @Override public void onVideoStopResult(JSONObject p) { record("video-stop", p); }
         @Override public void onCarServoStatusResult(JSONObject p) { record("car-servo-status", p); }
+        @Override public void onControlAcquireResult(JSONObject p) { record("control-acquire", p); }
+        @Override public void onControlReleaseResult(JSONObject p) { record("control-release", p); }
         @Override public void onIgnored(String topic, String reason) { ignored.add(topic); }
     }
 
@@ -49,10 +51,12 @@ public class MessageRouterTest {
         router.route(BASE + "/video/start/response", "{\"result\":0}");
         router.route(BASE + "/video/stop/response", "{\"result\":0}");
         router.route(BASE + "/car/servo/status/query/response", "{\"result\":0}");
+        router.route(BASE + "/control/acquire/response", "{\"result\":1}");
+        router.route(BASE + "/control/release/response", "{\"result\":0}");
 
         assertEquals(List.of("online", "discovery", "state", "alarm",
                 "capability", "video-start", "video-stop",
-                "car-servo-status"), sink.events);
+                "car-servo-status", "control-acquire", "control-release"), sink.events);
     }
 
     @Test

@@ -35,6 +35,18 @@
                 android:layout_weight="1"
                 android:minHeight="40dp"
                 android:popupBackground="@drawable/bg_popup_dark" />
+
+            <!-- 控制权租约：空闲时显示「获取」，自己持有时显示「释放」 -->
+            <TextView
+                android:id="@+id/tvLease"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="4dp"
+                android:text="@string/lease_free"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
         </LinearLayout>
 
         <!-- 音频外设能力（capability/query/response 的 audio 分组）：麦克风 / 音响 -->

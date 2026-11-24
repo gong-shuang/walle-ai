@@ -46,6 +46,14 @@ public class MessageRouter {
         /** car/servo/status/query/response：舵机状态查询回执。 */
         void onCarServoStatusResult(JSONObject payload);
 
+        /** control/acquire/response：获取/续租控制权回执。 */
+        default void onControlAcquireResult(JSONObject payload) {
+        }
+
+        /** control/release/response：释放控制权回执。 */
+        default void onControlReleaseResult(JSONObject payload) {
+        }
+
         /** 无法识别的主题/资源（默认只打日志）。 */
         default void onIgnored(String topic, String reason) {
         }
@@ -124,6 +132,12 @@ public class MessageRouter {
                 break;
             case "car/servo/status/query/response":
                 if (!isDuplicate("car/servo/status", json)) sink.onCarServoStatusResult(json);
+                break;
+            case "control/acquire/response":
+                if (!isDuplicate("control/acquire", json)) sink.onControlAcquireResult(json);
+                break;
+            case "control/release/response":
+                if (!isDuplicate("control/release", json)) sink.onControlReleaseResult(json);
                 break;
             default:
                 sink.onIgnored(topic, "未知资源 " + resource);

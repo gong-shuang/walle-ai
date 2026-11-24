@@ -130,6 +130,8 @@ RES_VIDEO_START_RESULT = "video/start/response"     # 收到 video/start/request
 RES_VIDEO_STOP_RESULT = "video/stop/response"       # 收到 video/stop/request 后发布
 RES_PHONE_AUDIO_SEND_RESULT = "phone/audio/send/response"   # 收到 phone/audio/send/request 后发布
 RES_PHONE_AUDIO_STOP_RESULT = "phone/audio/stop/response"   # 收到 phone/audio/stop/request 后发布
+RES_CONTROL_ACQUIRE = "control/acquire/response"    # 获取/续租控制权
+RES_CONTROL_RELEASE = "control/release/response"    # 释放控制权
 
 # ---- 主动上报（设备 -> App，不必等查询）----
 RES_ONLINE = "online"                       # retained + 遗嘱
@@ -150,6 +152,8 @@ REQ_VIDEO_START = "video/start/request"
 REQ_VIDEO_STOP = "video/stop/request"
 REQ_PHONE_AUDIO_SEND = "phone/audio/send/request"   # 手机麦上行：App 开始往 {room}_audio 推音频
 REQ_PHONE_AUDIO_STOP = "phone/audio/stop/request"   # 手机麦上行：App 停止推音频
+REQ_CONTROL_ACQUIRE = "control/acquire/request"     # 获取/续租控制权
+REQ_CONTROL_RELEASE = "control/release/request"     # 释放控制权
 
 # ---- 设备标识 ----
 HOSTNAME = socket.gethostname()
@@ -271,6 +275,9 @@ else:
 
 # ---- 监控阈值（均可用环境变量覆盖，写进 /etc/walle-ai.conf 即可）----
 MONITOR_INTERVAL = int(os.environ.get("MONITOR_INTERVAL", "5"))          # 采样周期（秒）
+# 控制权租约：15 分钟无有效请求自动释放；客户端 presence 离线后 grace 释放
+CONTROL_LEASE_TTL_SEC = int(os.environ.get("CONTROL_LEASE_TTL_SEC", "900"))
+CONTROL_OFFLINE_GRACE_SEC = int(os.environ.get("CONTROL_OFFLINE_GRACE_SEC", "10"))
 # 查询（state/capability/discovery）与动作（video/phone audio）分池，避免动作占满查询线程；
 # 每个池限制「执行中 + 排队」总量，超限丢弃并计数
 QUERY_WORKERS = int(os.environ.get("QUERY_WORKERS", "2"))

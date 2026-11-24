@@ -28,6 +28,7 @@ import www.walle.ai.BuildConfig;
 import www.walle.ai.R;
 import www.walle.ai.databinding.ActivityPlayerBinding;
 import www.walle.ai.model.CameraCapability;
+import www.walle.ai.model.ControlHolder;
 import www.walle.ai.net.MqttManager;
 import www.walle.ai.net.WhipAudioSession;
 
@@ -203,6 +204,17 @@ public class PlayerActivity extends AppCompatActivity {
         binding.micButton.setText(R.string.mic_off);
         binding.micButton.setOnClickListener(v -> toggleMic());
 
+        // 控制权租约：空闲时点击获取，自己持有时点击释放
+        binding.leaseButton.setOnClickListener(v -> {
+            PlayerViewModel.UiState ui = viewModel.state().getValue();
+            ControlHolder holder = ui == null ? null : ui.controlHolder;
+            if (holder != null && holder.self) {
+                viewModel.releaseControl();
+            } else {
+                viewModel.acquireControl();
+            }
+        });
+
         // 车控摇杆：按住期间每 200ms 下发一次，松手立即下发停止
         carTarget = micTarget;
         binding.joystick.setListener(new JoystickView.Listener() {
@@ -355,6 +367,10 @@ public class PlayerActivity extends AppCompatActivity {
             viewModel.postStatus(getString(R.string.mic_no_room));
             return;
         }
+        if (!viewModel.canControl()) {
+            viewModel.postStatus(getString(R.string.lease_occupied));
+            return;
+        }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_RECORD_AUDIO);
@@ -458,6 +474,11 @@ public class PlayerActivity extends AppCompatActivity {
      * 于是 ±22.5° 内是纯前进/后退/旋转，22.5°~67.5° 是斜向，其余是纯旋转。</p>
      */
     private void handleJoystickMove(float nx, float ny) {
+        if (!viewModel.canControl()) {
+            stopCarControl();
+            viewModel.postStatus(getString(R.string.lease_occupied));
+            return;
+        }
         float magnitude = (float) Math.hypot(nx, ny);
         if (magnitude < CAR_DEAD_ZONE) {
             stopCarControl();
@@ -502,6 +523,10 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void sendCarCommand() {
         if (mgr == null || carTarget.isEmpty()) return;
+        if (!viewModel.canControl()) {
+            stopCarControl();
+            return;
+        }
         mgr.sendCarMotorDrive(carTarget,
                 carForward ? CAR_SPEED : 0,
                 carBack ? CAR_SPEED : 0,
@@ -572,6 +597,7 @@ public class PlayerActivity extends AppCompatActivity {
         syncCameraItems(ui.cameras);
 
         binding.spinnerCamera.setVisibility(ui.showSpinner() ? View.VISIBLE : View.GONE);
+        renderLease(ui);
 
         // 收到 car/servo/status/query/response（拿到舵机位置）后才显示右下角舵机摇杆
         if (!ui.servoReady) stopServoControl();
@@ -587,6 +613,18 @@ public class PlayerActivity extends AppCompatActivity {
             }
         }
         if (!ui.status.isEmpty()) binding.statusText.setText(ui.status);
+    }
+
+    /** 控制权状态条：空闲 / 自己持有 / 被他人占用。 */
+    private void renderLease(PlayerViewModel.UiState ui) {
+        ControlHolder holder = ui.controlHolder;
+        if (holder == null) {
+            binding.leaseButton.setText(R.string.lease_free);
+        } else if (holder.self) {
+            binding.leaseButton.setText(R.string.lease_self);
+        } else {
+            binding.leaseButton.setText(getString(R.string.lease_other, holder.displayName()));
+        }
     }
 
     /** 把 VM 的不可变列表同步到 adapter 数据源；列表内容变了才重建（避免无谓闪烁）。 */

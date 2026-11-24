@@ -26,6 +26,7 @@ import java.util.List;
 import www.walle.ai.BuildConfig;
 import www.walle.ai.R;
 import www.walle.ai.model.CameraCapability;
+import www.walle.ai.model.ControlHolder;
 import www.walle.ai.model.DeviceCapability;
 
 /**
@@ -40,6 +41,7 @@ public class ControlFragment extends Fragment {
     private Spinner spinnerCamera;
     private TextView tvVideoStatus;
     private TextView tvAudioInfo;
+    private TextView tvLease;
     private ImageView btnPlay;
     private ImageView ivFullscreen;
     private ProgressBar pbVideo;
@@ -72,6 +74,7 @@ public class ControlFragment extends Fragment {
         spinnerCamera = view.findViewById(R.id.spinnerCamera);
         tvVideoStatus = view.findViewById(R.id.tvVideoStatus);
         tvAudioInfo = view.findViewById(R.id.tvAudioInfo);
+        tvLease = view.findViewById(R.id.tvLease);
         btnPlay = view.findViewById(R.id.btnPlay);
         ivFullscreen = view.findViewById(R.id.ivFullscreen);
         pbVideo = view.findViewById(R.id.pbVideo);
@@ -96,6 +99,15 @@ public class ControlFragment extends Fragment {
         view.findViewById(R.id.flVideo).setOnClickListener(v -> viewModel.togglePlay());
         btnPlay.setOnClickListener(v -> viewModel.togglePlay());
         ivFullscreen.setOnClickListener(v -> openFullscreen());
+        tvLease.setOnClickListener(v -> {
+            ControlViewModel.UiState ui = viewModel.state().getValue();
+            ControlHolder holder = ui == null ? null : ui.controlHolder;
+            if (holder != null && holder.self) {
+                viewModel.releaseControl();
+            } else {
+                viewModel.acquireControl();
+            }
+        });
 
         viewModel.state().observe(getViewLifecycleOwner(), this::render);
         viewModel.toast().observe(getViewLifecycleOwner(), msg -> {
@@ -178,6 +190,7 @@ public class ControlFragment extends Fragment {
         spinnerCamera.setEnabled(!ui.capabilityLoading && !ui.cameras.isEmpty());
 
         tvVideoStatus.setText(ui.status);
+        renderLease(ui);
         renderAudioInfo(ui);
         pbVideo.setVisibility(ui.phase == ControlViewModel.Phase.STARTING ? View.VISIBLE : View.GONE);
 
@@ -187,6 +200,18 @@ public class ControlFragment extends Fragment {
         ivFullscreen.setVisibility(ui.phase == ControlViewModel.Phase.LIVE ? View.VISIBLE : View.GONE);
 
         syncPlayer(ui);
+    }
+
+    /** 控制权状态条：空闲 / 自己持有 / 被他人占用。 */
+    private void renderLease(ControlViewModel.UiState ui) {
+        ControlHolder holder = ui.controlHolder;
+        if (holder == null) {
+            tvLease.setText(R.string.lease_free);
+        } else if (holder.self) {
+            tvLease.setText(R.string.lease_self);
+        } else {
+            tvLease.setText(getString(R.string.lease_other, holder.displayName()));
+        }
     }
 
     private void syncAdapter(List<CameraCapability.Camera> cameras) {

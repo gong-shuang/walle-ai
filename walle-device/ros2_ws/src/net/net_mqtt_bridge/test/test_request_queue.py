@@ -9,11 +9,13 @@ import net_mqtt_bridge.agent as agent
 import net_mqtt_bridge.config as config
 import net_mqtt_bridge.monitor as monitor_mod
 from net_mqtt_bridge.agent import RpiMonitor
+from net_mqtt_bridge.control import ControlLease
 
 
 def _bare_monitor(query_workers=1, action_workers=1,
                   query_backlog=1, action_backlog=1):
     monitor = object.__new__(RpiMonitor)
+    monitor.control_lease = ControlLease()
     monitor.query_pool = ThreadPoolExecutor(
         query_workers, thread_name_prefix="t-query")
     monitor.action_pool = ThreadPoolExecutor(

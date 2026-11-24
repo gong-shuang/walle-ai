@@ -157,6 +157,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   background:linear-gradient(90deg,rgba(61,220,151,0),rgba(61,220,151,.9) 18%,rgba(74,168,255,.9) 82%,rgba(74,168,255,0));
   box-shadow:0 0 12px rgba(61,220,151,.45)}
 .videoCard .cardHead{display:flex;align-items:center;gap:10px}
+.leaseBar{display:flex;align-items:center;gap:8px;margin:0 0 14px;padding:8px 10px;
+  border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.02);
+  font-size:11.5px;color:var(--muted)}
+.leaseBar b{font-weight:600;color:var(--text)}
+.leaseBar .btn{margin-left:auto}
 .videoTitle{flex:1;min-width:0}
 .videoMsg{margin-top:9px;font-size:11.5px;line-height:1.55;color:var(--dim);max-height:64px;overflow:auto;word-break:break-word}
 .videoMsg.ok{color:#9ff0cf}
@@ -449,20 +454,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <section class="card statusCard" data-tab-target="device-detail">
       <div class="cardHead">
         <div>
-          <h2>基本状态</h2>
+          <h2>设备详情</h2>
           <small>baseState/query/request → baseState/query/response</small>
         </div>
         <button id="btnRefreshState" class="btn" type="button" title="查询基本状态和运行状态">刷新</button>
-      </div>
-
-      <div class="identity">
-        <div class="avatar">▤</div>
-        <div style="min-width:0;flex:1">
-          <h3 id="devName">未选择设备</h3>
-          <p id="devSub">从上方列表选择，或点「刷新」发送 discovery/query/request</p>
-          <div class="pills" id="devPills"></div>
-        </div>
-        <span id="onlineBadge" class="badge bad">离线</span>
       </div>
 
       <div class="metrics">
@@ -482,6 +477,12 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       </div>
 
       <div class="stateSplit"></div>
+
+      <div class="leaseBar">
+        <span>设备控制者</span>
+        <b id="leaseOwner">无</b>
+        <button id="btnLease" class="btn" type="button">申请控制权限</button>
+      </div>
 
       <div class="cardHead">
         <div>
@@ -776,9 +777,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function videoUrlTemplate() { return serverBase() + '/rtc/v1/whep/?app=live&stream={room}'; }
 
   var el = {};
-  ['deviceSelect', 'connChip', 'connText', 'btnSettings', 'onlineBadge', 'devName', 'devSub',
-   'devPills', 'mCpu', 'bCpu', 'mTemp', 'bTemp', 'mMem', 'bMem', 'mUptime', 'bUp', 'dHost', 'dOs', 'dLoad', 'dNet',
-   'dDisk', 'dUsb', 'btnRefreshState',
+  ['deviceSelect', 'connChip', 'connText', 'btnSettings',
+   'mCpu', 'bCpu', 'mTemp', 'bTemp', 'mMem', 'bMem', 'mUptime', 'bUp', 'dHost', 'dOs', 'dLoad', 'dNet',
+   'dDisk', 'dUsb', 'btnRefreshState', 'leaseOwner', 'btnLease',
    'rVideo', 'rVideoSub', 'rAudio', 'rAudioSub', 'rRecord', 'rRecordSub',
    'rMotor', 'rServo', 'rBattery', 'rSonar', 'btnCapability', 'videoEl',
    'videoEmpty', 'videoHint', 'btnVideoAction', 'btnVideoStop', 'btnVideoSound',
@@ -809,7 +810,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     alarm: { tab: 'live', loading: false, pageSize: 30,
       live: [], livePage: 1,
       history: { items: [], page: 1, pages: 0, total: 0, loaded: false, filter: null } },
-    statePending: null, offline: {} };
+    statePending: null, offline: {},
+    control: { byDevice: {}, seen: {}, pending: null } };
   var reconnectTimer = null, mqtt;
   function randomClientSuffix() {
     var s = '';
@@ -979,6 +981,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   var SUBS = ['online', 'discovery/query/response', 'baseState/query/response', 'runState/query/response',
     'video/start/response', 'video/stop/response',
     'car/servo/status/query/response', 'alarm/report',
+    'control/acquire/response', 'control/release/response',
     'record/start/response', 'record/stop/response',
     'record/list/query/response', 'record/delete/response',
     'record/play/start/response', 'record/play/stop/response'];
@@ -1036,6 +1039,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     else if (/\/video\/start\/response$/.test(topic)) onVideoStartResult(dev, data);
     else if (/\/video\/stop\/response$/.test(topic)) onVideoStopResult(dev, data);
     else if (/\/car\/servo\/status\/query\/response$/.test(topic)) onCarServoStatusResult(dev, data);
+    else if (/\/control\/acquire\/response$/.test(topic)) onControlAcquireResult(dev, data);
+    else if (/\/control\/release\/response$/.test(topic)) onControlReleaseResult(dev, data);
     else if (/\/record\/start\/response$/.test(topic)) onRecordStart(dev, data);
     else if (/\/record\/stop\/response$/.test(topic)) onRecordStop(dev, data);
     else if (/\/record\/list\/query\/response$/.test(topic)) onRecordList(dev, data);
@@ -1066,10 +1071,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (dev === cfg.device) {
       var wasOnline = ui.online;
       ui.online = data.online === true;
-      el.onlineBadge.className = 'badge ' + (ui.online ? 'ok' : 'bad');
-      el.onlineBadge.textContent = ui.online ? '在线' : '离线';
       if (!ui.online) {
         carReleaseAll(false); servoDisable('设备离线');
+        delete ui.control.byDevice[dev];
+        delete ui.control.seen[dev];
+        renderControlState();
         clearRecPending(); stopRecDurationTimer();
         ui.record.recording = false;
         applyRecordUi();
@@ -1123,7 +1129,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       el.deviceSelect.value = online.length ? online[0] : keys[0];
     }
     var selected = el.deviceSelect.value;
-    if (selected && (selected !== cfg.device || !ui.deviceInfo)) selectDevice(selected);
+    if (selected && selected !== cfg.device) selectDevice(selected);
     // 同步更新设备卡片列表
     if (typeof window.__renderDeviceCards === 'function') window.__renderDeviceCards();
   }
@@ -1135,21 +1141,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     resetRecordState();
     cfg.device = dev; saveCfg();
     var info = ui.devices[dev] || {};
-    ui.deviceInfo = info;
     ui.state = {}; ui.cap = {};
-    el.onlineBadge.className = 'badge ' + (info.online ? 'ok' : 'bad');
-    el.onlineBadge.textContent = info.online ? '在线' : '离线';
-    el.devName.textContent = info.hostname || info.device_id || dev;
-    el.devSub.textContent = [info.model, info.ip].filter(Boolean).join(' · ');
-    el.devPills.innerHTML = '';
-    if (info.model) addPill(info.model);
+    renderControlState();
     resetRunState();
     queryState(); requestCapability(); applyVideoUi();
     if (info.online) recordList();
-  }
-  function addPill(text) {
-    var s = document.createElement('span'); s.className = 'badge'; s.textContent = text;
-    el.devPills.appendChild(s);
   }
   var STATE_WAIT_MS = 3000, STATE_MAX_TRIES = 3;
   function stateFail(text, cb) {
@@ -1199,10 +1195,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
   function renderState() {
     var s = ui.state || {}, cpu = s.cpu || {}, mem = s.memory || {}, sys = s.system || {};
-    var info = ui.devices[cfg.device] || {};
-    el.onlineBadge.className = 'badge ' + (info.online ? 'ok' : 'bad');
-    el.onlineBadge.textContent = info.online ? '在线' : '离线';
-    el.devName.textContent = s.hostname || info.hostname || info.device_id || cfg.device || '未选择设备';
     el.mCpu.innerHTML = (cpu.percent == null ? '—' : Math.round(cpu.percent) + '%') + (cpu.count_logical ? ' <small>' + cpu.count_logical + ' 核</small>' : '');
     el.bCpu.style.width = Math.max(0, Math.min(100, cpu.percent || 0)) + '%';
     el.mTemp.innerHTML = (cpu.temperature_c == null ? '—' : Number(cpu.temperature_c).toFixed(1) + '°C');
@@ -1276,6 +1268,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     return true;
   }
   function onCapability(dev, data) {
+    if (!dev) return;
+    // control_holder 与 request_id 无关：先同步（含其他设备的探测应答）
+    applyHolderFrom(dev, data);
     if (dev !== cfg.device) return;
     if (ui.pendingCap && data.request_id && data.request_id !== ui.pendingCap.rid) return;
     var cb = ui.pendingCap && ui.pendingCap.onDone;
@@ -1296,6 +1291,153 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     // 兜底：手动刷新的应答即使已被 pendingCap 覆盖，也要结束「正在刷新」提示
     if (ui.capRefreshing) { ui.capRefreshing = false; setVideoMsg('运行状态已刷新（runState/query/response）', 'ok'); }
     if (cb) cb(true);
+  }
+
+  // ---------- 控制权租约（control/acquire|release） ----------
+  var CTRL_WAIT_MS = 5000;
+  function normalizeControlHolder(h) {
+    if (!h || typeof h !== 'object' || !h.client_id) return null;
+    var id = String(h.client_id);
+    return {
+      client_id: id,
+      client_name: String(h.client_name || ''),
+      self: id === clientIdNow(),
+      remaining_sec: Number(h.remaining_sec) || 0
+    };
+  }
+  function holderLabel(h) {
+    if (!h) return '';
+    return h.client_name || h.client_id;
+  }
+  function controlHolderFor(dev) {
+    return dev ? (ui.control.byDevice[dev] || null) : null;
+  }
+  function controlKnown(dev) {
+    return !!(dev && ui.control.seen[dev]);
+  }
+  function controlAllowedFor(dev) {
+    var h = controlHolderFor(dev);
+    return !h || h.self;
+  }
+  function controlHolder() {
+    return controlHolderFor(cfg.device);
+  }
+  function controlAllowed() {
+    return controlAllowedFor(cfg.device);
+  }
+  function applyHolderFrom(dev, data) {
+    if (!dev || !data || !Object.prototype.hasOwnProperty.call(data, 'control_holder')) return;
+    var h = normalizeControlHolder(data.control_holder);
+    if (h) ui.control.byDevice[dev] = h;
+    else delete ui.control.byDevice[dev];
+    ui.control.seen[dev] = true;
+    if (dev === cfg.device) renderControlState();
+  }
+  /** 刷新“设备控制者”一行：自己持有显示释放，别人持有不显示按钮。 */
+  function renderControlState() {
+    if (!el.leaseOwner || !el.btnLease) return;
+    if (!cfg.device) {
+      el.leaseOwner.textContent = '—';
+      el.btnLease.style.display = 'none';
+      return;
+    }
+    if (ui.offline[cfg.device]) {
+      el.leaseOwner.textContent = '—';
+      el.btnLease.style.display = 'none';
+      return;
+    }
+    var h = controlHolder();
+    var known = controlKnown(cfg.device);
+    el.leaseOwner.textContent = h ? holderLabel(h) : (known ? '无' : '查询中…');
+    if (h && !h.self) {
+      el.btnLease.style.display = 'none';
+      return;
+    }
+    el.btnLease.style.display = '';
+    el.btnLease.textContent = ui.control.pending
+      ? '处理中…'
+      : (h && h.self ? '释放控制权' : '申请控制权限');
+    el.btnLease.disabled = !!ui.control.pending
+      || !mqtt || !mqtt.connected || !!ui.offline[cfg.device];
+  }
+  /** 非 holder 的操作为拒绝：写入对应区域的状态文案并返回 true。 */
+  function controlDenied(setter, action) {
+    if (controlAllowed()) return false;
+    setter('设备控制权限已被「' + holderLabel(controlHolder()) + '」占用，无法' + action, 'err');
+    return true;
+  }
+  function noteControlDenied(dev, data) {
+    if (!data || data.error_code !== 'control_denied') return false;
+    applyHolderFrom(dev, data);
+    return true;
+  }
+  function controlAcquire(dev) {
+    dev = dev || cfg.device;
+    if (!mqtt || !mqtt.connected || !dev) {
+      setVideoMsg('MQTT 未连接或未选择设备', 'err');
+      return;
+    }
+    if (ui.control.pending) return;
+    var id = rid();
+    if (!mqtt.publish(base(dev) + '/control/acquire/request', { request_id: id })) {
+      setVideoMsg('control/acquire/request 发送失败', 'err');
+      return;
+    }
+    ui.control.pending = { dev: dev, rid: id, timer: setTimeout(function () {
+      if (!ui.control.pending) return;
+      ui.control.pending = null;
+      setVideoMsg('等待 control/acquire/response 超时（5s）', 'err');
+      renderControlState();
+    }, CTRL_WAIT_MS) };
+    renderControlState();
+  }
+  function controlRelease(dev) {
+    dev = dev || cfg.device;
+    if (!mqtt || !mqtt.connected || !dev) {
+      setVideoMsg('MQTT 未连接或未选择设备', 'err');
+      return;
+    }
+    if (ui.control.pending) return;
+    var id = rid();
+    if (!mqtt.publish(base(dev) + '/control/release/request', { request_id: id })) {
+      setVideoMsg('control/release/request 发送失败', 'err');
+      return;
+    }
+    ui.control.pending = { dev: dev, rid: id, timer: setTimeout(function () {
+      if (!ui.control.pending) return;
+      ui.control.pending = null;
+      setVideoMsg('等待 control/release/response 超时（5s）', 'err');
+      renderControlState();
+    }, CTRL_WAIT_MS) };
+    renderControlState();
+  }
+  function onControlAcquireResult(dev, data) {
+    if (!dev) return;
+    if (ui.control.pending) {
+      if (ui.control.pending.dev !== dev
+        || (data.request_id && data.request_id !== ui.control.pending.rid)) return;
+      clearTimeout(ui.control.pending.timer);
+      ui.control.pending = null;
+    }
+    applyHolderFrom(dev, data);
+    renderControlState();
+    if (data.result !== 0) {
+      setVideoMsg('获取控制权失败：' + (data.cause || ('result=' + data.result)), 'err');
+    }
+  }
+  function onControlReleaseResult(dev, data) {
+    if (!dev) return;
+    if (ui.control.pending) {
+      if (ui.control.pending.dev !== dev
+        || (data.request_id && data.request_id !== ui.control.pending.rid)) return;
+      clearTimeout(ui.control.pending.timer);
+      ui.control.pending = null;
+    }
+    applyHolderFrom(dev, data);
+    renderControlState();
+    if (data.result !== 0) {
+      setVideoMsg('释放控制权失败：' + (data.cause || ('result=' + data.result)), 'err');
+    }
   }
   function setRunMetric(node, text, active) {
     if (!node) return;
@@ -1425,6 +1567,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function videoStart() {
     if (ui.video.streaming === true) { setVideoMsg('设备已在推流，无需重复开始；请直接连接画面', 'ok'); applyVideoUi(); return; }
     if (!mqtt || !mqtt.connected || !cfg.device) { setVideoMsg('MQTT 未连接或未选择设备', 'err'); return; }
+    if (controlDenied(setVideoMsg, '推流')) return;
     // V1.11：请求不再带 video_device / room_number，摄像头与房间号均由设备端决定
     var id = rid();
     if (!mqtt.publish(base(cfg.device) + '/video/start/request',
@@ -1459,6 +1602,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function onVideoStartResult(dev, data) {
     if (dev !== cfg.device) return;
     if (ui.pendingVideo && data.request_id && data.request_id !== ui.pendingVideo.rid) return;
+    noteControlDenied(dev, data);
     if (ui.pendingVideo) { clearTimeout(ui.pendingVideo.timer); ui.pendingVideo = null; }
     if (data.result === 0) {
       ui.video.streaming = true;
@@ -1476,6 +1620,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
   function videoStop() {
     if (!mqtt || !mqtt.connected || !cfg.device) { setVideoMsg('MQTT 未连接或未选择设备', 'err'); return; }
+    if (controlDenied(setVideoMsg, '停止推流')) return;
     var rm = String(ui.video.room || '').trim();
     var id = rid();
     var payload = { request_id: id };
@@ -1492,6 +1637,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function onVideoStopResult(dev, data) {
     if (dev !== cfg.device) return;
     if (ui.pendingVideoStop && data.request_id && data.request_id !== ui.pendingVideoStop.rid) return;
+    noteControlDenied(dev, data);
     if (ui.pendingVideoStop) { clearTimeout(ui.pendingVideoStop.timer); ui.pendingVideoStop = null; }
     if (data.result === 0) {
       ui.video.streaming = false;
@@ -1865,6 +2011,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   // ---------- 开始录像 ----------
   function recordStart() {
     if (!mqtt || !mqtt.connected || !cfg.device) { setRecMsg('MQTT 未连接或未选择设备', 'err'); return; }
+    if (controlDenied(setRecMsg, '开始录像')) return;
     if (ui.record.recording) { setRecMsg('已在录像中，无需重复开始', 'err'); return; }
     if (ui.record.pendingStart) return;
     var id = rid();
@@ -1883,6 +2030,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function onRecordStart(dev, data) {
     if (dev !== cfg.device) return;
     if (ui.record.pendingStart && data.request_id && data.request_id !== ui.record.pendingStart.rid) return;
+    noteControlDenied(dev, data);
     if (ui.record.pendingStart) { clearTimeout(ui.record.pendingStart.timer); ui.record.pendingStart = null; }
     if (data.result === 0) {
       ui.record.recording = true;
@@ -1905,6 +2053,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   // ---------- 停止录像 ----------
   function recordStop() {
     if (!mqtt || !mqtt.connected || !cfg.device) { setRecMsg('MQTT 未连接或未选择设备', 'err'); return; }
+    if (controlDenied(setRecMsg, '停止录像')) return;
     if (ui.record.pendingStop) return;
     var id = rid();
     if (!mqtt.publish(base(cfg.device) + '/record/stop/request',
@@ -1922,6 +2071,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function onRecordStop(dev, data) {
     if (dev !== cfg.device) return;
     if (ui.record.pendingStop && data.request_id && data.request_id !== ui.record.pendingStop.rid) return;
+    noteControlDenied(dev, data);
     if (ui.record.pendingStop) { clearTimeout(ui.record.pendingStop.timer); ui.record.pendingStop = null; }
     if (data.result === 0) {
       stopRecDurationTimer();
@@ -2033,6 +2183,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (!mqtt || !mqtt.connected || !cfg.device) {
       setRecMsg('MQTT 未连接 / 未选设备', 'err'); return;
     }
+    if (controlDenied(setRecMsg, '删除录像')) return;
     if (ui.record.pendingDelete) return;
     var id = rid();
     if (!mqtt.publish(base(cfg.device) + '/record/delete/request',
@@ -2048,6 +2199,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function onRecordDelete(dev, data) {
     if (dev !== cfg.device) return;
     if (ui.record.pendingDelete && data.request_id && data.request_id !== ui.record.pendingDelete.rid) return;
+    noteControlDenied(dev, data);
     var fname = ui.record.pendingDelete ? ui.record.pendingDelete.filename : (data.filename || '');
     if (ui.record.pendingDelete) { clearTimeout(ui.record.pendingDelete.timer); ui.record.pendingDelete = null; }
     if (data.result === 0) {
@@ -2064,6 +2216,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (!mqtt || !mqtt.connected || !cfg.device) {
       setRecMsg('MQTT 未连接 / 未选设备，无法播放', 'err'); return;
     }
+    if (controlDenied(setRecMsg, '播放录像')) return;
     if (ui.player.pending) return;
     closePlayerWhep(true);
     ui.player.filename = filename;
@@ -2092,6 +2245,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
   function onRecordPlay(dev, data) {
     if (dev !== cfg.device) return;
+    noteControlDenied(dev, data);
     if (ui.player.pending && data.request_id && data.request_id !== ui.player.pending.rid) return;
     if (ui.player.pending) { clearTimeout(ui.player.pending.timer); ui.player.pending = null; }
     if (data.result !== 0) {
@@ -2267,6 +2421,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (!carHasActive()) return;
     // 未连接/未选设备时只停发，保留按键的下沉效果，等 keyup 再松开。
     if (!carPrereqOk()) { carStopLoop(); return; }
+    if (controlDenied(carSetStatus, '控制车轮')) { carStopLoop(); return; }
     var id = rid();
     var payload = carPayload();
     payload.request_id = id;
@@ -2435,6 +2590,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function onCarServoStatusResult(dev, data) {
     if (dev !== cfg.device) return;
     if (data.request_id && ui.servo.pendingQueryRid && data.request_id !== ui.servo.pendingQueryRid) return;
+    noteControlDenied(dev, data);
     servoClearQueryTimer();
     ui.servo.pendingQueryRid = '';
     if (!ui.servo.enabled) return;
@@ -2489,6 +2645,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (shouldStep('right')) addTarget(2, 'right', -SERVO_STEP);
     if (!targets.length) { servoUpdateButtons(); return; }
     if (!servoPrereqOk()) { servoStopLoop(); return; }
+    if (controlDenied(servoSetStatus, '控制舵机')) { servoStopLoop(); return; }
 
     var id = rid();
     if (!mqtt.publish(base(cfg.device) + '/car/servo/set/cmd', {
@@ -2733,6 +2890,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (ui.mic.starting || ui.mic.on) return;
     if (!micSupported()) { setVideoMsg('当前浏览器不支持麦克风采集（需 HTTPS 或 localhost）', 'err'); return; }
     if (!mqtt || !mqtt.connected || !cfg.device) { setVideoMsg('MQTT 未连接或未选择设备', 'err'); return; }
+    if (controlDenied(setVideoMsg, '开启语音通话')) return;
     if (!String(cfg.whipSecret || '').trim()) {
       setVideoMsg('未配置 WHIP 推流 Secret，请在登录设置中填写', 'err');
       return;
@@ -2859,6 +3017,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   el.btnRefreshState.addEventListener('click', refreshAll);
 
   el.btnCapability.addEventListener('click', refreshVideoState);
+  el.btnLease.addEventListener('click', function () {
+    var h = controlHolder();
+    if (h && h.self) controlRelease();
+    else controlAcquire();
+  });
   el.btnVideoAction.addEventListener('click', function () {
     if (ui.video.pc) { closeWhep(true); setVideoMsg('已断开 WHEP 会话', null); return; }
     if (ui.video.streaming !== true) { videoStart(); return; }
@@ -2975,6 +3138,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   if (cfg.videoRoom) ui.video.room = cfg.videoRoom;
   el.videoHint.textContent = '页面不自动拉流。file:// 直接打开时，HTTPS WHEP 可能被 CORS/证书拦截；建议在 web/ 下起本地静态服务。';
   servoSetEnabled(false, '相机方位未启用', null);
+  renderControlState();
 
   /* ============ 新布局初始化：DOM 重排 + 侧边栏 + 设备卡片 ============ */
   (function initNewLayout() {

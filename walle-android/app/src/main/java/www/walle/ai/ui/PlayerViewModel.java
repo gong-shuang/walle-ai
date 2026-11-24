@@ -15,6 +15,7 @@ import java.util.Collections;
 import java.util.List;
 
 import www.walle.ai.model.CameraCapability;
+import www.walle.ai.model.ControlHolder;
 import www.walle.ai.net.MqttManager;
 
 /**
@@ -69,10 +70,12 @@ public class PlayerViewModel extends MqttViewModel {
         public final String deviceKey;
         /** 已收到舵机状态回包并缓存到至少一个位置 → 显示右下角舵机摇杆。 */
         public final boolean servoReady;
+        /** 当前控制权 holder；null 表示空闲（fail-open，可直接控制）。 */
+        public final ControlHolder controlHolder;
 
         UiState(List<CameraCapability.Camera> cameras, int selectedIndex, String currentCamera,
                 boolean switching, String status, String room, String deviceKey,
-                boolean servoReady) {
+                boolean servoReady, ControlHolder controlHolder) {
             this.cameras = cameras;
             this.selectedIndex = selectedIndex;
             this.currentCamera = currentCamera;
@@ -81,6 +84,12 @@ public class PlayerViewModel extends MqttViewModel {
             this.room = room;
             this.deviceKey = deviceKey;
             this.servoReady = servoReady;
+            this.controlHolder = controlHolder;
+        }
+
+        /** 当前是否允许操作设备：无 holder（fail-open）或 holder 是自己。 */
+        public boolean canControl() {
+            return controlHolder == null || controlHolder.self;
         }
 
         /** 有摄像头且有当前 node 才显示右上角切换下拉。 */
@@ -164,7 +173,86 @@ public class PlayerViewModel extends MqttViewModel {
         this.currentCamera = orEmpty(camera);
         this.cameras = CameraCapability.parseArray(camerasJson);
         publish();
+        // 打开播放页时刷新一次 holder（runState 查询对非持有者同样放行）
+        refreshControlHolder();
     }
+
+    /** 查询一次设备运行状态，主要目的是拿到最新的 control_holder。 */
+    private void refreshControlHolder() {
+        if (deviceKey.isEmpty()) return;
+        mgr.requestCapability(deviceKey);
+    }
+
+    // region 控制权租约
+
+    /** 获取/续租控制权。 */
+    public void acquireControl() {
+        if (deviceKey.isEmpty()) {
+            status = "尚未选择设备，无法获取控制权";
+            publish();
+            return;
+        }
+        String rid = mgr.acquireControl(deviceKey);
+        if (rid.isEmpty()) return;
+        status = "正在获取控制权…";
+        publish();
+    }
+
+    /** 释放控制权（只有持有者本人能释放）。 */
+    public void releaseControl() {
+        if (deviceKey.isEmpty()) {
+            status = "尚未选择设备，无法释放控制权";
+            publish();
+            return;
+        }
+        String rid = mgr.releaseControl(deviceKey);
+        if (rid.isEmpty()) return;
+        status = "正在释放控制权…";
+        publish();
+    }
+
+    /** 当前是否允许操作设备：无 holder（fail-open）或 holder 是自己。 */
+    public boolean canControl() {
+        return deviceKey.isEmpty() || mgr.canControl(deviceKey);
+    }
+
+    @Override
+    public void onCapability(JSONObject payload) {
+        if (payload == null || !mgr.isFromDevice(deviceKey, payload)) return;
+        publish();      // holder 已由 MqttManager 更新，这里只负责把新状态推给 UI
+    }
+
+    @Override
+    public void onControlAcquireResult(JSONObject payload) {
+        if (payload == null || !mgr.isFromDevice(deviceKey, payload)) return;
+        int result = payload.optInt("result", -1);
+        if (result == 0) {
+            status = "已获取控制权";
+        } else {
+            status = "获取控制权失败：" + payload.optString("cause", "result=" + result);
+        }
+        publish();
+    }
+
+    @Override
+    public void onControlReleaseResult(JSONObject payload) {
+        if (payload == null || !mgr.isFromDevice(deviceKey, payload)) return;
+        int result = payload.optInt("result", -1);
+        status = result == 0
+                ? "已释放控制权"
+                : "释放控制权失败：" + payload.optString("cause", "result=" + result);
+        publish();
+    }
+
+    /** 控制被拒绝时的可读文案：优先展示 holder 名称。 */
+    private String controlDeniedText(JSONObject payload) {
+        ControlHolder holder = mgr.getControlHolder(deviceKey);
+        String cause = payload == null ? "" : payload.optString("cause", "");
+        if (cause.isEmpty()) cause = "设备控制权限已被别人占用";
+        return holder == null ? cause : cause + "（" + holder.displayName() + "）";
+    }
+
+    // endregion
 
     /** 状态条文案（WHEP 回调、首帧兜底等）。可从任意线程调用。 */
     public void postStatus(final String text) {
@@ -219,6 +307,11 @@ public class PlayerViewModel extends MqttViewModel {
      */
     public boolean stepServos(int delta1, int delta2) {
         if (deviceKey.isEmpty()) return false;
+        if (!mgr.canControl(deviceKey)) {
+            status = controlDeniedText(null);
+            publish();
+            return false;
+        }
         int target1 = validServoTarget(1, delta1);
         int target2 = validServoTarget(2, delta2);
         if (target1 < 0 && target2 < 0) return false;
@@ -281,6 +374,12 @@ public class PlayerViewModel extends MqttViewModel {
         handler.removeCallbacks(servoQueryTimeout);
         servoQueryRid = "";
 
+        if (MqttManager.isControlDenied(payload)) {
+            status = controlDeniedText(payload);
+            publish();
+            return;
+        }
+
         JSONArray servos = payload.optJSONArray("servos");
         if (servos != null) {
             for (int i = 0; i < servos.length(); i++) {
@@ -336,6 +435,8 @@ public class PlayerViewModel extends MqttViewModel {
             pendingCamera = null;
             handler.removeCallbacks(switchTimeout);
             status = "● 直播中";
+        } else if (MqttManager.isControlDenied(payload)) {
+            rollback(controlDeniedText(payload));
         } else {
             String cause = payload.optString("error",
                     payload.optString("cause", "摄像头切换失败（result=" + result + "）"));
@@ -381,7 +482,8 @@ public class PlayerViewModel extends MqttViewModel {
             return;
         }
         state.setValue(new UiState(cameras, indexOf(currentCamera), currentCamera,
-                waiting, status, room, deviceKey, hasServoPosition()));
+                waiting, status, room, deviceKey, hasServoPosition(),
+                deviceKey.isEmpty() ? null : mgr.getControlHolder(deviceKey)));
     }
 
     private int indexOf(String node) {

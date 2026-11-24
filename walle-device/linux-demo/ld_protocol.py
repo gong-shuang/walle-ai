@@ -63,6 +63,8 @@ REQUEST_TO_RESULT = {
     REQ_VIDEO_STOP: RES_VIDEO_STOP_RESULT,
     REQ_PHONE_AUDIO_SEND: RES_PHONE_AUDIO_SEND_RESULT,
     REQ_PHONE_AUDIO_STOP: RES_PHONE_AUDIO_STOP_RESULT,
+    REQ_CONTROL_ACQUIRE: RES_CONTROL_ACQUIRE,
+    REQ_CONTROL_RELEASE: RES_CONTROL_RELEASE,
 }
 
 # 请求资源 → 处理函数名
@@ -73,11 +75,19 @@ REQUEST_HANDLERS = {
     REQ_VIDEO_STOP: "handle_video_stop",
     REQ_PHONE_AUDIO_SEND: "handle_phone_audio_send",
     REQ_PHONE_AUDIO_STOP: "handle_phone_audio_stop",
+    REQ_CONTROL_ACQUIRE: "handle_control_acquire",
+    REQ_CONTROL_RELEASE: "handle_control_release",
 }
 
 
 # 查询类资源走 query_pool，其余动作类走 action_pool；discovery 单独判断
 QUERY_RESOURCES = {REQ_STATE, REQ_CAPABILITY}
+
+# 只读查询：始终放行；持有者发送会续租，非持有者不会。
+QUERY_REQUESTS = frozenset({REQ_STATE, REQ_CAPABILITY})
+
+# 控制权管理本身不走租约校验（否则无法申请/释放）。
+CONTROL_EXEMPT_REQUESTS = frozenset({REQ_CONTROL_ACQUIRE, REQ_CONTROL_RELEASE})
 
 
 def subscriptions():

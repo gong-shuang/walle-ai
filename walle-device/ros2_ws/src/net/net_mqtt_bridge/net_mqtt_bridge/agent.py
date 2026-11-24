@@ -92,6 +92,7 @@ from .alarm_sensors import SensorAlarmMixin
 from .capability import CapabilityMixin
 from .car_motor import CarMotorMixin
 from .car_servo import CarServoMixin
+from .control import ControlLease, ControlMixin
 from .config import (ACTION_REQUESTS, MQTT_CA_FILE, MQTT_HOST, MQTT_KEEPALIVE,  # noqa: F401
                      MQTT_PASSWORD, MQTT_PORT, MQTT_QOS, MQTT_TENANT, MQTT_TLS,
                      MQTT_USER, REQUEST_HANDLERS, REQUEST_TO_RESULT,
@@ -125,9 +126,9 @@ def __getattr__(name):
             f"module {__name__!r} has no attribute {name!r}") from None
 
 
-class RpiMonitor(ProtocolMixin, MonitorMixin, SensorAlarmMixin, CapabilityMixin,
-                 VideoMixin, RecordMixin, PhoneAudioMixin, CarMotorMixin,
-                 CarServoMixin):
+class RpiMonitor(ProtocolMixin, ControlMixin, MonitorMixin, SensorAlarmMixin,
+                 CapabilityMixin, VideoMixin, RecordMixin, PhoneAudioMixin,
+                 CarMotorMixin, CarServoMixin):
     """设备代理：组合协议、监控、能力、推流、录像、手机音频、车控与舵机状态能力。"""
 
     def __init__(self):
@@ -172,6 +173,10 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, SensorAlarmMixin, CapabilityMixin,
         # App/Web 客户端在线状态：client_id -> {online, client_name, ...}
         self.client_presence = {}
         self.client_presence_lock = threading.Lock()
+        # 控制权租约（单 holder，内存态；设备重启清空）
+        self.control_lease = ControlLease(
+            config.CONTROL_LEASE_TTL_SEC, config.CONTROL_OFFLINE_GRACE_SEC)
+        self._last_control_denied_log = 0.0
         # 上一次应答 discovery 的时间（单调时钟），用于限频
         self._last_discovery_at = 0.0
         # 内部录像状态（v1.10 起不再进入 baseState/query/response）

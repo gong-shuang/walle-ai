@@ -7,8 +7,10 @@ from ld_monitor_capability import MonitorCapabilityMixin
 from ld_monitor_video import MonitorVideoMixin
 from ld_monitor_phone import MonitorPhoneMixin
 from ld_monitor_status import MonitorStatusMixin
+from ld_control import MonitorControlMixin
 
 
 class RpiMonitor(MonitorStatusMixin, MonitorIdentityMixin, MonitorCapabilityMixin,
-                 MonitorVideoMixin, MonitorPhoneMixin, RpiMonitorBase):
+                 MonitorVideoMixin, MonitorPhoneMixin, MonitorControlMixin,
+                 RpiMonitorBase):
     """设备端主对象：MQTT 接入、监控、能力探测、推流与手机音频。"""

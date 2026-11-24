@@ -232,6 +232,9 @@ class MonitorStatusMixin:
             if self.stop_event.wait(MONITOR_INTERVAL):
                 break
             now = time.time()
+            reason = self.control_lease.tick(now)
+            if reason:
+                logging.info("控制权租约已释放（%s）", reason)
             elapsed = max(now - prev_t, 0.1)
 
             with self.sample_lock:

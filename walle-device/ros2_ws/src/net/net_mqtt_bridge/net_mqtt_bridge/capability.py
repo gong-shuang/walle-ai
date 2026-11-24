@@ -55,6 +55,7 @@ class CapabilityMixin:
             },
             "battery": battery,
             "sonar": sonar,
+            "control_holder": self.control_holder_snapshot(),
         }
 
     def handle_capability_query(self, payload):

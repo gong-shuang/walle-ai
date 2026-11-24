@@ -38,8 +38,9 @@ class RunStateTest(unittest.TestCase):
         self.assertEqual(set(data), {
             "device_id", "hostname", "ip", "timestamp", "datetime",
             "request_id", "video", "phone_audio", "recording", "motor", "servo",
-            "battery", "sonar",
+            "battery", "sonar", "control_holder",
         })
+        self.assertIsNone(data["control_holder"])
         for field in REMOVED_FIELDS:
             self.assertNotIn(field, data)
 

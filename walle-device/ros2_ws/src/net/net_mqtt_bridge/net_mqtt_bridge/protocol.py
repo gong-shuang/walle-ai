@@ -78,6 +78,8 @@ class ProtocolMixin:
         }
         with self.client_presence_lock:
             self.client_presence[client_id] = record
+        if hasattr(self, "control_lease"):
+            self.control_lease.on_presence(client_id, online, time.time())
         if online:
             logging.info("客户端上线: %s（%s，版本 %s/%s）", client_id,
                          record["client_name"] or "-",
@@ -217,6 +219,15 @@ class ProtocolMixin:
             logging.debug("忽略非请求类主题: %s", topic)
             return
         handler = getattr(self, handler_name)
+        # 控制权租约：查询始终放行（持有者续租）；控制类必须匹配当前 holder，
+        # 没有 holder 时 fail-open，所有人都可以执行。
+        if resource not in config.CONTROL_EXEMPT_REQUESTS:
+            data = self._safe_json(payload)
+            client_id = str(data.get("client_id") or "")
+            allowed, _is_holder = self.control_lease.touch(client_id, time.time())
+            if resource not in config.QUERY_REQUESTS and not allowed:
+                self.publish_control_denied(resource, data)
+                return
         # 实时控制类请求（车控）只做校验 + 发布，直接在 MQTT 回调线程执行；
         # 排进查询/动作队列会被慢查询拖到几百毫秒，200ms 的控制周期就失效了。
         if resource in config.REALTIME_REQUESTS:
