@@ -4,14 +4,10 @@
 import json
 import time
 
-import pytest
-
 import net_mqtt_bridge.agent as agent
-import net_mqtt_bridge.config as config
 import net_mqtt_bridge.record as record
 from net_mqtt_bridge.agent import RpiMonitor
 
-FIXED_UUID = "0f8fad5b-d9cb-469f-a165-70867728950e"
 REMOVED_FIELDS = ("cache", "capability", "capabilities", "camera_count",
                   "cameras", "audio", "summary", "probe")
 
@@ -32,31 +28,25 @@ def _query(monitor):
     published = []
     monitor.publish_json = lambda resource, data, retain=False: published.append(
         (resource, data))
-    monitor.handle_capability_query(json.dumps({"uuid": FIXED_UUID, "request_id": "r1"}))
+    monitor.handle_capability_query(json.dumps({"request_id": "r1"}))
     return published[0]
 
 
-@pytest.fixture
-def fixed_uuid(monkeypatch):
-    monkeypatch.setattr(config, "DEVICE_UUID", FIXED_UUID)
-    return FIXED_UUID
-
-
-def test_response_contains_only_runtime_groups(fixed_uuid):
+def test_response_contains_only_runtime_groups():
     monitor = _bare_monitor()
     resource, data = _query(monitor)
 
     assert resource == agent.RES_CAPABILITY_RESULT
     assert data["request_id"] == "r1"
     assert set(data) == {
-        "device_id", "uuid", "hostname", "ip", "timestamp", "datetime", "request_id",
+        "device_id", "hostname", "ip", "timestamp", "datetime", "request_id",
         "video", "phone_audio", "recording", "motor", "servo", "battery", "sonar",
     }
     for field in REMOVED_FIELDS:
         assert field not in data
 
 
-def test_runtime_groups_reflect_device_state(fixed_uuid):
+def test_runtime_groups_reflect_device_state():
     monitor = _bare_monitor()
     monitor._video_status = lambda: {
         "streaming": True, "video_device": "/dev/video0", "room_number": "room-1",
@@ -90,12 +80,12 @@ def test_runtime_groups_reflect_device_state(fixed_uuid):
     assert data["sonar"] == {"distance_cm": 35.5, "available": True}
 
 
-def test_uuid_mismatch_is_ignored(fixed_uuid):
+def test_invalid_payload_is_ignored():
     monitor = _bare_monitor()
     published = []
     monitor.publish_json = lambda resource, data, retain=False: published.append(
         (resource, data))
 
-    monitor.handle_capability_query(json.dumps({"uuid": "other", "request_id": "r1"}))
+    monitor.handle_capability_query("not-json")
 
     assert published == []

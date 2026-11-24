@@ -19,22 +19,16 @@ public class DeviceInfoTest {
     @Test
     public void topicDeviceIdPrefersStableDeviceId() {
         DeviceInfo d = new DeviceInfo();
-        d.uuid = "c004cb13-0004-5252-aa84-4b09f6517c5e";
         d.deviceId = "666feb85d43410b2";
         d.hostname = "RaspberryPi";
         assertEquals("666feb85d43410b2", d.topicDeviceId());
     }
 
     @Test
-    public void topicDeviceIdFallsBackToHostnameThenUuid() {
+    public void topicDeviceIdFallsBackToHostname() {
         DeviceInfo d = new DeviceInfo();
         d.hostname = "RaspberryPi";
         assertEquals("RaspberryPi", d.topicDeviceId());
-
-        d.hostname = "";
-        d.uuid = "c004cb13-0004-5252-aa84-4b09f6517c5e";
-        // uuid 里的连字符保留（属于允许字符），仅做清洗
-        assertEquals("c004cb13-0004-5252-aa84-4b09f6517c5e", d.topicDeviceId());
     }
 
     @Test
@@ -58,7 +52,7 @@ public class DeviceInfoTest {
 
     @Test
     public void parsesMinimalIdentityPayload() {
-        DeviceInfo d = DeviceInfo.from(json("{\"uuid\":\"u1\",\"device_id\":\"d1\","
+        DeviceInfo d = DeviceInfo.from(json("{\"device_id\":\"d1\","
                 + "\"version_code\":1,\"version_name\":\"0.0.2\","
                 + "\"os_description\":\"Ubuntu 24.04.5 LTS\","
                 + "\"device_type\":\"embedded-linux\",\"model\":\"Orange Pi 5 Plus\","
@@ -66,7 +60,6 @@ public class DeviceInfoTest {
                 + "\"uptime_seconds\":3720,\"timestamp\":1794457514,"
                 + "\"datetime\":\"2026-11-12 12:25:14\"}"));
 
-        assertEquals("u1", d.uuid);
         assertEquals("d1", d.deviceId);
         assertEquals("1", d.versionCode);
         assertEquals("0.0.2", d.versionName);
@@ -84,7 +77,7 @@ public class DeviceInfoTest {
     @Test
     public void missingOptionalIdentityFieldsFallBack() {
         // 最小身份报文之外的字段（MAC/CPU/磁盘等）已不再下发，缺失时必须能正常展示
-        DeviceInfo d = DeviceInfo.from(json("{\"uuid\":\"u1\"}"));
+        DeviceInfo d = DeviceInfo.from(json("{\"device_id\":\"d1\"}"));
 
         assertEquals("", d.osDescription);
         assertEquals(0L, d.uptimeSeconds);
@@ -96,16 +89,17 @@ public class DeviceInfoTest {
     @Test
     public void keyAndDisplayName() {
         DeviceInfo d = new DeviceInfo();
-        d.uuid = "uuid-1";
         d.deviceId = "dev-1";
         d.hostname = "host-1";
-        assertEquals("uuid-1", d.key());
+        assertEquals("dev-1", d.key());
         assertEquals("host-1", d.displayName());
 
-        d.uuid = "";
-        assertEquals("dev-1", d.key());
+        d.deviceId = "";
+        assertEquals("host-1", d.key());
+        assertEquals("host-1", d.displayName());
 
         d.hostname = "";
-        assertEquals("dev-1", d.displayName());
+        assertEquals("", d.key());
+        assertEquals("—", d.displayName());
     }
 }

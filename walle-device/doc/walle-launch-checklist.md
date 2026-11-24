@@ -34,9 +34,9 @@
   - 处理：`handle_cmd_exec` / `shell=True` 执行逻辑已整体删除
   - 验收：源码中已无远程 shell 命令执行路径
 
-- [x] ✅ **P0-1.3 uuid 不再作为鉴权凭证（针对远程命令）**
-  - 处理：命令能力已删除；uuid 仍用于其它请求配对，但无法再触发命令执行
-  - 验收：仅拿到 discovery/online 中的 uuid，无法执行任何命令
+- [x] ✅ **P0-1.3 uuid 不再作为鉴权凭证（v1.12 已删除 uuid）**
+  - 处理：远程命令能力已删除；v1.12 起 uuid 也已从协议中彻底删除，仅保留 `device_id` 与 Broker ACL
+  - 验收：仅拿到 discovery/online 中的报文，无法执行任何命令
 
 - [x] ✅ **P0-1.4 MQTT 默认 TLS 8883，缺配置拒绝启动**
   - 处理：删除代码内默认 broker / 用户名；新增 `validate_mqtt_config()`，`MQTT_HOST` / `MQTT_USERNAME` / `MQTT_PASSWORD` / `MQTT_TENANT` 缺失、端口非法或 `MQTT_CA_FILE` 不可读时拒绝启动；默认 `MQTT_PORT=8883` + `MQTT_TLS=on`，禁止 `MQTT_TLS=off` 明文回退

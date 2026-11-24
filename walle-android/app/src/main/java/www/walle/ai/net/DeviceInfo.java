@@ -5,17 +5,14 @@ import org.json.JSONObject;
 /**
  * 单台设备的最小身份信息，来源是设备端 {@code online} / {@code discovery/query/response} 报文。
  * <p>
- * 设备端自 2026-11-10 起身份报文只含最小身份（device_id/uuid/版本/系统描述/类型/型号/
+ * 设备端自 2026-11-10 起身份报文只含最小身份（device_id/版本/系统描述/类型/型号/
  * 主机名/IP/运行时长/时间戳）；MAC、序列号、CPU、内存/磁盘、启动时间等不再通过 MQTT 下发，
  * 设备详情统一走 {@code baseState/query/request}，由 {@link www.walle.ai.model.StatusSnapshot} 解析。
  * <p>
- * 设备端每次重启都会重新生成 uuid（uuid5(MAC|IP|启动时间)），因此同一台机器
- * 在不同启动周期里 uuid 可能变化；{@code device_id} 与 {@code hostname} 相对稳定，
- * 用来把“重启后换了 uuid 的同一台设备”归并成一条。
+ * {@code device_id} 是设备的稳定唯一标识（落盘复用，重启不变），列表键与主题段都用它。
  */
 public class DeviceInfo {
 
-    public String uuid = "";
     public String deviceId = "";
     public String versionCode = "";
     public String versionName = "";
@@ -42,32 +39,25 @@ public class DeviceInfo {
     /** 最近一次收到任何该设备报文的时间 */
     public long lastSeenMs = 0L;
     /**
-     * 主题里使用的稳定设备标识：device_id 优先（跨重启不变），其次 hostname，最后 uuid。
-     * <p>不能直接用 uuid：设备每次重启 uuid 会变，主题就跟着变，retained 消息和 ACL 都会失效。</p>
+     * 主题里使用的稳定设备标识：device_id 优先（跨重启不变），其次 hostname。
      */
     public String topicDeviceId() {
         if (deviceId != null && !deviceId.isEmpty()) return TopicNames.sanitize(deviceId);
         if (hostname != null && !hostname.isEmpty()) return TopicNames.sanitize(hostname);
-        if (uuid != null && !uuid.isEmpty()) return TopicNames.sanitize(uuid);
         return "unknown";
     }
 
-    /** 设备唯一键：优先 uuid，缺失时退化为 device_id */
+    /** 设备列表键：优先 device_id，缺失时退化为 hostname。 */
     public String key() {
-        if (uuid != null && !uuid.isEmpty()) return uuid;
-        return deviceId == null ? "" : deviceId;
+        if (deviceId != null && !deviceId.isEmpty()) return deviceId;
+        return hostname == null ? "" : hostname;
     }
 
-    /** 展示名：主机名 > device_id > uuid 前 8 位 */
+    /** 展示名：主机名 > device_id > 占位符 */
     public String displayName() {
         if (hostname != null && !hostname.isEmpty()) return hostname;
         if (deviceId != null && !deviceId.isEmpty()) return deviceId;
-        return shortUuid();
-    }
-
-    public String shortUuid() {
-        if (uuid == null || uuid.isEmpty()) return "—";
-        return uuid.length() <= 8 ? uuid : uuid.substring(0, 8);
+        return "—";
     }
 
     public String typeLabel() {
@@ -105,7 +95,6 @@ public class DeviceInfo {
     public static DeviceInfo from(JSONObject j) {
         DeviceInfo d = new DeviceInfo();
         if (j == null) return d;
-        d.uuid = j.optString("uuid", "");
         d.deviceId = j.optString("device_id", "");
         d.versionCode = j.optString("version_code", "");
         d.versionName = j.optString("version_name", "");

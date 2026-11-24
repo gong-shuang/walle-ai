@@ -33,8 +33,8 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     除 discovery 广播外，设备端用按层数的 `+` 模式只订阅请求/持续控制主题，
     不订 `#` 整棵子树（避免收到自己发布的 response/report）。
 
-安全：所有请求报文必须带匹配的 uuid（本次运行实例标识），否则静默忽略；
-      设备连接用独立 MQTT 账号，Broker 侧按 walle/{tenant}/device/${clientid}/# 授权。
+安全：请求按主题第 4 段的 device_id 路由，Broker 侧按
+      walle/{tenant}/device/${clientid}/# 授权，非本设备的报文不会到达。
 
 依赖：pip install -r requirements.txt  （paho-mqtt>=2.0、psutil）
      摄像头能力探测需 v4l-utils，推流需 ffmpeg。
@@ -106,8 +106,8 @@ from .config import (ACTION_REQUESTS, MQTT_CA_FILE, MQTT_HOST, MQTT_KEEPALIVE,  
                      device_topic, device_topic_base, sanitize_segment,
                      subscriptions, tenant_topic, tls_enabled,
                      validate_mqtt_config)
-from .identity import (generate_device_uuid, get_cpu_core_count, get_lan_ip,
-                       now_str, pick_primary_mac, resolve_device_id)
+from .identity import (get_cpu_core_count, get_lan_ip,
+                       pick_primary_mac, resolve_device_id)
 from .media import rtmp_secret_ready  # noqa: F401
 from .monitor import MonitorMixin, scan_usb_devices
 from .phone_audio import PhoneAudioMixin
@@ -165,10 +165,6 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, SensorAlarmMixin, CapabilityMixin,
         config.DEVICE_ID, config.DEVICE_ID_SOURCE = resolve_device_id(self.mac, self.cpu_cores, self.mem_total)
         logging.info("设备 device_id: %s（来源：%s；MAC=%s, CPU核心数=%s, 内存总容量=%s字节）",
                      config.DEVICE_ID, config.DEVICE_ID_SOURCE, self.mac, self.cpu_cores, self.mem_total)
-        # uuid：程序实例标识（MAC + IP + 启动时间），本次运行不变、下次运行变化
-        config.DEVICE_UUID = generate_device_uuid(self.mac, self.lan_ip)
-        logging.info("设备 UUID: %s（MAC=%s, IP=%s, 启动时间=%s）",
-                     config.DEVICE_UUID, self.mac, self.lan_ip, now_str())
         # 反向音频：手机麦上行后在本地播放的 ffmpeg 进程（与视频互不影响）
         self.audio_proc = None
         self.audio_lock = threading.Lock()

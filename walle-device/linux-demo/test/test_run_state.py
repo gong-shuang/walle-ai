@@ -9,7 +9,6 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import ld_config as config  # noqa: E402
 import main  # noqa: E402
 
 REMOVED_FIELDS = ("cache", "capability", "capabilities", "camera_count",
@@ -26,9 +25,9 @@ class RunStateTest(unittest.TestCase):
         self.mon = main.RpiMonitor()
         self.mon.publish_json = mock.Mock()
 
-    def _query(self, uuid=None):
+    def _query(self):
         self.mon.handle_capability_query(
-            json.dumps({"uuid": uuid or config.DEVICE_UUID, "request_id": "r1"}))
+            json.dumps({"request_id": "r1"}))
         return self.mon.publish_json.call_args
 
     def test_response_contains_only_runtime_groups(self):
@@ -37,7 +36,7 @@ class RunStateTest(unittest.TestCase):
         self.assertEqual(topic, main.RES_CAPABILITY_RESULT)
         self.assertEqual(data["request_id"], "r1")
         self.assertEqual(set(data), {
-            "device_id", "uuid", "hostname", "ip", "timestamp", "datetime",
+            "device_id", "hostname", "ip", "timestamp", "datetime",
             "request_id", "video", "phone_audio", "recording", "motor", "servo",
             "battery", "sonar",
         })
@@ -68,8 +67,8 @@ class RunStateTest(unittest.TestCase):
         self.assertEqual(data["battery"], {"voltage_v": None, "available": False})
         self.assertEqual(data["sonar"], {"distance_cm": None, "available": False})
 
-    def test_uuid_mismatch_is_ignored(self):
-        self._query(uuid="other")
+    def test_invalid_payload_is_ignored(self):
+        self.mon.handle_capability_query("not-json")
         self.mon.publish_json.assert_not_called()
 
 

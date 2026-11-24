@@ -99,8 +99,6 @@ public class PlayerViewModel extends MqttViewModel {
 
     private List<CameraCapability.Camera> cameras = Collections.emptyList();
     private String deviceKey = "";
-    /** 设备真实 uuid：只用于和 result 里的 uuid 做宽松校验，不用于主题。 */
-    private String deviceUuid = "";
     private String room = "";
     private String currentCamera = "";
 
@@ -153,17 +151,15 @@ public class PlayerViewModel extends MqttViewModel {
      * 页面打开时装载 intent 参数（幂等：ViewModel 存活期间只生效一次）。
      *
      * @param deviceKey 设备主题键（{@code MqttManager.getSelectedKey()}），发 MQTT 用
-     * @param deviceUuid 设备真实 uuid，仅用于校验 result
      * @param room      房间号，空表示使用固定演示地址
      * @param camera    控制页当前正在推流的 node
      * @param camerasJson 摄像头列表裸数组 JSON
      */
-    public void load(String deviceKey, String deviceUuid, String room, String camera,
+    public void load(String deviceKey, String room, String camera,
                      String camerasJson) {
         if (loaded) return;
         loaded = true;
         this.deviceKey = orEmpty(deviceKey);
-        this.deviceUuid = orEmpty(deviceUuid);
         this.room = orEmpty(room);
         this.currentCamera = orEmpty(camera);
         this.cameras = CameraCapability.parseArray(camerasJson);
@@ -222,7 +218,7 @@ public class PlayerViewModel extends MqttViewModel {
      * @return true 表示已下发至少一个舵机
      */
     public boolean stepServos(int delta1, int delta2) {
-        if (deviceUuid.isEmpty()) return false;
+        if (deviceKey.isEmpty()) return false;
         int target1 = validServoTarget(1, delta1);
         int target2 = validServoTarget(2, delta2);
         if (target1 < 0 && target2 < 0) return false;
@@ -239,7 +235,7 @@ public class PlayerViewModel extends MqttViewModel {
             ids = new int[]{2};
             positions = new int[]{target2};
         }
-        String rid = mgr.setCarServos(deviceUuid, ids, positions, SERVO_DURATION_SEC);
+        String rid = mgr.setCarServos(deviceKey, ids, positions, SERVO_DURATION_SEC);
         if (rid.isEmpty()) return false;
         // 本地先乐观更新，按住时下一秒在上一目标上继续步进
         if (target1 >= 0) servoPositions[1] = target1;
@@ -263,12 +259,12 @@ public class PlayerViewModel extends MqttViewModel {
     }
 
     private void queryServoStatus() {
-        if (deviceUuid.isEmpty()) {
-            status = "尚未取得设备 uuid，无法查询舵机位置";
+        if (deviceKey.isEmpty()) {
+            status = "尚未选择设备，无法查询舵机位置";
             publish();
             return;
         }
-        String rid = mgr.requestCarServoStatus(deviceUuid);
+        String rid = mgr.requestCarServoStatus(deviceKey);
         if (rid.isEmpty()) return;      // MqttManager 已通过 delivery error 提示原因
         servoQueryRid = rid;
         handler.removeCallbacks(servoQueryTimeout);
@@ -325,14 +321,13 @@ public class PlayerViewModel extends MqttViewModel {
     @Override
     public void onVideoRequestResult(JSONObject payload) {
         if (!waiting || payload == null) return;
-        // 严格靠 request_id 配对；rid 缺失时才退化为「房间号 + uuid」宽松匹配
+        // 严格靠 request_id 配对；rid 缺失时才退化为「房间号 + 设备段」宽松匹配
         String rid = payload.optString("request_id", "");
         if (!waitingRid.isEmpty() && !waitingRid.equals(rid)) return;
         if (waitingRid.isEmpty() && !rid.isEmpty()) return;
         String resultRoom = payload.optString("room_number", "");
         if (!room.isEmpty() && !resultRoom.isEmpty() && !room.equals(resultRoom)) return;
-        String resultUuid = payload.optString("uuid", "");
-        if (!deviceUuid.isEmpty() && !resultUuid.isEmpty() && !deviceUuid.equals(resultUuid)) return;
+        if (!mgr.isFromDevice(deviceKey, payload)) return;
 
         int result = payload.optInt("result", -99);
         if (result == 0) {

@@ -134,7 +134,6 @@ class CarServoMixin:
     def _publish_car_servo_status_result(self, request_id, result_code, cause, servos):
         payload = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": config.HOSTNAME,
             "ip": self.lan_ip,
             "request_id": str(request_id or ""),
@@ -155,8 +154,8 @@ class CarServoMixin:
 
     def handle_car_servo_status(self, payload):
         """独立运行时没有 ROS get_state 服务，直接返回链路不可用。"""
-        ok, data = self.verify_uuid(payload, config.REQ_CAR_SERVO_STATUS)
-        if not ok:
+        data = self.parse_request(payload, config.REQ_CAR_SERVO_STATUS)
+        if data is None:
             return
         rid = self._rid(data)
         result, cause, req = parse_status_query(data)
@@ -178,8 +177,8 @@ class CarServoMixin:
 
     def handle_car_servo_set(self, payload):
         """独立运行时没有 ROS set_state 发布者，只记录链路不可用。"""
-        ok, data = self.verify_uuid(payload, config.REQ_CAR_SERVO_SET)
-        if not ok:
+        data = self.parse_request(payload, config.REQ_CAR_SERVO_SET)
+        if data is None:
             return
         logging.warning(
             "car/servo/set/cmd request_id=%s 未执行：舵机控制链路不可用（独立运行模式）",
@@ -231,9 +230,9 @@ class CarServoStatusNodeMixin:
         """car/servo/status/query/request：读取 PWM 舵机位置/偏移并返回状态。"""
         if self._shutting_down:
             return
-        ok, data = self.agent.verify_uuid(
+        data = self.agent.parse_request(
             payload, self._agent_mod.REQ_CAR_SERVO_STATUS)
-        if not ok:
+        if data is None:
             return
 
         rid = self.agent._rid(data)
@@ -300,9 +299,9 @@ class CarServoStatusNodeMixin:
         """car/servo/set/cmd：按绝对位置设置一个或多个 PWM 舵机（无 MQTT 应答）。"""
         if self._shutting_down:
             return
-        ok, data = self.agent.verify_uuid(
+        data = self.agent.parse_request(
             payload, self._agent_mod.REQ_CAR_SERVO_SET)
-        if not ok:
+        if data is None:
             return
 
         rid = self.agent._rid(data)

@@ -18,7 +18,6 @@ class VideoMixin:
         """统一推流结果报文：result 固定语义 -1/0/-2，细节放附加字段"""
         payload = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": config.HOSTNAME,
             "ip": self.lan_ip,
             "request_id": self._rid(req),
@@ -40,7 +39,6 @@ class VideoMixin:
         """统一停止推流结果报文：result -1 当前没有设备在推流 / 0 ok"""
         payload = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": config.HOSTNAME,
             "ip": self.lan_ip,
             "request_id": str(request_id or ""),
@@ -65,8 +63,8 @@ class VideoMixin:
 
     def handle_video_request(self, payload):
         """独立运行占位：明确告知推流由 video_webrtc_bridge 节点提供。"""
-        ok, data = self.verify_uuid(payload, config.REQ_VIDEO_START)
-        if not ok:
+        data = self.parse_request(payload, config.REQ_VIDEO_START)
+        if data is None:
             return
         req = self._video_req(data)
         self._publish_video_result(
@@ -75,8 +73,8 @@ class VideoMixin:
 
     def handle_video_stop(self, payload):
         """独立运行占位：没有本地推流可停。"""
-        ok, data = self.verify_uuid(payload, config.REQ_VIDEO_STOP)
-        if not ok:
+        data = self.parse_request(payload, config.REQ_VIDEO_STOP)
+        if data is None:
             return
         rid = self._rid(data)
         req_room = str(data.get("room_number") or "").strip()

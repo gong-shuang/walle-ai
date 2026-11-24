@@ -317,7 +317,6 @@ public class ControlFragment extends Fragment {
         }
         intent.putExtra(PlayerActivity.EXTRA_CAMERA, ui.activeCamera);
         intent.putExtra(PlayerActivity.EXTRA_DEVICE_KEY, ui.deviceKey);
-        intent.putExtra(PlayerActivity.EXTRA_UUID, ui.deviceUuid);
 
         releasePlayer();
         viewModel.onHandoffToFullscreen();

@@ -437,7 +437,7 @@ class Agent:
         self.mqtt_connected = False
         self.mqtt_error = None
         self.mqtt_client = None
-        # device_id -> {uuid, last_result, last_publish, online, online_ts, uuid_event}
+        # device_id -> {last_result, last_publish, online, online_ts}
         self.devices = {}
         self.dev_lock = threading.Lock()
         self.link_rid = None
@@ -459,18 +459,13 @@ class Agent:
             item = self.devices.get(device)
             if item is None:
                 item = {
-                    "uuid": None,
                     "last_result": None,
                     "last_publish": None,
                     "online": None,
                     "online_ts": None,
-                    "uuid_event": threading.Event(),
                 }
                 self.devices[device] = item
             return item
-
-    def _uuid(self, device):
-        return self._dev(device).get("uuid")
 
     @staticmethod
     def _topic_device(topic):
@@ -612,12 +607,6 @@ class Agent:
         if isinstance(payload, dict) and "online" in msg.topic:
             item["online"] = payload
             item["online_ts"] = time.time()
-            if payload.get("uuid"):
-                # 车端用 online 消息里的硬件 UUID 校验指令，必须与 topic 的 device_id 区分
-                if item["uuid"] != payload["uuid"]:
-                    item["uuid"] = payload["uuid"]
-                    log().info("学习到设备 %s 的硬件 UUID: %s", device, item["uuid"])
-                item["uuid_event"].set()
         if (isinstance(payload, dict) and self.link_rid
                 and payload.get("request_id") == self.link_rid
                 and (self.link_dev is None or self.link_dev == device)):
@@ -727,10 +716,7 @@ class Agent:
                 "payload": payload, "rc": info.rc}
 
     # ---- 指令执行 ----
-    def _payload(self, device, intent, request_id):
-        uuid = self._uuid(device)
-        if not uuid:
-            return None
+    def _drive_payload(self, intent, request_id):
         if intent["action"] == "stop":
             move = {"forward": 0, "back": 0, "left": 0, "right": 0}
             rotate = {"left": False, "right": False}
@@ -745,7 +731,7 @@ class Agent:
                    "left": "left", "right": "right"}[intent["direction"]]
             move[key] = speed
             rotate = {"left": False, "right": False}
-        return {"uuid": uuid, "request_id": request_id,
+        return {"request_id": request_id,
                 "move": move, "rotate": rotate}
 
     def _duration(self, intent):
@@ -760,10 +746,7 @@ class Agent:
         duration = self._duration(intent)
         who = re.sub(r"[^0-9A-Za-z_-]", "", str(username or "anon"))[:20] or "anon"
         request_id = "agent-{}-{}".format(who, random.randint(100000, 999999))
-        payload = self._payload(device, intent, request_id)
-        if payload is None:
-            log().error("设备 %s 缺少硬件 UUID，运动未下发", device)
-            return
+        payload = self._drive_payload(intent, request_id)
         hz = max(1.0, float(self.cfg["SEND_HZ"]))
         period = 1.0 / hz
         t0 = time.monotonic()
@@ -776,11 +759,10 @@ class Agent:
                 self._publish(device, "car/motor/set/cmd", payload)
                 time.sleep(period)
         finally:
-            zero = self._payload(device, {"action": "stop"}, request_id)
-            if zero is not None:
-                for _ in range(3):
-                    self._publish(device, "car/motor/set/cmd", zero)
-                    time.sleep(0.05)
+            zero = self._drive_payload({"action": "stop"}, request_id)
+            for _ in range(3):
+                self._publish(device, "car/motor/set/cmd", zero)
+                time.sleep(0.05)
             with self.state_lock:
                 if self.active_device == device:
                     self.active_device = None
@@ -800,13 +782,6 @@ class Agent:
             return {"ok": False, "accepted": False, "action": intent["action"],
                     "error": "mqtt_not_connected",
                     "note": "MQTT 未连接，未下发指令"}
-        # 前端选中设备时，retained online 通常已到；这里最多等 2 秒兜底。
-        if not self._uuid(device):
-            self._dev(device)["uuid_event"].wait(timeout=2.0)
-        if not self._uuid(device):
-            return {"ok": False, "accepted": False, "action": intent["action"],
-                    "error": "uuid_unknown",
-                    "note": "尚未收到该设备 online 里的硬件 UUID"}
 
         with self.state_lock:
             if self.worker is not None and self.worker.is_alive():
@@ -836,12 +811,9 @@ class Agent:
         if not target:
             return {"ok": False, "action": "stop", "error": "no_device",
                     "note": "没有正在运动或已选中的设备", "mqtt": self.mqtt_status()}
-        zero = self._payload(target, {"action": "stop"},
-                             "agent-stop-{}".format(random.randint(1000, 9999)))
-        if zero is None:
-            res = {"published": False, "error": "uuid_unknown"}
-        else:
-            res = self._publish(target, "car/motor/set/cmd", zero)
+        zero = self._drive_payload({"action": "stop"},
+                                   "agent-stop-{}".format(random.randint(1000, 9999)))
+        res = self._publish(target, "car/motor/set/cmd", zero)
         log().info("stop requested by %s device=%s result=%s", username, target,
                    json.dumps(res, ensure_ascii=False))
         return {"ok": True, "action": "stop", "device": target, "result": res,
@@ -855,20 +827,13 @@ class Agent:
         if not device:
             return {"ok": False, "error": "device_missing",
                     "message": "请先在页面选择设备"}
-        if not self._uuid(device):
-            self._dev(device)["uuid_event"].wait(timeout=3.0)
-        uuid = self._uuid(device)
-        if not uuid:
-            return {"ok": False, "error": "uuid_unknown", "device": device,
-                    "message": "尚未收到该设备 online 里的硬件 UUID",
-                    "mqtt": self.mqtt_status()}
         rid = "agent-link-{}".format(random.randint(100000, 999999))
         self.link_rid = rid
         self.link_dev = device
         self.link_result = None
         self.link_event.clear()
         res = self._publish(device, "baseState/query/request",
-                            {"uuid": uuid, "request_id": rid})
+                            {"request_id": rid})
         got = self.link_event.wait(timeout=6.0)
         out = {
             "ok": bool(got),
@@ -908,7 +873,6 @@ class Agent:
         with self.dev_lock:
             devices = [{
                 "device": key,
-                "uuid": item.get("uuid"),
                 "online": bool(item.get("online")),
                 "online_ts": item.get("online_ts"),
             } for key, item in self.devices.items()]
@@ -936,7 +900,6 @@ class Agent:
             item = self._dev(device)
             out.update({
                 "device": device,
-                "device_uuid": item.get("uuid"),
                 "last_publish": item.get("last_publish"),
                 "last_result": item.get("last_result"),
             })
@@ -1014,8 +977,6 @@ def _reply_text(intent, result):
             return "已下发停止（零速）。"
         if inner.get("error") == "mqtt_not_connected":
             return "停止未下发：MQTT 未连接。"
-        if inner.get("error") == "uuid_unknown":
-            return "停止未下发：尚未收到该设备的硬件 UUID。"
         return "停止未下发。"
     elif action == "status":
         return "状态查询完成，详见下方状态。"
@@ -1026,8 +987,6 @@ def _reply_text(intent, result):
         text += " 已开始执行。"
     elif result.get("error") == "mqtt_not_connected":
         text += " MQTT 未连接，指令未下发。"
-    elif result.get("error") == "uuid_unknown":
-        text += " 尚未收到该设备 online 的硬件 UUID，指令未下发。"
     elif result.get("error") == "busy":
         text += " 小车正在执行上一条指令。"
     return text

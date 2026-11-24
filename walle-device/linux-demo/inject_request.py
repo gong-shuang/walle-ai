@@ -15,7 +15,7 @@ video/* 与 phone/audio/* 动作必须显式用 --action 指定。--dry-run 只�
     python3 inject_request.py --action video/start
     python3 inject_request.py --action video/stop
 
-设备 uuid 默认从 retained `online` 读取（要求设备在线）；也可 --uuid 指定。
+设备是否在线不影响发包（主题第 4 段就是 device_id），设备离线时只是收不到应答。
 严格 ACL 环境下请改用 App 账号：--username home --password '***'（服务端 ACL
 按 `walle/{tenant}/#` 授权，设备账号只能访问自己 clientId 的子树）。
 
@@ -53,13 +53,12 @@ def _new_rid():
     return f"inject-{secrets.token_hex(4)}"
 
 
-def build_requests(actions, uuid, room_number="", request_id=""):
-    """构造 [(请求主题, 报文, 应答主题)]；uuid 为空时用占位符（dry-run/预览）。"""
+def build_requests(actions, room_number="", request_id=""):
+    """构造 [(请求主题, 报文, 应答主题)]。"""
     items = []
     for action in actions:
         req = ACTION_MAP.get(action, action)
-        payload = {"uuid": uuid or "<device_uuid>",
-                   "request_id": request_id or _new_rid()}
+        payload = {"request_id": request_id or _new_rid()}
         if req == REQ_PHONE_AUDIO_SEND:
             payload["room_number"] = room_number
         elif req in (REQ_VIDEO_STOP, REQ_PHONE_AUDIO_STOP) and room_number:
@@ -85,12 +84,11 @@ def parse_args(argv=None):
                         help="可重复；默认只发 baseState/query 与 runState/query")
     parser.add_argument("--room-number", default="", help="房间号（phone/audio/send 必填；video/start 由设备自动生成）")
     parser.add_argument("--device-id", default="", help="目标设备号（默认按本机硬件指纹计算）")
-    parser.add_argument("--uuid", default="", help="设备 uuid（默认从 retained online 读取）")
     parser.add_argument("--request-id", default="", help="请求 id（默认自动生成）")
     parser.add_argument("--username", default=config.MQTT_USER, help="覆盖 MQTT 用户名（如 App 账号）")
     parser.add_argument("--password", default=config.MQTT_PASSWORD, help="覆盖 MQTT 密码")
     parser.add_argument("--watch", type=float, default=5.0, help="发布后等待并打印结果的秒数（0=立即退出）")
-    parser.add_argument("--timeout", type=float, default=5.0, help="连接/读取 uuid 的超时秒数")
+    parser.add_argument("--timeout", type=float, default=5.0, help="连接超时秒数")
     parser.add_argument("--env-file", default=None, help="配置文件路径（与 main.py 相同）")
     parser.add_argument("--dry-run", action="store_true", help="只打印主题与报文，不连接 Broker")
     return parser.parse_args(argv)
@@ -133,33 +131,6 @@ def _connect(client, timeout):
         raise ConnectionError(f"MQTT 登录失败：{rc}（检查用户名/密码，或用 --username/--password）")
 
 
-def _fetch_uuid(client, timeout):
-    """从 retained online 报文读取设备 uuid（设备需在线过一次）。"""
-    topic = device_topic(RES_ONLINE)
-    got = threading.Event()
-    box = {}
-
-    def _on_message(_client, _userdata, msg):
-        if msg.topic != topic:
-            return
-        try:
-            data = json.loads(msg.payload.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            return
-        if isinstance(data, dict) and data.get("uuid"):
-            box["uuid"] = str(data["uuid"])
-            got.set()
-
-    client.on_message = _on_message
-    client.subscribe(topic, qos=MQTT_QOS)
-    if not got.wait(timeout):
-        raise TimeoutError(
-            f"{timeout:g}s 内未从 {topic} 读到 uuid；"
-            "请确认设备在线，或用 --uuid 显式指定")
-    client.unsubscribe(topic)
-    return box["uuid"]
-
-
 def main(argv=None):
     args = parse_args(argv)
     actions = [ACTION_MAP[name] for name in (args.action or DEFAULT_ACTIONS)]
@@ -184,17 +155,15 @@ def main(argv=None):
         return 2
 
     if args.dry_run:
-        print_requests(build_requests(actions, args.uuid, args.room_number,
-                                      args.request_id))
+        print_requests(build_requests(actions, args.room_number, args.request_id))
         return 0
 
-    print(f"目标设备：{device_topic_base()}  uuid={args.uuid or '（从 online 读取）'}")
+    print(f"目标设备：{device_topic_base()}")
     client = _make_client(args.username, args.password)
     received = {}
     try:
         _connect(client, args.timeout)
-        uuid = args.uuid or _fetch_uuid(client, args.timeout)
-        items = build_requests(actions, uuid, args.room_number, args.request_id)
+        items = build_requests(actions, args.room_number, args.request_id)
         expected = {payload["request_id"]: result_topic
                     for _topic, payload, result_topic in items}
         result_topics = set(expected.values())
@@ -233,7 +202,7 @@ def main(argv=None):
         missing = [rid for rid in expected if rid not in received]
         if missing:
             print(f"\n未收到结果：{', '.join(missing)}"
-                  "（设备离线、uuid 不匹配或 ACL 拒绝）", file=sys.stderr)
+                  "（设备离线或 ACL 拒绝）", file=sys.stderr)
             return 1
         print("\n全部请求均收到结果")
         return 0

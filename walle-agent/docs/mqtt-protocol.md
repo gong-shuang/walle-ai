@@ -94,13 +94,11 @@
 | 参数非法（超出上限） | false | `reply=warning`，无 `error` |
 | 请求缺 device/text | false | `reply` 说明，无 `error` |
 | MQTT 未连接 | false | `error:"mqtt_not_connected"`, `accepted:false`, `note` |
-| 未收到设备硬件 UUID | false | `error:"uuid_unknown"`, `accepted:false`, `note` |
 | 正在执行上一条 | false | `error:"busy"`, `active_device`, `duration_sec`, `note` |
 | 停止但无目标设备 | false | `error:"no_device"`, `note` |
-| 停止时无 UUID | true（外层） | `result:{"published":false,"error":"uuid_unknown"}` |
 | agent 内部异常 | false | `error:"agent_exception"`，`reply` 含异常文本 |
 
-`error` 实际取值集合：`mqtt_not_connected`、`uuid_unknown`、`busy`、`no_device`、`agent_exception`。
+`error` 实际取值集合：`mqtt_not_connected`、`busy`、`no_device`、`agent_exception`。
 agent 不发送「超时」响应；超时由前端本地判定（见第 6 节）。
 
 ## 5. online 与 LWT
@@ -146,7 +144,6 @@ agent 不发送「超时」响应；超时由前端本地判定（见第 6 节�
 ```json
 topic: walle/home/device/0580a65014af4d0a/car/motor/set/cmd
 {
-  "uuid": "a26d28f2-8ac0-50cd-a2e0-8c392949e698",
   "request_id": "web-estop-3f2a1c",
   "move": {"forward": 0, "back": 0, "left": 0, "right": 0},
   "rotate": {"left": false, "right": false}

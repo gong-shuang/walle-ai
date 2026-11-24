@@ -255,7 +255,6 @@ class MonitorMixin:
 
         status = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": config.HOSTNAME,
             "version_code": config.VERSION_CODE,
             "version_name": config.VERSION_NAME,

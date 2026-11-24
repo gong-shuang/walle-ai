@@ -18,7 +18,6 @@ import www.walle.ai.R;
 import www.walle.ai.model.CameraCapability;
 import www.walle.ai.model.DeviceCapability;
 import www.walle.ai.net.ConnState;
-import www.walle.ai.net.DeviceInfo;
 import www.walle.ai.net.MqttManager;
 import www.walle.ai.net.TopicNames;
 
@@ -59,8 +58,6 @@ public class ControlViewModel extends MqttViewModel {
         public final String activeCamera;
         /** 当前设备的主题键：全屏页下发 video 命令必须用同一个键。 */
         public final String deviceKey;
-        /** 当前设备的真实 uuid：只用于校验 result 归属。 */
-        public final String deviceUuid;
         /** 麦克风能力（runState/query/response 的 audio.capture） */
         public final DeviceCapability.AudioEnd audioCapture;
         /** 音响/扬声器能力（runState/query/response 的 audio.playback） */
@@ -68,7 +65,7 @@ public class ControlViewModel extends MqttViewModel {
 
         UiState(List<CameraCapability.Camera> cameras, String selectedNode, boolean connected,
                 boolean hasDevice, boolean capabilityLoading, Phase phase, String status,
-                String room, String activeCamera, String deviceKey, String deviceUuid,
+                String room, String activeCamera, String deviceKey,
                 DeviceCapability.AudioEnd audioCapture, DeviceCapability.AudioEnd audioPlayback) {
             this.cameras = cameras;
             this.selectedNode = selectedNode;
@@ -80,7 +77,6 @@ public class ControlViewModel extends MqttViewModel {
             this.room = room;
             this.activeCamera = activeCamera;
             this.deviceKey = deviceKey;
-            this.deviceUuid = deviceUuid;
             this.audioCapture = audioCapture;
             this.audioPlayback = audioPlayback;
         }
@@ -98,14 +94,14 @@ public class ControlViewModel extends MqttViewModel {
     private DeviceCapability.AudioEnd audioCapture = DeviceCapability.AudioEnd.UNAVAILABLE;
     private DeviceCapability.AudioEnd audioPlayback = DeviceCapability.AudioEnd.UNAVAILABLE;
     private String selectedNode = "";
-    private String capUuid = "";
+    private String capDeviceKey = "";
     private boolean capabilityLoading;
     /** 当前设备能力是否已拿到确定性应答：已加载则切回页面不再重查。 */
     private boolean capabilityLoaded;
 
     private Phase phase = Phase.IDLE;
     private String status = "";
-    private String activeUuid = "";
+    private String activeDeviceKey = "";
     private String activeRoom = "";
     private String activeCamera = "";
     private String pendingCamera;
@@ -126,7 +122,7 @@ public class ControlViewModel extends MqttViewModel {
         pendingSwitchRid = "";
         pendingCamera = null;
         phase = Phase.IDLE;
-        activeUuid = "";
+        activeDeviceKey = "";
         activeRoom = "";
         activeCamera = "";
         status = "设备未响应（8s 超时），请检查连接后重试";
@@ -162,7 +158,7 @@ public class ControlViewModel extends MqttViewModel {
             return;
         }
         // 能力已加载或查询在飞、且设备未变：不重查（点选设备时已查过一次，见 onDeviceSwitched）
-        if (capUuid.equals(mgr.getSelectedKey()) && (capabilityLoaded || capabilityLoading)) return;
+        if (capDeviceKey.equals(mgr.getSelectedKey()) && (capabilityLoaded || capabilityLoading)) return;
         queryCapability();
     }
 
@@ -173,7 +169,7 @@ public class ControlViewModel extends MqttViewModel {
      * baseState/query/request + runState/query/request 两个主题。后台的设备上线 / 列表变化广播不会走到这里。</p>
      */
     public void onDeviceSwitched() {
-        if (phase == Phase.LIVE && mgr.getSelectedKey().equals(activeUuid)) return;  // 推流中的设备不打断
+        if (phase == Phase.LIVE && mgr.getSelectedKey().equals(activeDeviceKey)) return;  // 推流中的设备不打断
         queryCapability();
     }
 
@@ -194,7 +190,7 @@ public class ControlViewModel extends MqttViewModel {
         pendingCamera = null;
         handler.removeCallbacks(videoTimeout);
         phase = Phase.IDLE;
-        activeUuid = "";
+        activeDeviceKey = "";
         activeRoom = "";
         activeCamera = "";
         status = app().getString(R.string.video_fullscreen_playing);
@@ -209,11 +205,11 @@ public class ControlViewModel extends MqttViewModel {
     // ---------------------------------------------------------------- 能力查询
 
     public void queryCapability() {
-        String uuid = mgr.getSelectedKey();
-        capUuid = uuid;
+        String deviceKey = mgr.getSelectedKey();
+        capDeviceKey = deviceKey;
         selectedNode = "";
         capabilityLoaded = false;
-        if (uuid.isEmpty()) {
+        if (deviceKey.isEmpty()) {
             cameras = Collections.emptyList();
             audioCapture = DeviceCapability.AudioEnd.UNAVAILABLE;
             audioPlayback = DeviceCapability.AudioEnd.UNAVAILABLE;
@@ -227,15 +223,14 @@ public class ControlViewModel extends MqttViewModel {
         capabilityLoading = true;
         cameras = Collections.emptyList();
         status = app().getString(R.string.video_querying_capability);
-        pendingCapRid = mgr.requestCapability(uuid);
+        pendingCapRid = mgr.requestCapability(deviceKey);
         publish();
     }
 
     @Override
     public void onCapability(JSONObject payload) {
         if (payload == null) return;
-        String uuid = payload.optString("uuid", "");
-        if (!uuid.isEmpty() && !uuid.equals(capUuid)) return;
+        if (!mgr.isFromDevice(capDeviceKey, payload)) return;
         String rid = payload.optString("request_id", "");
         if (!pendingCapRid.isEmpty() && !rid.isEmpty() && !pendingCapRid.equals(rid)) {
             Log.w(TAG, "忽略不匹配的能力结果 request_id=" + rid + "（等待 " + pendingCapRid + "）");
@@ -275,17 +270,17 @@ public class ControlViewModel extends MqttViewModel {
         if (phase == Phase.LIVE || phase == Phase.STARTING || phase == Phase.SWITCHING) {
             return;
         }
-        String uuid = mgr.getSelectedKey();
-        if (uuid.isEmpty()) {
+        String deviceKey = mgr.getSelectedKey();
+        if (deviceKey.isEmpty()) {
             emit(toast, app().getString(R.string.video_no_device));
             return;
         }
-        // V1.11：请求只带 uuid + request_id，摄像头与房间号由设备端决定
-        String rid = mgr.startVideoStream(uuid);
+        // V1.11：请求只带 request_id，摄像头与房间号由设备端决定
+        String rid = mgr.startVideoStream(deviceKey);
         if (rid.isEmpty()) {
             return;
         }
-        activeUuid = uuid;
+        activeDeviceKey = deviceKey;
         activeRoom = "";
         activeCamera = "";
         pendingStartRid = rid;
@@ -300,8 +295,7 @@ public class ControlViewModel extends MqttViewModel {
     @Override
     public void onVideoRequestResult(JSONObject payload) {
         if (payload == null) return;
-        String uuid = payload.optString("uuid", "");
-        if (!uuid.isEmpty() && !uuid.equals(activeUuid)) return;
+        if (!mgr.isFromDevice(activeDeviceKey, payload)) return;
         String rid = payload.optString("request_id", "");
         int result = payload.optInt("result", -2);
 
@@ -337,7 +331,7 @@ public class ControlViewModel extends MqttViewModel {
             // V1.11：房间号由设备端生成，必须从应答里取
             String room = payload.optString("room_number", "");
             if (room.isEmpty()) {
-                activeUuid = "";
+                activeDeviceKey = "";
                 activeRoom = "";
                 activeCamera = "";
                 phase = Phase.IDLE;
@@ -350,7 +344,7 @@ public class ControlViewModel extends MqttViewModel {
                 status = "● 推流中";
             }
         } else {
-            activeUuid = "";
+            activeDeviceKey = "";
             activeRoom = "";
             activeCamera = "";
             phase = Phase.IDLE;
@@ -377,7 +371,7 @@ public class ControlViewModel extends MqttViewModel {
     public void onDeliveryError(String kind, String error) {
         if (TopicNames.KIND_VIDEO_START.equals(kind) && phase == Phase.STARTING) {
             phase = Phase.IDLE;
-            activeUuid = "";
+            activeDeviceKey = "";
             activeRoom = "";
             pendingStartRid = "";
             status = error;
@@ -394,8 +388,8 @@ public class ControlViewModel extends MqttViewModel {
         boolean nowConnected = mgr.isConnected();
         hasDevice = !mgr.getSelectedKey().isEmpty();
         connected = nowConnected;
-        if (!mgr.getSelectedKey().equals(capUuid)) {
-            // 选中设备变了（用户点了另一台，或该设备重启换了 uuid）：清掉旧能力并停掉旧推流，
+        if (!mgr.getSelectedKey().equals(capDeviceKey)) {
+            // 选中设备变了：清掉旧能力并停掉旧推流，
             // 但**不在这里发查询** —— 查询只由用户显式切换触发（onDeviceSwitched）。
             stopStream(true);
             cameras = Collections.emptyList();
@@ -453,10 +447,10 @@ public class ControlViewModel extends MqttViewModel {
         pendingSwitchRid = "";
         pendingCamera = null;
         handler.removeCallbacks(videoTimeout);
-        if (sendStop && !activeUuid.isEmpty() && !activeRoom.isEmpty()) {
-            pendingStopRid = mgr.stopVideoStream(activeUuid, activeRoom);
+        if (sendStop && !activeDeviceKey.isEmpty() && !activeRoom.isEmpty()) {
+            pendingStopRid = mgr.stopVideoStream(activeDeviceKey, activeRoom);
         }
-        activeUuid = "";
+        activeDeviceKey = "";
         activeRoom = "";
         activeCamera = "";
         phase = Phase.IDLE;
@@ -488,10 +482,8 @@ public class ControlViewModel extends MqttViewModel {
             runOnMain(this::publish);
             return;
         }
-        DeviceInfo dev = mgr.getSelectedDevice();
         state.setValue(new UiState(cameras, selectedNode, connected, hasDevice,
                 capabilityLoading, phase, status, activeRoom, activeCamera,
-                mgr.getSelectedKey(), dev == null ? "" : orEmpty(dev.uuid),
-                audioCapture, audioPlayback));
+                mgr.getSelectedKey(), audioCapture, audioPlayback));
     }
 }

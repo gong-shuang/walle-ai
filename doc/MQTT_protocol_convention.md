@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.11）
+# MQTT 协议约定（文档版本 v1.12）
 
 > 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`；ROS2 车控为
 > `walle-device/ros2_ws/src/net/net_mqtt_bridge`）之间 MQTT 报文契约的**唯一权威文档**。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
 >
-> - 本文档的版本：v1.11 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.12 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -67,6 +67,8 @@ walle/{tenant}/device/{device}/{resource}
 | 10 | 停止播放 | `walle/{t}/device/{d}/record/play/stop/request` | `walle/{t}/device/{d}/record/play/stop/response` | 请求-应答 | v1.5 | 停止录像点播推流 |
 
 外部设备功能：
+| # | 协议 | App → 设备（请求） | 设备 → App（应答/上报） | 类型 | 版本 | 备注 |
+|---|---|---|---|---|---|---|
 | 1 | 电机持续控制 | `walle/{t}/device/{d}/car/motor/set/cmd` | - | 持续控制（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车；v1.7 前方障碍禁前进 |
 | 2 | 舵机状态查询 | `walle/{t}/device/{d}/car/servo/status/query/request` | `walle/{t}/device/{d}/car/servo/status/query/response` | 请求-应答 | v1.2 | 默认只读位置，不读 offset |
 | 3 | 舵机位置设置 | `walle/{t}/device/{d}/car/servo/set/cmd` | - | 持续控制（最新状态覆盖） | v1.2 | 绝对位置；单舵机越界只跳过该舵机 |
@@ -89,11 +91,14 @@ walle/{tenant}/device/{device}/{resource}
 用户 A 的 App 和设备只能看到 `walle/A/#`，天然隔离多用户，无需服务端代码。
 **因此主题段里绝不允许出现 `+ # /` 等通配/分隔符**（见 §3.3 清洗规则），否则 ACL 会失效。
 
-### 2.2 设备ID必须稳定，禁止用 uuid
+### 2.2 设备ID必须稳定，禁止用 uuid（v1.12 已删除 uuid）
 
-`uuid` 由设备端按 `uuid5(MAC|IP|启动时间)` 生成，**每次重启都会变**。
-在运行期间不会改变，之前用来当做设备的唯一标识，后发现很多bug，于是用device_id替代，
-，目前当前系统暂不使用，保留，用于扩展后续功能。
+> **v1.12 起 uuid 已彻底删除**：设备端不再生成 `uuid5(MAC|IP|启动时间)`，报文不再携带 `uuid`，
+> 请求也不再校验 uuid。设备身份只用落盘复用的 `device_id`（主题第 4 段）。
+> 下面保留历史说明，解释为什么当初放弃 uuid。
+
+历史上的 `uuid` 由设备端按 `uuid5(MAC|IP|启动时间)` 生成，**每次重启都会变**，
+导致设备列表、状态缓存和请求校验反复出错，因此改用 `device_id` 并最终在 v1.12 删除 uuid。
 
 **`device_id` 是设备的唯一标识，只要不更换硬件，就不会变**。
 `md5(MAC | CPU 核数 | 内存字节数)` 取 16 位，但 `MemTotal` 在两次启动之间会浮动几 KiB
@@ -165,7 +170,6 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `device_id` | string | 稳定设备标识（见 §2.2，落盘复用）。设备端可省略，App 用主题里的设备段兜底注入，区别不同设备，重启不变。 |
-| `uuid` | string | 本次启动的 uuid（重启会变），device_id相同但uuid不同说明设备重启了。 |
 | `hostname` | string | 主机名 |
 | `ip` | string | 局域网 IP |
 | `timestamp` | number | Unix 秒。**在线报文用它判定新旧**：device_id 漂移后旧主题遗留的 retained `online` 若比已知信息更旧，App 直接丢弃（§4.1） |
@@ -197,11 +201,14 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 | `x/y+z#` | `xyz` |
 | `中文租户` / 空 / null | `unknown` |
 
-### 3.4 uuid 校验（设备端 `verify_uuid`）（已废弃，因为现在设备订阅的主题字段里包含device_id，非此设备的请求在服务端就被过滤了）
+### 3.4 uuid 校验（v1.12 已删除）
 
-- `discovery/query/request`：**免校验**（App 此时还不知道任何 uuid）。
-- 其余所有请求：报文必须是 JSON 对象且 `uuid` 与设备当前值一致（大小写不敏感），
-  否则**静默忽略**（只记日志，不回复——不回复是刻意的，避免泄露设备存在性）。
+v1.12 起请求不再携带 `uuid`，设备端也不再调用 `verify_uuid`。请求能否到达只由主题决定：
+`walle/{tenant}/device/{device_id}/...`，Broker ACL 已保证非本设备的请求不会下发。
+
+历史行为（已废弃）：除 `discovery/query/request` 外，所有请求必须带与设备当前值一致的
+`uuid`，否则设备端静默忽略（只记日志、不回复）。该机制因 uuid 每次重启变化、
+客户端缓存旧值会导致“设备在线但请求无响应”，已在 v1.12 完全移除。
 
 ---
 
@@ -220,7 +227,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 | 字段 | 说明 |
 |---|---|
 | `online` | bool，true=上线 / false=下线 |
-| `device_id` / `uuid` / `hostname` | 归并与展示用标识 |
+| `device_id` / `hostname` | 归并与展示用标识 |
 | `version_code` / `version_name` | 设备端软件版本：版本号（整数，如 `1`）、版本名（如 `0.1.1.1`） |
 | `os_description` | 操作系统描述，取 os-release 的 `PRETTY_NAME`（如 `Ubuntu 24.04.5 LTS`）；无 PRETTY_NAME 时回退 `NAME` + `VERSION`，文件缺失时回退内核信息 |
 | `device_type` / `model` | 设备类型、型号（如 Raspberry Pi 5） |
@@ -235,11 +242,12 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 **注意**：`online: false` 的遗嘱只由 broker 代发；设备端正常关机也应主动发一次。
 App 侧重复 online 不去重（幂等）。
 
-**归并顺序（`DeviceRegistry.applyOnline`）**：`device_id` → `uuid` → **MAC（若存在）** → `hostname`。
+**归并顺序（`DeviceRegistry.applyOnline`）**：`device_id` → **MAC（若存在）** → `hostname`
+（v1.12 起不再使用 uuid）。
 MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id 的
 `online:false` + 新 id 的 `online:true`）会合成一张卡片；若旧报文按 MAC 命中已有设备、
 却是下线且 `timestamp` 更旧，则整条丢弃，避免把在线设备刷成离线。
-新版设备端 online 不含 MAC，App 需容忍该字段缺失，退化为按 `device_id`/`uuid`/`hostname`
+新版设备端 online 不含 MAC，App 需容忍该字段缺失，退化为按 `device_id`/`hostname`
 归并；真实的同一启动周期遗嘱（`device_id` 相同、时间戳相同）不受影响。
 
 ### 4.2 设备发现 discovery/query/request → discovery/query/response（V1.1）
@@ -298,14 +306,13 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `uuid` | 是 | 设备当前 uuid，不匹配静默忽略 |
 | `request_id` | 是 | 配对用 |
 
 应答字段（嵌套结构）：
 
 | 分组 | 字段 |
 |---|---|
-| 顶层 | `device_id`、`uuid`、`hostname`、`version_code`、`version_name`、`ip`、`timestamp`、`datetime`、`uptime_seconds`、`sample_age_sec`、`request_id` |
+| 顶层 | `device_id`、`hostname`、`version_code`、`version_name`、`ip`、`timestamp`、`datetime`、`uptime_seconds`、`sample_age_sec`、`request_id` |
 | `system` | `os`、`kernel`、`os_version`、`python`、`machine`、`model` |
 | `cpu` | `percent`（总）、`count_logical/physical`、`load_avg_1m/5m/15m`、`temperature_c`、`sample_interval_sec` |
 | `memory` | `percent`、`total_bytes`、`used_bytes`、`available_bytes`、`free_bytes`（均为字节，不提供格式化字符串） |
@@ -331,14 +338,14 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 `cache` 全部删除，不再枚举摄像头/麦克风/音响能力，也不再做后台探测与能力缓存。
 Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频入口会显示为空）。
 
-- 请求：`walle/{t}/device/{d}/runState/query/request`，字段 `{uuid, request_id}`
+- 请求：`walle/{t}/device/{d}/runState/query/request`，字段 `{request_id}`
 - 应答：`walle/{t}/device/{d}/runState/query/response`
 
 应答字段（只有以下内容）：
 
 | 字段 | 说明 |
 |---|---|
-| `device_id` / `uuid` / `hostname` / `ip` / `timestamp` / `datetime` | 公共字段（§3.1） |
+| `device_id` / `hostname` / `ip` / `timestamp` / `datetime` | 公共字段（§3.1） |
 | `request_id` | 原样回显请求的 request_id |
 | `video` | 推流状态：`streaming`（是否在推视频流）；推流中时 `video_device` 为摄像头节点、`room_number` 为视频流房间号、`audio` 表示是否含音频；另含 `pid`、`started_at`、`uptime_sec` |
 | `phone_audio` | 手机音频上行：`playing`（是否在拉取手机音频流）、`room_number`（播放中为音频流房间号，否则 null） |
@@ -364,7 +371,6 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 
 | 字段 | 必填 | 校验 |
 |---|---|---|
-| `uuid` | 是 | 不匹配静默忽略 |
 | `request_id` | 是 | 配对用 |
 
 **V1.11 变更（重要）**：请求不再包含 `video_device` / `room_number`。
@@ -402,7 +408,7 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 - 请求：`walle/{t}/device/{d}/video/stop/request`
 - 应答：`walle/{t}/device/{d}/video/stop/response`
 
-请求字段：`{uuid, request_id}` + 可选 `room_number`。
+请求字段：`{request_id}` + 可选 `room_number`。
 
 应答字段：
 
@@ -435,7 +441,7 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 | `alarm_type` | 稳定代码如 `cpu_high` / `video_lost` / `phone_audio_lost` / `battery_low` / `obstacle_near` | 分类用 |
 | `message` | 中文可读描述 | 直接可展示 |
 | `detail` | 阈值类：`{value, unit, threshold}`；USB：`{device{...}, current_count}`；视频中断：`{room_number, exit_code, log_file, tail}`；手机音频中断：`{room_number, exit_code, reason, log_file, tail}`；电池低压：`{value, unit, threshold}`；障碍：`{distance_cm, threshold_cm, sensor, direction}` | 结构化细节 |
-| `device_id`、`uuid`、`hostname`、`ip`、`timestamp`、`datetime` | 公共字段 | |
+| `device_id`、`hostname`、`ip`、`timestamp`、`datetime` | 公共字段 | |
 
 **高阈值回滞防抖（cpu/memory/disk/network/temperature）**：越限（≥阈值）告警后，要降到 **阈值 × 0.9** 以下才发 `recover`，防止边界
 抖动反复报警。阈值均可用环境变量覆盖（`THRESH_CPU`/`THRESH_MEM`/`THRESH_DISK`/
@@ -502,7 +508,7 @@ MQTT 只负责「开 / 关」控制。
 - 开启请求：`walle/{t}/device/{d}/phone/audio/send/request` → 应答 `.../send/response`
 - 关闭请求：`walle/{t}/device/{d}/phone/audio/stop/request` → 应答 `.../stop/response`
 
-请求字段：`{uuid, request_id, room_number}`；`stop` 的 `room_number` 可选
+请求字段：`{request_id, room_number}`；`stop` 的 `room_number` 可选
 （退出 App 兜底时不带，表示「停掉当前任何一路手机音频」）。
 
 应答字段：
@@ -557,10 +563,11 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `uuid` | 是 | 不匹配静默忽略（不执行、不回复） |
 | `cmd` | 是 | 要执行的 shell 命令字符串 |
 | `request_id` | 建议 | 缺省时设备端自生成（App 将无法配对，只用于展示） |
 | `timeout` | 否 | 秒，1–300，默认 30，越界自动钳制 |
+
+> 本节为已废弃能力的历史说明；v1.12 起请求已不再携带 `uuid`。
 
 应答字段：
 
@@ -572,7 +579,7 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 | `exit_code` | 进程退出码（timeout 时为 null） |
 | `stdout` / `stderr` | 输出，超过 64KB 截断（尾部带截断提示） |
 | `duration_ms` / `timeout_sec` | 实际耗时 / 生效超时 |
-| `device_id`、`uuid`、`hostname`、`timestamp`、`datetime` | 公共字段 |
+| `request_id` 及公共字段 | —（v1.12 起无 uuid） |
 
 安全开关（设备端环境变量 / 常量）：`ENABLE_CMD_EXEC`（总开关）、`CMD_ALLOWLIST`
 （前缀白名单，为空=允许任意命令）。**这是高危能力**，Broker ACL 必须保证租户隔离。
@@ -586,7 +593,7 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 - 应答：**无**（持续控制命令，最新状态覆盖；执行结果只写设备端日志）
 - 请求不 retained，QoS1；设备重启默认停车，运动状态不落盘。
 
-**请求字段**（公共字段 `uuid`、`request_id` 必填；`request_id` 仅用于日志排查）：
+**请求字段**（`request_id` 必填；v1.12 起 uuid 已删除，`request_id` 仅用于日志排查）：
 
 ```json
 {
@@ -673,7 +680,6 @@ angular.z =  2.5  (rotate.left = true)
 
 ```json
 {
-  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
   "request_id": "a1b2c3d4",
   "ids": [1, 2],
   "include_offset": false
@@ -682,7 +688,6 @@ angular.z =  2.5  (rotate.left = true)
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `uuid` | 是 | 不匹配静默忽略 |
 | `request_id` | 是 | 原样回显 |
 | `ids` | 否 | 要查询的舵机 ID，默认 `[1,2]`；当前小车 ID1=上下、ID2=左右；允许 1–4，不允许空数组或重复 |
 | `include_offset` | 否 | 默认 `false`；为 `true` 时同时读取 offset |
@@ -699,7 +704,6 @@ angular.z =  2.5  (rotate.left = true)
     {"id": 2, "position": 1480, "offset": null, "available": true, "error": null}
   ],
   "device_id": "666feb85d43410b2",
-  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
   "hostname": "orangepi5plus",
   "ip": "192.168.1.10",
   "timestamp": 1763000000,
@@ -756,7 +760,6 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 ```json
 {
-  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
   "request_id": "a1b2c3d4",
   "servos": [
     {"id": 1, "position": 1400},
@@ -768,7 +771,6 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `uuid` | 是 | 不匹配静默忽略 |
 | `request_id` | 是 | 仅用于日志排查 |
 | `servos` | 是 | 非空数组，最多 4 个；同一条消息一次下发 |
 | `servos[].id` | 是 | 1–4；同一请求内不能重复 |
@@ -818,7 +820,6 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 ```json
 {
-  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
   "request_id": "r1",
   "segment_sec": 3600
 }
@@ -826,7 +827,6 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `uuid` | 是 | 不匹配静默忽略 |
 | `request_id` | 是 | 原样回显 |
 | `segment_sec` | 否 | 单文件录像时长（秒），0 或省略=使用配置默认值（3600） |
 
@@ -842,7 +842,6 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
   "started_ts": 1763187000.0,
   "play_url": "http://192.168.1.10:8088/recordings/rec_20261115_143000.fmp4",
   "device_id": "666feb85d43410b2",
-  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
   "hostname": "orangepi5plus",
   "ip": "192.168.1.10",
   "timestamp": 1763187000,
@@ -888,14 +887,12 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 ```json
 {
-  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
   "request_id": "r2"
 }
 ```
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `uuid` | 是 | 不匹配静默忽略 |
 | `request_id` | 是 | 原样回显 |
 
 **应答字段**：
@@ -907,7 +904,6 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
   "request_id": "r2",
   "filename": "rec_20261115_143000.fmp4",
   "device_id": "666feb85d43410b2",
-  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
   "hostname": "orangepi5plus",
   "ip": "192.168.1.10",
   "timestamp": 1763190600,
@@ -934,7 +930,6 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 ```json
 {
-  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
   "request_id": "r3"
 }
 ```
@@ -958,7 +953,6 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
   "used_bytes": 125829120,
   "limit_bytes": 17179869184,
   "device_id": "666feb85d43410b2",
-  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
   "hostname": "orangepi5plus",
   "ip": "192.168.1.10",
   "timestamp": 1763190600,
@@ -989,7 +983,6 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 ```json
 {
-  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
   "request_id": "r4",
   "filename": "rec_20261115_143000.fmp4"
 }
@@ -997,7 +990,6 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `uuid` | 是 | 不匹配静默忽略 |
 | `request_id` | 是 | 原样回显 |
 | `filename` | 是 | 要删除的文件名（仅文件名，不含路径；必须匹配 `rec_\d{8}_\d{6}\.fmp4`） |
 
@@ -1010,7 +1002,6 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
   "request_id": "r4",
   "filename": "rec_20261115_143000.fmp4",
   "device_id": "666feb85d43410b2",
-  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
   "hostname": "orangepi5plus",
   "ip": "192.168.1.10",
   "timestamp": 1763190600,
@@ -1038,7 +1029,6 @@ App 用返回的 `flv_url` / `whep_url` 拉流播放。同一时刻只允许一�
 
 ```json
 {
-  "uuid": "0f8fad5b-d9cb-469f-a165-70867728950e",
   "request_id": "r5",
   "filename": "rec_20261115_143000.fmp4",
   "offset_sec": 300
@@ -1047,7 +1037,6 @@ App 用返回的 `flv_url` / `whep_url` 拉流播放。同一时刻只允许一�
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `uuid` | 是 | 不匹配静默忽略 |
 | `request_id` | 是 | 原样回显 |
 | `filename` | 是 | 要播放的文件名（仅文件名，不含路径；白名单 `^rec_\d{8}_\d{6}(_\d+)?\.fmp4$`） |
 | `offset_sec` | 否 | 从第几秒开始播放，默认 0；用于进度条拖动 |
@@ -1097,7 +1086,7 @@ App 用返回的 `flv_url` / `whep_url` 拉流播放。同一时刻只允许一�
 3. 同步更新测试，**缺一不可**：
    - App：`TopicNamesTest`（主题命名/清洗）、`MessageRouterTest`（路由/去重）、
      以及对应模型的解析测试（`StatusSnapshotTest` 等）
-   - 设备端：`net_mqtt_bridge/test/test_protocol.py`（主题配对/订阅清单/uuid/request_id）、
+   - 设备端：`net_mqtt_bridge/test/test_protocol.py`（主题配对/订阅清单/request_id）、
      `test_car_motor.py`（车控校验与轮速预算）等
 4. 本地验证通过后提交（CI 工作流已移除，提交前务必本地跑通以下检查）：
 
@@ -1109,7 +1098,7 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 **三条铁律**：
 
 - 应答必须原样回显 `request_id`（历史 bug：漏回显 → App 丢弃结果 → 一直转圈）；
-- 除 `discovery/query/request` 外请求必须带 `uuid`，设备端不匹配必须静默忽略；
+- 请求按主题第 4 段的 `device_id` 路由，设备端不再校验 uuid（v1.12 起 uuid 已删除）；
 - 新增主题段先过 `sanitize`，两端清洗规则必须逐字符一致。
 
 
@@ -1120,6 +1109,30 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 7. 变更记录
+
+### 2026-11-24：彻底删除 uuid（文档 v1.12）
+
+**变更类型**：破坏性变更（请求/应答字段删除 + 设备端校验移除，不保留兼容）。
+
+**变更内容**
+
+- 设备端（ROS2 `net_mqtt_bridge` 与 linux-demo）删除 `DEVICE_UUID`、`generate_device_uuid()`
+  与全部 `verify_uuid`；请求只按主题第 4 段的 `device_id` 路由。
+- 所有请求不再携带 `uuid`；`online`、`discovery/query/response`、`baseState`/`runState`、
+  `video/*`、`phone/audio/*`、`record/*`、`alarm/report` 等报文不再包含 `uuid`（及 `uuid_source`）。
+- Android App：`DeviceInfo` 删除 uuid 字段，列表键/主题段改为 `device_id`（回退 hostname）；
+  `StatusSnapshot`、`LocalDb`、`AlarmStore`、`StatusViewModel`、`ControlViewModel`、
+  `PlayerViewModel` 改为按 `device_id` 归属与缓存。
+- Web 控制页与 `walle-agent` 删除 uuid 学习/门槛，直接按 `device_id` 发请求。
+- `inject_request.py` 删除 `--uuid` 与 retained online 读取逻辑。
+
+**影响与兼容性**：App、Web、设备端、walle-agent 必须同版本部署；旧客户端仍发送的 `uuid`
+会被设备端当作未知字段忽略，但旧客户端若依赖应答里的 `uuid` 做归属判断，需要同步升级。
+
+**验证方式**：`python3 -m pytest -q .../net_mqtt_bridge/test`；
+`cd walle-device/linux-demo && python3 -m unittest discover -s test -t .`；
+`./gradlew :app:testDebugUnitTest`；实机发送仅含 `{request_id}` 的 `baseState/query/request`
+应正常收到应答。
 
 ### 2026-11-24：video/start 请求去掉 video_device / room_number（文档 v1.11）
 

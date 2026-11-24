@@ -32,8 +32,8 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     除 discovery 广播外，设备端用按层数的 `+` 模式只订阅请求/持续控制主题，
     不订 `#` 整棵子树（避免收到自己发布的 response/report）。
 
-安全：所有请求报文必须带匹配的 uuid（本次运行实例标识），否则静默忽略；
-      设备连接用独立 MQTT 账号，Broker 侧按 walle/{tenant}/device/${clientid}/# 授权。
+安全：请求按主题第 4 段的 device_id 路由，Broker 侧按
+      walle/{tenant}/device/${clientid}/# 授权，非本设备的报文不会到达。
 
 依赖：pip install -r requirements.txt  （paho-mqtt>=2.0、psutil）
      摄像头能力探测需 v4l-utils，推流需 ffmpeg。

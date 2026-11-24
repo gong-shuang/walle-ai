@@ -68,7 +68,6 @@ class MonitorStatusMixin:
 
         return {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": HOSTNAME,
             "version_code": VERSION_CODE,
             "version_name": VERSION_NAME,
@@ -167,36 +166,11 @@ class MonitorStatusMixin:
             "uptime_sec": round(time.time() - started_ts, 1) if started_ts else None,
         }
 
-    # ---------- 订阅报文 UUID 校验 ----------
-
-    @staticmethod
-    def verify_uuid(payload, topic):
-        """
-        校验订阅报文 JSON 里的 uuid 是否与本地一致。
-        返回 (是否通过, 解析后的 dict)。不通过时静默忽略该消息（只记日志，不回复）。
-        discovery/query/request 不调用本方法（免校验）。
-        """
-        if not payload.strip():
-            logging.warning("忽略 %s：报文为空（必须带 uuid）", topic)
-            return False, None
-        try:
-            data = json.loads(payload)
-        except json.JSONDecodeError as e:
-            logging.warning("忽略 %s：JSON 解析失败（%s）", topic, e)
-            return False, None
-        if not isinstance(data, dict):
-            logging.warning("忽略 %s：报文不是 JSON 对象", topic)
-            return False, None
-        req_uuid = str(data.get("uuid") or "").strip().lower()
-        if not req_uuid or req_uuid != config.DEVICE_UUID.lower():
-            logging.warning("忽略 %s：uuid 不匹配（收到=%s，本地=%s）",
-                            topic, req_uuid or "<空>", config.DEVICE_UUID)
-            return False, None
-        return True, data
+    # ---------- 请求解析 ----------
 
     def handle_query_status(self, payload):
-        ok, data = self.verify_uuid(payload, REQ_STATE)
-        if not ok:
+        data = self.parse_request(payload, REQ_STATE)
+        if data is None:
             return
         rid = self._rid(data)
         try:

@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
-"""P1-5.2：MQTT 协议 uuid / request_id 校验与主题命名测试。"""
+"""P1-5.2：MQTT 协议 request_id 解析与主题命名测试。"""
 
 import json
-import uuid as uuidlib
 
 import pytest
 from paho.mqtt.client import topic_matches_sub
 
 import net_mqtt_bridge.agent as agent
 import net_mqtt_bridge.config as config
-from net_mqtt_bridge.agent import RpiMonitor, generate_device_uuid
-
-FIXED_UUID = "0f8fad5b-d9cb-469f-a165-70867728950e"
+from net_mqtt_bridge.agent import RpiMonitor
 
 
 @pytest.fixture
@@ -31,17 +28,9 @@ def valid_mqtt_config(monkeypatch):
         monkeypatch.setattr(config, name, value)
 
 
-def test_generate_device_uuid_is_deterministic():
-    first = generate_device_uuid("aa:bb:cc:dd:ee:ff", "192.168.1.10", ts=1700000000)
-    second = generate_device_uuid("aa:bb:cc:dd:ee:ff", "192.168.1.10", ts=1700000000)
-    assert first == second
-    assert uuidlib.UUID(first).version == 5
-
-
-def test_generate_device_uuid_changes_with_ip_or_time():
-    base = generate_device_uuid("aa:bb:cc:dd:ee:ff", "192.168.1.10", ts=1700000000)
-    assert base != generate_device_uuid("aa:bb:cc:dd:ee:ff", "192.168.1.11", ts=1700000000)
-    assert base != generate_device_uuid("aa:bb:cc:dd:ee:ff", "192.168.1.10", ts=1700000001)
+def test_generate_device_uuid_is_removed():
+    assert not hasattr(agent, "generate_device_uuid")
+    assert not hasattr(config, "DEVICE_UUID")
 
 
 @pytest.mark.parametrize("data,expected", [
@@ -56,23 +45,10 @@ def test_rid_defaults_to_empty_string(data, expected):
     assert RpiMonitor._rid(data) == expected
 
 
-@pytest.fixture
-def device_uuid(monkeypatch):
-    monkeypatch.setattr(config, "DEVICE_UUID", FIXED_UUID)
-    return FIXED_UUID
-
-
-def test_verify_uuid_accepts_matching_uuid(device_uuid):
-    payload = json.dumps({"uuid": device_uuid, "request_id": "req-1"})
-    ok, data = RpiMonitor.verify_uuid(payload, "baseState/query/request")
-    assert ok is True
+def test_parse_request_accepts_json_object_without_uuid():
+    payload = json.dumps({"request_id": "req-1"})
+    data = RpiMonitor.parse_request(payload, "baseState/query/request")
     assert data["request_id"] == "req-1"
-
-
-def test_verify_uuid_is_case_insensitive(device_uuid):
-    payload = json.dumps({"uuid": device_uuid.upper()})
-    ok, _ = RpiMonitor.verify_uuid(payload, "baseState/query/request")
-    assert ok is True
 
 
 @pytest.mark.parametrize("payload", [
@@ -81,13 +57,9 @@ def test_verify_uuid_is_case_insensitive(device_uuid):
     "not-json",
     json.dumps([]),
     json.dumps({}),
-    json.dumps({"uuid": ""}),
-    json.dumps({"uuid": "00000000-0000-0000-0000-000000000000"}),
 ])
-def test_verify_uuid_rejects_invalid_payload(device_uuid, payload):
-    ok, data = RpiMonitor.verify_uuid(payload, "baseState/query/request")
-    assert ok is False
-    assert data is None
+def test_parse_request_rejects_invalid_payload(payload):
+    assert RpiMonitor.parse_request(payload, "baseState/query/request") is None
 
 
 def test_video_request_keeps_request_id():

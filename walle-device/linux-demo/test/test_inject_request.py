@@ -18,21 +18,21 @@ class InjectRequestTest(unittest.TestCase):
         with mock.patch.object(inject.config, "MQTT_TENANT", "home"), \
                 mock.patch.object(inject.config, "DEVICE_ID", "dev1"):
             items = inject.build_requests(["baseState/query", "runState/query"],
-                                          "uuid-1", request_id="rid-1")
+                                          request_id="rid-1")
         self.assertEqual([item[0] for item in items],
                          ["walle/home/device/dev1/baseState/query/request",
                           "walle/home/device/dev1/runState/query/request"])
         self.assertEqual([item[2] for item in items],
                          ["walle/home/device/dev1/baseState/query/response",
                           "walle/home/device/dev1/runState/query/response"])
-        self.assertEqual(items[0][1], {"uuid": "uuid-1", "request_id": "rid-1"})
+        self.assertEqual(items[0][1], {"request_id": "rid-1"})
 
     def test_build_video_start_payload(self):
         topic, payload, result = inject.build_requests(
-            [inject.REQ_VIDEO_START], "uuid-1", request_id="rid-2")[0]
+            [inject.REQ_VIDEO_START], request_id="rid-2")[0]
         self.assertIn("/video/start/request", topic)
         self.assertIn("/video/start/response", result)
-        self.assertEqual(payload, {"uuid": "uuid-1", "request_id": "rid-2"})
+        self.assertEqual(payload, {"request_id": "rid-2"})
 
     def test_dry_run_prints_without_broker(self):
         out = io.StringIO()
@@ -44,7 +44,7 @@ class InjectRequestTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         text = out.getvalue()
         self.assertIn("walle/home/device/dev1/video/start/request", text)
-        self.assertIn("<device_uuid>", text)
+        self.assertIn('"request_id"', text)
 
     def test_phone_audio_send_requires_room_number(self):
         err = io.StringIO()

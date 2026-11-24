@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""协议与配置单元测试：主题、UUID 校验、房间号、脱敏、设备标识、配置校验。"""
+"""协议与配置单元测试：主题、请求解析、房间号、脱敏、设备标识、配置校验。"""
 import json
 import re
 import sys
@@ -64,16 +64,13 @@ class TopicTest(unittest.TestCase):
 
 
 class RequestValidationTest(unittest.TestCase):
-    def test_verify_uuid(self):
-        with mock.patch.object(config, "DEVICE_UUID", "uuid-1"):
-            ok, data = main.RpiMonitor.verify_uuid(
-                json.dumps({"uuid": "uuid-1", "request_id": "r1"}), "topic")
-            self.assertTrue(ok)
-            self.assertEqual(data["request_id"], "r1")
-            self.assertFalse(main.RpiMonitor.verify_uuid(
-                json.dumps({"uuid": "other"}), "topic")[0])
-            self.assertFalse(main.RpiMonitor.verify_uuid("", "topic")[0])
-            self.assertFalse(main.RpiMonitor.verify_uuid("not-json", "topic")[0])
+    def test_parse_request(self):
+        data = main.RpiMonitor.parse_request(
+            json.dumps({"request_id": "r1"}), "topic")
+        self.assertEqual(data["request_id"], "r1")
+        self.assertIsNone(main.RpiMonitor.parse_request("", "topic"))
+        self.assertIsNone(main.RpiMonitor.parse_request("not-json", "topic"))
+        self.assertIsNone(main.RpiMonitor.parse_request(json.dumps([]), "topic"))
 
     def test_room_pattern(self):
         self.assertIsNotNone(re.match(main.VIDEO_ROOM_PATTERN, "room-1_A"))
@@ -89,14 +86,12 @@ class MaskTest(unittest.TestCase):
 
     def test_mask_payload(self):
         raw = json.dumps({
-            "uuid": "u-1",
             "room_number": "room-1",
             "password": "pw",
             "nested": {"token": "tk"},
             "url": "https://h/whep?stream=a&token=tk",
         })
         masked = json.loads(main.mask_payload(raw))
-        self.assertEqual(masked["uuid"], "u-1")
         self.assertEqual(masked["room_number"], "***")
         self.assertEqual(masked["password"], "***")
         self.assertEqual(masked["nested"]["token"], "***")

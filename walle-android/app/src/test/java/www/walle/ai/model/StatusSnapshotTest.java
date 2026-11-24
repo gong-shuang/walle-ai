@@ -13,7 +13,7 @@ import org.junit.Test;
 public class StatusSnapshotTest {
 
     private static final String FULL = "{"
-            + "\"uuid\":\"u1\",\"device_id\":\"d1\","
+            + "\"device_id\":\"d1\","
             + "\"datetime\":\"2026-10-30 12:00:00\",\"uptime_seconds\":12345,"
             + "\"hostname\":\"RaspberryPi\",\"ip\":\"192.168.1.5\","
             + "\"system\":{\"model\":\"Pi 5\",\"os\":\"Debian 13\",\"machine\":\"aarch64\",\"kernel\":\"6.18\"},"
@@ -38,7 +38,6 @@ public class StatusSnapshotTest {
         StatusSnapshot s = StatusSnapshot.parse(json(FULL));
         assertNotNull(s);
 
-        assertEquals("u1", s.uuid);
         assertEquals("2026-10-30 12:00:00", s.datetime);
         assertEquals(12345L, s.uptimeSeconds);
         assertEquals("RaspberryPi", s.hostname);

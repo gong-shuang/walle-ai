@@ -15,7 +15,6 @@ import java.util.List;
  */
 public final class StatusSnapshot {
 
-    public final String uuid;
     public final String datetime;
     public final long uptimeSeconds;
     public final String hostname;
@@ -30,7 +29,6 @@ public final class StatusSnapshot {
     public final Usb usb;
 
     private StatusSnapshot(JSONObject s) {
-        uuid = optString(s, "uuid", "");
         datetime = optString(s, "datetime", "");
         uptimeSeconds = s.optLong("uptime_seconds", 0L);
         hostname = optString(s, "hostname", "");

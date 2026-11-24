@@ -53,9 +53,7 @@ public class PlayerActivity extends AppCompatActivity {
     // —— Intent extras ——
     /** 控制页「放大」进入时携带的房间号；为空表示使用固定演示地址。 */
     public static final String EXTRA_ROOM = "extra_room";
-    /** 设备真实 uuid（用于校验 result 归属，不参与主题）。 */
-    public static final String EXTRA_UUID = "extra_uuid";
-    /** 设备主题键（device_id/hostname/uuid 归一化后的值），发 MQTT 必须用这个。 */
+    /** 设备主题键（device_id/hostname 归一化后的值），发 MQTT 必须用这个。 */
     public static final String EXTRA_DEVICE_KEY = "extra_device_key";
     /** 控制页携带的「当前推流摄像头」节点，如 /dev/video0。 */
     public static final String EXTRA_CAMERA = "extra_camera";
@@ -93,12 +91,12 @@ public class PlayerActivity extends AppCompatActivity {
     private boolean micOn;
     /** 已点击开启、正在建立 WHIP 连接（此期间再点一次表示取消）。 */
     private boolean micStarting;
-    /** 发 phone/audio/* 的目标设备（真实 uuid 优先，回退主题键）。 */
+    /** 发 phone/audio/* 的目标设备（主题键）。 */
     private String micTarget = "";
     private MqttManager mgr;
 
     // —— 车控摇杆（左下角，car/motor/set/cmd）——
-    /** 目标设备：真实 uuid 优先，回退主题键。 */
+    /** 目标设备：主题键。 */
     private String carTarget = "";
     /** 摇杆的线速度，与 Web 测试页保持一致（协议要求 0.5–1.0 m/s）。 */
     private static final double CAR_SPEED = 0.6;
@@ -170,7 +168,6 @@ public class PlayerActivity extends AppCompatActivity {
 
         viewModel = new ViewModelProvider(this).get(PlayerViewModel.class);
         viewModel.load(getIntent().getStringExtra(EXTRA_DEVICE_KEY),
-                getIntent().getStringExtra(EXTRA_UUID),
                 roomNumber,
                 getIntent().getStringExtra(EXTRA_CAMERA),
                 getIntent().getStringExtra(EXTRA_CAMERAS_JSON));
@@ -201,8 +198,7 @@ public class PlayerActivity extends AppCompatActivity {
 
         // 反向音频：目标设备 + 麦克风按钮（默认关闭）
         String deviceKey = orEmpty(getIntent().getStringExtra(EXTRA_DEVICE_KEY));
-        String deviceUuid = orEmpty(getIntent().getStringExtra(EXTRA_UUID));
-        micTarget = !deviceUuid.isEmpty() ? deviceUuid : deviceKey;
+        micTarget = deviceKey;
         mgr = MqttManager.get(getApplicationContext());
         binding.micButton.setText(R.string.mic_off);
         binding.micButton.setOnClickListener(v -> toggleMic());

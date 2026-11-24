@@ -97,7 +97,7 @@ public class StatusFragment extends Fragment {
             tvCurrentDevice.setText(R.string.no_device_selected);
         } else {
             tvCurrentDevice.setText(getString(R.string.current_device, d.displayName())
-                    + "（" + d.typeLabel() + " · uuid " + d.shortUuid() + "）");
+                    + "（" + d.typeLabel() + " · " + d.deviceId + "）");
         }
     }
 

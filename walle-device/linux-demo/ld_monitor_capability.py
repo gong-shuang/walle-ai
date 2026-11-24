@@ -68,15 +68,13 @@ class MonitorCapabilityMixin:
         }
 
     def handle_capability_query(self, payload):
-        # 该主题必须校验 uuid，不匹配/格式非法直接忽略
-        ok, data = self.verify_uuid(payload, REQ_CAPABILITY)
-        if not ok:
+        data = self.parse_request(payload, REQ_CAPABILITY)
+        if data is None:
             return
         rid = self._rid(data)
         try:
             status = {
                 "device_id": config.DEVICE_ID,
-                "uuid": config.DEVICE_UUID,
                 "hostname": HOSTNAME,
                 "ip": self.lan_ip,
                 "timestamp": now_ts(),

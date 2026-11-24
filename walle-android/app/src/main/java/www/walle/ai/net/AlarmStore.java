@@ -228,7 +228,7 @@ public class AlarmStore {
         if (metric.isEmpty() && type.isEmpty()) return "";
         // 设备段必须带上，否则多台设备上同名的指标会互相覆盖
         String device = firstNonEmpty(o.optString("device_id", ""),
-                o.optString("uuid", ""), o.optString("hostname", ""));
+                o.optString("hostname", ""));
         return device + "|" + metric + "|" + type;
     }
 

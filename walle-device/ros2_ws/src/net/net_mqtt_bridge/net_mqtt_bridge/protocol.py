@@ -103,6 +103,15 @@ class ProtocolMixin:
         """取请求里的 request_id（统一字符串；缺省为空串）。"""
         return str((data or {}).get("request_id") or "")
 
+    @classmethod
+    def parse_request(cls, payload, topic):
+        """解析请求体；空/非法 JSON 或非对象返回 None（只记日志，不回复）。"""
+        data = cls._safe_json(payload)
+        if not data:
+            logging.warning("忽略 %s：报文为空或不是 JSON 对象", topic)
+            return None
+        return data
+
     def _video_req(self, data):
         """推流请求的归一化副本：V1.11 起应答只回显 request_id（房间号由设备生成）。"""
         return {
@@ -213,7 +222,6 @@ class ProtocolMixin:
         """统一告警报文封装"""
         payload = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": config.HOSTNAME,
             "ip": self.lan_ip,
             "event": event,           # alarm / recover / usb_connect / usb_disconnect
@@ -255,7 +263,6 @@ class ProtocolMixin:
 
         return {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "version_code": config.VERSION_CODE,
             "version_name": config.VERSION_NAME,
             "os_description": get_os_description(),  # os-release 的 PRETTY_NAME
@@ -268,11 +275,6 @@ class ProtocolMixin:
             "hostname": config.HOSTNAME,
             "ip": self.lan_ip,
             "mac": mac,
-            "uuid_source": {                      # uuid 生成依据，便于服务端核对
-                "mac": mac,
-                "ip": self.lan_ip,
-                "note": "uuid5(MAC|IP|启动时间)，每次重启会变化，请用 discovery/query/request 获取最新值",
-            },
             "os": {
                 "name": get_os_pretty_name(),        # 系统版本，如 Debian GNU/Linux 12 (bookworm)
                 "kernel": platform.release(),        # 内核版本，如 6.6.51+rpt-rpi-2712
@@ -307,7 +309,6 @@ class ProtocolMixin:
         info = self.build_device_info(include_disk=False)
         return {
             "device_id": info["device_id"],
-            "uuid": info["uuid"],
             "online": bool(online),
             "version_code": info.get("version_code"),
             "version_name": info.get("version_name"),
@@ -349,34 +350,9 @@ class ProtocolMixin:
 
     # ---------- runState/query/request 运行状态查询（能力 + 实时状态） ----------
 
-    @staticmethod
-    def verify_uuid(payload, topic):
-        """
-        校验订阅报文 JSON 里的 uuid 是否与本地一致。
-        返回 (是否通过, 解析后的 dict)。不通过时静默忽略该消息（只记日志，不回复）。
-        discovery/query/request 不调用本方法（免校验）。
-        """
-        if not payload.strip():
-            logging.warning("忽略 %s：报文为空（必须带 uuid）", topic)
-            return False, None
-        try:
-            data = json.loads(payload)
-        except json.JSONDecodeError as e:
-            logging.warning("忽略 %s：JSON 解析失败（%s）", topic, e)
-            return False, None
-        if not isinstance(data, dict):
-            logging.warning("忽略 %s：报文不是 JSON 对象", topic)
-            return False, None
-        req_uuid = str(data.get("uuid") or "").strip().lower()
-        if not req_uuid or req_uuid != config.DEVICE_UUID.lower():
-            logging.warning("忽略 %s：uuid 不匹配（收到=%s，本地=%s）",
-                            topic, req_uuid or "<空>", config.DEVICE_UUID)
-            return False, None
-        return True, data
-
     def handle_query_status(self, payload):
-        ok, data = self.verify_uuid(payload, config.REQ_STATE)
-        if not ok:
+        data = self.parse_request(payload, config.REQ_STATE)
+        if data is None:
             return
         rid = self._rid(data)
         try:

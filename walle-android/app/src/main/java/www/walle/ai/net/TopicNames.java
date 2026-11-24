@@ -11,8 +11,8 @@ package www.walle.ai.net;
  *   <li>{@code tenant}：租户标识，默认取 MQTT 用户名（同一账号 = 同一租户），
  *       这样 Broker 端可以直接用 {@code walle/${username}/#} 做 ACL；</li>
  *   <li>{@code device}（第 3 段）：固定字面量 {@code device}，与租户级广播区分；</li>
- *   <li>{@code device}（第 4 段）：<b>稳定</b>的设备标识（{@code device_id}，回退 hostname、最后 uuid），
- *       不能用每次重启都会变的 uuid；</li>
+ *   <li>{@code device}（第 4 段）：<b>稳定</b>的设备标识（{@code device_id}，回退 hostname），
+ *       不能用每次重启都会变的值；</li>
  *   <li>{@code 资源}：请求-应答对的请求以 {@code .../request} 结尾、应答以 {@code .../response}
  *       结尾（如 {@code baseState/query/request} → {@code baseState/query/response}）；
  *       持续设置且不需要应答的以 {@code .../cmd} 结尾（如 {@code car/motor/set/cmd}）；

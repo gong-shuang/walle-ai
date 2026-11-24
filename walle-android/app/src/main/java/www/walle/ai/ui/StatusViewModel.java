@@ -133,9 +133,7 @@ public class StatusViewModel extends AndroidViewModel implements MqttManager.Lis
 
     @Override
     public void onMachineStatus(JSONObject payload) {
-        String uuid = payload.optString("uuid", "");
-        String selected = mgr.getSelectedKey();
-        if (!uuid.isEmpty() && !selected.isEmpty() && !uuid.equals(selected)) {
+        if (!mgr.isFromDevice(mgr.getSelectedKey(), payload)) {
             return;      // 别的设备的快照
         }
         String rid = payload.optString("request_id", "");

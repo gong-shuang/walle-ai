@@ -239,9 +239,9 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
         """car/motor/set/cmd：校验 -> 更新状态 -> 立即下发 /cmd_vel（无 MQTT 应答）。"""
         if self._shutting_down:
             return
-        ok, data = self.agent.verify_uuid(
+        data = self.agent.parse_request(
             payload, self._agent_mod.REQ_CAR_MOTOR_SET)
-        if not ok:
+        if data is None:
             return
         rid = self.agent._rid(data)
         result, cause, twist = car_motor.parse_drive(
@@ -335,10 +335,10 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
         return box.get('response')
     # ------------------------------------------------------------------ 推流请求
     def _handle_video_start(self, payload):
-        # V1.11：请求只带 uuid + request_id；默认摄像头与房间号都由设备端决定
-        ok, data = self.agent.verify_uuid(
+        # V1.11：请求只带 request_id；默认摄像头与房间号都由设备端决定
+        data = self.agent.parse_request(
             payload, self._agent_mod.REQ_VIDEO_START)
-        if not ok:
+        if data is None:
             return
 
         req = self.agent._video_req(data)
@@ -394,9 +394,9 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
             extra)
 
     def _handle_video_stop(self, payload):
-        ok, data = self.agent.verify_uuid(
+        data = self.agent.parse_request(
             payload, self._agent_mod.REQ_VIDEO_STOP)
-        if not ok:
+        if data is None:
             return
 
         rid = self.agent._rid(data)

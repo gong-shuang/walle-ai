@@ -409,7 +409,7 @@ mosquitto_pub -h www.example.com -p 8883 --cafile /etc/ssl/certs/ca-certificates
 ## 10. 在 EMQX Web 配置 ACL 规则
 
 > 目标：App 账号只能访问自己租户；每台设备使用独立账号，只能读写自己的子树。
-> `uuid` 会随 `discovery/query/response` 与 retained `online` 明文下发，**不是鉴权凭证**；
+> `device_id` 会随 `discovery/query/response` 与 retained `online` 明文下发，**不是鉴权凭证**；
 > 真正的访问边界是 Broker ACL。
 
 Dashboard → **访问控制 → 授权（Authorization）** → 添加 **File** 授权源，把下面内容放到文件**最前面**（并把它排到授权源顺序的第一位，EMQX 按顺序匹配、第一条命中即生效）：
@@ -499,7 +499,7 @@ FROM
 journalctl -u walle-ai | grep '<request_id>'
 ```
 
-> 审计报文只包含主题、房间号、uuid 与时间，不包含 `MEDIA_SERVER_SECRET` / MQTT 密码。
+> 审计报文只包含主题、房间号、设备号与时间，不包含 `MEDIA_SERVER_SECRET` / MQTT 密码。
 
 ***
 

@@ -19,7 +19,7 @@ class DiscoveryJitterTest(unittest.TestCase):
     def test_handler_returns_before_publish(self):
         mon = main.RpiMonitor()
         mon.build_online_payload = lambda online=True: {
-            "device_id": "d", "uuid": "u", "online": online,
+            "device_id": "d", "online": online,
             "model": "m", "hostname": "h"}
         published = threading.Event()
         mon.publish_json = lambda *_a, **_k: published.set()

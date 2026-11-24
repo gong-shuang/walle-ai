@@ -42,10 +42,6 @@ class RpiMonitorBase:
             self.mac, self.cpu_cores, self.mem_total)
         logging.info("设备 device_id: %s（来源：%s；MAC=%s, CPU核心数=%s, 内存总容量=%s字节）",
                      config.DEVICE_ID, config.DEVICE_ID_SOURCE, self.mac, self.cpu_cores, self.mem_total)
-        # uuid：程序实例标识（MAC + IP + 启动时间），本次运行不变、下次运行变化
-        config.DEVICE_UUID = generate_device_uuid(self.mac, self.lan_ip)
-        logging.info("设备 UUID: %s（MAC=%s, IP=%s, 启动时间=%s）",
-                     config.DEVICE_UUID, self.mac, self.lan_ip, now_str())
         # 当前推流进程（同一时刻只保留一路推流）
         self.video_proc = None
         self.video_lock = threading.Lock()
@@ -139,6 +135,15 @@ class RpiMonitorBase:
         """取请求里的 request_id（统一字符串；缺省为空串）。"""
         return str((data or {}).get("request_id") or "")
 
+    @classmethod
+    def parse_request(cls, payload, topic):
+        """解析请求体；空/非法 JSON 或非对象返回 None（只记日志，不回复）。"""
+        data = cls._safe_json(payload)
+        if not data:
+            logging.warning("忽略 %s：报文为空或不是 JSON 对象", topic)
+            return None
+        return data
+
     def _video_req(self, data):
         """推流请求的归一化副本：V1.11 起应答只回显 request_id（房间号由设备生成）。"""
         return {
@@ -219,7 +224,6 @@ class RpiMonitorBase:
         """统一告警报文封装"""
         payload = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": HOSTNAME,
             "ip": self.lan_ip,
             "event": event,           # alarm / recover / usb_connect / usb_disconnect

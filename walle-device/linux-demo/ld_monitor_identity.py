@@ -63,7 +63,6 @@ class MonitorIdentityMixin:
 
         return {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "version_code": VERSION_CODE,
             "version_name": VERSION_NAME,
             "os_description": get_os_description(),  # os-release 的 PRETTY_NAME
@@ -76,11 +75,6 @@ class MonitorIdentityMixin:
             "hostname": HOSTNAME,
             "ip": self.lan_ip,
             "mac": mac,
-            "uuid_source": {                      # uuid 生成依据，便于服务端核对
-                "mac": mac,
-                "ip": self.lan_ip,
-                "note": "uuid5(MAC|IP|启动时间)，每次重启会变化，请用 discovery/query/request 获取最新值",
-            },
             "os": {
                 "name": get_os_pretty_name(),        # 系统版本，如 Debian GNU/Linux 12 (bookworm)
                 "kernel": platform.release(),        # 内核版本，如 6.6.51+rpt-rpi-2712
@@ -115,7 +109,6 @@ class MonitorIdentityMixin:
         info = self._online_info()
         return {
             "device_id": info["device_id"],
-            "uuid": info["uuid"],
             "online": bool(online),
             "version_code": info.get("version_code"),
             "version_name": info.get("version_name"),

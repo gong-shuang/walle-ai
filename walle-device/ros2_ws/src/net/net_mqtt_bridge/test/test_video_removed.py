@@ -4,19 +4,9 @@
 import json
 from pathlib import Path
 
-import pytest
-
 import net_mqtt_bridge
 import net_mqtt_bridge.config as config
 from net_mqtt_bridge.agent import RpiMonitor
-
-FIXED_UUID = "0f8fad5b-d9cb-469f-a165-70867728950e"
-
-
-@pytest.fixture
-def fixed_uuid(monkeypatch):
-    monkeypatch.setattr(config, "DEVICE_UUID", FIXED_UUID)
-    return FIXED_UUID
 
 
 def _bare_monitor():
@@ -41,10 +31,10 @@ def test_agent_package_has_no_video_encoder_pipeline():
     assert "_video_watch" not in source
 
 
-def test_standalone_video_start_points_to_ros_bridge(fixed_uuid):
+def test_standalone_video_start_points_to_ros_bridge():
     monitor, published = _bare_monitor()
     payload = json.dumps({
-        "uuid": FIXED_UUID, "request_id": "v1",
+        "request_id": "v1",
     })
     monitor.handle_video_request(payload)
 
@@ -55,10 +45,10 @@ def test_standalone_video_start_points_to_ros_bridge(fixed_uuid):
     assert "video_webrtc_bridge" in data["error"]
 
 
-def test_standalone_video_stop_reports_no_stream(fixed_uuid):
+def test_standalone_video_stop_reports_no_stream():
     monitor, published = _bare_monitor()
     payload = json.dumps({
-        "uuid": FIXED_UUID, "request_id": "v2", "room_number": "room1",
+        "request_id": "v2", "room_number": "room1",
     })
     monitor.handle_video_stop(payload)
 

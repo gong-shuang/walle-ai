@@ -14,8 +14,8 @@ import java.util.Map;
  * <p>所有方法都加了同步：设备报文来自 paho 回调线程（经主线程转发），
  * 而 UI 会在主线程随时读取，两者必须互斥。</p>
  *
- * <p>设备键 {@link DeviceInfo#key()} 优先 uuid；uuid 每次重启都会变，所以设备的稳定身份
- * （用于主题段）由 {@link DeviceInfo#topicDeviceId()} 单独推导。</p>
+ * <p>设备键 {@link DeviceInfo#key()} 使用稳定的 device_id；主题段由
+ * {@link DeviceInfo#topicDeviceId()} 单独推导（device_id → hostname）。</p>
  */
 public class DeviceRegistry {
 
@@ -78,7 +78,7 @@ public class DeviceRegistry {
 
     // ---------------------------------------------------------------- 写入
 
-    /** 缓存一次 baseState/query/response 快照（键用报文里的 uuid）。 */
+    /** 缓存一次 baseState/query/response 快照（键用报文里的 device_id）。 */
     public void putStatus(String key, JSONObject status) {
         if (key == null || key.isEmpty() || status == null) return;
         synchronized (this) {
@@ -135,13 +135,12 @@ public class DeviceRegistry {
     }
 
     /**
-     * 按 device_id → uuid → hostname 的顺序定位已有条目。
-     * <p>device_id 跨重启稳定，所以先按它找；只看 uuid 会漏掉「重启后换了 uuid」的同一台设备。
-     * device_id 本身也可能漂移，最后用 hostname 兜住，避免同一台机器冒出两张卡片。</p>
+     * 按 device_id → hostname 的顺序定位已有条目。
+     * <p>device_id 跨重启稳定，所以先按它找；device_id 本身也可能漂移，
+     * 最后用 hostname 兜住，避免同一台机器冒出两张卡片。</p>
      */
     private String findKeyLocked(DeviceInfo fresh) {
         String key = findByDeviceIdLocked(fresh.deviceId);
-        if (key.isEmpty()) key = findByUuidLocked(fresh.uuid);
         if (key.isEmpty()) key = findByHostnameLocked(fresh.hostname);
         return key;
     }
@@ -165,7 +164,7 @@ public class DeviceRegistry {
 
         String newKey = fresh.key();
         if (!newKey.isEmpty() && !newKey.equals(existingKey)) {
-            // uuid 每次重启都会变：列表键跟着换，保证后续按 uuid 匹配能命中
+            // device_id 从缺失变为可用（或 hostname 变化）时，列表键跟着换
             devices.remove(existingKey);
             devices.put(newKey, target);
             JSONObject st = statusByKey.remove(existingKey);
@@ -177,7 +176,6 @@ public class DeviceRegistry {
 
     /** 用新报文的非空字段覆盖已有条目，报文里缺失（空）的字段保留原值。 */
     private static void mergeDeviceInfo(DeviceInfo dst, DeviceInfo src) {
-        if (!src.uuid.isEmpty()) dst.uuid = src.uuid;
         if (!src.deviceId.isEmpty()) dst.deviceId = src.deviceId;
         if (!src.versionCode.isEmpty()) dst.versionCode = src.versionCode;
         if (!src.versionName.isEmpty()) dst.versionName = src.versionName;
@@ -198,12 +196,6 @@ public class DeviceRegistry {
             if (deviceId.equals(e.getValue().deviceId)) return e.getKey();
         }
         return "";
-    }
-
-    /** 按列表键（通常是 uuid）精确查找。 */
-    private String findByUuidLocked(String uuid) {
-        if (uuid == null || uuid.isEmpty() || !devices.containsKey(uuid)) return "";
-        return uuid;
     }
 
     /** 按主机名兜底匹配已有设备（device_id 漂移时把同一台机器归并成一条）。 */

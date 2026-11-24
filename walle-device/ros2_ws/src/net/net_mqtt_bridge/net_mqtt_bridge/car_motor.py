@@ -117,8 +117,8 @@ class CarMotorMixin:
 
     def handle_car_motor_set(self, payload):
         """独立运行时没有 /cmd_vel 发布者，只记录链路不可用。"""
-        ok, data = self.verify_uuid(payload, config.REQ_CAR_MOTOR_SET)
-        if not ok:
+        data = self.parse_request(payload, config.REQ_CAR_MOTOR_SET)
+        if data is None:
             return
         logging.warning(
             "car/motor/set/cmd request_id=%s 未执行：底盘控制链路不可用（独立运行模式）",

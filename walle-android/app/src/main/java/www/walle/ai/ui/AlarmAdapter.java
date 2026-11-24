@@ -46,8 +46,8 @@ public class AlarmAdapter extends RecyclerView.Adapter<AlarmAdapter.VH> {
         h.tvEvent.setTextColor(color);
         String host = a.optString("hostname", "");
         if (host.isEmpty()) {
-            String u = a.optString("uuid", "");
-            host = u.length() >= 8 ? u.substring(0, 8) : u;
+            String id = a.optString("device_id", "");
+            host = id.length() >= 8 ? id.substring(0, 8) : id;
         }
         String type = a.optString("alarm_type", "");
         h.tvType.setText(host.isEmpty() ? type : (host + " · " + type));

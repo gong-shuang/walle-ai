@@ -68,11 +68,11 @@
   - 验收：`grep -n "shell=True" walle-device/linux-demo/main.py` 无匹配
   - 证据：`main.py`（原 L2542-L2570 已删除）
 
-- [ ] 🟡 **P0-1.3 uuid 不再作为动作鉴权凭证**
-  - 现状：`uuid` 仍随 discovery/online 明文下发；代码 `verify_uuid()` 只做请求配对。访问边界已改由 Broker ACL 承担，部署文档 §10 明确「uuid 不是鉴权凭证」，并要求每台设备独立账号仅访问自己的子树
-  - 动作：按 `doc/service_deploy.md` §10 在 EMQX 落地 ACL；设备侧保持 `uuid` 仅用于请求配对，不再作为安全边界
-  - 验收：只拿到 discovery/online 报文（含 uuid）无法发布动作主题；设备 A 账号访问设备 B 主题被拒（§10.1 四条命令）
-  - 证据：`doc/service_deploy.md` §10、§10.1；`main.py` 的 `verify_uuid` / `build_device_info` / `discovery/query`
+- [x] ✅ **P0-1.3 uuid 不再作为动作鉴权凭证（v1.12 已删除 uuid）**
+  - 现状：v1.12 起 `uuid` 已从协议中彻底删除，设备端不再生成、上报或校验 uuid；请求只按主题第 4 段的 `device_id` 路由，访问边界完全由 Broker ACL 承担
+  - 动作：按 `doc/service_deploy.md` §10 在 EMQX 落地 ACL，每台设备独立账号仅访问自己的子树
+  - 验收：只拿到 discovery/online 报文无法发布动作主题；设备 A 账号访问设备 B 主题被拒（§10.1 四条命令）
+  - 证据：`doc/service_deploy.md` §10、§10.1；`main.py` 的 `parse_request` / `build_device_info` / `discovery/query`
 
 - [ ] 🟡 **P0-1.4 Broker 按设备 ACL + 动作审计**
   - 现状：`doc/service_deploy.md` §10 已补每设备独立账号、`walle/+/device/${clientid}/#` 规则与 `{deny, all}.`；§10.2 已补 EMQX 规则引擎审计（来源账号/clientid/topic/payload/timestamp → `walle/audit/...`），设备日志可按 `request_id` 关联结果；服务端尚未实际配置验证
@@ -407,7 +407,7 @@ git log --all -p --text | grep -nE "MQTT_PASSWORD=|WHIP_SECRET=|sk-[A-Za-z0-9]{1
 # 5) 远程命令应无响应（整改后执行；需 mosquitto_pub）
 mosquitto_pub -h <broker> -p 8883 --cafile <ca> -u <user> -P <password> \
   -t "walle/<tenant>/device/<device>/cmd/exec" \
-  -m '{"uuid":"<uuid>","cmd":"id"}'
+  -m '{"cmd":"id"}'
 # 期望：设备日志无「执行远程命令」，App 收不到 cmd/result
 
 # 6) kill -9 后不得残留子进程（期望仅输出 no orphan）

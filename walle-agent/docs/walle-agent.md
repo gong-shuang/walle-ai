@@ -81,7 +81,7 @@ walle-agent ready: clientid=agent-b851fdde tenant=home chat=walle/home/agents/ag
 { "request_id": "web-9f3c1a2b", "device": "0580a65014af4d0a", "text": "状态" }
 
 >>> PUB topic=walle/home/device/0580a65014af4d0a/baseState/query/request qos=1 retain=False ts=23:19:15
-{ "request_id": "agent-web-12ab34", "uuid": "a26d..." }
+{ "request_id": "agent-web-12ab34" }
 
 <<< SUB topic=walle/home/device/0580a65014af4d0a/baseState/query/response qos=1 retain=False ts=23:19:15
 

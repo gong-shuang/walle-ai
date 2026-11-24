@@ -27,7 +27,6 @@ class MonitorVideoMixin:
         """统一推流结果报文：result 固定语义 -1/0/-2，细节放附加字段"""
         payload = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": HOSTNAME,
             "ip": self.lan_ip,
             "request_id": self._rid(req),
@@ -256,12 +255,11 @@ class MonitorVideoMixin:
         return ""
 
     def handle_video_request(self, payload):
-        # 该主题必须校验 uuid
-        ok, data = self.verify_uuid(payload, REQ_VIDEO_START)
-        if not ok:
+        data = self.parse_request(payload, REQ_VIDEO_START)
+        if data is None:
             return
 
-        # V1.11：请求只带 uuid + request_id，摄像头与房间号都由设备端决定
+        # V1.11：请求只带 request_id，摄像头与房间号都由设备端决定
         req = self._video_req(data)
 
         if not VIDEO_ENABLE:
@@ -379,7 +377,6 @@ class MonitorVideoMixin:
         """统一停止推流结果报文：result -1 当前没有设备在推流 / 0 ok"""
         payload = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": HOSTNAME,
             "ip": self.lan_ip,
             "request_id": str(request_id or ""),
@@ -398,9 +395,8 @@ class MonitorVideoMixin:
         return payload
 
     def handle_video_stop(self, payload):
-        # 该主题必须校验 uuid
-        ok, data = self.verify_uuid(payload, REQ_VIDEO_STOP)
-        if not ok:
+        data = self.parse_request(payload, REQ_VIDEO_STOP)
+        if data is None:
             return
 
         rid = self._rid(data)

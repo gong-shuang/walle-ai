@@ -445,7 +445,7 @@ def page1():
                 fill=TEXT if online else (170, 180, 200))
         cv.text((212, y + 62), ip, font("mono", 18), fill=(126, 146, 182))
         if online:
-            cv.text((212, y + 90), "uuid c004cb13…", font("mono", 15),
+            cv.text((212, y + 90), "ID 0580a650…", font("mono", 15),
                     fill=(100, 116, 148))
         else:
             cv.text((212, y + 90), "上次在线 2 天前", font("cn", 15),

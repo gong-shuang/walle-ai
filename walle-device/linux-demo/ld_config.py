@@ -158,9 +158,8 @@ HOSTNAME = socket.gethostname()
 #             **不能每次启动重算**：MemTotal 在两次启动间会浮动几 KiB（内核保留页、启动参数），
 #             直接进哈希会让同一台设备换一个 identity —— 新主题、旧主题上的 retained
 #             online 变成幽灵卡片（实测同一台机器两次启动 device_id 不同）。
-# uuid：程序实例标识，由「MAC + IP + 启动时间」生成，本次运行期间不变，下次运行会变
+# uuid：已移除。设备身份只用落盘的 device_id，请求主题第 4 段即 device_id。
 DEVICE_ID = ""      # 在 RpiMonitor.__init__ 中解析（落盘优先）
-DEVICE_UUID = ""    # 在 RpiMonitor.__init__ 中计算
 DEVICE_ID_SOURCE = ""   # device_id 的来源说明（日志 / --check 用）
 
 # 标识落盘位置：默认与 main.py 同级的 .device-id（升级只覆盖 main.py，不会丢），

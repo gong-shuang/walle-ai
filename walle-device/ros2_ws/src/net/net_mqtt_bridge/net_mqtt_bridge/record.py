@@ -27,7 +27,6 @@ class RecordMixin:
     def _publish_record_start_result(self, req, result_code, cause, extra=None):
         payload = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": config.HOSTNAME,
             "ip": self.lan_ip,
             "request_id": self._rid(req),
@@ -47,7 +46,6 @@ class RecordMixin:
     def _publish_record_stop_result(self, req, result_code, cause, extra=None):
         payload = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": config.HOSTNAME,
             "ip": self.lan_ip,
             "request_id": self._rid(req),
@@ -67,7 +65,6 @@ class RecordMixin:
     def _publish_record_list_result(self, req, result_code, cause, extra=None):
         payload = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": config.HOSTNAME,
             "ip": self.lan_ip,
             "request_id": self._rid(req),
@@ -88,7 +85,6 @@ class RecordMixin:
     def _publish_record_delete_result(self, req, result_code, cause, extra=None):
         payload = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": config.HOSTNAME,
             "ip": self.lan_ip,
             "request_id": self._rid(req),
@@ -108,7 +104,6 @@ class RecordMixin:
     def _publish_record_play_start_result(self, req, result_code, cause, extra=None):
         payload = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": config.HOSTNAME,
             "ip": self.lan_ip,
             "request_id": self._rid(req),
@@ -128,7 +123,6 @@ class RecordMixin:
     def _publish_record_play_stop_result(self, req, result_code, cause, extra=None):
         payload = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": config.HOSTNAME,
             "ip": self.lan_ip,
             "request_id": self._rid(req),
@@ -210,9 +204,9 @@ class RecordNodeMixin:
 
     def _handle_record_start(self, payload):
         from interfaces.srv import RecordControl
-        ok, data = self.agent.verify_uuid(
+        data = self.agent.parse_request(
             payload, self._agent_mod.REQ_RECORD_START)
-        if not ok:
+        if data is None:
             return
         req = data
         srv_req = RecordControl.Request()
@@ -247,9 +241,9 @@ class RecordNodeMixin:
 
     def _handle_record_stop(self, payload):
         from interfaces.srv import RecordControl
-        ok, data = self.agent.verify_uuid(
+        data = self.agent.parse_request(
             payload, self._agent_mod.REQ_RECORD_STOP)
-        if not ok:
+        if data is None:
             return
         req = data
         srv_req = RecordControl.Request()
@@ -272,9 +266,9 @@ class RecordNodeMixin:
 
     def _handle_record_list(self, payload):
         from interfaces.srv import RecordList
-        ok, data = self.agent.verify_uuid(
+        data = self.agent.parse_request(
             payload, self._agent_mod.REQ_RECORD_LIST)
-        if not ok:
+        if data is None:
             return
         req = data
         srv_req = RecordList.Request()
@@ -305,9 +299,9 @@ class RecordNodeMixin:
 
     def _handle_record_delete(self, payload):
         from interfaces.srv import RecordDelete
-        ok, data = self.agent.verify_uuid(
+        data = self.agent.parse_request(
             payload, self._agent_mod.REQ_RECORD_DELETE)
-        if not ok:
+        if data is None:
             return
         req = data
         filename = str(data.get('filename') or '').strip()
@@ -332,9 +326,9 @@ class RecordNodeMixin:
 
     def _handle_record_play(self, payload):
         """播放录像：ffmpeg 推 fmp4 → SRS，返回拉流地址给 App。"""
-        ok, data = self.agent.verify_uuid(
+        data = self.agent.parse_request(
             payload, config.REQ_RECORD_PLAY_START)
-        if not ok:
+        if data is None:
             return
         req = data
         filename = str(data.get('filename') or '').strip()
@@ -365,9 +359,9 @@ class RecordNodeMixin:
 
     def _handle_record_play_stop(self, payload):
         """停止录像点播。"""
-        ok, data = self.agent.verify_uuid(
+        data = self.agent.parse_request(
             payload, config.REQ_RECORD_PLAY_STOP)
-        if not ok:
+        if data is None:
             return
         req = data
         self._record_player.stop()

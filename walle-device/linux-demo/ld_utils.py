@@ -9,7 +9,6 @@ import platform
 import re
 import socket
 import time
-import uuid
 from pathlib import Path
 
 import psutil
@@ -353,16 +352,6 @@ def resolve_device_id(mac, cpu_cores, mem_total, persist=True):
         "created_at": now_str(),
     })
     return new_id, (f"新生成并写入 {path}" if ok else "新生成（未能落盘）")
-
-
-def generate_device_uuid(mac, ip, ts=None):
-    """
-    根据 MAC + IP + 启动时间生成网络内唯一的 uuid。
-    用 uuid5（命名空间 + 名字哈希），同样输入必得同样结果，便于排查复现。
-    """
-    ts = int(ts if ts is not None else time.time())
-    name = f"{mac}|{ip}|{ts}"
-    return str(uuid.uuid5(uuid.NAMESPACE_OID, name))
 
 
 def get_cpu_temp():

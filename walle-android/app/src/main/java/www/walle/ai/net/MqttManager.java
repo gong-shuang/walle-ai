@@ -216,57 +216,54 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     // ---------------------------------------------------------------- 请求（App → 设备）
 
     /** 开始推流：设备端自动使用默认摄像头并生成 8 位房间号。返回本次 request_id。 */
-    public String startVideoStream(String uuid) {
-        if (uuid == null || uuid.isEmpty()) {
+    public String startVideoStream(String deviceKey) {
+        if (deviceKey == null || deviceKey.isEmpty()) {
             notifyDeliveryError(TopicNames.KIND_VIDEO_START, "请先在设备页选择设备");
             return "";
         }
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
         try {
-            body.put("uuid", uuid);
             body.put("request_id", rid);
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_VIDEO_START,
-                TopicNames.videoStartRequest(tenant, deviceSegment(uuid)), body.toString());
+                TopicNames.videoStartRequest(tenant, deviceSegment(deviceKey)), body.toString());
         return rid;
     }
 
     /** 查询指定设备的运行状态（含音频能力）。返回本次 request_id。 */
-    public String requestCapability(String uuid) {
-        if (uuid == null || uuid.isEmpty()) {
+    public String requestCapability(String deviceKey) {
+        if (deviceKey == null || deviceKey.isEmpty()) {
             notifyDeliveryError(TopicNames.KIND_CAPABILITY, "请先在设备页选择设备");
             return "";
         }
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
         try {
-            body.put("uuid", uuid);
             body.put("request_id", rid);
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_CAPABILITY,
-                TopicNames.capabilityQuery(tenant, deviceSegment(uuid)), body.toString());
+                TopicNames.capabilityQuery(tenant, deviceSegment(deviceKey)), body.toString());
         return rid;
     }
 
     /** 停止推流：带 room_number 时设备端会校验，不一致不会误停。返回 request_id。 */
-    public String stopVideoStream(String uuid, String roomNumber) {
-        if (uuid == null || uuid.isEmpty()) {
+    public String stopVideoStream(String deviceKey, String roomNumber) {
+        if (deviceKey == null || deviceKey.isEmpty()) {
             notifyDeliveryError(TopicNames.KIND_VIDEO_STOP, "请先在设备页选择设备");
             return "";
         }
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
         try {
-            body.put("uuid", uuid);
             if (roomNumber != null && !roomNumber.isEmpty()) body.put("room_number", roomNumber);
             body.put("request_id", rid);
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_VIDEO_STOP,
-                TopicNames.videoStopRequest(tenant, deviceSegment(uuid)), body.toString());
+                TopicNames.videoStopRequest(tenant, deviceSegment(deviceKey)), body.toString());
         return rid;
     }
 
@@ -279,8 +276,8 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
      *
      * @return 本次 request_id；参数不合法时返回空串
      */
-    public String sendPhoneAudio(String uuid, String roomNumber) {
-        if (uuid == null || uuid.isEmpty()) {
+    public String sendPhoneAudio(String deviceKey, String roomNumber) {
+        if (deviceKey == null || deviceKey.isEmpty()) {
             notifyDeliveryError(TopicNames.KIND_PHONE_AUDIO_SEND, "请先在设备页选择设备");
             return "";
         }
@@ -292,26 +289,24 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
         try {
-            body.put("uuid", uuid);
             body.put("room_number", room);
             body.put("request_id", rid);
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_PHONE_AUDIO_SEND,
-                TopicNames.phoneAudioSend(tenant, deviceSegment(uuid)), body.toString());
+                TopicNames.phoneAudioSend(tenant, deviceSegment(deviceKey)), body.toString());
         return rid;
     }
 
     /** 关闭手机麦克风上行：下发 {@code phone/audio/stop/request}，设备停止拉音频流播放。 */
-    public String stopPhoneAudio(String uuid, String roomNumber) {
-        if (uuid == null || uuid.isEmpty()) {
+    public String stopPhoneAudio(String deviceKey, String roomNumber) {
+        if (deviceKey == null || deviceKey.isEmpty()) {
             notifyDeliveryError(TopicNames.KIND_PHONE_AUDIO_STOP, "请先在设备页选择设备");
             return "";
         }
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
         try {
-            body.put("uuid", uuid);
             if (roomNumber != null && !roomNumber.trim().isEmpty()) {
                 body.put("room_number", roomNumber.trim());
             }
@@ -319,7 +314,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_PHONE_AUDIO_STOP,
-                TopicNames.phoneAudioStop(tenant, deviceSegment(uuid)), body.toString());
+                TopicNames.phoneAudioStop(tenant, deviceSegment(deviceKey)), body.toString());
         return rid;
     }
 
@@ -332,10 +327,10 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
      *
      * @return 本次 request_id；参数不合法或未选设备时返回空串
      */
-    public String sendCarMotorDrive(String uuid, double forward, double back,
+    public String sendCarMotorDrive(String deviceKey, double forward, double back,
                                     double left, double right,
                                     boolean rotateLeft, boolean rotateRight) {
-        if (uuid == null || uuid.isEmpty()) {
+        if (deviceKey == null || deviceKey.isEmpty()) {
             notifyDeliveryError(TopicNames.KIND_CAR_MOTOR, "请先在设备页选择设备");
             return "";
         }
@@ -354,25 +349,24 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
             move.put("right", right);
             rotate.put("left", rotateLeft);
             rotate.put("right", rotateRight);
-            body.put("uuid", uuid);
             body.put("request_id", rid);
             body.put("move", move);
             body.put("rotate", rotate);
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_CAR_MOTOR,
-                TopicNames.carMotorSet(tenant, deviceSegment(uuid)), body.toString());
+                TopicNames.carMotorSet(tenant, deviceSegment(deviceKey)), body.toString());
         return rid;
     }
 
     /** 停止车控：move 全 0 + rotate 都为 false。 */
-    public String stopCarMotorDrive(String uuid) {
-        return sendCarMotorDrive(uuid, 0, 0, 0, 0, false, false);
+    public String stopCarMotorDrive(String deviceKey) {
+        return sendCarMotorDrive(deviceKey, 0, 0, 0, 0, false, false);
     }
 
     /** 查询默认舵机 ID 1、2 的位置，不读 offset。 */
-    public String requestCarServoStatus(String uuid) {
-        return requestCarServoStatus(uuid, new int[]{1, 2}, false);
+    public String requestCarServoStatus(String deviceKey) {
+        return requestCarServoStatus(deviceKey, new int[]{1, 2}, false);
     }
 
     /**
@@ -385,8 +379,8 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
      * @param includeOffset 是否同时读取 offset
      * @return 本次 request_id；参数不合法或未选设备时返回空串
      */
-    public String requestCarServoStatus(String uuid, int[] ids, boolean includeOffset) {
-        if (uuid == null || uuid.isEmpty()) {
+    public String requestCarServoStatus(String deviceKey, int[] ids, boolean includeOffset) {
+        if (deviceKey == null || deviceKey.isEmpty()) {
             notifyDeliveryError(TopicNames.KIND_CAR_SERVO_STATUS, "请先在设备页选择设备");
             return "";
         }
@@ -404,20 +398,19 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
         try {
-            body.put("uuid", uuid);
             body.put("request_id", rid);
             body.put("ids", idArray);
             body.put("include_offset", includeOffset);
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_CAR_SERVO_STATUS,
-                TopicNames.carServoStatusQuery(tenant, deviceSegment(uuid)), body.toString());
+                TopicNames.carServoStatusQuery(tenant, deviceSegment(deviceKey)), body.toString());
         return rid;
     }
 
     /** 设置单个舵机到绝对位置，duration 默认 1.0 秒。 */
-    public String setCarServo(String uuid, int id, int position) {
-        return setCarServos(uuid, new int[]{id}, new int[]{position}, 1.0);
+    public String setCarServo(String deviceKey, int id, int position) {
+        return setCarServos(deviceKey, new int[]{id}, new int[]{position}, 1.0);
     }
 
     /**
@@ -428,8 +421,8 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
      *
      * @return 本次 request_id；参数不合法或未选设备时返回空串
      */
-    public String setCarServos(String uuid, int[] ids, int[] positions, double duration) {
-        if (uuid == null || uuid.isEmpty()) {
+    public String setCarServos(String deviceKey, int[] ids, int[] positions, double duration) {
+        if (deviceKey == null || deviceKey.isEmpty()) {
             notifyDeliveryError(TopicNames.KIND_CAR_SERVO_SET, "请先在设备页选择设备");
             return "";
         }
@@ -462,14 +455,13 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
         try {
-            body.put("uuid", uuid);
             body.put("request_id", rid);
             body.put("servos", servos);
             body.put("duration", duration);
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_CAR_SERVO_SET,
-                TopicNames.carServoSet(tenant, deviceSegment(uuid)), body.toString());
+                TopicNames.carServoSet(tenant, deviceSegment(deviceKey)), body.toString());
         return rid;
     }
 
@@ -512,7 +504,6 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         final String rid = newRequestId();
         JSONObject body = new JSONObject();
         try {
-            body.put("uuid", key);
             body.put("request_id", rid);
         } catch (JSONException ignore) {
         }
@@ -521,10 +512,21 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         return rid;
     }
 
-    /** 主题里的设备段：优先 device_id（稳定），回退 hostname / uuid。 */
+    /** 主题里的设备段：优先 device_id（稳定），回退 hostname。 */
     private String deviceSegment(String deviceKey) {
         DeviceInfo d = registry.get(deviceKey);
         return d == null ? TopicNames.sanitize(deviceKey) : d.topicDeviceId();
+    }
+
+    /**
+     * 判断一条设备报文是否属于指定设备：比较 payload.device_id 与主题设备段。
+     * <p>报文缺少 device_id 时不做过滤（兼容异常报文），由 request_id 兜底。</p>
+     */
+    public boolean isFromDevice(String deviceKey, JSONObject payload) {
+        if (deviceKey == null || deviceKey.isEmpty() || payload == null) return true;
+        String deviceId = payload.optString("device_id", "");
+        if (deviceId.isEmpty()) return true;
+        return TopicNames.sanitize(deviceId).equals(deviceSegment(deviceKey));
     }
 
     private static String newRequestId() {
@@ -585,7 +587,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
 
     @Override
     public void onStateResult(JSONObject payload) {
-        registry.putStatus(payload.optString("uuid", ""), payload);
+        registry.putStatus(payload.optString("device_id", ""), payload);
         for (Listener l : listeners) main.post(() -> l.onMachineStatus(payload));
     }
 

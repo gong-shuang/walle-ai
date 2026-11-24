@@ -5,14 +5,9 @@ import json
 import threading
 import time
 
-import pytest
-
 import net_mqtt_bridge.agent as agent
-import net_mqtt_bridge.config as config
 import net_mqtt_bridge.monitor as monitor_mod
 from net_mqtt_bridge.agent import RpiMonitor
-
-FIXED_UUID = "0f8fad5b-d9cb-469f-a165-70867728950e"
 
 
 def _bare_monitor():
@@ -27,12 +22,6 @@ def _bare_monitor():
     monitor.lan_ip = "192.168.1.10"
     monitor.init_alarm_sensors()
     return monitor
-
-
-@pytest.fixture
-def fixed_uuid(monkeypatch):
-    monkeypatch.setattr(config, "DEVICE_UUID", FIXED_UUID)
-    return FIXED_UUID
 
 
 def test_build_status_reuses_monitor_sample(monkeypatch):
@@ -76,7 +65,7 @@ def test_build_status_falls_back_to_live_sample(monkeypatch):
     assert status["cpu"]["percent"] == 1.0
 
 
-def test_handle_query_status_responds_under_100ms(fixed_uuid, monkeypatch):
+def test_handle_query_status_responds_under_100ms(monkeypatch):
     monitor = _bare_monitor()
     monitor.status_sample = ([5.0], {}, 0.0, 0.0, 5.0, time.monotonic())
     monkeypatch.setattr(monitor_mod, "disk_mounts", lambda: [])
@@ -85,7 +74,7 @@ def test_handle_query_status_responds_under_100ms(fixed_uuid, monkeypatch):
         (resource, data))
 
     start = time.monotonic()
-    monitor.handle_query_status(json.dumps({"uuid": FIXED_UUID, "request_id": "r1"}))
+    monitor.handle_query_status(json.dumps({"request_id": "r1"}))
     cost = time.monotonic() - start
 
     assert cost < 0.1

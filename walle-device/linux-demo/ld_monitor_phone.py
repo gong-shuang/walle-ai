@@ -32,7 +32,6 @@ class MonitorPhoneMixin:
         """手机音频动作的结果报文（result 语义与 video 一致：0 成功 / -1 无流 / -2 失败）"""
         payload = {
             "device_id": config.DEVICE_ID,
-            "uuid": config.DEVICE_UUID,
             "hostname": HOSTNAME,
             "ip": self.lan_ip,
             "room_number": req.get("room_number"),
@@ -235,8 +234,8 @@ class MonitorPhoneMixin:
         return proc, None
 
     def handle_phone_audio_send(self, payload):
-        ok, data = self.verify_uuid(payload, REQ_PHONE_AUDIO_SEND)
-        if not ok:
+        data = self.parse_request(payload, REQ_PHONE_AUDIO_SEND)
+        if data is None:
             return
 
         room_number = str(data.get("room_number") or "").strip()
@@ -284,8 +283,8 @@ class MonitorPhoneMixin:
         self._clear_phone_audio_lost(room_number)
 
     def handle_phone_audio_stop(self, payload):
-        ok, data = self.verify_uuid(payload, REQ_PHONE_AUDIO_STOP)
-        if not ok:
+        data = self.parse_request(payload, REQ_PHONE_AUDIO_STOP)
+        if data is None:
             return
 
         req_room = str(data.get("room_number") or "").strip()
