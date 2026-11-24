@@ -16,6 +16,7 @@ import os
 import random
 import re
 import secrets
+import signal
 import sys
 import threading
 import time
@@ -513,6 +514,31 @@ class Agent:
         except Exception as exc:  # noqa: BLE001
             self.mqtt_error = str(exc)
             log().error("MQTT 初始化失败: %s", exc)
+
+    def shutdown(self):
+        """退出前补发 retained 离线状态，再正常断开。
+
+        MQTT 规定客户端正常 DISCONNECT 时 broker 会丢弃遗嘱，
+        所以 Ctrl+C / SIGTERM 这类正常退出必须显式发布 online:false。
+        """
+        client = self.mqtt_client
+        if client is None:
+            return
+        if self.chat_enabled and self.mqtt_connected:
+            try:
+                info = client.publish(
+                    agent_status_topic(),
+                    json.dumps(self._status_payload(False), ensure_ascii=False),
+                    qos=1, retain=True)
+                info.wait_for_publish(timeout=3)
+                log().info("已发布离线状态 %s", agent_status_topic())
+            except Exception as exc:  # noqa: BLE001
+                log().warning("发布离线状态失败: %s", exc)
+        try:
+            client.disconnect()
+            client.loop_stop()
+        except Exception as exc:  # noqa: BLE001
+            log().warning("断开 MQTT 失败: %s", exc)
 
     def _status_payload(self, online=True):
         return {
@@ -1045,6 +1071,10 @@ def stop(username=None, device=None):
 def link_test(username=None, device=None):
     return _get_agent().link_test(username, device)
 
+def _raise_keyboard_interrupt(_signum, _frame):
+    raise KeyboardInterrupt
+
+
 def main():
     """纯 MQTT 常驻进程：不监听任何端口。"""
     agent = _get_agent()
@@ -1054,13 +1084,14 @@ def main():
     if not agent.mqtt_connected:
         print("walle-agent 启动 10s 内未连上 MQTT，请检查配置与 broker；进程将继续重连",
               file=sys.stderr, flush=True)
+    # SIGTERM（systemctl stop / kill）也要走正常退出流程，补发离线状态
+    signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
+    signal.signal(signal.SIGINT, _raise_keyboard_interrupt)
     try:
         while True:
             time.sleep(3600)
     except KeyboardInterrupt:
-        if agent.mqtt_client:
-            agent.mqtt_client.loop_stop()
-            agent.mqtt_client.disconnect()
+        agent.shutdown()
 
 
 if __name__ == "__main__":
