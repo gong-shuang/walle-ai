@@ -61,9 +61,9 @@ public class ControlViewModel extends MqttViewModel {
         public final String deviceKey;
         /** 当前设备的真实 uuid：只用于校验 result 归属。 */
         public final String deviceUuid;
-        /** 麦克风能力（capability/query/response 的 audio.capture） */
+        /** 麦克风能力（runState/query/response 的 audio.capture） */
         public final DeviceCapability.AudioEnd audioCapture;
-        /** 音响/扬声器能力（capability/query/response 的 audio.playback） */
+        /** 音响/扬声器能力（runState/query/response 的 audio.playback） */
         public final DeviceCapability.AudioEnd audioPlayback;
 
         UiState(List<CameraCapability.Camera> cameras, String selectedNode, boolean connected,
@@ -170,7 +170,7 @@ public class ControlViewModel extends MqttViewModel {
      * 设备列表里显式点了某台设备：立即查一次能力（与状态页的 baseState/query/request 配对）。
      *
      * <p>只要用户点设备就发 —— 不做「能力已加载就跳过」的去重，保证每次点击都正好是
-     * baseState/query/request + capability/query/request 两个主题。后台的设备上线 / 列表变化广播不会走到这里。</p>
+     * baseState/query/request + runState/query/request 两个主题。后台的设备上线 / 列表变化广播不会走到这里。</p>
      */
     public void onDeviceSwitched() {
         if (phase == Phase.LIVE && mgr.getSelectedKey().equals(activeUuid)) return;  // 推流中的设备不打断

@@ -56,7 +56,7 @@ public final class TopicNames {
     /** 状态查询失败 */
     public static final String KIND_STATE = "baseState/query/request";
     /** 设备能力查询失败 */
-    public static final String KIND_CAPABILITY = "capability/query/request";
+    public static final String KIND_CAPABILITY = "runState/query/request";
     /** 推流启动失败 */
     public static final String KIND_VIDEO_START = "video/start/request";
     /** 停止推流失败 */
@@ -142,9 +142,9 @@ public final class TopicNames {
         return deviceBase(tenant, device) + "/alarm/report";
     }
 
-    /** 设备能力结果（收到 capability/query/request 后发布，含摄像头/麦克风/音响等外设）。 */
+    /** 设备能力结果（收到 runState/query/request 后发布，含摄像头/麦克风/音响等外设）。 */
     public static String capabilityResult(String tenant, String device) {
-        return deviceBase(tenant, device) + "/capability/query/response";
+        return deviceBase(tenant, device) + "/runState/query/response";
     }
 
     /** 推流启动结果（收到 video/start/request 后发布）。 */
@@ -177,7 +177,7 @@ public final class TopicNames {
                 base + "/alarm/report",                      // 主动上报
                 base + "/discovery/query/response",          // 查询应答
                 base + "/baseState/query/response",
-                base + "/capability/query/response",
+                base + "/runState/query/response",
                 base + "/video/start/response",
                 base + "/video/stop/response",
                 base + "/car/servo/status/query/response",
@@ -192,7 +192,7 @@ public final class TopicNames {
 
     /** 查询设备能力（摄像头/麦克风/音响等外设）。 */
     public static String capabilityQuery(String tenant, String device) {
-        return deviceBase(tenant, device) + "/capability/query/request";
+        return deviceBase(tenant, device) + "/runState/query/request";
     }
 
     /** 开始推流（请求-应答对，用 /request）。 */
@@ -261,7 +261,7 @@ public final class TopicNames {
     /**
      * 从主题里取出资源段（不含租户与设备），用于分发：
      * {@code walle/t/device/d/baseState/query/response} → {@code baseState/query/response}；
-     * {@code walle/t/device/d/capability/query/response} → {@code capability/query/response}。
+     * {@code walle/t/device/d/runState/query/response} → {@code runState/query/response}。
      */
     public static String resourceOf(String topic) {
         String[] p = parse(topic);

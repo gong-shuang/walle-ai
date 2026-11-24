@@ -200,7 +200,7 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
         with self._car_lock:
             self._car_state = (linear_x, linear_y, angular_z)
             self._car_last_valid = time.monotonic()
-            self._car_moving = any(
+            self._car_moving = self.agent.motor_moving = any(
                 abs(v) > 1e-6 for v in (linear_x, linear_y, angular_z))
             self._publish_cmd_vel(linear_x, linear_y, angular_z)
 
@@ -209,7 +209,7 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
         with self._car_lock:
             was_moving = self._car_moving
             self._car_state = (0.0, 0.0, 0.0)
-            self._car_moving = False
+            self._car_moving = self.agent.motor_moving = False
             self._car_last_valid = 0.0
             self._publish_cmd_vel(0.0, 0.0, 0.0)
         if was_moving and reason:
@@ -223,7 +223,7 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
                 return
             if now - self._car_last_valid > self._agent_mod.CAR_MOTOR_DEADMAN_SEC:
                 self._car_state = (0.0, 0.0, 0.0)
-                self._car_moving = False
+                self._car_moving = self.agent.motor_moving = False
                 self._car_last_valid = 0.0
                 self._publish_cmd_vel(0.0, 0.0, 0.0)
                 expired = True

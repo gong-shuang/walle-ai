@@ -45,7 +45,7 @@ public class MessageRouterTest {
         router.route(BASE + "/discovery/query/response", "{\"model\":\"Pi 5\"}");
         router.route(BASE + "/baseState/query/response", "{\"cpu\":{}}");
         router.route(BASE + "/alarm/report", "{\"event\":\"alarm\"}");
-        router.route(BASE + "/capability/query/response", "{\"cameras\":[]}");
+        router.route(BASE + "/runState/query/response", "{\"cameras\":[]}");
         router.route(BASE + "/video/start/response", "{\"result\":0}");
         router.route(BASE + "/video/stop/response", "{\"result\":0}");
         router.route(BASE + "/car/servo/status/query/response", "{\"result\":0}");

@@ -47,7 +47,7 @@ walle/{tenant}/device/{device}/{resource}
 | 1 | 上线/下线 | — | `walle/{t}/device/{d}/online` | 主动上报（retained + LWT） | v1.1 | v1.1最小化json报文 |
 | 2 | 设备发现 | `walle/{t}/discovery/query/request` | `walle/{t}/device/{d}/discovery/query/response` | 请求-应答（按需、限频） | v1.1 | v1.1最小化json报文 |
 | 3 | 基础状态查询 | `walle/{t}/device/{d}/baseState/query/request` | `walle/{t}/device/{d}/baseState/query/response` | 请求-应答 | v1.4 | v1.4精简json报文；v1.7增补电池/声呐，移除alarms；v1.10精简json报文 |
-| 4 | 设备能力 | `walle/{t}/device/{d}/capability/query/request` | `walle/{t}/device/{d}/capability/query/response` | 请求-应答 | v1.4 | v1.1后台缓存探测，v1.4精简json报文 |
+| 4 | 运行状态查询 | `walle/{t}/device/{d}/runState/query/request` | `walle/{t}/device/{d}/runState/query/response` | 请求-应答 | v1.10 | v1.10将capability改为运行状态查询并精简json报文 |
 | 5 | 告警上报 | — | `walle/{t}/device/{d}/alarm/report` | 主动上报 | v1.0 | v1.6 增补电池低压/前方障碍告警 |
 | 6 | 远程命令执行 | `walle/{t}/device/{d}/cmd/exec/request` | `walle/{t}/device/{d}/cmd/exec/response` | 请求-应答 | v1.1 | v1.1已删除 |
 
@@ -134,7 +134,7 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 
 QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 `MessageRouter` 用
 「键排序后的 JSON 签名 + 2 秒窗口」去重，但只针对**一次性事件**：
-`alarm/report`、`capability/query/response`、`video/start/response`、`video/stop/response`、`car/servo/status/query/response`
+`alarm/report`、`runState/query/response`、`video/start/response`、`video/stop/response`、`car/servo/status/query/response`
 （重复处理会出事，例如推流结果重复 → 播放器初始化两次）。
 `online` 与 `baseState/query/response` 是幂等的（同一份状态重复应用无害），**不去重**。
 
@@ -321,49 +321,36 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 （缺分组归空、异常数值归一为 null 等）。**状态是实时查询数据，不落盘**
 （N11 曾落盘又 revert，决策见 git 历史）。
 
-### 4.4 设备能力 capability/query/request → capability/query/response（V1.4）
+### 4.4 运行状态查询 runState/query/request → runState/query/response（V1.10）
 
-**作用**：枚举设备端外设能力——摄像头（v4l2）、麦克风/音响（PulseAudio）等，供控制页
-展示与选择。早期只查摄像头，任务 4 起升级为通用能力查询（旧主题已彻底删除，无兼容层）。
+**作用**：查询设备实时运行状态：是否推视频流、是否拉取手机音频、是否录像、电机/舵机
+是否在运动、当前电压与声呐距离。
 
-**V1.4 变更（报文精简）**：`cameras[]` 去掉 `formats` 字段（格式/分辨率/帧率明细），
-仅保留 `node`、`name`、`detail`、`format_count`、`resolution_count`、`max_resolution`。
-`summary.total_formats` / `total_resolutions` 仍保留作为聚合统计。
-**App 端若解析了 `cameras[].formats` 需同步调整。**
+**V1.10 变更**：`capability/query/*` 改名为 `runState/query/*`，应答为破坏性精简：
+`capability`、`capabilities[]`、`camera_count`、`cameras[]`、`audio`、`summary`、`probe`、
+`cache` 全部删除，不再枚举摄像头/麦克风/音响能力，也不再做后台探测与能力缓存。
+Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频入口会显示为空）。
 
-- 请求：`walle/{t}/device/{d}/capability/query/request`，字段 `{uuid, request_id}`
-- 应答：`walle/{t}/device/{d}/capability/query/response`
+- 请求：`walle/{t}/device/{d}/runState/query/request`，字段 `{uuid, request_id}`
+- 应答：`walle/{t}/device/{d}/runState/query/response`
 
-应答字段：
+应答字段（只有以下内容）：
 
 | 字段 | 说明 |
 |---|---|
-| `capability` | 固定 `"device"` |
-| `capabilities[]` | 能力标签，按探测结果条件出现：`system_status` 恒有；有摄像头加 `camera_video_capture`；`VIDEO_ENABLE` 开启加 `rtmp_push`；音频可用分别加 `audio_capture` / `audio_playback`；`RECORD_ENABLED` 为真加 `recording` |
-| `camera_count` / `cameras[]` | 摄像头列表，每项含 `node`（如 `/dev/video0`）、`name`、`detail`、`format_count`、`resolution_count`、`max_resolution`；无 `node` 的条目 App 侧会过滤 |
-| `audio.capture` | 麦克风：`{available, device, sources[], reason}`；`device` 为默认录音源（通常 `default`），不可用时 `reason` 给出原因 |
-| `audio.playback` | 音响：`{available, device, sinks[], volume_percent, muted, reason}`；`volume_percent` 未知为 null（App 归一为 -1） |
-| `recording` | 录像能力：`{enable}`，`enable` 取自 `walle_camera.conf` 的 `record.enabled`，`true` 表示设备开启了录像功能，App 应展示录像入口 |
-| `summary` | 聚合统计：`total_cameras`、`total_formats`、`total_resolutions`、`audio_sources`、`audio_sinks`、`probe_cost_ms` |
-| `probe` | 探测元信息：`{tool, error, audio_error, pending}`。`tool` 固定 `"v4l2-ctl + pactl"`；`error` 非 null 表示摄像头探测失败（含 CAM_ENABLE=False 的提示）；`audio_error` 非 null 表示麦克风或音响探测失败；`pending=true` 表示首次探测尚未完成 |
-| `cache` | 缓存元信息：`{source, age_sec, ttl_sec}`。`source="cache"` 表示本次应答来自后台刷新缓存，`age_sec` 为缓存年龄秒数；`source="pending"` 表示首次探测尚未完成，返回占位报文 |
-| `request_id` 及公共字段 | — |
+| `device_id` / `uuid` / `hostname` / `ip` / `timestamp` / `datetime` | 公共字段（§3.1） |
+| `request_id` | 原样回显请求的 request_id |
+| `video` | 推流状态：`streaming`（是否在推视频流）；推流中时 `video_device` 为摄像头节点、`room_number` 为视频流房间号、`audio` 表示是否含音频；另含 `pid`、`started_at`、`uptime_sec` |
+| `phone_audio` | 手机音频上行：`playing`（是否在拉取手机音频流）、`room_number`（播放中为音频流房间号，否则 null） |
+| `recording` | 录像状态：`{enable, recording, filename}`。`enable` 取自 `walle_camera.conf` 的 `record.enabled`；`recording` 表示是否正在录像；`filename` 为当前录像文件名（未录像为 null） |
+| `motor` | 电机：`moving`（是否有运动状态，含 500ms 死区内） |
+| `servo` | 舵机：`moving`（是否处于 `duration` 动作窗口内） |
+| `battery` | 电池：`voltage_v`（V，两位小数）、`available`（采样是否新鲜）。无数据时 `voltage_v=null`、`available=false` |
+| `sonar` | 声呐：`distance_cm`（cm，一位小数）、`available`（采样是否新鲜）。无数据时 `distance_cm=null`、`available=false` |
 
-**能力缓存（设备端）**：`v4l2-ctl` / `pactl` 探测耗时可达数秒，设备端由后台线程
-在启动时立即探测一次、之后按 `CAPABILITY_CACHE_TTL`（默认 120s）刷新；查询线程只读
-缓存，不再执行探测。首次查询时若探测尚未完成，最多等待 `CAPABILITY_FIRST_WAIT`
-（默认 3s），仍未完成则返回 `probe.pending=true` 的占位报文（`capabilities` 仅
-`system_status`），App 应稍后重新查询。`CAPABILITY_CACHE_ONLY=True` 时查询完全不等待，
-只返回缓存或 pending。
-
-音频探测（设备端 `probe_audio_capture` / `probe_audio_playback`）：优先
-`pactl list short sources/sinks`（录音侧排除 `*.monitor` 回环源）；pactl 缺失时录音侧用
-ffmpeg 试读 0.2s 兜底；播放侧另取默认 sink、音量与静音状态。**任何一步失败只降级**
-（`available:false` + `reason`），不影响整体应答；单项探测超时 3s，整体控制在 2 秒量级。
-
-App 解析：`model/DeviceCapability.java`（摄像头部分复用 `CameraCapability.parse`）；
-缺 `audio` 分组（旧设备端）归一为 unavailable，绝不崩。契约测试：`DeviceCapabilityTest`、
-`CameraCapabilityTest`。
+**采集方式（设备端）**：查询到达时现场采集，不跑 `v4l2-ctl` / `pactl`，无后台缓存：
+推流/手机音频复用进程状态，录像复用录像节点状态，电机/舵机由车控节点维护，
+电池/声呐复用传感器最新采样。
 
 ### 4.5 开始推流 video/start/request → video/start/response（V1.0）
 
@@ -738,7 +725,7 @@ angular.z =  2.5  (rotate.left = true)
 - `include_offset=true` 时，2 个舵机最多 4 次读取，最坏约 8 秒；
 - App 查询超时建议：默认 6 秒；带 offset 时 10 秒；
 - 不要每秒轮询；建议手动查询或 ≥5 秒一次；
-- 设备端用独立的舵机查询线程池，不阻塞 state/capability 查询和推流动作线程。
+- 设备端用独立的舵机查询线程池，不阻塞 baseState/runState 查询和推流动作线程。
 
 **位置说明**：
 
@@ -1127,6 +1114,28 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 
 ## 7. 变更记录
 
+### 2026-11-24：设备能力查询改为运行状态查询 runState（文档 v1.10）
+
+**变更类型**：破坏性变更（主题改名 + 响应新增/调整，不保留兼容）。
+
+**变更内容**
+
+- 主题：`capability/query/request|response` → `runState/query/request|response`。
+- 应答只保留运行状态分组：`video`（streaming / video_device / room_number / audio /
+  pid / started_at / uptime_sec）、`phone_audio`（playing / room_number）、
+  `recording`（enable / recording / filename）、`motor.moving`、`servo.moving`、
+  `battery`（voltage_v / available）、`sonar`（distance_cm / available）。
+- 删除 `cache`、`capability`、`capabilities`、`camera_count`、`cameras`、`audio`、
+  `summary`、`probe`，并移除设备端能力后台探测/缓存线程；查询时现场采集运行状态。
+- 电机/舵机状态由车控节点维护，录像/推流/手机音频复用各自已有状态。
+- Android/Web 主题与路由同步改名；能力字段的解析暂不同步适配（摄像头/音频入口会为空）。
+
+**影响与兼容性**：破坏性变更，App、Web、设备端必须同版本部署；旧 `capability/query/*`
+不再响应，`runState/query/response` 不再包含摄像头/音频能力枚举。
+
+**验证方式**：设备端 `pytest -q .../net_mqtt_bridge/test` 与 linux-demo unittest；
+Web 发 `runState/query/request` 应收到仅含运行状态分组的应答。
+
 ### 2026-11-24：基础状态查询改名 baseState 并精简为六组（文档 v1.10）
 
 **变更类型**：破坏性变更（主题改名 + 响应字段删减，不保留兼容）。
@@ -1142,7 +1151,7 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
   Web 状态卡片与视频 UI、设备端 `build_status` 同步调整；App 控制页取消基于状态查询的推流接管。
 
 **影响与兼容性**：App、Web、设备端必须同版本部署；旧版客户端查不到新主题。
-状态页不再显示电池/声呐/推流/录像，相关入口改由能力查询与对应的 request/response 驱动。
+状态页不再显示电池/声呐/推流/录像，相关入口改由运行状态查询与对应的 request/response 驱动。
 
 **验证方式**：设备端 `pytest -q .../net_mqtt_bridge/test` 与
 `python3 -m unittest discover -s walle-device/linux-demo/test -t walle-device/linux-demo`；

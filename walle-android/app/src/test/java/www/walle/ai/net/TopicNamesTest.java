@@ -47,7 +47,7 @@ public class TopicNamesTest {
     @Test
     public void requestTopics() {
         assertEquals(BASE + "/baseState/query/request", TopicNames.baseStateQuery(TENANT, DEVICE));
-        assertEquals(BASE + "/capability/query/request", TopicNames.capabilityQuery(TENANT, DEVICE));
+        assertEquals(BASE + "/runState/query/request", TopicNames.capabilityQuery(TENANT, DEVICE));
         assertEquals(BASE + "/video/start/request", TopicNames.videoStartRequest(TENANT, DEVICE));
         assertEquals(BASE + "/video/stop/request", TopicNames.videoStopRequest(TENANT, DEVICE));
         assertEquals("walle/home/discovery/query/request", TopicNames.discoveryQuery(TENANT));
@@ -64,7 +64,7 @@ public class TopicNamesTest {
         assertEquals(BASE + "/discovery/query/response",
                 TopicNames.discoveryResult(TENANT, DEVICE));
         assertEquals(BASE + "/baseState/query/response", TopicNames.baseStateResult(TENANT, DEVICE));
-        assertEquals(BASE + "/capability/query/response",
+        assertEquals(BASE + "/runState/query/response",
                 TopicNames.capabilityResult(TENANT, DEVICE));
         assertEquals(BASE + "/video/start/response",
                 TopicNames.videoStartResult(TENANT, DEVICE));
@@ -106,7 +106,7 @@ public class TopicNamesTest {
         String joined = String.join(",", subs);
         for (String expected : new String[]{
                 "/online", "/alarm/report", "/discovery/query/response",
-                "/baseState/query/response", "/capability/query/response",
+                "/baseState/query/response", "/runState/query/response",
                 "/video/start/response", "/video/stop/response",
                 "/car/servo/status/query/response"}) {
             assertTrue("缺少订阅: " + expected, joined.contains(expected));

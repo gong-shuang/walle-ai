@@ -113,7 +113,7 @@ public class MessageRouter {
             case "baseState/query/response":
                 sink.onStateResult(json);
                 break;
-            case "capability/query/response":
+            case "runState/query/response":
                 if (!isDuplicate("capability", json)) sink.onCapabilityResult(json);
                 break;
             case "video/start/response":

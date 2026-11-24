@@ -345,8 +345,6 @@ class MonitorStatusMixin:
         hint = audio_session_hint()
         if hint:
             logging.warning("%s", hint)
-        threading.Thread(target=self._capability_refresh_loop, daemon=True,
-                         name="capability-probe").start()
         if sanitize_segment(config.MQTT_TENANT) == sanitize_segment(MQTT_USER):
             logging.warning(
                 "租户与 MQTT 用户名相同（%s）。如果手机 App 用的是另一个账号登录，"

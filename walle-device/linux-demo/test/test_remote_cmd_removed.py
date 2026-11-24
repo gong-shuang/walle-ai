@@ -23,7 +23,7 @@ class RemoteCmdRemovedTest(unittest.TestCase):
 
     def test_no_remote_command_handler(self):
         self.assertNotIn("handle_cmd_exec", main.REQUEST_HANDLERS)
-        self.assertNotIn("remote_cmd", inspect.getsource(main.RpiMonitor.build_capability))
+        self.assertNotIn("remote_cmd", inspect.getsource(main.RpiMonitor.handle_capability_query))
 
     def test_sources_have_no_command_execution(self):
         for path in sorted(LINUX_DEMO.glob("*.py")):

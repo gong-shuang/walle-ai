@@ -349,7 +349,7 @@ class ProtocolMixin:
         except Exception:
             logging.exception("上报 %s 失败", config.device_topic(config.RES_DISCOVERY_RESULT))
 
-    # ---------- capability/query/request 设备能力查询（摄像头/麦克风/音响等外设） ----------
+    # ---------- runState/query/request 运行状态查询（能力 + 实时状态） ----------
 
     @staticmethod
     def verify_uuid(payload, topic):

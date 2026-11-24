@@ -7,7 +7,7 @@ import static org.junit.Assert.assertTrue;
 import org.json.JSONObject;
 import org.junit.Test;
 
-/** 设备能力（capability/query/response）解析契约：摄像头 + 麦克风 + 音响。 */
+/** 设备能力（runState/query/response）解析契约：摄像头 + 麦克风 + 音响。 */
 public class DeviceCapabilityTest {
 
     @Test

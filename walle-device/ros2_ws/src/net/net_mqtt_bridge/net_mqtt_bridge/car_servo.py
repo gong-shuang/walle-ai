@@ -10,6 +10,7 @@
 
 import logging
 import threading
+import time
 
 from . import config
 from .car_motor import (CAUSE_ERROR, CAUSE_INVALID, CAUSE_LINK_DOWN, CAUSE_OK,
@@ -341,3 +342,4 @@ class CarServoStatusNodeMixin:
         self.get_logger().debug(
             'car/servo/set/cmd request_id=%s applied=%s skipped=%s duration=%.2f'
             % (rid or '-', cmd["applied"], cmd["skipped"], cmd["duration"]))
+        self.agent.servo_moving_until = time.monotonic() + float(cmd["duration"])

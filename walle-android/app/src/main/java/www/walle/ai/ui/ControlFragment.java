@@ -117,7 +117,7 @@ public class ControlFragment extends Fragment {
     @Override
     public void onStart() {
         super.onStart();
-        // 隐藏的子页也会走 onStart：此时不能查能力，否则启动/切页会多发 capability/query/request
+        // 隐藏的子页也会走 onStart：此时不能查能力，否则启动/切页会多发 runState/query/request
         if (!isHidden()) viewModel.onScreenVisible();
     }
 

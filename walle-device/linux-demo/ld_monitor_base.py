@@ -66,11 +66,6 @@ class RpiMonitorBase:
         # 监控循环产出的最新采样快照，baseState/query/request 直接复用（避免请求线程再等 1s）
         self.status_snapshot = None
         self.snapshot_lock = threading.Lock()
-        # 设备能力后台探测缓存：查询只读缓存，首次未就绪时等待 CAPABILITY_FIRST_WAIT
-        self.capability_cache = None
-        self.capability_lock = threading.Lock()
-        self.capability_ready = threading.Event()
-        self.capability_refresh = threading.Event()
         # 设备身份缓存：online/LWT 只读缓存或轻量采集，不扫描可能卡死的网络挂载
         self.identity_cache = None
         self.identity_lock = threading.Lock()
@@ -275,9 +270,8 @@ class RpiMonitorBase:
         added = sorted(set(current) - set(self.usb_state))
         removed = sorted(set(self.usb_state) - set(current))
         if added or removed:
-            # 摄像头节点编号可能随插拔变化，立即失效缓存，下一次 capability 重新探测
+            # 摄像头节点编号可能随插拔变化，立即失效缓存，下一次推流重新探测
             self.invalidate_camera_cache("USB 设备变化")
-            self.capability_refresh.set()
         for key in added:
             self._event("usb_connect", "info", "usb", "usb_connect",
                         f"USB 设备接入：{current[key].get('product') or key}",

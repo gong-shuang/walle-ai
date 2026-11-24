@@ -125,7 +125,7 @@ MQTT_DISCONNECT_STOP_SEC = int(os.environ.get("MQTT_DISCONNECT_STOP_SEC", "60"))
 # ---- 应答（设备 -> App）----
 RES_DISCOVERY_RESULT = "discovery/query/response"   # 收到 discovery/query/request 后发布（设备身份详情）
 RES_STATE_RESULT = "baseState/query/response"           # 收到 baseState/query/request 后发布（状态快照）
-RES_CAPABILITY_RESULT = "capability/query/response" # 收到 capability/query/request 后发布
+RES_CAPABILITY_RESULT = "runState/query/response" # 收到 runState/query/request 后发布
 RES_VIDEO_START_RESULT = "video/start/response"     # 收到 video/start/request 后发布
 RES_VIDEO_STOP_RESULT = "video/stop/response"       # 收到 video/stop/request 后发布
 RES_PHONE_AUDIO_SEND_RESULT = "phone/audio/send/response"   # 收到 phone/audio/send/request 后发布
@@ -145,7 +145,7 @@ RES_ALARM = "alarm/report"                  # 告警 / 恢复 / USB 插拔
 # ---- 订阅的请求（App -> 设备）----
 REQ_DISCOVERY = "discovery/query/request"
 REQ_STATE = "baseState/query/request"
-REQ_CAPABILITY = "capability/query/request"
+REQ_CAPABILITY = "runState/query/request"
 REQ_VIDEO_START = "video/start/request"
 REQ_VIDEO_STOP = "video/stop/request"
 REQ_PHONE_AUDIO_SEND = "phone/audio/send/request"   # 手机麦上行：App 开始往 {room}_audio 推音频
@@ -301,11 +301,7 @@ SKIP_FSTYPE = {"tmpfs", "devtmpfs", "squashfs", "iso9660", "overlay", "aufs", "f
 # ---- 摄像头能力探测（v4l2-ctl，需要 sudo apt install -y v4l-utils）----
 CAM_CMD_TIMEOUT = 8                      # 单条 v4l2-ctl 命令超时（秒）
 CAMERA_CACHE_TTL = 10.0                  # 摄像头能力缓存（秒）；USB 插拔时立即失效
-CAM_ENABLE = _env_flag("CAM_ENABLE", True)   # 不需要摄像头能力查询时置 False
-# 设备能力（capability）后台探测：启动即探测，按 TTL 刷新；查询只读缓存
-CAPABILITY_CACHE_TTL = float(os.environ.get("CAPABILITY_CACHE_TTL", "120"))
-CAPABILITY_FIRST_WAIT = float(os.environ.get("CAPABILITY_FIRST_WAIT", "3"))
-CAPABILITY_CACHE_ONLY = _env_flag("CAPABILITY_CACHE_ONLY", False)
+CAM_ENABLE = _env_flag("CAM_ENABLE", True)   # 不需要摄像头探测时置 False
 
 # ---- 视频推流（video/start，ffmpeg -> RTMP）----
 VIDEO_ENABLE = _env_flag("VIDEO_ENABLE", True)  # 不需要推流能力时置 False

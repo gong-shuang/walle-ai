@@ -8,10 +8,10 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 设备能力（capability/query/response）的强类型模型：摄像头 + 音频外设（麦克风/音响）。
+ * 设备能力（runState/query/response）的强类型模型：摄像头 + 音频外设（麦克风/音响）。
  *
- * <p>对应设备端 {@code build_capability()}：通用能力查询 {@code capability/query/request}，
- * 报文含 {@code audio{capture, playback}} 与条件化的 {@code capabilities} 清单。</p>
+ * <p>v1.10 起设备端 {@code runState/query/response} 已删除 {@code capability/cameras/audio}
+ * 等能力字段；本模型暂保留旧解析，缺分组时归空（摄像头/音频入口显示为空），后续再对齐。</p>
  *
  * <p>解析原则与 {@link StatusSnapshot} 一致：缺分组归空、异常值归一为默认值，
  * 任何字段缺失都不能让页面崩。</p>

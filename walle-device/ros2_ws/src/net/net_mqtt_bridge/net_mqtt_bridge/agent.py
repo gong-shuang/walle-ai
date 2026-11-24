@@ -20,7 +20,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     —                                          .../alarm/report                    主动上报（告警 / USB）
     walle/{t}/discovery/query/request           .../discovery/query/response         设备发现（租户级广播）
     .../baseState/query/request                     .../baseState/query/response             状态快照
-    .../capability/query/request                .../capability/query/response        设备能力（摄像头/麦克风/音响等外设）
+    .../runState/query/request                 .../runState/query/response          运行状态（能力 + 推流/录像/车控/传感器）
     .../video/start/request                     .../video/start/response             开始推流（动作）
     .../video/stop/request                      .../video/stop/response              停止推流（动作）
     .../phone/audio/send/request                .../phone/audio/send/response        手机麦上行·开（App 发起）
@@ -177,16 +177,13 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, SensorAlarmMixin, CapabilityMixin,
         self._last_discovery_at = 0.0
         # 内部录像状态（v1.10 起不再进入 baseState/query/response）
         self.recording_state = {"recording": False, "filename": None}
+        # 运行状态：电机是否在动、舵机动作截止时间（由 node.py 维护）
+        self.motor_moving = False
+        self.servo_moving_until = 0.0
         # baseState/query/request 快照：monitor_loop 每次采样后写入，查询直接复用，
         # 避免每次查询都阻塞采样 1s（P2-1.1）
         self.status_sample = None       # (cores, per_iface, total_rx, total_tx, interval, monotonic_ts)
         self.status_sample_lock = threading.Lock()
-        # capability/query/request 缓存：后台线程按 TTL 探测，查询线程只读缓存（P2-1.2）
-        self.capability_result = None
-        self.capability_at = 0.0
-        self.capability_refreshing = False
-        self.capability_lock = threading.Lock()
-        self.capability_ready = threading.Event()
 
     def run(self):
         problems = config.validate_mqtt_config()
@@ -207,9 +204,6 @@ class RpiMonitor(ProtocolMixin, MonitorMixin, SensorAlarmMixin, CapabilityMixin,
                 "请在 /etc/walle-ai.conf 里设置 MQTT_TENANT=<App 的登录用户名>，"
                 "否则 App 订阅 walle/<App用户名>/# 时收不到本设备的报文。",
                 config.sanitize_segment(config.MQTT_TENANT))
-        # P2-1.2：外设能力探测放后台线程，查询只读缓存，避免 v4l2/pactl 阻塞请求
-        threading.Thread(target=self._capability_loop, daemon=True,
-                         name="capability-cache").start()
         # P2-1.1：连接 broker 前先填充一次状态快照，保证上线后的首个 baseState/query/request 也能立即响应
         try:
             sample = self.sample_once(0.2)
