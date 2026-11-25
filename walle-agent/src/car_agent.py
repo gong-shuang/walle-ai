@@ -65,6 +65,8 @@ DEFAULTS = {
 }
 
 AGENT_VERSION = "0.2.0"
+# 与 §4.21 示例保持一致；发版时与 AGENT_VERSION 一起更新。
+AGENT_VERSION_CODE = 5
 
 # ---------------- 调试输出 ----------------
 # WALLE_AGENT_DEBUG=1 时，把所有收发到的 MQTT 报文格式化打印到终端；
@@ -448,6 +450,13 @@ class Agent:
         self.active_device = None
         self.abort = threading.Event()
         self.state_lock = threading.Lock()
+        # 串行化“检查 busy + acquire + 启动 worker”，避免多客户端同时下发
+        self.motion_lock = threading.Lock()
+        # 设备控制权：pending request_id -> {event, result}；control_held 记录当前持有的设备
+        self.control_pending = {}
+        self.control_pending_lock = threading.Lock()
+        self.control_held = None
+        self.control_lock = threading.Lock()
         self.chat_enabled = cfg.get("CHAT_MQTT_ENABLED", "1") == "1"
         self.chat_requests = 0
         self.chat_errors = 0
@@ -540,9 +549,10 @@ class Agent:
 
     def _status_payload(self, online=True):
         return {
-            "agent": agent_identity(), "name": agent_name(),
+            "agent_id": agent_identity(), "agent_name": agent_name(),
             "tenant": self.tenant,
-            "online": bool(online), "version": AGENT_VERSION,
+            "online": bool(online),
+            "version_code": AGENT_VERSION_CODE, "version_name": AGENT_VERSION,
             "ts": int(time.time()),
             "capabilities": {
                 "chat": True,
@@ -566,6 +576,8 @@ class Agent:
             subscriptions = [
                 (prefix + "/baseState/query/response", 1),
                 (prefix + "/online", 1),
+                (prefix + "/control/acquire/response", 1),
+                (prefix + "/control/release/response", 1),
             ]
             client.subscribe(subscriptions)
             if self.chat_enabled:
@@ -600,6 +612,17 @@ class Agent:
         if not device:
             log().warning("忽略无法解析设备段的主题: %s", msg.topic)
             return
+        if (msg.topic.endswith("/control/acquire/response")
+                or msg.topic.endswith("/control/release/response")):
+            self._on_control_response(payload)
+            return
+        if isinstance(payload, dict) and payload.get("error_code") == "control_denied":
+            log().warning("设备拒绝控制 device=%s request_id=%s holder=%s",
+                          device, payload.get("request_id"),
+                          (payload.get("control_holder") or {}).get("client_id") or "-")
+            with self.control_lock:
+                if self.control_held and self.control_held.get("device") == device:
+                    self.control_held = None
         item = self._dev(device)
         record = {"topic": msg.topic, "payload": payload,
                   "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
@@ -639,27 +662,44 @@ class Agent:
         payload = self._decode_payload(msg)
         if not isinstance(payload, dict):
             payload = {"text": str(payload)}
-        request_id = str(payload.get("request_id") or "chat-{}".format(
-            random.randint(100000, 999999)))
-        device = payload.get("device")
-        text = payload.get("text") or ""
-        log().info("chat request id=%s device=%s text=%r", request_id, device, text)
+        log().info("chat request payload=%s",
+                   json.dumps(payload, ensure_ascii=False)[:500])
         # 在独立线程里执行：意图解析/运动下发可能耗时数秒，不能阻塞 MQTT 收包线程
         threading.Thread(target=self._run_chat_request,
-                         args=(request_id, device, text, payload),
-                         daemon=True).start()
+                         args=(payload,), daemon=True).start()
 
-    def _run_chat_request(self, request_id, device, text, payload):
+    def _run_chat_request(self, payload):
         self.chat_requests += 1
-        response = {"request_id": request_id, "agent": agent_identity(),
+        request_id = str(payload.get("request_id") or "").strip()
+        client_id = str(payload.get("client_id") or "").strip()
+        client_name = str(payload.get("client_name") or "").strip()
+        device = str(payload.get("device") or "").strip()
+        text = str(payload.get("text") or "").strip()
+        response = {"request_id": request_id, "agent_id": agent_identity(),
                     "device": device, "ts": int(time.time())}
         try:
-            if not device:
-                result = {"ok": False, "reply": "请求里没有指定设备（device 字段为空）。"}
+            missing = None
+            if not client_id:
+                missing = "client_id"
+            elif not client_name:
+                missing = "client_name"
+            elif not request_id:
+                missing = "request_id"
+            elif not device:
+                missing = "device"
             elif not text:
-                result = {"ok": False, "reply": "请求里没有文本内容。"}
+                missing = "text"
+            if missing:
+                reply = {
+                    "client_id": "请求里没有 client_id。",
+                    "client_name": "请求里没有 client_name。",
+                    "request_id": "请求里没有 request_id。",
+                    "device": "请求里没有指定设备（device 字段为空）。",
+                    "text": "请求里没有文本内容。",
+                }[missing]
+                result = {"ok": False, "error": "invalid", "reply": reply}
             else:
-                result = handle_chat(payload.get("user") or "mqtt", device, text)
+                result = handle_chat(client_name, device, text)
             response["ok"] = bool(result.get("ok"))
             response["reply"] = result.get("reply")
             for key in ("intent", "warning", "error", "action", "duration_sec"):
@@ -670,7 +710,8 @@ class Agent:
             response.update({"ok": False, "reply": "agent 内部错误：{}".format(exc),
                              "error": "agent_exception"})
             log().error("chat request %s 处理失败: %s", request_id, exc)
-        self.chat_last = {"request_id": request_id, "device": device,
+        self.chat_last = {"request_id": request_id, "client_id": client_id,
+                          "client_name": client_name, "device": device,
                           "text": text, "ok": response["ok"],
                           "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
         self._publish_topic(chat_topic("response"), response)
@@ -689,21 +730,28 @@ class Agent:
 
     def _publish(self, device, resource, payload):
         topic = topic_for(device, resource)
+        body = payload
+        # §3.5：agent 作为独立控制端，所有 device .../request 与 .../cmd 携带自身身份
+        if isinstance(payload, dict) and (resource.endswith("/request")
+                                          or resource.endswith("/cmd")):
+            body = dict(payload)
+            body["client_id"] = agent_identity()
+            body["client_name"] = agent_name()
         item = self._dev(device)
         record = {
             "topic": topic,
-            "payload": payload,
+            "payload": body,
             "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
         if not (self.mqtt_client and self.mqtt_connected):
             item["last_publish"] = dict(record, published=False,
                                         error="mqtt_not_connected")
             log().warning("MQTT 未连接，丢弃 %s %s", topic,
-                          json.dumps(payload, ensure_ascii=False))
+                          json.dumps(body, ensure_ascii=False))
             return {"published": False, "error": "mqtt_not_connected",
-                    "topic": topic, "payload": payload}
-        _trace("OUT", topic, payload, 1, False)
-        info = self.mqtt_client.publish(topic, json.dumps(payload, ensure_ascii=False),
+                    "topic": topic, "payload": body}
+        _trace("OUT", topic, body, 1, False)
+        info = self.mqtt_client.publish(topic, json.dumps(body, ensure_ascii=False),
                                         qos=1)
         try:
             info.wait_for_publish(timeout=2)
@@ -711,9 +759,111 @@ class Agent:
             pass
         item["last_publish"] = dict(record, published=info.rc == 0, rc=info.rc)
         log().info("publish %s %s rc=%s", topic,
-                   json.dumps(payload, ensure_ascii=False), info.rc)
+                   json.dumps(body, ensure_ascii=False), info.rc)
         return {"published": info.rc == 0, "topic": topic,
-                "payload": payload, "rc": info.rc}
+                "payload": body, "rc": info.rc}
+
+    # ---- 设备控制权（§4.19）----
+    def _on_control_response(self, payload):
+        if not isinstance(payload, dict):
+            log().warning("忽略控制权应答：不是 JSON 对象")
+            return
+        request_id = str(payload.get("request_id") or "")
+        with self.control_pending_lock:
+            item = self.control_pending.get(request_id)
+        if item is None:
+            log().info("收到未匹配的控制权应答 request_id=%s", request_id or "-")
+            return
+        item["result"] = payload
+        item["event"].set()
+
+    def _control_request(self, device, action, timeout=5.0):
+        """向设备发 control/{acquire|release}/request 并等待对应 response。"""
+        request_id = "agent-{}-{}".format(action, random.randint(100000, 999999))
+        event = threading.Event()
+        with self.control_pending_lock:
+            self.control_pending[request_id] = {"event": event, "result": None}
+        res = self._publish(device, "control/{}/request".format(action),
+                            {"request_id": request_id})
+        if not res.get("published"):
+            with self.control_pending_lock:
+                self.control_pending.pop(request_id, None)
+            return {"ok": False,
+                    "error": res.get("error") or "control_publish_failed",
+                    "request_id": request_id, "publish": res}
+        got = event.wait(timeout)
+        with self.control_pending_lock:
+            item = self.control_pending.pop(request_id, None)
+        if not got or not item or not item.get("result"):
+            return {"ok": False, "error": "control_timeout",
+                    "request_id": request_id, "timeout": timeout}
+        return {"ok": True, "request_id": request_id,
+                "response": item["result"]}
+
+    @staticmethod
+    def _control_result(data):
+        try:
+            return int((data or {}).get("result"))
+        except (TypeError, ValueError):
+            return -1
+
+    def _acquire_control(self, device):
+        with self.control_lock:
+            if self.control_held and self.control_held.get("device") == device:
+                return {"ok": True, "action": "already_held",
+                        "control_holder": self.control_held.get("control_holder")}
+            if self.control_held:
+                # 单 agent 同时只持有一台设备的租约，避免覆盖另一台设备
+                return {"ok": False, "error": "control_failed",
+                        "cause": "agent_holds_other_device"}
+        res = self._control_request(device, "acquire")
+        if not res.get("ok"):
+            error = res.get("error")
+            if error == "mqtt_not_connected":
+                return res
+            return {"ok": False, "error": "control_failed", "cause": error}
+        data = res.get("response") or {}
+        result = self._control_result(data)
+        action = data.get("action")
+        holder = data.get("control_holder")
+        if result == 0:
+            with self.control_lock:
+                self.control_held = {"device": device,
+                                     "client_id": agent_identity(),
+                                     "control_holder": holder}
+            log().info("已获取设备控制权 device=%s action=%s holder=%s",
+                       device, action, (holder or {}).get("client_id") or "-")
+            return {"ok": True, "action": action, "control_holder": holder}
+        if result == 1 or action == "occupied":
+            log().warning("设备控制权被占用 device=%s holder=%s", device,
+                          (holder or {}).get("client_id") or "-")
+            return {"ok": False, "error": "control_occupied", "action": action,
+                    "control_holder": holder}
+        return {"ok": False, "error": "control_failed", "action": action,
+                "cause": data.get("cause")}
+
+    def _release_control(self, device):
+        with self.control_lock:
+            held = self.control_held
+            if not held or held.get("device") != device:
+                return {"ok": True, "skipped": True}
+        res = self._control_request(device, "release")
+        with self.control_lock:
+            if self.control_held and self.control_held.get("device") == device:
+                self.control_held = None
+        if not res.get("ok"):
+            log().warning("释放设备控制权失败 device=%s error=%s",
+                          device, res.get("error"))
+            return res
+        data = res.get("response") or {}
+        result = self._control_result(data)
+        action = data.get("action")
+        if result == 0:
+            log().info("已释放设备控制权 device=%s action=%s", device, action)
+            return {"ok": True, "action": action}
+        log().warning("释放设备控制权未成功 device=%s action=%s", device, action)
+        return {"ok": False, "error": "control_failed", "action": action,
+                "control_holder": data.get("control_holder")}
 
     # ---- 指令执行 ----
     def _drive_payload(self, intent, request_id):
@@ -742,16 +892,16 @@ class Agent:
             return math.radians(float(intent["angle_deg"])) / float(self.cfg["DEFAULT_ANGULAR"])
         return 0.0
 
-    def _run_motion(self, device, intent, username):
+    def _run_motion(self, device, intent, client_name):
         duration = self._duration(intent)
-        who = re.sub(r"[^0-9A-Za-z_-]", "", str(username or "anon"))[:20] or "anon"
+        who = sanitize_segment(client_name or agent_identity())[:20] or "agent"
         request_id = "agent-{}-{}".format(who, random.randint(100000, 999999))
         payload = self._drive_payload(intent, request_id)
         hz = max(1.0, float(self.cfg["SEND_HZ"]))
         period = 1.0 / hz
         t0 = time.monotonic()
-        log().info("motion start user=%s device=%s intent=%s duration=%.2fs",
-                   username, device, json.dumps(intent, ensure_ascii=False), duration)
+        log().info("motion start client_name=%s device=%s intent=%s duration=%.2fs",
+                   client_name, device, json.dumps(intent, ensure_ascii=False), duration)
         try:
             while not self.abort.is_set():
                 if time.monotonic() - t0 >= duration:
@@ -760,19 +910,24 @@ class Agent:
                 time.sleep(period)
         finally:
             zero = self._drive_payload({"action": "stop"}, request_id)
-            for _ in range(3):
-                self._publish(device, "car/motor/set/cmd", zero)
-                time.sleep(0.05)
+            try:
+                for _ in range(3):
+                    self._publish(device, "car/motor/set/cmd", zero)
+                    time.sleep(0.05)
+            finally:
+                release = self._release_control(device)
+                log().info("motion release control device=%s result=%s",
+                           device, json.dumps(release, ensure_ascii=False))
             with self.state_lock:
                 if self.active_device == device:
                     self.active_device = None
-            log().info("motion end user=%s device=%s intent=%s elapsed=%.2fs",
-                       username, device, json.dumps(intent, ensure_ascii=False),
+            log().info("motion end client_name=%s device=%s intent=%s elapsed=%.2fs",
+                       client_name, device, json.dumps(intent, ensure_ascii=False),
                        time.monotonic() - t0)
 
-    def execute(self, device, intent, username):
+    def execute(self, device, intent, client_name):
         if intent["action"] == "stop":
-            return self.stop(username, device)
+            return self.stop(client_name, device)
         if intent["action"] == "status":
             return {"ok": True, "action": "status", "device": device,
                     "status": self.health(device)}
@@ -783,41 +938,59 @@ class Agent:
                     "error": "mqtt_not_connected",
                     "note": "MQTT 未连接，未下发指令"}
 
-        with self.state_lock:
-            if self.worker is not None and self.worker.is_alive():
+        with self.motion_lock:
+            with self.state_lock:
+                if self.worker is not None and self.worker.is_alive():
+                    return {"ok": False, "accepted": False, "action": intent["action"],
+                            "duration_sec": round(duration, 2), "error": "busy",
+                            "active_device": self.active_device,
+                            "note": "小车正在执行上一条指令"}
+            control = self._acquire_control(device)
+            if not control.get("ok"):
                 return {"ok": False, "accepted": False, "action": intent["action"],
-                        "duration_sec": round(duration, 2), "error": "busy",
-                        "active_device": self.active_device,
-                        "note": "小车正在执行上一条指令"}
-            self.abort.clear()
-            self.active_device = device
-            self.worker = threading.Thread(target=self._run_motion,
-                                           args=(device, intent, username), daemon=True)
-            self.worker.start()
+                        "error": control.get("error"),
+                        "control_holder": control.get("control_holder"),
+                        "cause": control.get("cause")}
+            with self.state_lock:
+                self.abort.clear()
+                self.active_device = device
+                self.worker = threading.Thread(target=self._run_motion,
+                                               args=(device, intent, client_name),
+                                               daemon=True)
+                self.worker.start()
         return {"ok": True, "accepted": True, "action": intent["action"],
                 "device": device, "duration_sec": round(duration, 2),
                 "started": True}
 
-    def stop(self, username=None, device=None):
-        with self.state_lock:
-            target = device or self.active_device
-            worker = self.worker
-            should_abort = bool(worker is not None and worker.is_alive()
-                                and (device is None or device == self.active_device))
-            if should_abort:
-                self.abort.set()
-        if should_abort and worker is not None:
-            worker.join(timeout=2.0)
-        if not target:
-            return {"ok": False, "action": "stop", "error": "no_device",
-                    "note": "没有正在运动或已选中的设备", "mqtt": self.mqtt_status()}
-        zero = self._drive_payload({"action": "stop"},
-                                   "agent-stop-{}".format(random.randint(1000, 9999)))
-        res = self._publish(target, "car/motor/set/cmd", zero)
-        log().info("stop requested by %s device=%s result=%s", username, target,
-                   json.dumps(res, ensure_ascii=False))
-        return {"ok": True, "action": "stop", "device": target, "result": res,
-                "mqtt": self.mqtt_status()}
+    def stop(self, client_name=None, device=None):
+        with self.motion_lock:
+            with self.state_lock:
+                target = device or self.active_device
+                worker = self.worker
+                should_abort = bool(worker is not None and worker.is_alive()
+                                    and (device is None or device == self.active_device))
+                if should_abort:
+                    self.abort.set()
+            if should_abort and worker is not None:
+                worker.join(timeout=2.0)
+            if not target:
+                return {"ok": False, "action": "stop", "error": "no_device",
+                        "note": "没有正在运动或已选中的设备", "mqtt": self.mqtt_status()}
+            control = self._acquire_control(target)
+            if not control.get("ok"):
+                return {"ok": False, "action": "stop", "device": target,
+                        "error": control.get("error"),
+                        "control_holder": control.get("control_holder"),
+                        "cause": control.get("cause"), "mqtt": self.mqtt_status()}
+            zero = self._drive_payload({"action": "stop"},
+                                       "agent-stop-{}".format(random.randint(1000, 9999)))
+            res = self._publish(target, "car/motor/set/cmd", zero)
+            release = self._release_control(target)
+            log().info("stop requested by %s device=%s result=%s release=%s",
+                       client_name, target, json.dumps(res, ensure_ascii=False),
+                       json.dumps(release, ensure_ascii=False))
+            return {"ok": True, "action": "stop", "device": target,
+                    "result": res, "control": release, "mqtt": self.mqtt_status()}
 
     def link_test(self, username=None, device=None):
         """非运动链路验证：向指定设备发 baseState/query/request，等 baseState/query/response。"""
@@ -972,6 +1145,12 @@ def _reply_text(intent, result):
     elif action == "stop":
         if result.get("error") == "no_device":
             return "没有可停止的设备，请先选择设备。"
+        if result.get("error") == "control_occupied":
+            holder = result.get("control_holder") or {}
+            who = holder.get("client_name") or holder.get("client_id") or "其他客户端"
+            return "设备控制权已被 {} 占用，停止未下发。".format(who)
+        if result.get("error") in ("control_failed", "control_timeout"):
+            return "获取设备控制权失败，停止未下发。"
         inner = result.get("result") or {}
         if inner.get("published"):
             return "已下发停止（零速）。"
@@ -979,7 +1158,7 @@ def _reply_text(intent, result):
             return "停止未下发：MQTT 未连接。"
         return "停止未下发。"
     elif action == "status":
-        return "状态查询完成，详见下方状态。"
+        return "状态查询完成。"
     else:
         return "已解析。"
 
@@ -989,14 +1168,20 @@ def _reply_text(intent, result):
         text += " MQTT 未连接，指令未下发。"
     elif result.get("error") == "busy":
         text += " 小车正在执行上一条指令。"
+    elif result.get("error") == "control_occupied":
+        holder = result.get("control_holder") or {}
+        who = holder.get("client_name") or holder.get("client_id") or "其他客户端"
+        text += " 设备控制权已被 {} 占用，未执行。".format(who)
+    elif result.get("error") in ("control_failed", "control_timeout"):
+        text += " 获取设备控制权失败，未执行。"
     return text
 
 
-def handle_chat(username, device, text):
+def handle_chat(client_name, device, text):
     agent = _get_agent()
     intent, err = parse_intent(text)
-    log().info("chat user=%s device=%s text=%r intent=%s err=%s",
-               username, device, text, intent, err)
+    log().info("chat client_name=%s device=%s text=%r intent=%s err=%s",
+               client_name, device, text, intent, err)
     if intent is None:
         intent = _llm_parse(text)
         if intent is not None:
@@ -1011,7 +1196,7 @@ def handle_chat(username, device, text):
         return {"ok": False, "device": device,
                 "reply": warning, "mqtt": agent.mqtt_status()}
 
-    result = agent.execute(device, intent, username)
+    result = agent.execute(device, intent, client_name)
     result["intent"] = intent
     result["device"] = device
     result["mqtt"] = agent.mqtt_status()

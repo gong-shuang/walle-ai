@@ -3489,7 +3489,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var id = e.detail.id, d = e.detail.data || {};
     agents[id] = {
       online: !!d.online, ts: Number(d.ts) || 0,
-      name: d.name || '', version: d.version || '',
+      name: d.agent_name || d.name || '',
+      version: d.version_name || d.version || '',
       capabilities: d.capabilities || {}
     };
     renderAgents();

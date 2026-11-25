@@ -127,6 +127,9 @@ class ProtocolMixin:
         }
         with self.agent_presence_lock:
             self.agent_presence[agent_id] = record
+        # agent online 同时作为控制权 presence：掉线后按 §4.19 grace 释放租约
+        if hasattr(self, "control_lease"):
+            self.control_lease.on_presence(agent_id, online, time.time())
         if online:
             logging.info("agent 上线: %s（%s，版本 %s/%s）", agent_id,
                          record["agent_name"] or "-",

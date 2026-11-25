@@ -1191,6 +1191,7 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 - `control/acquire|release` 本身不参与租约校验；
 - 租约 TTL 900 秒：持有者的有效请求（查询或控制）都会续租；
 - holder 的 presence 离线后 **grace 10 秒**释放；grace 内重新上线则取消释放；
+- agent 作为 holder 时，presence 使用 `walle/{t}/agent/{agent_id}/online`（retained + LWT），设备端把 `online:false` 当作 holder 离线；
 - 设备重启后租约清空（纯内存，不落盘）。
 
 **获取/续租（App → 设备）**
@@ -1367,6 +1368,11 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 `chat/response` 只携带上表字段；`mqtt`、`note`、`active_device`、`status`、`result`
 等属于 agent 内部结果，不会透传到应答报文。
 
+控制权约定：
+
+- 控制动作（运动/停止）前先 `control/acquire`，结束后 `control/release`；状态查询不 acquire；
+- acquire 返回 `occupied` 时不自动抢占，直接拒绝本次请求，并在 `reply` 中提示当前 holder。
+
 失败与错误码：
 
 | 场景 | `ok` | 关键字段 |
@@ -1377,13 +1383,13 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 | 请求缺 client_id/client_name/request_id/device/text | false | `error:"invalid"`，`reply` 说明 |
 | MQTT 未连接 | false | `error:"mqtt_not_connected"`，`reply` 说明 |
 | 正在执行上一条 | false | `error:"busy"`，`reply` 提示正在执行 |
+| 设备控制权被占用 | false | `error:"control_occupied"`，`reply` 提示当前 holder |
+| 控制权获取失败/超时 | false | `error:"control_failed"`，`reply` 说明 |
 | 停止但无目标设备 | false | `error:"no_device"`，`reply` 说明 |
 | agent 内部异常 | false | `error:"agent_exception"`，`reply` 含异常文本 |
 
-`error` 取值集合：`invalid`、`mqtt_not_connected`、`busy`、`no_device`、`agent_exception`。
+`error` 取值集合：`invalid`、`mqtt_not_connected`、`busy`、`no_device`、`agent_exception`、`control_occupied`、`control_failed`。
 agent 不发送「超时」响应；20 秒未收到响应：删除 pending、解锁发送按钮、提示「agent 超时未响应（20s）」。
-
-> 当前实现差异：`busy` 的 `reply` 尚未提示“正在执行上一条”，客户端必填字段的 `invalid` 校验、`agent_id` 字段与 online 字段名也待对齐；见 [agent_protocol_tasks.md](agent_protocol_tasks.md)。
 
 ### 4.21 agent 在线状态 agent/{agent}/online（v1.16）
 
@@ -1407,8 +1413,9 @@ agent 不发送「超时」响应；20 秒未收到响应：删除 pending、解
 - `TENANT` 必须显式配置为 Web/设备所属租户；独立部署时 `MQTT_USER` 是 agent 自己的账号，不能作为租户回落。
 - 上线时发布 retained `online:true`；LWT 使用同一结构、`online:false`；正常退出也会主动发布一次离线报文。
 - 设备端订阅 `walle/{t}/agent/+/online`，按 `agent_id` 维护在线表；设备账号 ACL 需允许该订阅。
+- 设备端把 `agent/{agent_id}/online` 同时作为控制权 presence；收到 `online:false` 后按 §4.19 的 grace 释放租约，异常掉线由 LWT 覆盖。
 - Web 控制台只把 `online:true` 的条目放进下拉，按 `ts` 降序。
-- 当前 agent 尚未实现 presence 与设备控制权 `acquire/release`；在补齐前，若设备已被其他客户端持有控制权，agent 的控制命令可能被设备拒绝（见 §4.19）。
+- agent 作为独立控制端，控制动作前 `control/acquire`、结束后 `control/release`；设备端按 §4.19 处理租约与 grace 释放。
 
 ## 5. 修改协议的流程
 
@@ -1439,12 +1446,13 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 
 ### 2026-11-25：新增 agent 相关主题后，修改代码（文档 v1.16，保存不变）
 
-**变更类型**：新增设备端订阅与 ACL 规则。
+**变更类型**：新增设备端订阅与 ACL 规则，修改agent报文相关代码。
 
 - 设备端新增订阅 `walle/{t}/agent/+/online`，按 `agent_id` 维护 agent 在线表；
 - 设备账号 ACL 增加 `walle/{t}/agent/+/online` 订阅；
-- agent 账号 ACL 的主题段由 `agents` 调整为 `agent`；
-- Web 与 agent 的主题前缀同步为 `agent/`。
+- agent 相关的的主题段由 `agents` 调整为 `agent`；
+- `chat/request|response` 使用新的json格式；
+- `agent/{agent}/online` 使用新的json格式。
 
 ### 2026-11-25：合并 walle-agent MQTT 协议（文档 v1.16）
 
