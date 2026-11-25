@@ -173,6 +173,9 @@ class RpiMonitor(ProtocolMixin, ControlMixin, MonitorMixin, SensorAlarmMixin,
         # App/Web 客户端在线状态：client_id -> {online, client_name, ...}
         self.client_presence = {}
         self.client_presence_lock = threading.Lock()
+        # agent 在线状态：agent_id -> {online, agent_name, ...}
+        self.agent_presence = {}
+        self.agent_presence_lock = threading.Lock()
         # 控制权租约（单 holder，内存态；设备重启清空）
         self.control_lease = ControlLease(
             config.CONTROL_LEASE_TTL_SEC, config.CONTROL_OFFLINE_GRACE_SEC)

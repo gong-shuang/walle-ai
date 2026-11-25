@@ -54,6 +54,12 @@ def client_online_topic(client_id):
             f"{CLIENT_SEGMENT}/{sanitize_segment(client_id)}/online")
 
 
+def agent_online_topic(agent_id):
+    """walle/{tenant}/agent/{agent_id}/online（agent 在线状态）。"""
+    return (f"{TOPIC_ROOT}/{sanitize_segment(config.MQTT_TENANT)}/"
+            f"{AGENT_SEGMENT}/{sanitize_segment(agent_id)}/online")
+
+
 # 请求 → 应答 的对应关系（也用于自检，保证命名成对）
 REQUEST_TO_RESULT = {
     REQ_DISCOVERY: RES_DISCOVERY_RESULT,
@@ -109,4 +115,5 @@ def subscriptions():
         (f"{base}/+/+/+/cmd", MQTT_QOS),         # car/motor/set/cmd、car/servo/set/cmd
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
         (tenant_topic("client/+/online"), MQTT_QOS),   # App/Web 客户端在线状态
+        (tenant_topic("agent/+/online"), MQTT_QOS),    # agent 在线状态
     ]

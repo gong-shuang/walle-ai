@@ -46,9 +46,10 @@ class TopicTest(unittest.TestCase):
             self.assertEqual(main.tenant_topic("discovery/query/request"),
                              "walle/t_1/discovery/query/request")
             topics = [topic for topic, _qos in main.subscriptions()]
-        self.assertEqual(len(topics), 6)
+        self.assertEqual(len(topics), 7)
         self.assertIn("walle/t_1/discovery/query/request", topics)
         self.assertIn("walle/t_1/client/+/online", topics)
+        self.assertIn("walle/t_1/agent/+/online", topics)
         self.assertIn("walle/t_1/device/dev-1/+/+/request", topics)
         self.assertIn("walle/t_1/device/dev-1/+/+/+/request", topics)
         self.assertIn("walle/t_1/device/dev-1/+/+/+/+/request", topics)
@@ -83,6 +84,25 @@ class RequestValidationTest(unittest.TestCase):
             "online": False,
         }))
         self.assertFalse(mon.client_is_online("web-abc12345"))
+
+    def test_agent_presence(self):
+        mon = main.RpiMonitor()
+        topic = main.agent_online_topic("agent-b851fdde")
+        mon._handle_agent_presence(topic, json.dumps({
+            "agent_id": "agent-b851fdde",
+            "agent_name": "小橙车",
+            "version_code": 5,
+            "version_name": "0.2.0",
+            "online": True,
+            "ts": 1795449995,
+        }))
+        self.assertTrue(mon.agent_is_online("agent-b851fdde"))
+
+        mon._handle_agent_presence(topic, json.dumps({
+            "agent_id": "agent-b851fdde",
+            "online": False,
+        }))
+        self.assertFalse(mon.agent_is_online("agent-b851fdde"))
 
     def test_parse_request(self):
         data = main.RpiMonitor.parse_request(

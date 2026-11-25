@@ -80,6 +80,7 @@ def test_subscriptions_cover_all_requests_with_layer_patterns():
         base + "/+/+/+/cmd",
         discovery,
         agent.tenant_topic("client/+/online"),
+        agent.tenant_topic("agent/+/online"),
     ]
     # 只订请求/持续控制，不订 # 整棵子树，避免收回自己发布的 response/alarm
     assert all("#" not in topic for topic in topics)
@@ -141,6 +142,47 @@ def test_client_presence_rejects_id_mismatch():
     }))
 
     assert monitor.client_presence == {}
+
+
+def test_agent_presence_online_and_offline():
+    import threading
+
+    monitor = object.__new__(RpiMonitor)
+    monitor.agent_presence = {}
+    monitor.agent_presence_lock = threading.Lock()
+    topic = agent.agent_online_topic("agent-b851fdde")
+
+    monitor._handle_agent_presence(topic, json.dumps({
+        "agent_id": "agent-b851fdde",
+        "agent_name": "小橙车",
+        "version_code": 5,
+        "version_name": "0.2.0",
+        "online": True,
+        "ts": 1795449995,
+    }))
+    assert monitor.agent_is_online("agent-b851fdde") is True
+
+    monitor._handle_agent_presence(topic, json.dumps({
+        "agent_id": "agent-b851fdde",
+        "agent_name": "小橙车",
+        "online": False,
+    }))
+    assert monitor.agent_is_online("agent-b851fdde") is False
+
+
+def test_agent_presence_rejects_id_mismatch():
+    import threading
+
+    monitor = object.__new__(RpiMonitor)
+    monitor.agent_presence = {}
+    monitor.agent_presence_lock = threading.Lock()
+    topic = agent.agent_online_topic("agent-b851fdde")
+
+    monitor._handle_agent_presence(topic, json.dumps({
+        "agent_id": "agent-other999",
+        "online": True,
+    }))
+    assert monitor.agent_presence == {}
 
 
 def test_car_motor_topics_and_realtime_dispatch_registered():

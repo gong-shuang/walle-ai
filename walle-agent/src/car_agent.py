@@ -45,7 +45,7 @@ DEFAULTS = {
     # 留空则退回旧行为（服务端账号即租户，即 MQTT_USER）。
     "TENANT": "",
     # 对话 topic 的 agent 段；留空则用 MQTT_USER。
-    # 是否订阅/回复对话 topic（walle/{tenant}/agents/{agent}/chat/*）。
+    # 是否订阅/回复对话 topic（walle/{tenant}/agent/{agent}/chat/*）。
     "CHAT_MQTT_ENABLED": "1",
     # MQTT clientid 前缀；完整格式为「前缀 + 8 位随机十六进制」，进程启动时生成一次
     "CLIENT_ID_PREFIX": "agent-",
@@ -249,7 +249,7 @@ def server_tenant():
 
 
 def agent_identity():
-    """对话 topic 的 agent 段 = 固定 clientid，与 ACL 的 agents/${clientid}/# 对齐。"""
+    """对话 topic 的 agent 段 = 固定 clientid，与 ACL 的 agent/${clientid}/# 对齐。"""
     return mqtt_client_id()
 
 
@@ -259,13 +259,13 @@ def agent_name():
 
 
 def chat_topic(resource):
-    return "walle/{}/agents/{}/chat/{}".format(
+    return "walle/{}/agent/{}/chat/{}".format(
         server_tenant(), agent_identity(), resource)
 
 
 def agent_status_topic():
     # 与设备端 walle/{t}/device/{d}/online 对齐：online 主题承载在线状态（retained + LWT）
-    return "walle/{}/agents/{}/online".format(server_tenant(), agent_identity())
+    return "walle/{}/agent/{}/online".format(server_tenant(), agent_identity())
 
 
 def topic_for(device, resource):

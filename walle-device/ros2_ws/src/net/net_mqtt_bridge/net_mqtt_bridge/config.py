@@ -196,6 +196,8 @@ TOPIC_ROOT = "walle"
 DEVICE_SEGMENT = "device"
 # 客户端在线状态主题的固定层级段：walle/{tenant}/client/{client_id}/online
 CLIENT_SEGMENT = "client"
+# agent 在线状态主题的固定层级段：walle/{tenant}/agent/{agent_id}/online
+AGENT_SEGMENT = "agent"
 
 # 设备端软件版本：环境变量优先（env_walle.sh 会 source 并 export）；
 # 未注入时读取设备端根目录（walle-device）下的 VERSION，linux-demo 与 ROS2 共用；
@@ -329,6 +331,11 @@ def client_online_topic(client_id):
     return (f"{TOPIC_ROOT}/{sanitize_segment(MQTT_TENANT)}/"
             f"{CLIENT_SEGMENT}/{sanitize_segment(client_id)}/online")
 
+def agent_online_topic(agent_id):
+    """walle/{tenant}/agent/{agent_id}/online（agent 在线状态，retained + LWT）。"""
+    return (f"{TOPIC_ROOT}/{sanitize_segment(MQTT_TENANT)}/"
+            f"{AGENT_SEGMENT}/{sanitize_segment(agent_id)}/online")
+
 # 请求 → 应答 的对应关系（也用于自检，保证命名成对）
 REQUEST_TO_RESULT = {
     REQ_DISCOVERY: RES_DISCOVERY_RESULT,
@@ -412,6 +419,7 @@ def subscriptions():
         (f"{base}/+/+/+/cmd", MQTT_QOS),         # car/motor/set/cmd、car/servo/set/cmd
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
         (tenant_topic("client/+/online"), MQTT_QOS),   # App/Web 客户端在线状态
+        (tenant_topic("agent/+/online"), MQTT_QOS),    # agent 在线状态
     ]
 
 # ---- 监控阈值（均可用环境变量覆盖，写进 /etc/walle-ai.conf 即可）----

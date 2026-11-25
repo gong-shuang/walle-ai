@@ -182,6 +182,8 @@ TOPIC_ROOT = "walle"
 DEVICE_SEGMENT = "device"
 # 客户端在线状态主题的固定层级段：walle/{tenant}/client/{client_id}/online
 CLIENT_SEGMENT = "client"
+# agent 在线状态主题的固定层级段：walle/{tenant}/agent/{agent_id}/online
+AGENT_SEGMENT = "agent"
 
 
 def validate_config():

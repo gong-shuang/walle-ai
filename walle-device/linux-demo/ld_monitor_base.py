@@ -56,6 +56,9 @@ class RpiMonitorBase:
         # App/Web 客户端在线状态：client_id -> {online, client_name, ...}
         self.client_presence = {}
         self.client_presence_lock = threading.Lock()
+        # agent 在线状态：agent_id -> {online, agent_name, ...}
+        self.agent_presence = {}
+        self.agent_presence_lock = threading.Lock()
         # 控制权租约（单 holder，内存态；设备重启清空）
         self.control_lease = ControlLease(
             CONTROL_LEASE_TTL_SEC, CONTROL_OFFLINE_GRACE_SEC)
@@ -123,6 +126,9 @@ class RpiMonitorBase:
         if self._is_client_presence_topic(msg.topic):
             self._handle_client_presence(msg.topic, payload)
             return
+        if self._is_agent_online_topic(msg.topic):
+            self._handle_agent_presence(msg.topic, payload)
+            return
         if msg.topic.startswith(TOPIC_ROOT + "/"):
             self._handle_request(msg.topic, payload)
         else:
@@ -175,6 +181,53 @@ class RpiMonitorBase:
         """指定客户端当前是否在线（供后续控制权租约使用）。"""
         with self.client_presence_lock:
             item = self.client_presence.get(str(client_id or ""))
+        return bool(item and item.get("online"))
+
+    @staticmethod
+    def _is_agent_online_topic(topic):
+        """是否为 walle/{tenant}/agent/{agent_id}/online。"""
+        parts = str(topic or "").split("/")
+        return (len(parts) == 5 and parts[0] == TOPIC_ROOT
+                and parts[1] == sanitize_segment(config.MQTT_TENANT)
+                and parts[2] == AGENT_SEGMENT
+                and parts[4] == "online")
+
+    def _handle_agent_presence(self, topic, payload):
+        """记录 agent 在线状态；只做记录，不回复。"""
+        data = self._safe_json(payload)
+        if not data:
+            logging.warning("忽略 %s：报文为空或不是 JSON 对象", topic)
+            return
+        agent_id = str(data.get("agent_id") or "").strip()
+        topic_agent_id = topic.split("/")[3]
+        if not agent_id or agent_id != topic_agent_id:
+            logging.warning("忽略 %s：agent_id 与主题不一致（收到=%s）",
+                            topic, agent_id or "<空>")
+            return
+        online = data.get("online") is True
+        record = {
+            "agent_id": agent_id,
+            "agent_name": str(data.get("agent_name") or "")[:64],
+            "version_code": data.get("version_code"),
+            "version_name": str(data.get("version_name") or "")[:32],
+            "online": online,
+            "ts": data.get("ts") or now_ts(),
+            "last_seen": now_ts(),
+        }
+        with self.agent_presence_lock:
+            self.agent_presence[agent_id] = record
+        if online:
+            logging.info("agent 上线: %s（%s，版本 %s/%s）", agent_id,
+                         record["agent_name"] or "-",
+                         record["version_name"] or "-", record["version_code"])
+        else:
+            logging.info("agent 离线: %s（%s）", agent_id,
+                         record["agent_name"] or "-")
+
+    def agent_is_online(self, agent_id):
+        """指定 agent 当前是否在线。"""
+        with self.agent_presence_lock:
+            item = self.agent_presence.get(str(agent_id or ""))
         return bool(item and item.get("online"))
 
     # ---------- 发布封装 ----------

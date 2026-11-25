@@ -1,7 +1,7 @@
 # agent 协议后续任务清单
 
 > 对应 [MQTT_protocol_convention.md](MQTT_protocol_convention.md) §4.20 / §4.21。
-> 本次只固化文档约定；以下按优先级逐项实现，完成一项勾选一项。
+> 按优先级逐项实现，完成一项勾选一项；本次已完成的项见下。
 
 ## 已确认的约定
 
@@ -9,11 +9,17 @@
 - agent 主题统一为 `walle/{t}/agent/{agent_id}/...`（单数 `agent`，不是 `agents`）。
 - agent 作为独立控制端，使用 `agent_id` / `agent_name`；presence 与设备控制权 `acquire/release` 后续实现。
 - `user` 字段废弃，agent 改用 `client_name`。
-- agent 订阅清单、系统 MQTT ACL 本次不修改。
+- 本次新增设备订阅 agent online 的 ACL；agent/Web 主题已切到单数 `agent/`；其他 ACL 规则不变。
+
+## 本次已完成
+
+- [x] 主题 `agents/` → `agent/`（walle-ai web、walle-service user.html、agent、ACL）
+- [x] 设备端订阅 `walle/{t}/agent/+/online`，维护 agent 在线表并记录上下线
+- [x] walle-service ACL：设备可订阅 agent online；agent ACL 改为 `agent/${clientid}/#`
 
 ## P0 字段与校验对齐（不改主题）
 
-- [ ] 0. 主题命名 `agents` → `agent`（代码先对齐）
+- [x] 0. 主题命名 `agents` → `agent`（代码先对齐）
   - Web：`web/car_ctl_by_mqtt.html` 的 `agentPrefix`、订阅 `agent/+/online` / `agent/+/chat/response`、发布 `agent/{a}/chat/request`
   - agent：`walle-agent/src/car_agent.py` 的 `chat_topic()`、`agent_status_topic()` 改为 `walle/{t}/agent/...`
   - 验收：抓包主题全部为 `walle/{t}/agent/...`；Web 能收到 online 和 chat/response。
@@ -79,7 +85,7 @@
   - 验收：文档与实现一致。
 
 - [ ] 11. 回归现有 online 离线通知
-  - 如果指现有 `agent/{a}/online`：确认 Ctrl+C / systemctl stop 时会主动发 `online:false`（LWT 只覆盖异常掉线）；当前代码仍用 `agents/`，随第 0 项一起改
+  - 如果指现有 `agent/{a}/online`：确认 Ctrl+C / systemctl stop 时会主动发 `online:false`（LWT 只覆盖异常掉线）
   - 文件：`walle-agent/src/car_agent.py` `shutdown`
   - 验收：正常退出后 retained 报文为离线。
 
@@ -103,8 +109,8 @@
 - [ ] 16. 并发与超时
   - 定义单运动 / 多查询、排队、长任务超时，与 Web 20s 超时协调
 
-- [ ] 17. ACL
-  - 按最终 presence / 订阅主题补 broker 规则；本次不改
+- [ ] 17. ACL（其余）
+  - 设备订阅 `agent/+/online` 的 ACL 已完成；presence / 其他规则后续补充
 
 - [ ] 18. 文档补全
   - 订阅关系、ACL、配置（`TENANT` / `CLIENT_ID_PREFIX` / `AGENT_NAME` / `DEVICE_ID_FILE`）、急停两条消息、debug 开关

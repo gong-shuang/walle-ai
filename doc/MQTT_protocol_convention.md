@@ -1406,6 +1406,7 @@ agent 不发送「超时」响应；20 秒未收到响应：删除 pending、解
 - `version_code` 为整数版本号，`version_name` 为字符串版本号（两者由 agent 版本维护，示例值仅示意）；`ts` 为 Unix 秒，与设备端 `timestamp` 语义相同。
 - `TENANT` 必须显式配置为 Web/设备所属租户；独立部署时 `MQTT_USER` 是 agent 自己的账号，不能作为租户回落。
 - 上线时发布 retained `online:true`；LWT 使用同一结构、`online:false`；正常退出也会主动发布一次离线报文。
+- 设备端订阅 `walle/{t}/agent/+/online`，按 `agent_id` 维护在线表；设备账号 ACL 需允许该订阅。
 - Web 控制台只把 `online:true` 的条目放进下拉，按 `ts` 降序。
 - 当前 agent 尚未实现 presence 与设备控制权 `acquire/release`；在补齐前，若设备已被其他客户端持有控制权，agent 的控制命令可能被设备拒绝（见 §4.19）。
 
@@ -1436,6 +1437,15 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 
 ## 6. 变更记录
 
+### 2026-11-25：新增 agent 相关主题后，修改代码（文档 v1.16，保存不变）
+
+**变更类型**：新增设备端订阅与 ACL 规则。
+
+- 设备端新增订阅 `walle/{t}/agent/+/online`，按 `agent_id` 维护 agent 在线表；
+- 设备账号 ACL 增加 `walle/{t}/agent/+/online` 订阅；
+- agent 账号 ACL 的主题段由 `agents` 调整为 `agent`；
+- Web 与 agent 的主题前缀同步为 `agent/`。
+
 ### 2026-11-25：合并 walle-agent MQTT 协议（文档 v1.16）
 
 **变更类型**：新增 agent 主题与报文约定；设备/App 现有主题与报文不变。
@@ -1445,7 +1455,7 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 - `agent/{agent}/online` 载荷以 §4.21 示例为准（`agent_id` / `agent_name` / `version_code` / `version_name` / `ts`）。
 - agent 订阅清单、presence、控制权 acquire/release 与 ACL 规则本次未变更/未补充，见 [agent_protocol_tasks.md](agent_protocol_tasks.md)。
 
-**兼容性**：当前 `walle-agent` 与 Web 仍使用 `agents/` 主题及 `agent` / `name` / `version` 等旧字段，且未校验 `client_id` / `client_name`；按任务清单升级后再以本文为最终契约。
+**兼容性**：本次 v1.16 合并时 `walle-agent` 与 Web 仍使用 `agents/` 主题及 `agent` / `name` / `version` 等旧字段；主题已在 v1.17 统一为 `agent/`，字段对齐见任务清单。
 
 ### 2026-11-25：新增设备控制权租约 control/acquire|release（文档 v1.15）
 
