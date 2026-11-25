@@ -67,8 +67,7 @@ def check_connect(timeout=5.0):
     「账号 + ACL（publish/subscribe）+ Broker 转发」整条链路可用。
 
     临时 clientId 为 ``<device_id>-check``：不会把正在运行的服务踢下线；
-    主题按该 clientId 生成，与 service_deploy.md §10 的
-    ``walle/+/device/${clientid}/#`` ACL 规则一致。
+    主题按该 clientId 生成。
     """
     host, port = config.MQTT_HOST, config.MQTT_PORT
     print("\n== 连接检查 ==")

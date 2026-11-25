@@ -93,7 +93,7 @@ App 只负责「看」和「控制」，设备端由配套的 Python 监控脚�
 
 | 重要文档 | 介绍 |
 |---|---|
-| [doc/service_deploy.md](doc/service_deploy.md) | 如何部署服务器、配置证书，权限介绍|
+| [walle-service](https://github.com/baidng/walle-service) | 如何部署服务器、配置证书，权限介绍|
 | [doc/quick_start.md](doc/quick_start.md) | 如何编译app，连接服务器，如何使用|
 | [walle-device/linux-demo/README.md](walle-device/linux-demo/README.md) | 如何部署linux设备端代码，如何使用和调试设备端代码。|
 

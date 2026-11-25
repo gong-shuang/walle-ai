@@ -1790,20 +1790,4 @@ App `DeviceInfoTest` / `DeviceRegistryTest` 共 21 个用例通过
 - 使用 MQTT 客户端向 `walle/{t}/device/{d}/cmd/exec` 发布消息，设备应无任何响应。
 - 打开 `test/car_ctl_by_mqtt.html`，页面不再出现「远程指令」卡片。
 
-## 待办
 
-> 记录已确认、但尚未在仓库内闭环的事项；完成后从本清单移除并写入对应章节或变更记录。
-> 设备端整改进度以 `walle-device/doc/linux-demo-launch-checklist.md` 为准。
-
-1. **EMQX ACL 与审计落地**：按 `doc/service_deploy.md` §10 配置每设备账号、
-   `walle/+/device/${clientid}/#`、`{deny, all}.` 与审计规则，并完成跨设备验证（P0-1.3 / P0-1.4）。
-2. **凭据轮换**：App 测试账号 `home` 与设备账号改密，同步 App 与设备 `/etc/walle-ai.conf`
-   （P0-3.1）。
-3. **WHEP 鉴权实测**：Nginx 8443 `/whep-audio/` + `secure_link` 验证无 token 403、
-   过期 410、正确 token 502（P0-4.1）。
-4. **手机端刷新方式实测**：改用 `UNSUBSCRIBE` + `SUBSCRIBE` `walle/{t}/device/+/online`
-   触发 retained 回放，替代 `discovery/query/request`；验证通过后可删除 discovery 主题、
-   处理逻辑与 `DISCOVERY_MIN_INTERVAL_SEC` / `DISCOVERY_JITTER_SEC`。
-5. **linux-demo 实机验证**：`kill -9` 子进程清理、断网恢复、摄像头插拔、声卡不可用与
-   24h soak（P1-5.3）；CI 接入 `.github/workflows/ci.yml`（P1-5.4，暂缓）。
-6. **linux-demo 剩余 P2**：兼容性与功能优化项，见上线清单 P2-3/P2-4/P2-5。
