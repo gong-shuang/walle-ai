@@ -805,7 +805,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       queryTimer: null, pendingQueryRid: '' },
     record: { recording: false, filename: '', startedAt: '', startedTs: 0,
       list: [], usedBytes: 0, limitBytes: 0, durationTimer: null,
-      pendingStart: null, pendingStop: null, pendingList: null, pendingDelete: null },
+      pendingStart: null, pendingStop: null, pendingList: null, pendingDelete: null,
+      lastListRid: null },
     player: { pc: null, location: '', pending: null, filename: '' },
     alarm: { tab: 'live', loading: false, pageSize: 30,
       live: [], livePage: 1,
@@ -1998,6 +1999,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     ui.record.startedAt = '';
     ui.record.startedTs = 0;
     ui.record.list = [];
+    ui.record.lastListRid = null;
     ui.record.usedBytes = 0;
     ui.record.limitBytes = 0;
     el.recordList.innerHTML = '<div class="emptyState">尚未查询</div>';
@@ -2100,6 +2102,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       { request_id: id })) {
       setRecMsg('record/list/query/request 发送失败', 'err'); return;
     }
+    ui.record.lastListRid = id;
     ui.record.pendingList = { rid: id, timer: setTimeout(function () {
       ui.record.pendingList = null;
       setRecMsg('等待 record/list/query/response 超时（5s）', 'err');
@@ -2109,10 +2112,17 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
   function onRecordList(dev, data) {
     if (dev !== cfg.device) return;
-    if (ui.record.pendingList && data.request_id && data.request_id !== ui.record.pendingList.rid) return;
-    if (ui.record.pendingList) { clearTimeout(ui.record.pendingList.timer); ui.record.pendingList = null; }
+    var pending = ui.record.pendingList;
+    if (pending && data.request_id && data.request_id !== pending.rid) return;
+    // 只把「最近一次列表请求」的应答当作本次结果；超时后迟到的旧应答
+    // （例如设备端 10s 才回的 -4 执行失败）不能覆盖当前提示与列表
+    var isLatest = !data.request_id
+      || data.request_id === (pending ? pending.rid : ui.record.lastListRid);
+    if (pending) { clearTimeout(pending.timer); ui.record.pendingList = null; }
     if (data.result !== 0) {
-      setRecMsg('查询录像列表失败：' + (data.cause || ('result=' + data.result)), 'err');
+      if (isLatest) {
+        setRecMsg('查询录像列表失败：' + (data.cause || ('result=' + data.result)), 'err');
+      }
       applyRecordUi(); return;
     }
     ui.record.list = data.records || [];
@@ -2133,6 +2143,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       ui.record.startedAt = '';
       ui.record.startedTs = 0;
     }
+    // 刷新成功必须清掉上一次的红色失败提示（设备启动早期/服务未就绪时的 -4 会残留）
+    setRecMsg('列表已刷新：共 ' + ui.record.list.length + ' 个录像', 'ok');
     renderRecordList();
     applyRecordUi();
   }
