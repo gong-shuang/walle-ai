@@ -84,13 +84,6 @@ select.deviceSelect{height:32px;max-width:260px;padding:0 10px;border-radius:9px
 .metric .runSub{display:block;margin-top:4px;font-size:10.5px;color:var(--dim);font-weight:400;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .metric b.on{color:var(--accent)}
-.identity{display:flex;gap:14px;align-items:center;padding:13px 14px;border-radius:12px;
-  background:rgba(255,255,255,.028);border:1px solid var(--line);margin-bottom:14px}
-.identity .avatar{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;
-  background:rgba(74,168,255,.1);border:1px solid rgba(74,168,255,.24);color:var(--accent2);font-size:18px}
-.identity h3{margin:0;font-size:14px;font-weight:650}
-.identity p{margin:2px 0 0;font-size:11.5px;color:var(--dim);word-break:break-all}
-.pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
 .metric{padding:12px 12px 10px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.024);min-width:0}
 .metric label{display:block;font-size:10.5px;color:var(--dim);letter-spacing:.4px;text-transform:uppercase}
@@ -350,6 +343,43 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .sideNavItem.active .navIcon{opacity:1;color:var(--accent)}
 .sideNavItem .navDot{width:7px;height:7px;border-radius:50%;flex:none;margin-left:auto;
   background:var(--danger);box-shadow:0 0 6px rgba(255,107,107,.8)}
+/* 对话助手卡片 */
+.agentCard .cardHead{flex-wrap:wrap}
+.agentCard .agHeadOps{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.agentCard .agSelect{height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--line2);
+  background:var(--card);color:var(--text);font-size:12px;max-width:220px}
+.agentCard .agEstop{border-color:rgba(255,107,107,.5);background:rgba(255,107,107,.14);
+  color:#ffd7d7;font-weight:600}
+.agentCard .agEstop:hover{background:rgba(255,107,107,.24)}
+.agentCard{display:flex;flex-direction:column;height:calc(100vh - 152px);min-height:569px}
+.agentCard .agMessages{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:10px;
+  padding:12px;border:1px solid var(--line);border-radius:12px;background:rgba(10,13,19,.45)}
+.agentCard .agMsg{max-width:82%;padding:9px 12px;border-radius:12px;font-size:13px;
+  white-space:pre-wrap;word-break:break-word;line-height:1.5}
+.agentCard .agMsg.user{align-self:flex-end;border:1px solid rgba(74,168,255,.28);
+  background:linear-gradient(135deg,rgba(74,168,255,.22),rgba(74,168,255,.10));border-bottom-right-radius:4px}
+.agentCard .agMsg.bot{align-self:flex-start;border:1px solid var(--line);background:var(--card2);
+  border-bottom-left-radius:4px}
+.agentCard .agMsg.sys{align-self:center;max-width:92%;border:1px dashed var(--line);background:transparent;
+  color:var(--dim);font-size:11.5px;text-align:center}
+.agentCard .agMsg .meta{margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.06);
+  font-size:11px;color:var(--dim)}
+.agentCard .agMsg .meta code{color:var(--muted);word-break:break-all}
+.agentCard .agQuick{display:flex;gap:8px;flex-wrap:wrap;padding:12px 0 0}
+.agentCard .agQuick button{height:28px;padding:0 12px;border-radius:999px;border:1px solid var(--line2);
+  background:rgba(255,255,255,.035);color:var(--muted);font-size:11.5px}
+.agentCard .agQuick button:hover{color:var(--text);border-color:#3a475c}
+.agentCard .agComposer{display:flex;gap:10px;padding:12px 0 0}
+.agentCard .agComposer input{flex:1;height:38px;padding:0 13px;border-radius:10px;
+  border:1px solid var(--line2);background:var(--card);outline:none;min-width:0}
+.agentCard .agComposer input:focus{border-color:rgba(61,220,151,.45);
+  box-shadow:0 0 0 3px rgba(61,220,151,.08)}
+.agentCard .agComposer button{height:38px;padding:0 18px;flex:none}
+.agentCard .agComposer button:disabled{opacity:.5;cursor:not-allowed}
+.agentCard .agHint{padding:10px 0 0;font-size:11px;color:var(--dim)}
+@media(max-width:900px){
+  .agentCard .agHeadOps{justify-content:flex-start}
+}
 .mainArea{flex:1;min-width:0;padding:18px 18px 18px 20px;overflow-x:hidden}
 .tabPanel{display:none;animation:fadeIn .18s ease}
 .tabPanel.active{display:block}
@@ -428,6 +458,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
           <span class="navIcon">⚠</span><span>告警信息</span>
           <span id="navAlarmDot" class="navDot hide" title="有未读告警"></span>
         </button>
+        <button class="sideNavItem" data-tab="agent">
+          <span class="navIcon">◈</span><span>对话助手</span>
+        </button>
       </nav>
     </aside>
 
@@ -449,6 +482,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div class="tabPanel" data-tab="video-monitor"></div>
       <div class="tabPanel" data-tab="video-record"></div>
       <div class="tabPanel" data-tab="alarm"></div>
+      <div class="tabPanel" data-tab="agent"></div>
 
       <!-- 原有卡片（JS 会移动到上面的 tabPanel 中） -->
       <section class="card statusCard" data-tab-target="device-detail">
@@ -518,7 +552,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
           <h2>实时画面</h2>
           <small>video/start|stop → WHEP 拉流</small>
         </div>
-        <button id="btnCapability" class="btn" type="button" disabled title="重新查询摄像头能力（runState/query/request）">刷新</button>
+        <button id="btnCapability" class="btn" type="button" disabled title="刷新运行状态（runState/query/request）">刷新</button>
       </div>
       <div class="videoStage">
         <div class="videoWrap">
@@ -636,7 +670,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div class="cardHead">
         <div>
           <h2>告警</h2>
-          <small>alarm · 实时上报 + 历史查询（保留 30 天）</small>
+          <small>alarm/report · 实时上报 + 历史查询（保留 30 天）</small>
         </div>
       </div>
       <div class="alarmTabs">
@@ -667,6 +701,38 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div id="alarmMeta" class="alarmMeta">实时接收中 · 共 0 条</div>
       <div id="alarmList" class="alarmList"><div class="emptyState">暂无告警</div></div>
       <div id="alarmPager" class="alarmPager"></div>
+    </section>
+
+    <!-- ============ 对话助手卡片 ============ -->
+    <section class="card agentCard" data-tab-target="agent">
+      <div class="cardHead">
+        <div>
+          <h2>小车对话助手</h2>
+          <small>自然语言 → 车控指令 · MQTT · 急停优先</small>
+        </div>
+        <div class="agHeadOps">
+          <select id="agSelect" class="agSelect" title="选择 agent"></select>
+          <span id="agChipMqtt" class="badge">agent —</span>
+          <button id="agEstop" class="btn agEstop" type="button" title="直接向设备下发零速">■ 急停</button>
+        </div>
+      </div>
+
+      <div id="agMessages" class="agMessages"></div>
+
+      <div class="agQuick">
+        <button type="button" data-ag-cmd="前进1米">前进1米</button>
+        <button type="button" data-ag-cmd="后退0.5米">后退0.5米</button>
+        <button type="button" data-ag-cmd="左转90度">左转90度</button>
+        <button type="button" data-ag-cmd="右转90度">右转90度</button>
+        <button type="button" data-ag-cmd="停止">停止</button>
+        <button type="button" data-ag-cmd="状态">状态</button>
+      </div>
+
+      <form id="agForm" class="agComposer" autocomplete="off">
+        <input id="agInput" maxlength="200" placeholder="例如：前进3米、左转90度、停止">
+        <button id="agSend" class="btn primary" type="submit">发送</button>
+      </form>
+      <div class="agHint">仅支持：前进/后退/左移/右移 N 米、左转/右转 N 度、停止、状态。其余语句在 LLM 未启用时会直接提示，不会猜测执行。</div>
     </section>
     </main><!-- /mainArea -->
   </div><!-- /layout -->
@@ -1007,6 +1073,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (mqtt && mqtt.ws) { try { mqtt.ws.onclose = null; mqtt.ws.close(); } catch (e) {} }
     mqtt = new MqttWS();
     mqtt.topics = SUBS.map(function (r) { return subBase() + r; });
+    var agentPrefix = cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/agents/';
+    mqtt.topics.push(agentPrefix + '+/online', agentPrefix + '+/chat/response');
     mqtt.connect({
       url: wsUrlNow(), user: cfg.user, pass: cfg.pass, clientId: clientIdNow(), keepalive: cfg.keepalive,
       willTopic: clientOnlineTopic(),
@@ -1038,6 +1106,21 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     });
   }
   function onMessage(topic, data, retain) {
+    var ap = topic.split('/');
+    // agents/{id}/online 是 5 段，chat/response 是 6 段
+    if (ap.length >= 5 && ap[2] === 'agents') {
+      var agentId = ap[3];
+      if (/\/online$/.test(topic)) {
+        document.dispatchEvent(new CustomEvent('walle-agent-status',
+          { detail: { id: agentId, data: data } }));
+        return;
+      }
+      if (/\/chat\/response$/.test(topic)) {
+        document.dispatchEvent(new CustomEvent('walle-agent-response',
+          { detail: { id: agentId, data: data } }));
+        return;
+      }
+    }
     var dev = devOf(topic);
     if (/\/online$/.test(topic)) onOnline(dev, data);
     else if (/\/discovery\/query\/response$/.test(topic)) onDiscovery(dev, data);
@@ -1059,6 +1142,15 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var parts = topic.split('/');
     return parts.length >= 5 && parts[2] === 'device' ? parts[3] : '';
   }
+  // 供对话卡片（另一个 script 块）共用同一 MQTT 连接
+  window.__wallePublish = function (topic, payload) {
+    return !!(mqtt && mqtt.connected && mqtt.publish(topic, payload));
+  };
+  window.__walleDevice = function (dev) { return (ui.devices && ui.devices[dev]) || null; };
+  window.__walleDeviceBase = function (dev) { return base(dev); };
+  window.__walleAgentBase = function () {
+    return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/agents/';
+  };
   function discover() {
     if (!mqtt || !mqtt.connected) return;
     ui.discoveryRid = rid();
@@ -3253,6 +3345,181 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   setAlarmTab('live');
   rebuildMqtt(); renderDevices();
   if (!cfg.pass) openDrawer();
+})();
+</script>
+<script>
+(function () {
+  var els = {
+    messages: document.getElementById('agMessages'),
+    input: document.getElementById('agInput'),
+    send: document.getElementById('agSend'),
+    form: document.getElementById('agForm'),
+    estop: document.getElementById('agEstop'),
+    agents: document.getElementById('agSelect'),
+    chip: document.getElementById('agChipMqtt')
+  };
+  if (!els.messages) return;
+  var agents = {};        // clientid -> status payload（由 retained status 填充）
+  var selected = '';
+  var pending = {};       // request_id -> { timer }
+  var busy = false;
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function addMsg(kind, text, meta) {
+    var div = document.createElement('div');
+    div.className = 'agMsg ' + kind;
+    div.textContent = text;
+    if (meta) {
+      var m = document.createElement('div');
+      m.className = 'meta';
+      m.innerHTML = meta;
+      div.appendChild(m);
+    }
+    els.messages.appendChild(div);
+    els.messages.scrollTop = els.messages.scrollHeight;
+  }
+
+  function setChip(cls, text) {
+    els.chip.className = 'badge' + (cls ? ' ' + cls : '');
+    els.chip.textContent = text;
+  }
+
+  function currentDevice() {
+    var sel = document.getElementById('deviceSelect');
+    return sel && sel.value ? String(sel.value) : '';
+  }
+
+  function renderAgents() {
+    var ids = Object.keys(agents).filter(function (id) { return agents[id].online; });
+    ids.sort(function (a, b) { return (agents[b].ts || 0) - (agents[a].ts || 0); });
+    var saved = selected || sessionStorage.getItem('walle_agent') || '';
+    els.agents.innerHTML = '';
+    if (!ids.length) {
+      var opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '（暂无在线 agent）';
+      els.agents.appendChild(opt);
+      selected = '';
+    } else {
+      ids.forEach(function (id) {
+        var o = document.createElement('option');
+        o.value = id;
+        o.textContent = (agents[id].name || id) +
+          (agents[id].capabilities && agents[id].capabilities.llm ? ' · LLM' : '');
+        o.title = id;
+        els.agents.appendChild(o);
+      });
+      selected = ids.indexOf(saved) >= 0 ? saved : ids[0];
+      els.agents.value = selected;
+      sessionStorage.setItem('walle_agent', selected);
+    }
+    updateChip();
+  }
+
+  function updateChip() {
+    var a = agents[selected];
+    if (!a) { setChip('', 'agent 离线'); return; }
+    setChip(a.online ? 'ok' : 'bad', 'agent ' + (a.online ? '在线' : '离线') +
+      (a.version ? ' · v' + a.version : ''));
+  }
+
+  document.addEventListener('walle-agent-status', function (e) {
+    var id = e.detail.id, d = e.detail.data || {};
+    agents[id] = {
+      online: !!d.online, ts: Number(d.ts) || 0,
+      name: d.name || '', version: d.version || '',
+      capabilities: d.capabilities || {}
+    };
+    renderAgents();
+  });
+
+  document.addEventListener('walle-agent-response', function (e) {
+    var d = e.detail.data || {};
+    var p = pending[d.request_id];
+    if (!p) return;   // 非本页面发起的请求
+    clearTimeout(p.timer);
+    delete pending[d.request_id];
+    busy = false;
+    els.send.disabled = false;
+    var meta = '';
+    if (d.intent) meta += '解析：<code>' + escapeHtml(JSON.stringify(d.intent)) + '</code>';
+    if (d.action) meta += (meta ? '<br>' : '') + '动作：<code>' + escapeHtml(d.action) + '</code>';
+    addMsg(d.ok === false ? 'sys' : 'bot', d.reply || (d.ok ? '已完成' : '处理失败'), meta);
+  });
+
+  function sendText(text) {
+    text = (text || '').trim();
+    if (!text || busy) return;
+    var dev = currentDevice();
+    if (!dev) { addMsg('sys', '请先在「设备列表」选择一台设备，再发送指令。'); return; }
+    if (!selected) { addMsg('sys', '当前没有在线 agent，请确认 walle-agent 已启动。'); return; }
+    var rid = 'web-' + Math.random().toString(16).slice(2, 10);
+    var topic = window.__walleAgentBase() + selected + '/chat/request';
+    var payload = { request_id: rid, device: dev, text: text, user: 'web', ts: Date.now() };
+    if (!window.__wallePublish || !window.__wallePublish(topic, payload)) {
+      addMsg('sys', 'MQTT 未连接，消息未发出。');
+      return;
+    }
+    addMsg('user', text);
+    busy = true;
+    els.send.disabled = true;
+    pending[rid] = {
+      timer: setTimeout(function () {
+        if (!pending[rid]) return;
+        delete pending[rid];
+        busy = false;
+        els.send.disabled = false;
+        addMsg('sys', 'agent 超时未响应（20s），请检查 agent 状态。');
+      }, 20000)
+    };
+  }
+
+  els.form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var text = els.input.value;
+    els.input.value = '';
+    sendText(text);
+  });
+
+  document.querySelectorAll('.agentCard [data-ag-cmd]').forEach(function (btn) {
+    btn.addEventListener('click', function () { sendText(btn.getAttribute('data-ag-cmd')); });
+  });
+
+  els.agents.addEventListener('change', function () {
+    selected = els.agents.value;
+    sessionStorage.setItem('walle_agent', selected);
+    updateChip();
+  });
+
+  // 急停：不依赖 agent，直接向设备发零速；另发一条请求通知 agent 中止当前动作
+  els.estop.addEventListener('click', function () {
+    var dev = currentDevice();
+    if (!dev) { addMsg('sys', '急停：请先选择设备。'); return; }
+    var zero = {
+      request_id: 'web-estop-' + Math.random().toString(16).slice(2, 8),
+      move: { forward: 0, back: 0, left: 0, right: 0 },
+      rotate: { left: false, right: false }
+    };
+    var ok = window.__wallePublish(window.__walleDeviceBase(dev) + '/car/motor/set/cmd', zero);
+    addMsg('sys', ok ? '急停：已直接向设备下发零速。' : '急停：MQTT 未连接，未发出。');
+    if (selected && window.__wallePublish) {
+      window.__wallePublish(window.__walleAgentBase() + selected + '/chat/request', {
+        request_id: 'web-abort-' + Math.random().toString(16).slice(2, 8),
+        device: dev, text: '停止', user: 'web', intent: 'abort', ts: Date.now()
+      });
+    }
+  });
+
+  addMsg('sys', '你好，我是小车对话助手（MQTT 直连）。可以说：前进3米、左转90度、停止、状态。');
+  if (!currentDevice()) addMsg('sys', '当前未选择设备；请先在「设备列表」选择设备。');
+  renderAgents();
+  var navAgent = document.querySelector('.sideNavItem[data-tab="agent"]');
+  if (navAgent) navAgent.addEventListener('click', function () { setTimeout(renderAgents, 100); });
 })();
 </script>
 </body>
