@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.15）
+# MQTT 协议约定（文档版本 v1.16）
 
-> 本文是 App（Android）与设备端（`walle-device/linux-demo/main.py`；ROS2 车控为
-> `walle-device/ros2_ws/src/net/net_mqtt_bridge`）之间 MQTT 报文契约的**唯一权威文档**。
-> 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步两端与测试。
+> 本文是 控制端（App/Web）、代理端（agent）、设备端（ros2设备和非ros2设备）之间 MQTT 报文协议的契约
+> **唯一权威文档**，所有 MQTT 主题定义统一收敛到本文。
+> 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步各端与测试。
 >
-> - 本文档的版本：v1.15 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.16 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -13,22 +13,33 @@
 ## 1. 总览
 
 ```
-┌──────────────┐  walle/{tenant}/device/{device}/{resource}  ┌──────────────┐
-│  Android App │ ◄────────── MQTT Broker ────────────────► │ Linux 设备端  │
-└──────────────┘         （EMQX / Mosquitto）               └──────────────┘
+┌──────────┐                     .../device/{device}/{resource}   ┌──────────────┐
+│  web/App │ ◄───────── MQTT Broker ──────────────────────────►   │ Linux 设备端  │
+└──────────┘         （walle-server）                              └──────────────┘
+                            |
+                            |  .../agent/{agent}/{resource}
+                      ┌──────────┐
+                      │  agent   │
+                      └──────────┘
 ```
 
 主题结构：
 
 ```
+# 设备端格式
 walle/{tenant}/device/{device}/{resource}
+
+# agent端格式
+walle/{tenant}/agent/{agent}/{resource}
 ```
 
 - `tenant`：租户标识 = **App 登录用的 MQTT 用户名**（经清洗）。同一账号 = 同一租户。
-- `device`（第 3 段）：固定字面量 `device`，用来把设备级主题与租户级广播区分开。
-- `device`（第 4 段）：**稳定**的设备标识 `device_id`。首次启动由设备端按 `md5(MAC | CPU 物理核数 | 内存 GiB)` 取前 16 位，
+- `device`（第 3 段）：固定字面量 `device`，用来把设备级主题与租户级、agent级广播区分开。
+- `agent`（第 3 段）：固定字面量 `agent`，用来把agent级主题与租户级、设备级广播区分开。
+- `{device}`（第 4 段）：**稳定**的设备标识 `device_id`，其值就是MQTT中的 client_id。首次启动由设备端按 `md5(MAC | CPU 物理核数 | 内存 GiB)` 取前 16 位，
   随后**落盘复用**（`main.resolve_device_id`），因此重启、重装、换 IP 都不会变。
   注意内存必须按 GiB 取整：`MemTotal` 在两次启动之间会浮动几 KiB，直接进哈希会让同一台硬件换 identity。
+- `{agent}`（第 4 段）：**稳定**的agent标识 `agent_id`，其值就是MQTT中的 client_id，来自 `etc/.device-id` | 形如`agent-b851fdde`。
 - `resource`：按语义命名（见 §2.3），可能含 `/`（如 `video/start/response`）。
 
 特例：设备发现是**租户级**广播，没有 `device` 段（第 3 段是固定的 `discovery`）：`walle/{tenant}/discovery/query/request`。
@@ -50,6 +61,7 @@ walle/{tenant}/device/{device}/{resource}
 | 4 | 运行状态查询 | `walle/{t}/device/{d}/runState/query/request` | `walle/{t}/device/{d}/runState/query/response` | 请求-应答 | v1.10 | v1.10将capability改为运行状态查询并精简json报文 |
 | 5 | 告警上报 | — | `walle/{t}/device/{d}/alarm/report` | 主动上报 | v1.0 | v1.6 增补电池低压/前方障碍告警 |
 | 6 | 远程命令执行 | `walle/{t}/device/{d}/cmd/exec/request` | `walle/{t}/device/{d}/cmd/exec/response` | 请求-应答 | v1.1 | v1.1已删除 |
+| 7 | 客户端主动上报（上线/下线） | - | `walle/{t}/client/{client_id}/online` | 主动上报（retained + LWT） | v1.13 |  |
 
 控制权（独占使用）：
 | # | 协议 | App → 设备（请求） | 设备 → App（应答/上报） | 类型 | 版本 | 备注 |
@@ -57,6 +69,13 @@ walle/{tenant}/device/{device}/{resource}
 | 1 | 获取控制权 | `walle/{t}/device/{d}/control/acquire/request` | `walle/{t}/device/{d}/control/acquire/response` | 请求-应答 | v1.15 | 无 holder 时 fail-open；同一 client 重复 acquire 会续租 |
 | 2 | 释放控制权 | `walle/{t}/device/{d}/control/release/request` | `walle/{t}/device/{d}/control/release/response` | 请求-应答 | v1.15 | 只有当前 holder 能释放 |
 
+agent功能：
+| # | 协议 | Web → agent（请求） | agent → Web（应答/上报） | 类型 | 版本 | 备注 |
+|---|---|---|---|---|---|---|
+| 1 | 自然对话 | `walle/{t}/agent/{a}/chat/request` | `walle/{t}/agent/{a}/chat/response` | 请求-应答（QoS1） | v1.16 |  |
+| 2 | agent 在线 | — | `walle/{t}/agent/{a}/online` | 主动上报（retained + LWT） | v1.16 |  |
+
+`{a}` = agent clientid。
 
 视频语音功能：
 | # | 协议 | App → 设备（请求） | 设备 → App（应答/上报） | 类型 | 版本 | 备注 |
@@ -137,8 +156,12 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 
 ‘request_id‘用于标识当前的请求，每次请求的`request_id`都不同。
 
-- `request_id`：App 生成的 8 位十六进制随机串（`UUID.randomUUID()` 前 8 位）。
-  设备端在应答里**原样回显**，App 用它把结果和「哪一次请求」对上；迟到的旧结果直接丢弃。
+- `request_id`：客户端生成的请求标识，每次请求都不同。
+  - App：8 位十六进制随机串（`UUID.randomUUID()` 前 8 位）。
+  - Web：以 `web-` 为前缀；对话用 `web-` + 8 位十六进制，急停/中止用 `web-estop-` / `web-abort-` 前缀。
+  - agent 不兜底生成；`chat/request` 缺失 `request_id` 时按 §4.20 返回 `invalid`。
+  - 消费方按字符串原样匹配，不要假设固定长度或纯十六进制。
+  设备端/agent 在应答里**原样回显**，App/Web 用它把结果和「哪一次请求」对上；迟到的旧结果直接丢弃。
 
 
 ### 2.5 QoS1 重复投递：一次性事件去重，幂等事件不去重
@@ -159,7 +182,7 @@ QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 
 ### 2.7 不订 `#` 整棵子树
 
 MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求再收一遍，浪费带宽、
-干扰排查。所以两端都不订 `#` 整棵子树：
+干扰排查。所以各端都不订 `#` 整棵子树：
 
 - App 订 8 条精确响应主题：`walle/{t}/device/+` 下的 `online`、`alarm/report`、6 条 `…/response`（见 `TopicNames.responseSubscriptions`）
 - 设备端订 6 条：4 条按层数的 `+` 模式（`+/+/request`、`+/+/+/request`、`+/+/+/+/request`、`+/+/+/cmd`）
@@ -185,7 +208,7 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 ### 3.2 request_id 配对规则
 
-1. App 每发一个请求生成新 `request_id`（8 位 hex），并把它放进请求报文。
+1. App 每发一个请求生成新 `request_id`（8 位 hex）；Web/agent 的格式见 §2.4，统一放进请求报文。
 2. 设备端应答必须原样回显；没收到匹配 `request_id` 的应答前，UI 处于等待态。
    例外：`discovery/query/response` 自 2026-11-11 起与 `online` 完全一致，不再回显 `request_id`
    （App 不依赖它配对，扫描状态按超时结束）。
@@ -193,12 +216,12 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 ### 3.3 主题段清洗（sanitize）
 
-两端**必须完全一致**，否则主题对不上。规则（`TopicNames.sanitize` / `main.sanitize_segment`）：
+各端**必须完全一致**，否则主题对不上。规则（`TopicNames.sanitize` / `main.sanitize_segment`）：
 
 - 只保留 `[A-Za-z0-9_-]`；`.` `:` `@` 空格 → `_`；其余字符（含中文、通配符）**丢弃**；
 - 清洗后为空 → `unknown`；超过 64 字符 → 前 40 位 + 短哈希（保证同输入得同输出）。
 
-对照测试用例（两端同步维护）：
+对照测试用例（各端同步维护）：
 
 | 输入 | 输出 |
 |---|---|
@@ -217,17 +240,18 @@ v1.12 起请求不再携带 `uuid`，设备端也不再调用 `verify_uuid`。�
 `uuid`，否则设备端静默忽略（只记日志、不回复）。该机制因 uuid 每次重启变化、
 客户端缓存旧值会导致“设备在线但请求无响应”，已在 v1.12 完全移除。
 
-### 3.5 App → 设备公共字段（V1.14）
+### 3.5 App/Web/agent → 设备公共字段（V1.14）
 
-所有 App/Web 发往设备的 `.../request` 与 `.../cmd` 报文，统一携带：
+所有 App/Web/agent 发往设备的 `.../request` 与 `.../cmd` 报文，统一携带：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `client_id` | string | App/Web 的 MQTT client_id（持久化，经 `sanitize`）。与客户端 presence 主题 `client/{client_id}/online` 中的值一致。 |
+| `client_id` | string | App/Web/agent 的 MQTT client_id（持久化，经 `sanitize`）。与客户端 presence 主题 `client/{client_id}/online` 中的值一致。 |
 | `client_name` | string | 客户端展示名，如 `Web`、`Android Pixel 7`；与 presence 报文中的 `client_name` 一致。 |
 
 - 包括 `discovery/query/request`、查询请求、控制请求和 `.../cmd`；
-- 设备端当前不校验这两个字段，仅用于日志、审计与控制权租约（§4.19）；
+- agent 作为独立控制端时，`client_id` 使用 `agent_id`，`client_name` 使用 `agent_name`（见 §4.21）；
+- 设备端当前不校验这两个字段的真实性，仅用于日志、审计与控制权租约（§4.19）；
 - 旧设备会忽略未知字段，旧客户端不携带时新设备也能正常处理。
 
 ---
@@ -1269,15 +1293,132 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 - 收到 `error_code="control_denied"` 时同步 `control_holder` 并提示用户；
 - 持有者离线超过 grace 或 TTL 到期后，设备自动恢复 fail-open。
 
+### 4.20 agent 对话 agent/{agent}/chat/request|response（v1.16）
 
+> 适用于 `walle-agent`（实现见 `walle-agent/src/car_agent.py`）。Web 控制台与 agent 之间使用
+> 独立的 `agent/{agent}` 子树。
+
+**请求 JSON（chat/request）**
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `client_id` | string | 是 | 发起对话的 Web 客户端 `client_id`；缺失时 `error:"invalid"`，回复「参数非法」 |
+| `client_name` | string | 是 | 发起对话的 Web 客户端 `client_name`；缺失时 `error:"invalid"`，回复「参数非法」 |
+| `request_id` | string | 是 | 格式见 §2.4；缺失时 `error:"invalid"`，回复「参数非法」 |
+| `device` | string | 是 | 缺失时 `error:"invalid"`，回复「请求里没有指定设备（device 字段为空）。」 |
+| `text` | string | 是 | 缺失时 `error:"invalid"`，回复「请求里没有文本内容。」 |
+| `ts` | number | 否 | 毫秒时间戳，agent 不读取 |
+| `intent` | string | 否 | 急停通知用 `"abort"`，agent 不读取（靠 `text` 解析） |
+
+- `client_id` / `client_name` 标识**发起对话的 Web 客户端**，用于日志与审计；agent 作为独立控制端向设备下发请求时使用自己的 `agent_id` / `agent_name`（见 §4.21）。
+- `client_name` 同时用于 agent 日志与运动 request_id 前缀；`user` 字段已废弃，客户端不再需要发送。
+- 未列出的字段（如旧客户端的 `user`）由 agent 忽略。
+
+```json
+{
+  "client_id": "web-vg8ww5er",
+  "client_name": "Web666",
+  "request_id": "web-9f3c1a2b",
+  "device": "0580a65014af4d0a",
+  "text": "前进1米",
+  "ts": 1795449999123
+}
+```
+
+**应答 JSON（chat/response）**
+
+公共字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `request_id` | string | 原样回传 |
+| `agent_id` | string | agent 的 client_id（身份，不是展示名） |
+| `device` | string | 原样回传 |
+| `ts` | number | Unix 秒 |
+| `ok` | bool | 成功/失败 |
+| `reply` | string | 自然语言回复 |
+| `intent` | object | 可选，解析结果 |
+| `warning` | string | 可选，参数被夹紧的提示 |
+| `error` | string | 可选，错误码 |
+| `action` | string | 可选：`move` / `rotate` / `stop` / `status` |
+| `duration_sec` | number | 可选，预计运动时长 |
+
+成功示例（运动）：
+
+```json
+{"request_id":"web-9f3c1a2b","agent_id":"agent-b851fdde","device":"0580a65014af4d0a",
+ "ts":1795449999,"ok":true,
+ "reply":"已解析：前进 1.00 米，速度 0.50 m/s，预计 2.0 秒。 已开始执行。",
+ "intent":{"action":"move","direction":"forward","distance_m":1.0,"speed_mps":0.5},
+ "action":"move","duration_sec":2.0}
+```
+
+成功示例（状态 / 停止）：
+
+```json
+{"request_id":"web-9f3c1a2b","agent_id":"agent-b851fdde","device":"0580a65014af4d0a",
+ "ts":1795449999,"ok":true,"reply":"状态查询完成。",
+ "intent":{"action":"status"},"action":"status"}
+{"request_id":"web-9f3c1a2b","agent_id":"agent-b851fdde","device":"0580a65014af4d0a",
+ "ts":1795449999,"ok":true,"reply":"已下发停止（零速）。",
+ "intent":{"action":"stop"},"action":"stop"}
+```
+
+`chat/response` 只携带上表字段；`mqtt`、`note`、`active_device`、`status`、`result`
+等属于 agent 内部结果，不会透传到应答报文。
+
+失败与错误码：
+
+| 场景 | `ok` | 关键字段 |
+|---|---|---|
+| 文本无法识别 | false | `reply`，无 `error` |
+| 参数超上限（距离/角度） | false | `reply` 说明，无 `warning` |
+| 参数被夹紧（速度） | true | `warning`，`reply` 为已解析文案 |
+| 请求缺 client_id/client_name/request_id/device/text | false | `error:"invalid"`，`reply` 说明 |
+| MQTT 未连接 | false | `error:"mqtt_not_connected"`，`reply` 说明 |
+| 正在执行上一条 | false | `error:"busy"`，`reply` 提示正在执行 |
+| 停止但无目标设备 | false | `error:"no_device"`，`reply` 说明 |
+| agent 内部异常 | false | `error:"agent_exception"`，`reply` 含异常文本 |
+
+`error` 取值集合：`invalid`、`mqtt_not_connected`、`busy`、`no_device`、`agent_exception`。
+agent 不发送「超时」响应；20 秒未收到响应：删除 pending、解锁发送按钮、提示「agent 超时未响应（20s）」。
+
+> 当前实现差异：`busy` 的 `reply` 尚未提示“正在执行上一条”，客户端必填字段的 `invalid` 校验、`agent_id` 字段与 online 字段名也待对齐；见 [agent_protocol_tasks.md](agent_protocol_tasks.md)。
+
+### 4.21 agent 在线状态 agent/{agent}/online（v1.16）
+
+**报文格式**
+
+```json
+{
+  "agent_id": "agent-b851fdde",
+  "agent_name": "小橙车",
+  "online": true,
+  "version_code": 5,
+  "version_name": "0.2.0",
+  "ts": 1795449995
+}
+```
+
+- 主题后缀与设备端 `device/{device}/online` 对齐；载荷以本节示例为最小必选字段：`agent_id`、`agent_name`、`online`、`version_code`、`version_name`、`ts`。允许附加可选字段（如 `capabilities`），消费方应忽略未知字段。
+- `agent_id` 为 agent 的 id，即 MQTT 中的 client_id，其前缀在 `walle-agent.conf` 中可配置，对应变量 `CLIENT_ID_PREFIX`。
+- `agent_name` 为 agent 的展示名，对应变量 `AGENT_NAME`；为空时等于 `agent_id`。agent 作为独立控制端向设备下发请求时，`client_id` 使用 `agent_id`、`client_name` 使用 `agent_name`。
+- `version_code` 为整数版本号，`version_name` 为字符串版本号（两者由 agent 版本维护，示例值仅示意）；`ts` 为 Unix 秒，与设备端 `timestamp` 语义相同。
+- `TENANT` 必须显式配置为 Web/设备所属租户；独立部署时 `MQTT_USER` 是 agent 自己的账号，不能作为租户回落。
+- 上线时发布 retained `online:true`；LWT 使用同一结构、`online:false`；正常退出也会主动发布一次离线报文。
+- Web 控制台只把 `online:true` 的条目放进下拉，按 `ts` 降序。
+- 当前 agent 尚未实现 presence 与设备控制权 `acquire/release`；在补齐前，若设备已被其他客户端持有控制权，agent 的控制命令可能被设备拒绝（见 §4.19）。
+
+## 5. 修改协议的流程
 
 1. **先改本文档**，让文档成为讨论与评审的载体。
-2. 同步修改两端实现，对照表见 §6。命名约定由自检强制，不要发明新的后缀语义。
+2. 同步修改各端（App/Web/agent/设备）实现。
 3. 同步更新测试，**缺一不可**：
    - App：`TopicNamesTest`（主题命名/清洗）、`MessageRouterTest`（路由/去重）、
      以及对应模型的解析测试（`StatusSnapshotTest` 等）
    - 设备端：`net_mqtt_bridge/test/test_protocol.py`（主题配对/订阅清单/request_id）、
      `test_car_motor.py`（车控校验与轮速预算）等
+   - agent：对话/在线报文字段与必填校验测试（待补）
 4. 本地验证通过后提交（CI 工作流已移除，提交前务必本地跑通以下检查）：
 
 ```bash
@@ -1289,16 +1430,22 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 
 - 应答必须原样回显 `request_id`（历史 bug：漏回显 → App 丢弃结果 → 一直转圈）；
 - 请求按主题第 4 段的 `device_id` 路由，设备端不再校验 uuid（v1.12 起 uuid 已删除）；
-- 新增主题段先过 `sanitize`，两端清洗规则必须逐字符一致。
-
-
-## 6. 相关文档
-
-- [设备端部署说明](../walle-device/linux-demo/README.md) — main.py 安装与配置
+- 新增主题段先过 `sanitize`，各端清洗规则必须逐字符一致。
 
 ---
 
-## 7. 变更记录
+## 6. 变更记录
+
+### 2026-11-25：合并 walle-agent MQTT 协议（文档 v1.16）
+
+**变更类型**：新增 agent 主题与报文约定；设备/App 现有主题与报文不变。
+
+- 将 `walle-agent/docs/mqtt-protocol.md` 的对话与在线报文并入 §4.20、§4.21，agent 主题以本文为准。
+- `chat/request` 明确 `client_id` / `client_name` / `request_id` / `device` / `text` 为必填；`chat/response` 统一使用 `agent_id`。
+- `agent/{agent}/online` 载荷以 §4.21 示例为准（`agent_id` / `agent_name` / `version_code` / `version_name` / `ts`）。
+- agent 订阅清单、presence、控制权 acquire/release 与 ACL 规则本次未变更/未补充，见 [agent_protocol_tasks.md](agent_protocol_tasks.md)。
+
+**兼容性**：当前 `walle-agent` 与 Web 仍使用 `agents/` 主题及 `agent` / `name` / `version` 等旧字段，且未校验 `client_id` / `client_name`；按任务清单升级后再以本文为最终契约。
 
 ### 2026-11-25：新增设备控制权租约 control/acquire|release（文档 v1.15）
 

@@ -1,0 +1,111 @@
+# agent 协议后续任务清单
+
+> 对应 [MQTT_protocol_convention.md](MQTT_protocol_convention.md) §4.20 / §4.21。
+> 本次只固化文档约定；以下按优先级逐项实现，完成一项勾选一项。
+
+## 已确认的约定
+
+- online 报文以 §4.21 示例为准：`agent_id` / `agent_name` / `online` / `version_code` / `version_name` / `ts`。
+- agent 主题统一为 `walle/{t}/agent/{agent_id}/...`（单数 `agent`，不是 `agents`）。
+- agent 作为独立控制端，使用 `agent_id` / `agent_name`；presence 与设备控制权 `acquire/release` 后续实现。
+- `user` 字段废弃，agent 改用 `client_name`。
+- agent 订阅清单、系统 MQTT ACL 本次不修改。
+
+## P0 字段与校验对齐（不改主题）
+
+- [ ] 0. 主题命名 `agents` → `agent`（代码先对齐）
+  - Web：`web/car_ctl_by_mqtt.html` 的 `agentPrefix`、订阅 `agent/+/online` / `agent/+/chat/response`、发布 `agent/{a}/chat/request`
+  - agent：`walle-agent/src/car_agent.py` 的 `chat_topic()`、`agent_status_topic()` 改为 `walle/{t}/agent/...`
+  - 验收：抓包主题全部为 `walle/{t}/agent/...`；Web 能收到 online 和 chat/response。
+
+- [ ] 1. agent online 字段对齐 §4.21 示例
+  - 改为 `agent_id` / `agent_name` / `online` / `version_code` / `version_name` / `ts`
+  - 移除 `agent` / `name` / `version`（过渡期可同时发旧字段，Web 双读，稳定后再移除）；`tenant` / `capabilities` 是否保留先确认，保留则作为可选字段（建议保留 `capabilities`，避免 Web 的 LLM 标记丢失）
+  - 定义 `version_code` 与 `AGENT_VERSION` 的映射（当前只有 `0.2.0`）
+  - 建议先完成任务 6 的 Web 兼容，再切换 agent 字段，避免下拉显示回退
+  - 文件：`walle-agent/src/car_agent.py` `_status_payload`
+  - 验收：抓 `walle/{t}/agent/{a}/online`，必选字段与示例一致；Web 下拉仍显示名称。
+
+- [ ] 2. chat/response 字段 `agent` → `agent_id`
+  - 文件：`walle-agent/src/car_agent.py` `_run_chat_request`
+  - 验收：响应含 `agent_id`，不再含 `agent`。
+
+- [ ] 3. chat/request 必填校验
+  - `client_id` / `client_name` / `request_id` / `device` / `text` 缺失时：`ok:false`、`error:"invalid"`、`reply` 说明
+  - 移除现有 `request_id` 缺失时的 `chat-` 兜底生成
+  - 文件：`walle-agent/src/car_agent.py` `_on_chat_message` / `_run_chat_request`
+  - 验收：逐项缺失测试，响应与 §4.20 失败表一致。
+
+- [ ] 4. 用 `client_name` 替代 `user`
+  - 日志与运动 `request_id` 前缀改用 `client_name`（清洗后；为空回落 `agent_id`）
+  - 文件：`walle-agent/src/car_agent.py` `_run_chat_request` / `_run_motion`
+  - Web 可继续发送 `user`，agent 不再读取
+  - 验收：日志出现 `client_name`；运动 `request_id` 前缀符合预期。
+
+- [ ] 5. 修正 busy / warning 的回复行为
+  - busy：`reply` 明确提示“正在执行上一条”
+  - 速度夹紧：`ok:true` + `warning`，`reply` 可保持已解析文案
+  - 距离/角度超限：`ok:false` + `reply`，不要求 `warning`
+  - 文件：`walle-agent/src/car_agent.py` `_reply_text` / `handle_chat`
+  - 验收：三种场景与 §4.20 失败表一致。
+
+- [ ] 6. Web 兼容新 online 字段
+  - 读取 `agent_name` / `version_name`，兼容旧 `name` / `version`
+  - `capabilities.llm` 改为可选（无 `capabilities` 不报错）
+  - 文件：`web/car_ctl_by_mqtt.html` 的 `walle-agent-status` 处理
+  - 验收：新旧 agent 报文都能显示名称/版本。
+
+## P1 agent 作为独立控制端
+
+- [ ] 7. agent → 设备请求携带自身身份
+  - 所有 `.../request` 与 `.../cmd` 注入 `client_id=agent_id`、`client_name=agent_name`
+  - 文件：`walle-agent/src/car_agent.py` `_publish` / `_drive_payload`
+  - 验收：抓包可见字段；设备审计显示 agent。
+
+- [ ] 8. 实现设备控制权 acquire/release
+  - 控制类请求前 acquire，结束后 release；查询不 acquire
+  - 处理 `occupied` 与 `control_denied`，不自动抢占；回复中提示当前 holder
+  - 文件：`walle-agent/src/car_agent.py`
+  - 验收：Web 持有租约时 agent acquire 返回 `occupied`；release 后恢复。
+
+- [ ] 9. 实现 agent presence
+  - `agent/{agent_id}/online` 用于 Web 展示（本次已定）；设备控制权 presence 仍建议用 §4.18 `client/{agent_id}/online`（设备已订阅 `client/+/online`），否则需同步改设备订阅/ACL
+  - retained + LWT，正常退出发 `online:false`
+  - 文件：`walle-agent/src/car_agent.py`
+  - 验收：设备在 holder 离线 grace 后自动释放。
+
+- [ ] 10. 明确与 Web 抢控制权策略
+  - 拒绝 / 提示当前 holder / 等待，三选一；写入 §4.20/§4.21 或客户端说明
+  - 验收：文档与实现一致。
+
+- [ ] 11. 回归现有 online 离线通知
+  - 如果指现有 `agent/{a}/online`：确认 Ctrl+C / systemctl stop 时会主动发 `online:false`（LWT 只覆盖异常掉线）；当前代码仍用 `agents/`，随第 0 项一起改
+  - 文件：`walle-agent/src/car_agent.py` `shutdown`
+  - 验收：正常退出后 retained 报文为离线。
+
+## P2 订阅、全功能与文档
+
+- [ ] 12. agent 订阅清单
+  - 当前：`device/+/online`、`device/+/baseState/query/response`、`agent/{self}/chat/request`
+  - 全功能需补 `video/*`、`record/*`、`phone/*`、`car/servo/status/query/response` 等响应主题
+  - 写入协议文档的「订阅关系」小节
+
+- [ ] 13. 全功能请求信封
+  - `chat/request` 增加 `resource` + `params`，`chat/response` 增加 `result` / `data`；或定义 agent 转发 device 请求的通用格式
+  - 验收：至少覆盖 `video/start`、`record/list`、`car/servo/status` 三类。
+
+- [ ] 14. capabilities 协议
+  - 若保留：定义 `actions` / `resources` / limits / `llm`；Web 按能力禁用不支持功能
+
+- [ ] 15. 异步事件
+  - 定义 agent → Web 的 `alarm/report`、设备上下线、长任务进度主题；或明确 Web 直连设备主题
+
+- [ ] 16. 并发与超时
+  - 定义单运动 / 多查询、排队、长任务超时，与 Web 20s 超时协调
+
+- [ ] 17. ACL
+  - 按最终 presence / 订阅主题补 broker 规则；本次不改
+
+- [ ] 18. 文档补全
+  - 订阅关系、ACL、配置（`TENANT` / `CLIENT_ID_PREFIX` / `AGENT_NAME` / `DEVICE_ID_FILE`）、急停两条消息、debug 开关
+  - `walle-agent/docs/mqtt-protocol.md` 已删除，保持本文为唯一来源
