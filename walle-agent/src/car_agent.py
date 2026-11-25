@@ -64,9 +64,35 @@ DEFAULTS = {
     "LLM_MODEL": "",
 }
 
-AGENT_VERSION = "0.2.0"
-# 与 §4.21 示例保持一致；发版时与 AGENT_VERSION 一起更新。
-AGENT_VERSION_CODE = 5
+AGENT_VERSION_FILE = os.path.join(REPO_ROOT, "VERSION")
+
+
+def _load_agent_version(path):
+    """读取 walle-agent/VERSION（shell export 格式）。缺失或非法时回落默认值。"""
+    values = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("export "):
+                    line = line[len("export "):].strip()
+                key, sep, value = line.partition("=")
+                if sep:
+                    values[key.strip()] = value.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    try:
+        version_num = int(values.get("AGENT_VERSION_NUM", "0"))
+    except ValueError:
+        version_num = 0
+    return (values.get("AGENT_VERSION_NAME", "0.0.0"), version_num,
+            values.get("AGENT_VERSION_DATE", ""))
+
+
+AGENT_VERSION, AGENT_VERSION_CODE, AGENT_VERSION_DATE = _load_agent_version(
+    AGENT_VERSION_FILE)
 
 # ---------------- 调试输出 ----------------
 # WALLE_AGENT_DEBUG=1 时，把所有收发到的 MQTT 报文格式化打印到终端；
@@ -1242,6 +1268,8 @@ def _raise_keyboard_interrupt(_signum, _frame):
 
 def main():
     """纯 MQTT 常驻进程：不监听任何端口。"""
+    print("walle-agent version: {} ({})".format(
+        AGENT_VERSION, AGENT_VERSION_DATE or "unknown"), flush=True)
     agent = _get_agent()
     deadline = time.time() + 10
     while time.time() < deadline and not agent.mqtt_connected:

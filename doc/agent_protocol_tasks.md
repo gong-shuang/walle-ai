@@ -20,6 +20,7 @@
 - [x] chat/response `agent_id` 与 online 新字段
 - [x] agent 独立控制端：`control/acquire|release` + presence 复用
 - [x] agent 订阅改用 response 通配符，debug 启动打印订阅主题
+- [x] agent 启动读取 `walle-agent/VERSION`，打印版本名与时间，online 使用该版本
 
 ## P0 字段与校验对齐（不改主题）
 
@@ -31,7 +32,7 @@
 - [x] 1. agent online 字段对齐 §4.21 示例
   - 改为 `agent_id` / `agent_name` / `online` / `version_code` / `version_name` / `ts`
   - 已移除 `agent` / `name` / `version`；保留 `tenant` / `capabilities` 作为可选字段
-  - `version_code` 固定为 5，与 `AGENT_VERSION=0.2.0` 一起维护
+  - `version_code` / `version_name` 从 `walle-agent/VERSION` 的 `AGENT_VERSION_NUM` / `AGENT_VERSION_NAME` 读取
   - Web 已改为优先读 `agent_name` / `version_name`，兼容旧字段
   - 文件：`walle-agent/src/car_agent.py` `_status_payload`
   - 验收：抓 `walle/{t}/agent/{a}/online`，必选字段与示例一致；Web 下拉仍显示名称。
@@ -121,6 +122,3 @@
 - [ ] 18. 文档补全
   - 订阅关系、ACL、配置（`TENANT` / `CLIENT_ID_PREFIX` / `AGENT_NAME` / `DEVICE_ID_FILE`）、急停两条消息、debug 开关
   - `walle-agent/docs/mqtt-protocol.md` 已删除，保持本文为唯一来源
-
-
-- [ ] 19. 实现 agent的 版本号和版本名，从外部文件中获取

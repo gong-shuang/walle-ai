@@ -1413,8 +1413,8 @@ agent 启动/重连后订阅：
   "agent_id": "agent-b851fdde",
   "agent_name": "小橙车",
   "online": true,
-  "version_code": 5,
-  "version_name": "0.2.0",
+  "version_code": 1,
+  "version_name": "0.1.1",
   "ts": 1795449995
 }
 ```
@@ -1422,7 +1422,7 @@ agent 启动/重连后订阅：
 - 主题后缀与设备端 `device/{device}/online` 对齐；载荷以本节示例为最小必选字段：`agent_id`、`agent_name`、`online`、`version_code`、`version_name`、`ts`。允许附加可选字段（如 `capabilities`），消费方应忽略未知字段。
 - `agent_id` 为 agent 的 id，即 MQTT 中的 client_id，其前缀在 `walle-agent.conf` 中可配置，对应变量 `CLIENT_ID_PREFIX`。
 - `agent_name` 为 agent 的展示名，对应变量 `AGENT_NAME`；为空时等于 `agent_id`。agent 作为独立控制端向设备下发请求时，`client_id` 使用 `agent_id`、`client_name` 使用 `agent_name`。
-- `version_code` 为整数版本号，`version_name` 为字符串版本号（两者由 agent 版本维护，示例值仅示意）；`ts` 为 Unix 秒，与设备端 `timestamp` 语义相同。
+- `version_code` / `version_name` 来自 `walle-agent/VERSION` 的 `AGENT_VERSION_NUM` / `AGENT_VERSION_NAME`；启动时打印 `AGENT_VERSION_NAME` 与 `AGENT_VERSION_DATE`。`ts` 为 Unix 秒，与设备端 `timestamp` 语义相同。
 - `TENANT` 必须显式配置为 Web/设备所属租户；独立部署时 `MQTT_USER` 是 agent 自己的账号，不能作为租户回落。
 - 上线时发布 retained `online:true`；LWT 使用同一结构、`online:false`；正常退出也会主动发布一次离线报文。
 - 设备端订阅 `walle/{t}/agent/+/online`，按 `agent_id` 维护在线表；设备账号 ACL 需允许该订阅。
@@ -1467,6 +1467,7 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 - `chat/request|response` 使用新的json格式；
 - `agent/{agent}/online` 使用新的json格式。
 - 修改 agent 的主题订阅，覆盖现有与未来同层资源；
+- 实现 agent 的版本，启动时从 walle-agent/VERSION 文件中读取；
 
 ### 2026-11-25：合并 walle-agent MQTT 协议（文档 v1.16）
 
