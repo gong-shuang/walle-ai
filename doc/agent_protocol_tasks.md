@@ -19,6 +19,7 @@
 - [x] chat/request 必填校验、`client_name` 替换 `user`
 - [x] chat/response `agent_id` 与 online 新字段
 - [x] agent 独立控制端：`control/acquire|release` + presence 复用
+- [x] agent 订阅改用 response 通配符，debug 启动打印订阅主题
 
 ## P0 字段与校验对齐（不改主题）
 
@@ -95,10 +96,11 @@
 
 ## P2 订阅、全功能与文档
 
-- [ ] 12. agent 订阅清单
-  - 当前：`device/+/online`、`device/+/baseState/query/response`、`device/+/control/acquire|release/response`、`agent/{self}/chat/request`
-  - 全功能需补 `video/*`、`record/*`、`phone/*`、`car/servo/status/query/response` 等响应主题
-  - 写入协议文档的「订阅关系」小节
+- [x] 12. agent 订阅清单
+  - response 使用分层通配符：`device/+/+/response`、`device/+/+/+/response`、`device/+/+/+/+/response`、`device/+/+/+/+/+/response`
+  - 保留 `device/+/online`、`agent/{self}/chat/request`
+  - `WALLE_AGENT_DEBUG=1` 时启动打印实际订阅主题
+  - 已写入协议文档「agent 订阅关系」
 
 - [ ] 13. 全功能请求信封
   - `chat/request` 增加 `resource` + `params`，`chat/response` 增加 `result` / `data`；或定义 agent 转发 device 请求的通用格式

@@ -565,29 +565,48 @@ class Agent:
             },
         }
 
+    def _subscriptions(self):
+        """agent 需要订阅的主题。
+
+        response 按资源层级用通配符覆盖，新增同层功能时无需改订阅；
+        新增更深层级时在这里补一条模式。
+        """
+        prefix = "walle/{}/device/+".format(self.tenant)
+        subs = [
+            (prefix + "/online", 1),
+            (prefix + "/+/response", 1),           # 1 层资源：xxx/response
+            (prefix + "/+/+/response", 1),         # 2 层：baseState/query/response、video/start/response、control/acquire/response
+            (prefix + "/+/+/+/response", 1),       # 3 层：record/list/query/response
+            (prefix + "/+/+/+/+/response", 1),     # 4 层：car/servo/status/query/response
+        ]
+        if self.chat_enabled:
+            subs.append((chat_topic("request"), 1))
+        return subs
+
+    @staticmethod
+    def _debug_subscriptions(subscriptions):
+        """WALLE_AGENT_DEBUG=1 时，在启动/重连后打印实际订阅主题。"""
+        if not DEBUG_TRAFFIC:
+            return
+        print("walle-agent subscriptions:", flush=True)
+        for topic, qos in subscriptions:
+            print("  SUB {} qos={}".format(topic, qos), flush=True)
+
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         ok = (reason_code == 0) or (getattr(reason_code, "value", reason_code) == 0)
         if ok:
             self.mqtt_connected = True
             self.mqtt_error = None
-            # 统配到租户下所有设备：一次订阅覆盖多设备，避免按设备动态订阅/退订的竞态。
+            # 通配到租户下所有设备：一次订阅覆盖多设备，避免按设备动态订阅/退订的竞态。
             # 代价是也会收到同租户其他设备的消息，按 topic 中的 device 分流即可。
-            prefix = "walle/{}/device/+".format(self.tenant)
-            subscriptions = [
-                (prefix + "/baseState/query/response", 1),
-                (prefix + "/online", 1),
-                (prefix + "/control/acquire/response", 1),
-                (prefix + "/control/release/response", 1),
-            ]
+            subscriptions = self._subscriptions()
             client.subscribe(subscriptions)
+            self._debug_subscriptions(subscriptions)
             if self.chat_enabled:
-                # 独立 agent 的对话入口：只订阅自己那一条 request topic
-                client.subscribe(chat_topic("request"), qos=1)
                 self._publish_topic(agent_status_topic(),
                                     self._status_payload(True), retain=True)
             _announce_ready(self)
-            log().info("MQTT 已连接，订阅 %s chat=%s", subscriptions,
-                       chat_topic("request") if self.chat_enabled else "off")
+            log().info("MQTT 已连接，订阅 %s", subscriptions)
         else:
             self.mqtt_connected = False
             self.mqtt_error = "connect_rejected:{}".format(reason_code)

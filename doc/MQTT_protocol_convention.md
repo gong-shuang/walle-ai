@@ -1391,6 +1391,19 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 `error` 取值集合：`invalid`、`mqtt_not_connected`、`busy`、`no_device`、`agent_exception`、`control_occupied`、`control_failed`。
 agent 不发送「超时」响应；20 秒未收到响应：删除 pending、解锁发送按钮、提示「agent 超时未响应（20s）」。
 
+**agent 订阅关系**
+
+agent 启动/重连后订阅：
+
+- `walle/{t}/agent/{agent}/chat/request`
+- `walle/{t}/device/+/online`
+- `walle/{t}/device/+/+/response`（1 层资源）
+- `walle/{t}/device/+/+/+/response`（2 层，如 `baseState/query/response`、`video/start/response`、`control/acquire/response`）
+- `walle/{t}/device/+/+/+/+/response`（3 层，如 `record/list/query/response`）
+- `walle/{t}/device/+/+/+/+/+/response`（4 层，如 `car/servo/status/query/response`）
+
+`response` 使用分层通配符，新增同层资源无需改订阅；新增更深层级时补一条模式。`WALLE_AGENT_DEBUG=1` 时启动会打印实际订阅主题。
+
 ### 4.21 agent 在线状态 agent/{agent}/online（v1.16）
 
 **报文格式**
@@ -1453,6 +1466,7 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 - agent 相关的的主题段由 `agents` 调整为 `agent`；
 - `chat/request|response` 使用新的json格式；
 - `agent/{agent}/online` 使用新的json格式。
+- 修改 agent 的主题订阅，覆盖现有与未来同层资源；
 
 ### 2026-11-25：合并 walle-agent MQTT 协议（文档 v1.16）
 
