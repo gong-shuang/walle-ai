@@ -694,6 +694,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <input id="fPass" class="input" type="password" placeholder="MQTT / 门户登录密码" autocomplete="off" spellcheck="false">
     </div>
     <div class="field">
+      <label>客户端名字</label>
+      <input id="fClientName" class="input" placeholder="如：Web、我的电脑" spellcheck="false">
+      <div class="hint">作为 client_name 随请求上报，并显示在设备控制权限的持有者里。</div>
+    </div>
+    <div class="field">
       <label>WHIP 推流 Secret（可选，仅语音通话需要）</label>
       <input id="fWhipSecret" class="input mono" type="password" autocomplete="off" spellcheck="false" placeholder="与设备端 MEDIA_SERVER_SECRET 一致">
       <div class="hint">仅本页本地使用，不经过服务端；与「SRS · 流鉴权」中的推流密钥一致。</div>
@@ -731,6 +736,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     server: 'https://www.baidong.xyz',
     user: 'home',
     pass: '',
+    clientName: 'Web',
     clientId: '',
     keepalive: 60,
     prefix: 'walle',
@@ -785,7 +791,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
    'videoEmpty', 'videoHint', 'btnVideoAction', 'btnVideoStop', 'btnVideoSound',
    'btnMic', 'voiceCard', 'micMeterFill',
    'videoMsg', 'alarmList', 'btnAlarmClear', 'carStatus', 'servoStatus', 'servoEnable',
-   'scrim', 'drawer', 'btnDrawerClose', 'fServer', 'fUser', 'fPass', 'fWhipSecret', 'btnSave',
+   'scrim', 'drawer', 'btnDrawerClose', 'fServer', 'fUser', 'fPass', 'fClientName', 'fWhipSecret', 'btnSave',
    'alarmFilter', 'alarmUnreadBar', 'alarmDeviceSel', 'alarmFrom', 'alarmTo',
    'alarmMeta', 'alarmPager', 'btnAlarmQuery', 'btnAlarmReadAll', 'navAlarmDot',
    'recordBadge', 'recordActive', 'recFilename', 'recStartedAt', 'recDuration',
@@ -829,7 +835,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     }
     return id;
   }
-  function clientName() { return 'Web'; }
+  function clientName() { return String(cfg.clientName || '').trim() || 'Web'; }
   function clientOnlineTopic() {
     return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/client/' + clientIdNow() + '/online';
   }
@@ -2989,6 +2995,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     el.fServer.value = cfg.server || '';
     el.fUser.value = cfg.user;
     el.fPass.value = cfg.pass;
+    el.fClientName.value = clientName();
     el.fWhipSecret.value = cfg.whipSecret || '';
   }
   function openDrawer() { fillSettings(); el.drawer.classList.add('show'); el.scrim.classList.add('show'); }
@@ -3006,6 +3013,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     cfg.server = server;
     cfg.user = user;
     cfg.pass = pass;
+    cfg.clientName = String(el.fClientName.value || '').trim() || 'Web';
     cfg.whipSecret = el.fWhipSecret.value.trim();
     sessionStorage.removeItem(TOKEN_KEY);
     stopMic(true);
