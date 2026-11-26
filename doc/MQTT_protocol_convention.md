@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.19）
+# MQTT 协议约定（文档版本 v1.20）
 
 > 本文是 控制端（App/Web）、代理端（agent）、设备端（ros2设备和非ros2设备）之间 MQTT 报文协议的契约
 > **唯一权威文档**，所有 MQTT 主题定义统一收敛到本文。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步各端与测试。
 >
-> - 本文档的版本：v1.19 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.20 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -74,6 +74,7 @@ agent功能：
 |---|---|---|---|---|---|---|
 | 1 | 自然对话 | `walle/{t}/agent/{a}/chat/request` | `walle/{t}/agent/{a}/chat/response` | 请求-应答（QoS1） | v1.16 |  |
 | 2 | agent 在线 | — | `walle/{t}/agent/{a}/online` | 主动上报（retained + LWT） | v1.16 |  |
+| 3 | 基本状态查询 | `walle/{t}/agent/{a}/baseState/query/request` | `walle/{t}/agent/{a}/baseState/query/response` | 请求-应答 | v1.20 | 返回 agent 与所在机器的运行状态 |
 
 `{a}` = agent clientid。
 
@@ -1475,6 +1476,7 @@ agent 不发送「超时」响应；20 秒未收到响应：删除 pending、解
 agent 启动/重连后订阅：
 
 - `walle/{t}/agent/{agent}/chat/request`
+- `walle/{t}/agent/{agent}/baseState/query/request`
 - `walle/{t}/device/+/online`
 - `walle/{t}/device/+/+/response`（1 层资源）
 - `walle/{t}/device/+/+/+/response`（2 层，如 `baseState/query/response`、`video/start/response`、`control/acquire/response`）
@@ -1509,6 +1511,101 @@ agent 启动/重连后订阅：
 - Web 控制台只把 `online:true` 的条目放进下拉，按 `ts` 降序。
 - agent 作为独立控制端，控制动作前 `control/acquire`、结束后 `control/release`；设备端按 §4.19 处理租约与 grace 释放。
 
+### 4.22 agent 基本状态查询 agent/{agent}/baseState/query/request → response（v1.20）
+
+**作用**：查询 agent 及其**所在部署机器**的运行状态（OS、CPU、内存、磁盘、网络、运行时长），
+供 Web 控制台展示机器资源情况。只读查询，不涉及设备控制权，也不需要 acquire。
+
+- 请求：`walle/{t}/agent/{a}/baseState/query/request`
+- 应答：`walle/{t}/agent/{a}/baseState/query/response`
+- 请求/应答均不 retained，QoS1；agent 收到请求后发布一条应答。
+
+**请求字段**：
+
+```json
+{ "request_id": "web-9f3c1a2b" }
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `request_id` | 是 | 原样回显，用于配对 |
+
+**应答字段**：
+
+```json
+{
+  "result": 0,
+  "cause": "ok",
+  "request_id": "web-9f3c1a2b",
+  "agent_id": "agent-b851fdde",
+  "agent_name": "小橙车",
+  "version_code": 1,
+  "version_name": "0.1.1",
+  "tenant": "home",
+  "hostname": "orangepi5plus",
+  "ip": "192.168.1.10",
+  "os": {
+    "name": "Ubuntu",
+    "version": "22.04",
+    "pretty_name": "Ubuntu 22.04.4 LTS",
+    "kernel": "5.10.160-legacy-rk35xx",
+    "arch": "aarch64",
+    "platform": "Linux-5.10.160-legacy-rk35xx-aarch64-with-glibc2.35",
+    "python": "3.10.12"
+  },
+  "cpu": {
+    "model": "ARMv8 Processor rev 0",
+    "cores": 8,
+    "usage_percent": 12.3,
+    "temperature_c": 45.6,
+    "load_avg": [0.52, 0.41, 0.33]
+  },
+  "memory": {
+    "total_bytes": 4294967296,
+    "used_bytes": 1288490189,
+    "available_bytes": 3006477107,
+    "usage_percent": 30.0
+  },
+  "disk": {
+    "path": "/",
+    "total_bytes": 137438953472,
+    "used_bytes": 54975581389,
+    "free_bytes": 82463372083,
+    "usage_percent": 40.0
+  },
+  "network": {
+    "rx_bytes_per_sec": 1024.5,
+    "tx_bytes_per_sec": 512.0
+  },
+  "uptime_sec": 86400.0,
+  "timestamp": 1763000000,
+  "datetime": "2026-11-26 12:00:00"
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `result` / `cause` | 统一错误码（§2.8）：`0` 成功；`-1` 请求无效；`-6` 采集机器状态失败 |
+| `request_id` | 原样回显 |
+| `agent_id` / `agent_name` / `version_code` / `version_name` | agent 身份与版本（与 `agent/{a}/online` 一致） |
+| `tenant` | 租户 |
+| `hostname` / `ip` | agent 所在机器主机名与出口内网 IP |
+| `os` | `name` / `version` / `pretty_name` / `kernel` / `arch` / `platform` / `python` |
+| `cpu` | `model`、逻辑核数 `cores`、`usage_percent`（0.2s 采样）、`temperature_c`（CPU/SoC 温度，℃）、`load_avg`（1/5/15 分钟） |
+| `memory` | 总/已用/可用字节与使用率 |
+| `disk` | 根分区路径、总/已用/空闲字节与使用率 |
+| `network` | 所有非 `lo` 网卡的聚合速率：`rx_bytes_per_sec`（每秒接收字节）、`tx_bytes_per_sec`（每秒发送字节） |
+| `uptime_sec` | 机器运行时长（秒，来自 `/proc/uptime`） |
+| `timestamp` / `datetime` | 应答时间（Unix 秒 / 本地时间） |
+
+**实现与约束**：
+
+- agent 使用标准库 + `/proc`、`/sys/class/thermal` 采集，不依赖 `psutil`；单字段读取失败时该字段返回 `null`，不影响整条应答。
+- CPU 使用率与网络速率共用一次 0.2s 采样：分别读取 `/proc/stat` 和 `/proc/net/dev` 前后两次计数，按实际间隔换算。
+- CPU 温度取 `thermal_zone` 中 CPU/SoC/package 类 zone 的最高值；没有 thermal zone 时为 `null`。
+- 该查询只读，不 acquire 设备控制权，也不改变 agent 的运动状态。
+- agent 无论 `CHAT_MQTT_ENABLED` 是否开启，都会订阅并应答本主题。
+
 ## 5. 修改协议的流程
 
 1. **先改本文档**，让文档成为讨论与评审的载体。
@@ -1537,6 +1634,26 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ## 6. 变更记录
 
 > 历史条目中的结果码以当时版本为准；当前统一错误码见 §2.8。
+
+### 2026-11-26：新增 agent 基本状态查询（文档 v1.20）
+
+**变更类型**：新增 agent 请求-应答主题，不改变现有设备协议。
+
+**变更内容**
+
+- 新增 `walle/{t}/agent/{a}/baseState/query/request → response`；agent 只读返回自身
+  与所在机器的 OS、CPU、内存、磁盘、网络、运行时长等信息（格式见 §4.22）。
+- 应答包含 `agent_id`、`agent_name`、`version_code`、`version_name`、`tenant`、
+  `hostname`、`ip`、`os`、`cpu`、`memory`、`disk`、`network`、`uptime_sec` 与公共时间字段。
+- `walle-agent` 新增订阅该请求主题（不受 `CHAT_MQTT_ENABLED` 影响），使用标准库 + `/proc`
+  采集，不新增第三方依赖。
+- 查询只读，不 acquire 设备控制权；`result` 使用 §2.8 统一错误码（0 成功、-6 采集失败）。
+
+**影响与兼容性**：纯新增主题；旧 Web/agent 不订阅时互不影响。Web 控制台可按需增加展示入口。
+
+**验证方式**：向 `walle/{t}/agent/{a}/baseState/query/request` 发布
+`{"request_id":"t1"}`，应收到同 `request_id` 的应答，且 `hostname`、`ip`、`cpu`、`memory`、
+`disk`、`uptime_sec` 非空；agent 日志应打印该请求与发布结果。
 
 ### 2026-11-26：统一所有 response 错误码（文档 v1.19）
 

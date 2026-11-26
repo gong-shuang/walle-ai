@@ -10,13 +10,17 @@
 """
 
 import hashlib
+import glob
 import json
 import logging
 import os
+import platform
 import random
 import re
 import secrets
+import shutil
 import signal
+import socket
 import sys
 import threading
 import time
@@ -294,6 +298,232 @@ def chat_topic(resource):
 def agent_status_topic():
     # 与设备端 walle/{t}/device/{d}/online 对齐：online 主题承载在线状态（retained + LWT）
     return "walle/{}/agent/{}/online".format(server_tenant(), agent_identity())
+
+
+def agent_base_state_topic(resource):
+    """agent 基本状态查询主题：walle/{t}/agent/{a}/baseState/query/{request|response}"""
+    return "walle/{}/agent/{}/baseState/query/{}".format(
+        server_tenant(), agent_identity(), resource)
+
+
+def _read_first_line(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.readline().strip()
+    except OSError:
+        return ""
+
+
+def _os_info():
+    release = {}
+    try:
+        with open("/etc/os-release", encoding="utf-8") as fh:
+            for line in fh:
+                key, sep, value = line.strip().partition("=")
+                if sep:
+                    release[key.strip()] = value.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return {
+        "name": release.get("NAME") or platform.system() or None,
+        "version": release.get("VERSION_ID") or release.get("VERSION") or None,
+        "pretty_name": release.get("PRETTY_NAME") or None,
+        "kernel": platform.release() or None,
+        "arch": platform.machine() or None,
+        "platform": platform.platform() or None,
+        "python": platform.python_version() or None,
+    }
+
+
+def _cpu_model():
+    for key in ("model name", "Hardware", "Processor"):
+        try:
+            with open("/proc/cpuinfo", encoding="utf-8") as fh:
+                for line in fh:
+                    name, sep, value = line.partition(":")
+                    if sep and name.strip() == key and value.strip():
+                        return value.strip()
+        except OSError:
+            break
+    return platform.processor() or platform.machine() or None
+
+
+def _cpu_times():
+    parts = _read_first_line("/proc/stat").split()
+    if len(parts) < 5 or parts[0] != "cpu":
+        return None
+    try:
+        values = [int(value) for value in parts[1:]]
+    except ValueError:
+        return None
+    idle = values[3] + (values[4] if len(values) > 4 else 0)
+    return sum(values), idle
+
+
+def _cpu_temperature():
+    """读取 CPU/SoC 温度（摄氏度）；无 thermal zone 时返回 None。"""
+    candidates = []
+    for zone in glob.glob("/sys/class/thermal/thermal_zone*"):
+        try:
+            with open(os.path.join(zone, "type"), encoding="utf-8") as fh:
+                zone_type = fh.read().strip().lower()
+            with open(os.path.join(zone, "temp"), encoding="utf-8") as fh:
+                raw = float(fh.read().strip())
+        except (OSError, ValueError):
+            continue
+        # 内核一般上报毫摄氏度；少数平台直接上报摄氏度
+        value = raw / 1000.0 if raw > 1000 else raw
+        candidates.append((zone_type, value))
+    if not candidates:
+        return None
+    preferred = [value for zone_type, value in candidates
+                 if any(key in zone_type for key in
+                        ("cpu", "soc", "package", "coretemp", "x86_pkg_temp"))]
+    values = preferred or [value for _zone_type, value in candidates]
+    return round(max(values), 1)
+
+
+def _network_totals():
+    """所有非 lo 网卡的累计收发字节；读取失败返回 None。"""
+    rx_total = tx_total = 0
+    try:
+        with open("/proc/net/dev", encoding="utf-8") as fh:
+            lines = fh.readlines()[2:]
+        for line in lines:
+            name, sep, data = line.partition(":")
+            fields = data.split()
+            if not sep or len(fields) < 16 or name.strip() == "lo":
+                continue
+            rx_total += int(fields[0])
+            tx_total += int(fields[8])
+    except (OSError, ValueError):
+        return None
+    return rx_total, tx_total
+
+
+def _cpu_and_net_sample(interval=0.2):
+    """一次采样同时计算 CPU 使用率与网络收发速率（字节/秒）。"""
+    cpu_first = _cpu_times()
+    net_first = _network_totals()
+    started = time.monotonic()
+    time.sleep(interval)
+    cpu_second = _cpu_times()
+    net_second = _network_totals()
+    elapsed = time.monotonic() - started
+
+    cpu_percent = None
+    if cpu_first is not None and cpu_second is not None:
+        total = cpu_second[0] - cpu_first[0]
+        idle = cpu_second[1] - cpu_first[1]
+        if total > 0:
+            cpu_percent = round(
+                max(0.0, min(100.0, (1.0 - idle / total) * 100.0)), 1)
+
+    rx_rate = tx_rate = None
+    if net_first is not None and net_second is not None and elapsed > 0:
+        rx_rate = round(max(0, net_second[0] - net_first[0]) / elapsed, 1)
+        tx_rate = round(max(0, net_second[1] - net_first[1]) / elapsed, 1)
+    return cpu_percent, rx_rate, tx_rate
+
+
+def _memory_info():
+    values = {}
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as fh:
+            for line in fh:
+                key, sep, value = line.partition(":")
+                if not sep:
+                    continue
+                key = key.strip()
+                if key in ("MemTotal", "MemAvailable", "MemFree", "Buffers", "Cached"):
+                    values[key] = int(value.strip().split()[0]) * 1024
+    except (OSError, ValueError):
+        pass
+    total = values.get("MemTotal")
+    available = values.get("MemAvailable")
+    if available is None:
+        available = (values.get("MemFree", 0) + values.get("Buffers", 0)
+                     + values.get("Cached", 0))
+    if not total:
+        return {"total_bytes": None, "used_bytes": None,
+                "available_bytes": None, "usage_percent": None}
+    used = max(0, total - available)
+    return {
+        "total_bytes": total,
+        "used_bytes": used,
+        "available_bytes": available,
+        "usage_percent": round(used / total * 100.0, 1),
+    }
+
+
+def _disk_info(path="/"):
+    try:
+        usage = shutil.disk_usage(path)
+    except OSError:
+        return {"path": path, "total_bytes": None, "used_bytes": None,
+                "free_bytes": None, "usage_percent": None}
+    percent = round(usage.used / usage.total * 100.0, 1) if usage.total else None
+    return {
+        "path": path,
+        "total_bytes": usage.total,
+        "used_bytes": usage.used,
+        "free_bytes": usage.free,
+        "usage_percent": percent,
+    }
+
+
+def _local_ip():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.connect(("8.8.8.8", 80))
+        return sock.getsockname()[0]
+    except OSError:
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except OSError:
+            return "127.0.0.1"
+    finally:
+        sock.close()
+
+
+def _uptime_sec():
+    parts = _read_first_line("/proc/uptime").split()
+    try:
+        return round(float(parts[0]), 1)
+    except (IndexError, ValueError):
+        return None
+
+
+def _load_avg():
+    try:
+        return [round(value, 2) for value in os.getloadavg()]
+    except (AttributeError, OSError):
+        return []
+
+
+def machine_state():
+    """采集 agent 所在机器的运行状态；单字段失败时返回 null，不抛异常。"""
+    ip = _local_ip()
+    cpu_percent, rx_rate, tx_rate = _cpu_and_net_sample()
+    return {
+        "hostname": socket.gethostname() or None,
+        "ip": ip,
+        "os": _os_info(),
+        "cpu": {
+            "model": _cpu_model(),
+            "cores": os.cpu_count(),
+            "usage_percent": cpu_percent,
+            "temperature_c": _cpu_temperature(),
+            "load_avg": _load_avg(),
+        },
+        "memory": _memory_info(),
+        "disk": _disk_info("/"),
+        "network": {
+            "rx_bytes_per_sec": rx_rate,
+            "tx_bytes_per_sec": tx_rate,
+        },
+        "uptime_sec": _uptime_sec(),
+    }
 
 
 def topic_for(device, resource):
@@ -605,6 +835,8 @@ class Agent:
             (prefix + "/+/+/+/response", 1),       # 3 层：record/list/query/response
             (prefix + "/+/+/+/+/response", 1),     # 4 层：car/servo/status/query/response
         ]
+        # agent 自身的基本状态查询（不依赖 chat 是否开启）
+        subs.append((agent_base_state_topic("request"), 1))
         if self.chat_enabled:
             subs.append((chat_topic("request"), 1))
         return subs
@@ -649,6 +881,9 @@ class Agent:
         if self.chat_enabled and msg.topic == chat_topic("request"):
             self._on_chat_message(msg)
             return
+        if msg.topic == agent_base_state_topic("request"):
+            self._on_agent_state_request(msg)
+            return
         device = self._topic_device(msg.topic)
         try:
             payload = json.loads(msg.payload.decode("utf-8"))
@@ -682,6 +917,36 @@ class Agent:
             self.link_event.set()
         log().info("MQTT 收到 %s %s", msg.topic,
                    json.dumps(payload, ensure_ascii=False)[:500])
+
+    # ---- agent 基本状态 ----
+    def _on_agent_state_request(self, msg):
+        payload = self._decode_payload(msg)
+        if not isinstance(payload, dict):
+            payload = {}
+        # CPU 使用率需要约 0.2s 采样，放线程里避免阻塞 MQTT 收包
+        threading.Thread(target=self._serve_agent_state, args=(payload,),
+                         daemon=True, name="agent-state").start()
+
+    def _serve_agent_state(self, payload):
+        request_id = str(payload.get("request_id") or "")
+        response = {
+            "result": 0,
+            "cause": "ok",
+            "request_id": request_id,
+            "agent_id": agent_identity(),
+            "agent_name": agent_name(),
+            "version_code": AGENT_VERSION_CODE,
+            "version_name": AGENT_VERSION,
+            "tenant": self.tenant,
+        }
+        try:
+            response.update(machine_state())
+        except Exception as exc:  # noqa: BLE001
+            log().warning("采集机器状态失败: %s", exc)
+            response.update({"result": -6, "cause": "采集机器状态失败: %s" % exc})
+        response["timestamp"] = int(time.time())
+        response["datetime"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        self._publish_topic(agent_base_state_topic("response"), response)
 
     # ---- 对话层（用户 ↔ agent）----
     @staticmethod
