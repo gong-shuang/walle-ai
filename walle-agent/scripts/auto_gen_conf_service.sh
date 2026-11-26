@@ -7,12 +7,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONF="$ROOT/etc/walle-agent.conf"
 UNIT="$ROOT/etc/walle-agent.service"
 
-ask_optional() { # ask_optional <变量名> <提示>：允许留空，保留空格与中文
-  local __var="$1" __prompt="$2" __value=""
-  read -r -p "$__prompt" __value || true
-  printf -v "$__var" '%s' "$__value"
-}
-
 ask() { # ask <变量名> <提示> [silent]
   local __var="$1" __prompt="$2" __silent="${3:-}" __value=""
   while [ -z "$__value" ]; do
@@ -64,8 +58,6 @@ ask_tenant
 
 ask MQTT_PASSWORD "MQTT 密码（输入不回显）：" silent
 
-ask_optional AGENT_NAME "agent 名字（可留空；留空时显示为 clientid，可含空格和中文）："
-
 if [ "$MQTT_PORT" = "8883" ]; then MQTT_TLS=1; else MQTT_TLS=0; fi
 mkdir -p "$ROOT/etc"
 
@@ -82,7 +74,6 @@ MQTT_PASSWORD=$MQTT_PASSWORD
 TENANT=$TENANT
 CHAT_MQTT_ENABLED=1
 CLIENT_ID_PREFIX=agent-
-AGENT_NAME=$AGENT_NAME
 
 # 运动限制与发送频率
 DEFAULT_SPEED=0.5
@@ -127,7 +118,7 @@ echo "已生成："
 echo "  $CONF"
 echo "  $UNIT"
 echo "  tenant：$TENANT"
-echo "  agent 名字：${AGENT_NAME:-（空，运行时回落到 clientid）}"
+echo "  agent 名字：首次启动自动生成 agent_<hostname>，可在 Web 修改"
 echo
 echo "安装为系统服务："
 echo "  sudo cp $UNIT /etc/systemd/system/walle-agent.service"

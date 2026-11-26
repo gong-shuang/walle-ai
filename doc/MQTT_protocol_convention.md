@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.20）
+# MQTT 协议约定（文档版本 v1.21）
 
 > 本文是 控制端（App/Web）、代理端（agent）、设备端（ros2设备和非ros2设备）之间 MQTT 报文协议的契约
 > **唯一权威文档**，所有 MQTT 主题定义统一收敛到本文。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步各端与测试。
 >
-> - 本文档的版本：v1.20 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.21 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -75,6 +75,7 @@ agent功能：
 | 1 | 自然对话 | `walle/{t}/agent/{a}/chat/request` | `walle/{t}/agent/{a}/chat/response` | 请求-应答（QoS1） | v1.16 |  |
 | 2 | agent 在线 | — | `walle/{t}/agent/{a}/online` | 主动上报（retained + LWT） | v1.16 |  |
 | 3 | 基本状态查询 | `walle/{t}/agent/{a}/baseState/query/request` | `walle/{t}/agent/{a}/baseState/query/response` | 请求-应答 | v1.20 | 返回 agent 与所在机器的运行状态 |
+| 4 | 配置修改 | `walle/{t}/agent/{a}/config/modify/request` | `walle/{t}/agent/{a}/config/modify/response` | 请求-应答 | v1.21 | 当前仅支持修改 `agent_name`（§4.23） |
 
 `{a}` = agent clientid。
 
@@ -1477,6 +1478,7 @@ agent 启动/重连后订阅：
 
 - `walle/{t}/agent/{agent}/chat/request`
 - `walle/{t}/agent/{agent}/baseState/query/request`
+- `walle/{t}/agent/{agent}/config/modify/request`
 - `walle/{t}/device/+/online`
 - `walle/{t}/device/+/+/response`（1 层资源）
 - `walle/{t}/device/+/+/+/response`（2 层，如 `baseState/query/response`、`video/start/response`、`control/acquire/response`）
@@ -1502,7 +1504,7 @@ agent 启动/重连后订阅：
 
 - 主题后缀与设备端 `device/{device}/online` 对齐；载荷以本节示例为最小必选字段：`agent_id`、`agent_name`、`online`、`version_code`、`version_name`、`ts`。允许附加可选字段（如 `capabilities`），消费方应忽略未知字段。
 - `agent_id` 为 agent 的 id，即 MQTT 中的 client_id，其前缀在 `walle-agent.conf` 中可配置，对应变量 `CLIENT_ID_PREFIX`。
-- `agent_name` 为 agent 的展示名，对应变量 `AGENT_NAME`；为空时等于 `agent_id`。agent 作为独立控制端向设备下发请求时，`client_id` 使用 `agent_id`、`client_name` 使用 `agent_name`。
+- `agent_name` 为 agent 的展示名，保存在 agent 本机 `etc/.run/agent-name`：首次启动读取，文件不存在时自动生成 `agent_<hostname>` 并落盘；之后通过 `config/modify`（§4.23）修改并写回。名称不参与 topic/ACL。agent 作为独立控制端向设备下发请求时，`client_id` 使用 `agent_id`、`client_name` 使用 `agent_name`。
 - `version_code` / `version_name` 来自 `walle-agent/VERSION` 的 `AGENT_VERSION_NUM` / `AGENT_VERSION_NAME`；启动时打印 `AGENT_VERSION_NAME` 与 `AGENT_VERSION_DATE`。`ts` 为 Unix 秒，与设备端 `timestamp` 语义相同。
 - `TENANT` 必须显式配置为 Web/设备所属租户；独立部署时 `MQTT_USER` 是 agent 自己的账号，不能作为租户回落。
 - 上线时发布 retained `online:true`；LWT 使用同一结构、`online:false`；正常退出也会主动发布一次离线报文。
@@ -1606,6 +1608,61 @@ agent 启动/重连后订阅：
 - 该查询只读，不 acquire 设备控制权，也不改变 agent 的运动状态。
 - agent 无论 `CHAT_MQTT_ENABLED` 是否开启，都会订阅并应答本主题。
 
+### 4.23 agent 配置修改 agent/{agent}/config/modify/request → response（v1.21）
+
+**作用**：在线修改 agent 配置。当前仅支持 `agent_name`（展示名）；后续按需扩展，
+agent 忽略未识别的字段。
+
+- 请求：`walle/{t}/agent/{a}/config/modify/request`
+- 应答：`walle/{t}/agent/{a}/config/modify/response`
+- 不 retained，QoS1；agent 无论 `CHAT_MQTT_ENABLED` 是否开启都会订阅并应答。
+- 修改成功后 agent 把名称写入本机 `etc/.run/agent-name`；若开启了 online 上报
+  （`CHAT_MQTT_ENABLED=1`），立即重发 retained `agent/{a}/online`，控制端无需重连即可看到新名称。
+
+**请求字段**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `request_id` | string | 是 | 配对用，原样回显 |
+| `agent_name` | string | 是 | 新展示名；`strip` 后 1~64 字符，允许空格与中文，不允许控制字符 |
+
+```json
+{ "client_id": "web-vg8ww5er",
+  "client_name": "Web666",
+  "request_id": "web-9f3c1a2b", 
+  "agent_name": "903" }
+```
+
+**应答字段**：
+
+```json
+{
+  "result": 0,
+  "cause": "ok",
+  "request_id": "web-9f3c1a2b",
+  "agent_id": "agent-772c194f",
+  "agent_name": "903",
+  "tenant": "home",
+  "timestamp": 1763000000,
+  "datetime": "2026-11-26 14:30:00"
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `result` / `cause` | 统一错误码（§2.8）：`0` 成功；`-1` 请求无效（缺 `agent_name`）；`-2` 参数错误（空、超长、含控制字符）；`-6` 写盘失败 |
+| `request_id` | 原样回显 |
+| `agent_id` | agent 的 client_id |
+| `agent_name` | 修改后的名称；失败时为当前名称 |
+| `tenant` | 租户 |
+| `timestamp` / `datetime` | 应答时间（Unix 秒 / 本地时间） |
+
+**约束**：
+
+- 只改配置，与运动控制无关，不需要 acquire 设备控制权，也不影响进行中的运动任务。
+- 名称仅用于展示与 `client_name`，不参与 topic、ACL 与身份计算；`agent_id` 始终是 clientid。
+- 写盘失败返回 `-6`，内存中的名称保持不变。
+
 ## 5. 修改协议的流程
 
 1. **先改本文档**，让文档成为讨论与评审的载体。
@@ -1634,6 +1691,25 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ## 6. 变更记录
 
 > 历史条目中的结果码以当时版本为准；当前统一错误码见 §2.8。
+
+### 2026-11-26：新增 agent 配置修改（文档 v1.21）
+
+**变更类型**：新增 agent 请求-应答主题，不改变现有设备协议。
+
+**变更内容**
+
+- 新增 `walle/{t}/agent/{a}/config/modify/request → response`；当前仅支持修改
+  `agent_name`（格式见 §4.23）。
+- `agent_name` 不再从 `etc/walle-agent.conf` 读取：启动时读 `etc/.run/agent-name`，
+  缺失则以 `agent_<hostname>` 生成并落盘；修改成功后写回该文件并重发 retained `online`。
+- `scripts/auto_gen_conf_service.sh` 不再询问/写入 `AGENT_NAME`。
+
+**影响与兼容性**：旧配置文件中的 `AGENT_NAME` 会被忽略；未创建 `.run/agent-name` 的
+agent 首次启动后名称变为 `agent_<hostname>`，可通过新主题改回。
+
+**验证方式**：向 `agent/{a}/config/modify/request` 发布
+`{"request_id":"t1","agent_name":"903"}`，应答 `result=0` 且 `agent_name=903`；
+`etc/.run/agent-name` 内容同步更新；`agent/{a}/online` 的 `agent_name` 变为新值。
 
 ### 2026-11-26：新增 agent 基本状态查询（文档 v1.20）
 

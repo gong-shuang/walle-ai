@@ -39,8 +39,11 @@ bash scripts/auto_gen_conf_service.sh
 | `MQTT_USER` / `MQTT_PASSWORD` | agent 的 MQTT 凭据 |
 | `TENANT` | 主题里的租户段，默认等于用户名 |
 | `CLIENT_ID_PREFIX` | clientid 前缀，默认 `agent-` |
-| `AGENT_NAME` | 展示名，可选；为空时回落为 clientid，不参与 topic/ACL |
 | `DEVICE_ID_FILE` | 可选，固定 clientid 的保存路径，默认 `etc/.device-id` |
+
+agent 展示名不再写在配置文件里：首次启动读 `etc/.run/agent-name`，文件不存在时
+自动生成 `agent_<hostname>` 并写入；之后可通过 MQTT
+`walle/{t}/agent/{a}/config/modify/request` 修改，修改结果同步写回该文件。
 
 ## 4. 启动
 

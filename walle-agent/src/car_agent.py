@@ -53,8 +53,6 @@ DEFAULTS = {
     "CHAT_MQTT_ENABLED": "1",
     # MQTT clientid 前缀；完整格式为「前缀 + 8 位随机十六进制」，进程启动时生成一次
     "CLIENT_ID_PREFIX": "agent-",
-    # 展示名（可选）：只出现在 status/health，不参与 topic 与鉴权
-    "AGENT_NAME": "",
     "DEFAULT_SPEED": "0.5",
     "MIN_SPEED": "0.5",
     "MAX_SPEED": "0.6",
@@ -138,6 +136,11 @@ _CLIENT_ID = None
 
 
 DEVICE_ID_FILE = os.path.join(REPO_ROOT, "etc", ".device-id")
+# 展示名运行时状态：首次启动生成 agent_{hostname} 并落盘，之后 MQTT 修改也写这里
+AGENT_NAME_FILE = os.path.join(REPO_ROOT, "etc", ".run", "agent-name")
+
+_AGENT_NAME = None
+_AGENT_NAME_LOCK = threading.RLock()
 
 
 def _machine_fingerprint():
@@ -285,9 +288,59 @@ def agent_identity():
     return mqtt_client_id()
 
 
+def _write_agent_name(value):
+    """把展示名写入 etc/.run/agent-name，供下次启动复用。"""
+    os.makedirs(os.path.dirname(AGENT_NAME_FILE), exist_ok=True)
+    with open(AGENT_NAME_FILE, "w", encoding="utf-8") as fh:
+        fh.write(value + "\n")
+
+
 def agent_name():
-    """展示名：AGENT_NAME 为空时回落到 clientid，不参与任何 topic/ACL 计算。"""
-    return (load_config().get("AGENT_NAME") or "").strip() or mqtt_client_id()
+    """展示名：优先读 etc/.run/agent-name，缺失时用 agent_{hostname} 并落盘。
+
+    不再从 walle-agent.conf 读取；名称不参与任何 topic/ACL 计算。
+    """
+    global _AGENT_NAME
+    with _AGENT_NAME_LOCK:
+        if _AGENT_NAME:
+            return _AGENT_NAME
+        try:
+            with open(AGENT_NAME_FILE, encoding="utf-8") as fh:
+                value = fh.read().strip()
+        except OSError:
+            value = ""
+        if not value:
+            value = "agent_" + (socket.gethostname().strip() or "unknown")
+            try:
+                _write_agent_name(value)
+                log().info("已生成 agent 名称 %s -> %s", value, AGENT_NAME_FILE)
+            except OSError as exc:
+                log().warning("写入 %s 失败：%s（本次使用 %s）",
+                              AGENT_NAME_FILE, exc, value)
+        _AGENT_NAME = value
+        return _AGENT_NAME
+
+
+def set_agent_name(value):
+    """更新展示名并落盘；值由调用方校验，写盘失败抛 OSError。"""
+    global _AGENT_NAME
+    with _AGENT_NAME_LOCK:
+        _write_agent_name(value)
+        _AGENT_NAME = value
+
+
+def normalize_agent_name(value):
+    """校验 agent_name，返回 (清洗后的名字, 错误原因)；合法时原因为 None。"""
+    if not isinstance(value, str):
+        return None, "agent_name 必须是字符串"
+    name = value.strip()
+    if not name:
+        return None, "agent_name 不能为空"
+    if len(name) > 64:
+        return None, "agent_name 不能超过 64 个字符"
+    if any(ord(ch) < 32 for ch in name):
+        return None, "agent_name 不能包含控制字符"
+    return name, None
 
 
 def chat_topic(resource):
@@ -303,6 +356,12 @@ def agent_status_topic():
 def agent_base_state_topic(resource):
     """agent 基本状态查询主题：walle/{t}/agent/{a}/baseState/query/{request|response}"""
     return "walle/{}/agent/{}/baseState/query/{}".format(
+        server_tenant(), agent_identity(), resource)
+
+
+def agent_config_topic(resource):
+    """agent 配置修改主题：walle/{t}/agent/{a}/config/modify/{request|response}"""
+    return "walle/{}/agent/{}/config/modify/{}".format(
         server_tenant(), agent_identity(), resource)
 
 
@@ -835,8 +894,9 @@ class Agent:
             (prefix + "/+/+/+/response", 1),       # 3 层：record/list/query/response
             (prefix + "/+/+/+/+/response", 1),     # 4 层：car/servo/status/query/response
         ]
-        # agent 自身的基本状态查询（不依赖 chat 是否开启）
+        # agent 自身的基本状态查询与配置修改（不依赖 chat 是否开启）
         subs.append((agent_base_state_topic("request"), 1))
+        subs.append((agent_config_topic("request"), 1))
         if self.chat_enabled:
             subs.append((chat_topic("request"), 1))
         return subs
@@ -883,6 +943,9 @@ class Agent:
             return
         if msg.topic == agent_base_state_topic("request"):
             self._on_agent_state_request(msg)
+            return
+        if msg.topic == agent_config_topic("request"):
+            self._on_agent_config_request(msg)
             return
         device = self._topic_device(msg.topic)
         try:
@@ -947,6 +1010,52 @@ class Agent:
         response["timestamp"] = int(time.time())
         response["datetime"] = time.strftime("%Y-%m-%d %H:%M:%S")
         self._publish_topic(agent_base_state_topic("response"), response)
+
+    # ---- agent 配置修改（当前仅支持 agent_name）----
+    def _on_agent_config_request(self, msg):
+        payload = self._decode_payload(msg)
+        if not isinstance(payload, dict):
+            payload = {}
+        request_id = str(payload.get("request_id") or "")
+        # 发起方身份：仅用于审计日志，不参与名称校验与应答字段
+        client_id = str(payload.get("client_id") or "").strip()
+        client_name = str(payload.get("client_name") or "").strip()
+        response = {
+            "result": 0,
+            "cause": "ok",
+            "request_id": request_id,
+            "agent_id": agent_identity(),
+            "agent_name": agent_name(),
+            "tenant": self.tenant,
+        }
+        if "agent_name" not in payload:
+            response.update({"result": -1, "cause": "请求里没有 agent_name"})
+        else:
+            name, reason = normalize_agent_name(payload.get("agent_name"))
+            if name is None:
+                response.update({"result": -2, "cause": reason})
+            else:
+                try:
+                    set_agent_name(name)
+                    response["agent_name"] = name
+                except OSError as exc:
+                    response.update({"result": -6,
+                                     "cause": "保存 agent_name 失败: %s" % exc})
+        log_line = ("config modify request_id=%s client_id=%s client_name=%s "
+                    "result=%s cause=%s agent_name=%s")
+        log_args = (request_id or "-", client_id or "-", client_name or "-",
+                    response["result"], response["cause"], response["agent_name"])
+        if response["result"] == 0:
+            log().info(log_line, *log_args)
+        else:
+            log().warning(log_line, *log_args)
+        response["timestamp"] = int(time.time())
+        response["datetime"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        self._publish_topic(agent_config_topic("response"), response)
+        if response["result"] == 0 and self.chat_enabled:
+            # 名称变化后立即重发 retained online，控制台无需等重连即可看到新名字
+            self._publish_topic(agent_status_topic(),
+                                self._status_payload(True), retain=True)
 
     # ---- 对话层（用户 ↔ agent）----
     @staticmethod
@@ -1535,6 +1644,8 @@ def main():
     """纯 MQTT 常驻进程：不监听任何端口。"""
     print("walle-agent version: {} ({})".format(
         AGENT_VERSION, AGENT_VERSION_DATE or "unknown"), flush=True)
+    # 启动即初始化/读取展示名，确保 etc/.run/agent-name 存在
+    agent_name()
     agent = _get_agent()
     deadline = time.time() + 10
     while time.time() < deadline and not agent.mqtt_connected:
