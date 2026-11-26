@@ -743,17 +743,17 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div id="alarmPager" class="alarmPager"></div>
     </section>
 
-    <!-- ============ 对话助手卡片 ============ -->
+    <!-- ============ 对话卡片 ============ -->
     <section class="card agentCard" data-tab-target="agent-chat">
       <div class="cardHead">
         <div>
-          <h2>小车对话助手</h2>
-          <small>自然语言 → 车控指令 · MQTT · 急停优先</small>
+          <h2>对话</h2>
+          <small>自然语言 → 车控指令 · MQTT</small>
         </div>
         <div class="agHeadOps">
           <select id="agSelect" class="agSelect" title="选择 agent"></select>
-          <span id="agChipMqtt" class="badge">agent —</span>
-          <button id="agEstop" class="btn agEstop" type="button" title="直接向设备下发零速">■ 急停</button>
+          <button id="agEstop" class="btn agEstop" type="button"
+            title="优雅停止当前会话：电机停车并释放控制权">■ 停止会话</button>
         </div>
       </div>
 
@@ -1202,7 +1202,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     mqtt.topics = SUBS.map(function (r) { return subBase() + r; });
     var agentPrefix = cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/agent/';
     mqtt.topics.push(agentPrefix + '+/online', agentPrefix + '+/chat/response',
-      agentPrefix + '+/baseState/query/response', agentPrefix + '+/config/modify/response');
+      agentPrefix + '+/baseState/query/response', agentPrefix + '+/config/modify/response',
+      agentPrefix + '+/chat/stop/response');
     mqtt.connect({
       url: wsUrlNow(), user: cfg.user, pass: cfg.pass, clientId: clientIdNow(), keepalive: cfg.keepalive,
       willTopic: clientOnlineTopic(),
@@ -1235,7 +1236,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
   function onMessage(topic, data, retain) {
     var ap = topic.split('/');
-    // agent 主题：online / chat/response / baseState/query/response / config/modify/response
+    // agent 主题：online / chat / baseState / config / stop 的 response
     if (ap.length >= 5 && ap[2] === 'agent') {
       var agentId = ap[3];
       if (/\/online$/.test(topic)) {
@@ -1255,6 +1256,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       }
       if (/\/config\/modify\/response$/.test(topic)) {
         document.dispatchEvent(new CustomEvent('walle-agent-config',
+          { detail: { id: agentId, data: data } }));
+        return;
+      }
+      if (/\/chat\/stop\/response$/.test(topic)) {
+        document.dispatchEvent(new CustomEvent('walle-agent-stop',
           { detail: { id: agentId, data: data } }));
         return;
       }
@@ -3566,8 +3572,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     send: document.getElementById('agSend'),
     form: document.getElementById('agForm'),
     estop: document.getElementById('agEstop'),
-    agents: document.getElementById('agSelect'),
-    chip: document.getElementById('agChipMqtt')
+    agents: document.getElementById('agSelect')
   };
   var detailEls = {
     select: document.getElementById('agDetailSelect'),
@@ -3600,6 +3605,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   var selected = '';
   var pending = {};       // request_id -> { timer }
   var busy = false;
+  var stopPendingRid = '';
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) {
@@ -3621,14 +3627,18 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     els.messages.scrollTop = els.messages.scrollHeight;
   }
 
-  function setChip(cls, text) {
-    els.chip.className = 'badge' + (cls ? ' ' + cls : '');
-    els.chip.textContent = text;
-  }
-
   function currentDevice() {
     var sel = document.getElementById('deviceSelect');
     return sel && sel.value ? String(sel.value) : '';
+  }
+
+  function makeAgentOption(id, withStatus) {
+    var o = document.createElement('option');
+    o.value = id;
+    o.textContent = (agents[id].name || id) +
+      (withStatus ? ' · ' + (agents[id].online ? '在线' : '离线') : '');
+    o.title = id;
+    return o;
   }
 
   function renderAgents() {
@@ -3636,42 +3646,29 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     ids.sort(function (a, b) { return (agents[b].ts || 0) - (agents[a].ts || 0); });
     var saved = selected || sessionStorage.getItem('walle_agent') || '';
     els.agents.innerHTML = '';
+    if (detailEls.select) detailEls.select.innerHTML = '';
     if (!ids.length) {
-      var opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = '（暂无在线 agent）';
-      els.agents.appendChild(opt);
+      var chatOpt = document.createElement('option');
+      chatOpt.value = '';
+      chatOpt.textContent = '（暂无在线 agent）';
+      els.agents.appendChild(chatOpt);
+      if (detailEls.select) detailEls.select.appendChild(chatOpt.cloneNode(true));
       selected = '';
     } else {
       ids.forEach(function (id) {
-        var o = document.createElement('option');
-        o.value = id;
-        o.textContent = (agents[id].name || id) +
-          (agents[id].capabilities && agents[id].capabilities.llm ? ' · LLM' : '');
-        o.title = id;
-        els.agents.appendChild(o);
+        els.agents.appendChild(makeAgentOption(id, true));
+        if (detailEls.select) detailEls.select.appendChild(makeAgentOption(id, false));
       });
       selected = ids.indexOf(saved) >= 0 ? saved : ids[0];
       els.agents.value = selected;
+      if (detailEls.select) detailEls.select.value = selected;
       sessionStorage.setItem('walle_agent', selected);
     }
-    if (detailEls.select) {
-      detailEls.select.innerHTML = els.agents.innerHTML;
-      detailEls.select.value = selected;
-    }
-    updateChip();
     // 详情页已打开但还没有数据时，agent 上线后自动查询一次
     if (detailEls.select &&
         document.querySelector('.tabPanel[data-tab="agent-detail"].active')) {
       requestAgentState();
     }
-  }
-
-  function updateChip() {
-    var a = agents[selected];
-    if (!a) { setChip('', 'agent 离线'); return; }
-    setChip(a.online ? 'ok' : 'bad', 'agent ' + (a.online ? '在线' : '离线') +
-      (a.version ? ' · v' + a.version : ''));
   }
 
   // ---------------- agent 详情（baseState/query） ----------------
@@ -3883,7 +3880,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       selected = detailEls.select.value;
       sessionStorage.setItem('walle_agent', selected);
       if (els.agents) els.agents.value = selected;
-      updateChip();
       syncRenameInput();
       requestAgentState();
     });
@@ -3893,15 +3889,25 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var id = e.detail.id, d = e.detail.data || {};
     agents[id] = {
       online: !!d.online, ts: Number(d.ts) || 0,
-      name: d.agent_name || d.name || '',
-      version: d.version_name || d.version || '',
-      capabilities: d.capabilities || {}
+      name: d.agent_name || d.name || ''
     };
     if (id === selected && detailEls.nameInput &&
         document.activeElement !== detailEls.nameInput && !renamePendingRid) {
       detailEls.nameInput.value = agents[id].name || '';
     }
     renderAgents();
+  });
+
+  document.addEventListener('walle-agent-stop', function (e) {
+    var id = e.detail.id, d = e.detail.data || {};
+    if (id !== selected || !stopPendingRid) return;
+    if (d.request_id && d.request_id !== stopPendingRid) return;
+    stopPendingRid = '';
+    if (Number(d.result) !== 0) {
+      addMsg('sys', '停止会话失败：' + (d.cause || ('result=' + d.result)));
+      return;
+    }
+    addMsg('sys', d.stopped ? '会话已停止，控制权已释放。' : '当前没有进行中的会话。');
   });
 
   document.addEventListener('walle-agent-response', function (e) {
@@ -3960,27 +3966,27 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     selected = els.agents.value;
     sessionStorage.setItem('walle_agent', selected);
     if (detailEls.select) detailEls.select.value = selected;
-    updateChip();
     syncRenameInput();
   });
 
-  // 急停：不依赖 agent，直接向设备发零速；另发一条请求通知 agent 中止当前动作
+  // 停止会话：优雅停止 agent 当前会话（电机停车并释放控制权）
   els.estop.addEventListener('click', function () {
-    var dev = currentDevice();
-    if (!dev) { addMsg('sys', '急停：请先选择设备。'); return; }
-    var zero = {
-      request_id: 'web-estop-' + Math.random().toString(16).slice(2, 8),
-      move: { forward: 0, back: 0, left: 0, right: 0 },
-      rotate: { left: false, right: false }
-    };
-    var ok = window.__wallePublish(window.__walleDeviceBase(dev) + '/car/motor/set/request', zero);
-    addMsg('sys', ok ? '急停：已直接向设备下发零速。' : '急停：MQTT 未连接，未发出。');
-    if (selected && window.__wallePublish) {
-      window.__wallePublish(window.__walleAgentBase() + selected + '/chat/request', {
-        request_id: 'web-abort-' + Math.random().toString(16).slice(2, 8),
-        device: dev, text: '停止', user: 'web', intent: 'abort', ts: Date.now()
-      });
+    if (!selected) { addMsg('sys', '停止会话：当前没有在线 agent。'); return; }
+    if (!window.__wallePublish) { addMsg('sys', '停止会话：MQTT 未连接，未发出。'); return; }
+    var rid = 'web-stop-' + Math.random().toString(16).slice(2, 8);
+    stopPendingRid = rid;
+    var topic = window.__walleAgentBase() + selected + '/chat/stop/request';
+    if (!window.__wallePublish(topic, { request_id: rid })) {
+      stopPendingRid = '';
+      addMsg('sys', '停止会话：MQTT 未连接，未发出。');
+      return;
     }
+    addMsg('sys', '正在停止会话…');
+    setTimeout(function () {
+      if (stopPendingRid !== rid) return;
+      stopPendingRid = '';
+      addMsg('sys', '停止会话超时（8s），请检查 agent 状态。');
+    }, 8000);
   });
 
   addMsg('sys', '你好，我是小车对话助手（MQTT 直连）。可以说：前进3米、左转90度、停止、状态。');
