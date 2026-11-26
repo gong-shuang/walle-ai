@@ -371,6 +371,12 @@ def agent_stop_topic(resource):
         server_tenant(), agent_identity(), resource)
 
 
+def agent_progress_topic():
+    """agent 会话进度上报主题：walle/{t}/agent/{a}/chat/progress/report"""
+    return "walle/{}/agent/{}/chat/progress/report".format(
+        server_tenant(), agent_identity())
+
+
 def _read_first_line(path):
     try:
         with open(path, encoding="utf-8") as fh:
@@ -1212,6 +1218,39 @@ class Agent:
                           "text": text, "ok": response["ok"],
                           "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
         self._publish_topic(chat_topic("response"), response)
+
+    # ---- 会话进度上报（供长会话/LLM 任务使用，当前短会话不调用）----
+    PROGRESS_STAGES = ("accepted", "started", "progress", "waiting",
+                       "completed", "failed", "stopped")
+
+    def report_progress(self, request_id, stage, device=None,
+                        progress=None, message=None, cause=None):
+        """上报会话关键进度节点（主动上报，不 retained）。"""
+        request_id = str(request_id or "").strip()
+        stage = str(stage or "").strip()
+        if not request_id or stage not in self.PROGRESS_STAGES:
+            log().warning("忽略非法进度上报 request_id=%s stage=%s",
+                          request_id or "-", stage or "-")
+            return {"published": False, "error": "invalid_progress"}
+        payload = {
+            "agent_id": agent_identity(),
+            "request_id": request_id,
+            "stage": stage,
+            "timestamp": int(time.time()),
+            "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        if device:
+            payload["device"] = str(device)
+        if progress is not None:
+            try:
+                payload["progress"] = max(0, min(100, int(progress)))
+            except (TypeError, ValueError):
+                pass
+        if message:
+            payload["message"] = str(message)
+        if cause:
+            payload["cause"] = str(cause)
+        return self._publish_topic(agent_progress_topic(), payload)
 
     def chat_status(self):
         return {

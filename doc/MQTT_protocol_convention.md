@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.22）
+# MQTT 协议约定（文档版本 v1.23）
 
 > 本文是 控制端（App/Web）、代理端（agent）、设备端（ros2设备和非ros2设备）之间 MQTT 报文协议的契约
 > **唯一权威文档**，所有 MQTT 主题定义统一收敛到本文。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步各端与测试。
 >
-> - 本文档的版本：v1.22 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.23 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -77,6 +77,7 @@ agent功能：
 | 3 | 基本状态查询 | `walle/{t}/agent/{a}/baseState/query/request` | `walle/{t}/agent/{a}/baseState/query/response` | 请求-应答 | v1.20 | 返回 agent 与所在机器的运行状态 |
 | 4 | 配置修改 | `walle/{t}/agent/{a}/config/modify/request` | `walle/{t}/agent/{a}/config/modify/response` | 请求-应答 | v1.21 | 当前仅支持修改 `agent_name`（§4.23） |
 | 5 | 会话停止 | `walle/{t}/agent/{a}/chat/stop/request` | `walle/{t}/agent/{a}/chat/stop/response` | 请求-应答 | v1.22 | 优雅停止当前会话并释放控制权（§4.24） |
+| 6 | 会话进度上报 | - | `walle/{t}/agent/{a}/chat/progress/report` | 主动上报 | v1.23 | 长会话关键进度节点（§4.25） |
 
 `{a}` = agent clientid。
 
@@ -1450,6 +1451,9 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 `chat/response` 只携带上表字段；`mqtt`、`note`、`active_device`、`status`、`result`
 等属于 agent 内部结果，不会透传到应答报文。
 
+长会话进度：agent 可通过 §4.25 的 `chat/progress/report` 主动上报关键节点；
+`chat/response` 仍是唯一的最终结果，进度报文不能替代应答。
+
 控制权约定：
 
 - 控制动作（运动/停止）前先 `control/acquire`，结束后 `control/release`；状态查询不 acquire；
@@ -1729,6 +1733,62 @@ agent 忽略未识别的字段。
 - 幂等：重复发送不会报错；第二次起 `stopped:false`。
 - 停止过程复用 `chat` 的停止流程，结束后 agent 不再持有该设备控制权。
 
+### 4.25 agent 会话进度上报 agent/{agent}/chat/progress/report（v1.23）
+
+**作用**：长会话执行期间，agent 主动上报关键进度节点，供 Web/App 展示进度、
+避免把长任务误判为超时。当前会话较短，agent 暂不产生该上报；协议先行定义，
+供后续 LLM/多步任务使用。
+
+- 主题：`walle/{t}/agent/{a}/chat/progress/report`
+- 方向：agent → Web/App（主动上报，无请求、无应答）
+- 不 retained，QoS1；重复投递按 `request_id + stage` 幂等展示，`progress` 取较大值。
+
+**报文字段**：
+
+```json
+{
+  "agent_id": "agent-772c194f",
+  "request_id": "web-9f3c1a2b",
+  "device": "0580a65014af4d0a",
+  "stage": "progress",
+  "progress": 40,
+  "message": "正在前进 1.2/3.0 米",
+  "timestamp": 1763000000,
+  "datetime": "2026-11-26 15:20:00"
+}
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `agent_id` | 是 | agent clientid |
+| `request_id` | 是 | 对应 `chat/request` 的 request_id，用于把进度关联回会话 |
+| `device` | 否 | 目标设备；纯对话类会话可为空 |
+| `stage` | 是 | 关键节点，取值见下表 |
+| `progress` | 否 | 0–100，`completed` 时为 100；无百分比语义时可省略 |
+| `message` | 否 | 人类可读说明，客户端只展示、不解析 |
+| `cause` | 否 | `failed` / `stopped` 时的失败或停止原因 |
+| `timestamp` / `datetime` | 是 | 上报时间（Unix 秒 / 本地时间） |
+
+**stage 取值**：
+
+| stage | 含义 |
+|---|---|
+| `accepted` | 请求已接受，尚未开始执行 |
+| `started` | 会话开始执行 |
+| `progress` | 执行中，通常带 `progress` |
+| `waiting` | 等待外部事件（设备响应、用户确认等） |
+| `completed` | 会话完成 |
+| `failed` | 会话失败 |
+| `stopped` | 被 `chat/stop` 中止 |
+
+**约束**：
+
+- 只在关键节点上报，不做高频轮询；带 `progress` 的上报建议不超过 1 次/秒。
+- 进度是**通知**，不改变 `chat/response` 的请求-应答语义；客户端不能以进度报文替代最终应答。
+- Web/App 订阅 `walle/{t}/agent/+/chat/progress/report`，按 `request_id` 归并；
+  收到未知 `request_id` 时忽略。
+- 该主题不 retained；客户端重连后只依赖 `chat/response` 的最终结果，不补发历史进度。
+
 ## 5. 修改协议的流程
 
 1. **先改本文档**，让文档成为讨论与评审的载体。
@@ -1757,6 +1817,21 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ## 6. 变更记录
 
 > 历史条目中的结果码以当时版本为准；当前统一错误码见 §2.8。
+
+### 2026-11-26：新增 agent 会话进度上报（文档 v1.23）
+
+**变更类型**：新增 agent 主动上报主题，不改变现有请求-应答协议。
+
+**变更内容**
+
+- 新增 `walle/{t}/agent/{a}/chat/progress/report`：长会话按关键节点上报
+  `stage` / `progress` / `message` / `cause`（格式见 §4.25），用于进度展示与超时判定。
+- 当前会话较短，agent 暂不产生该上报；后续 LLM/多步任务接入。
+
+**影响与兼容性**：纯新增上报主题，不订阅不影响现有功能；`chat/response` 仍是唯一最终结果。
+
+**验证方式**：联调时用 MQTT 客户端订阅该主题，并向其发布一条 `stage=progress`
+样例报文，确认 Web/App 能按 `request_id` 关联会话；QoS1 重复投递时进度取较大值。
 
 ### 2026-11-26：新增 agent 会话停止（文档 v1.22）
 
