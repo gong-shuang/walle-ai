@@ -268,7 +268,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'camera_conf', default_value='',
             description='Path to walle_camera.conf (default: /etc/walle-ai or '
-                        'scripts/etc, or WALLE_CAMERA_CONF)'),
+                        'etc, or WALLE_CAMERA_CONF)'),
         DeclareLaunchArgument(
             'camera_device', default_value='',
             description='Temporary override for camera device in walle_camera.conf'),

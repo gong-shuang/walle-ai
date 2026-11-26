@@ -238,15 +238,24 @@ def _norm_mac(mac):
     return (mac or "").strip().lower()
 
 
+def _walle_home():
+    """walle-device 根目录：优先 WALLE_HOME，其次从源码/安装目录向上找含 ros2_ws 的父目录。"""
+    home = (os.environ.get("WALLE_HOME") or "").strip()
+    if home:
+        return home
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "ros2_ws").is_dir():
+            return str(parent)
+    return ""
+
+
 def _default_device_id_file():
-    """标识文件路径：DEVICE_ID_FILE > 安装目录/.device-id > ~/.config/walle-ai/device-id。"""
+    """标识文件路径：DEVICE_ID_FILE > $WALLE_HOME/.run/device-id（缺失时自动生成）。"""
     if config.DEVICE_ID_FILE:
         return config.DEVICE_ID_FILE
-    beside_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".device-id")
-    # 安装目录可写就用它（最直观）；否则退到用户配置目录
-    parent = os.path.dirname(beside_script)
-    if os.access(parent, os.W_OK):
-        return beside_script
+    home = _walle_home()
+    if home:
+        return os.path.join(home, ".run", "device-id")
     return os.path.join(os.path.expanduser("~"), ".config", "walle-ai", "device-id")
 
 

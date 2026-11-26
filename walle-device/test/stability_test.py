@@ -138,7 +138,7 @@ def mqtt_settings(host=None, port=None):
     here = os.path.dirname(os.path.abspath(__file__))
     candidates = ("/etc/walle-ai.conf",
                   os.path.join(here, "walle-ai.conf"),
-                  os.path.join(here, os.pardir, "scripts", "walle-ai.conf"))
+                  os.path.join(here, os.pardir, "etc", "walle-ai.conf"))
     for path in candidates:
         if os.path.isfile(path) and os.access(path, os.R_OK):
             conf.update(parse_conf(path))

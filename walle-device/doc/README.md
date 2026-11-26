@@ -18,7 +18,9 @@
 - `ros2_ws/src/audio`、`ros2_ws/src/ai`：语音交互与大模型
 - `ros2_ws/src/protocol`：自定义 ROS 消息与服务
 - `ros2_ws/src/bringup`：统一启动、启动自检、版本横幅
-- `scripts`：`deploy.sh`、`start.sh`、`env_walle.sh`、`auto_gen_camera_conf.sh` 与配置/服务模板
+- `scripts`：`deploy.sh`、`start.sh`、`env_walle.sh`、`auto_gen_camera_conf.sh`
+- `etc`：配置文件与服务模板、udev 规则
+- `.run`：运行期状态（`device-id`）
 - `doc`：部署文档、依赖清单与上线检查清单
 
 ### 软硬件要求
@@ -163,11 +165,11 @@ colcon build --symlink-install
 
 ```bash
 # 树莓派 5（RaspberryPi5）
-cd ~/walle-ai/walle-device/scripts/udev
+cd ~/walle-ai/walle-device/etc/udev
 sudo ./create_rpi_udev_rules.sh
 
 # 香橙派 5（OrangePi5）
-cd ~/walle-ai/walle-device/scripts/udev
+cd ~/walle-ai/walle-device/etc/udev
 sudo ./create_orangePi_udev_rules.sh
 ```
 
@@ -186,10 +188,10 @@ cd ~/walle-ai/walle-device/scripts
 脚本通过 `v4l2-ctl` 枚举摄像头、格式（MJPG/YUYV）、分辨率与帧率，并让你命名，最后生成：
 
 ```text
-walle-device/scripts/etc/walle_camera.conf
+walle-device/etc/walle_camera.conf
 ```
 
-配置为 JSON，示例见 `scripts/etc/walle_camera.conf.example`：
+配置为 JSON，示例见 `etc/walle_camera.conf.example`：
 
 ```json
 {
@@ -207,7 +209,7 @@ walle-device/scripts/etc/walle_camera.conf
 
 1. `ros2 launch ... camera_conf:=<path>` 或环境变量 `WALLE_CAMERA_CONF`
 2. `/etc/walle-ai/walle_camera.conf`（`deploy.sh` 安装）
-3. `$WALLE_HOME/scripts/etc/walle_camera.conf`（开发环境）
+3. `$WALLE_HOME/etc/walle_camera.conf`（开发环境）
 
 未找到或 schema 不合法时，`bringup` 会打印错误并提示运行本脚本，摄像头不会启动；
 `startup_check` 也会校验该文件。`bringup` 读取后把设备、格式、分辨率、帧率传给
@@ -262,7 +264,7 @@ ros2 launch bringup bringup.launch.py
 
 1. 停用旧服务：`sudo systemctl disable --now walle-ai`；
 2. 备份旧配置与设备标识（标识文件位置随实现不同）：
-   - ROS2 版默认 `~/.config/walle-ai/device-id`（或 `DEVICE_ID_FILE` / yaml 中
+   - ROS2 版默认 `$WALLE_HOME/.run/device-id`（或 `DEVICE_ID_FILE` / yaml 中
      `device_id_file` 指向的文件）；
    - linux-demo 版默认 `/var/lib/walle-ai/device-id`（或 `DEVICE_ID_FILE`）；
 3. 在目标实现的目录准备自己的 `walle-ai.conf`（两套的键集合不同，不要直接复用旧文件），
@@ -285,7 +287,7 @@ ros2 launch bringup bringup.launch.py
 #### 修改 walle-ai.conf 配置文件
 
 ```bash
-cd scripts
+cd etc
 cp walle-ai.conf.example walle-ai.conf
 vi walle-ai.conf  # 打开配置文件，并修改相关参数
 ```
@@ -295,6 +297,7 @@ vi walle-ai.conf  # 打开配置文件，并修改相关参数
 编译（`colcon build`）、Python 依赖与 udev 规则请先按上文完成；`deploy.sh` 只负责系统级安装，可重复执行：
 
 ```bash
+cd ../scripts
 ./deploy.sh
 ```
 
@@ -306,7 +309,7 @@ vi walle-ai.conf  # 打开配置文件，并修改相关参数
 ### 手动启动（仅开发环境）
 
 ```bash
-./start.sh  # 默认读取脚本同级的 walle-ai.conf
+./start.sh  # 默认读取 etc/walle-ai.conf
 ```
 
 `start.sh` 只用于开发环境；生产请使用下面的 systemd 服务。

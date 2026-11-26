@@ -1,16 +1,17 @@
 #!/bin/bash
 # 开发环境一键启动（生产请用 sudo systemctl start walle-ai）
-# 用法：./start.sh [--conf-file <path>]，默认读取脚本同级的 walle-ai.conf
+# 用法：./start.sh [--conf-file <path>]，默认读取 ../etc/walle-ai.conf
 set -e
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
+walle_home="$(cd "$script_dir/.." && pwd)"
 
 if [[ "$(id -u)" -eq 0 ]]; then
     echo "start.sh 仅用于开发环境；生产请用 sudo systemctl start walle-ai" >&2
     exit 1
 fi
 
-conf_file="$script_dir/walle-ai.conf"
+conf_file="$walle_home/etc/walle-ai.conf"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --conf-file)
@@ -27,7 +28,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -h|--help)
             echo "用法: $0 [--conf-file <path>]"
-            echo "  默认: $script_dir/walle-ai.conf"
+            echo "  默认: $walle_home/etc/walle-ai.conf"
             exit 0
             ;;
         *)
@@ -39,7 +40,7 @@ done
 
 if [[ ! -r "$conf_file" ]]; then
     echo "未找到或不可读配置文件 $conf_file" >&2
-    echo "请先复制模板：cp $script_dir/walle-ai.conf.example $conf_file" >&2
+    echo "请先复制模板：cp $walle_home/etc/walle-ai.conf.example $conf_file" >&2
     exit 1
 fi
 

@@ -5,7 +5,7 @@ net_mqtt_bridge:
 
     # device_id 落盘位置。迁移旧设备时请指向原来的 .device-id，
     # 否则会生成新 device_id，App 里会多出一台设备。
-    # 留空 = ~/.config/walle-ai/device-id
+    # 留空 = $WALLE_HOME/.run/device-id
     device_id_file: ""
 
     video_service: /video_webrtc_bridge/stream_control

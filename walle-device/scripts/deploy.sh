@@ -14,7 +14,7 @@ if [[ "$(id -u)" -eq 0 ]]; then
     exit 1
 fi
 
-conf_file="$script_dir/walle-ai.conf"
+conf_file="$walle_home/etc/walle-ai.conf"
 
 get_conf() {
     # 取最后一个 KEY=value 的值，去掉首尾空白与引号
@@ -27,7 +27,7 @@ get_conf() {
 
 echo "[1/5] 检查配置文件 $conf_file"
 if [[ ! -f "$conf_file" ]]; then
-    echo "  未找到 $conf_file，请先复制模板：cp walle-ai.conf.example walle-ai.conf" >&2
+    echo "  未找到 $conf_file，请先复制模板：cp ../etc/walle-ai.conf.example ../etc/walle-ai.conf" >&2
     exit 1
 fi
 
@@ -49,7 +49,7 @@ echo "[2/5] 安装配置到 /etc/walle-ai.conf（root:root 600）"
 sudo install -m 600 -o root -g root "$conf_file" /etc/walle-ai.conf
 
 echo "[3/5] 安装摄像头配置到 /etc/walle-ai/walle_camera.conf"
-camera_conf="$script_dir/etc/walle_camera.conf"
+camera_conf="$walle_home/etc/walle_camera.conf"
 if [[ -f "$camera_conf" ]]; then
     sudo install -d -m 755 -o root -g root /etc/walle-ai
     sudo install -m 644 -o root -g root "$camera_conf" /etc/walle-ai/walle_camera.conf
@@ -73,7 +73,7 @@ sed -e "s|@WALLE_USER@|$target_user|g" \
     -e "s|@WALLE_GROUP@|$target_group|g" \
     -e "s|@WALLE_USER_HOME@|$target_home|g" \
     -e "s|@WALLE_HOME@|$walle_home|g" \
-    walle-ai.service.in > "$unit_tmp"
+    "$walle_home/etc/walle-ai.service.in" > "$unit_tmp"
 sudo install -m 644 -o root -g root "$unit_tmp" /etc/systemd/system/walle-ai.service
 
 echo "[5/5] 启用 walle-ai.service"

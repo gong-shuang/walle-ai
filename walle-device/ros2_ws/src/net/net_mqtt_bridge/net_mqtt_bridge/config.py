@@ -181,8 +181,8 @@ HOSTNAME = socket.gethostname()
 DEVICE_ID = ""      # 在 RpiMonitor.__init__ 中解析（落盘优先）
 DEVICE_ID_SOURCE = ""   # device_id 的来源说明（日志 / --check 用）
 
-# 标识落盘位置：默认与 main.py 同级的 .device-id（升级只覆盖 main.py，不会丢），
-# 可用环境变量 DEVICE_ID_FILE 覆盖；写不进去时回退 ~/.config/walle-ai/device-id。
+# 标识落盘位置：默认 $WALLE_HOME/.run/device-id（不存在时按硬件指纹生成并写入），
+# 可用环境变量 DEVICE_ID_FILE 覆盖。
 DEVICE_ID_FILE = os.environ.get("DEVICE_ID_FILE", "").strip()
 
 # ---- 多租户主题（命名规则与 Android 端 TopicNames 完全一致）----

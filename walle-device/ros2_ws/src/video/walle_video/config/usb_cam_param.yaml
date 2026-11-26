@@ -1,7 +1,7 @@
 /**:
     ros__parameters:
       # 以下采集参数是单独启动 usb_cam.launch.py 时的默认值；
-      # bringup 会用 scripts/etc/walle_camera.conf（JSON）覆盖
+      # bringup 会用 etc/walle_camera.conf（JSON）覆盖
       # video_device / pixel_format / image_width / image_height / framerate。
       video_device: "/dev/video0"
       framerate: 30.0

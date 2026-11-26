@@ -83,7 +83,7 @@ export ROS_DOMAIN_ID=1
 # Jazzy 推荐 ROS_AUTOMATIC_DISCOVERY_RANGE（ROS_LOCALHOST_ONLY 已弃用）。
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 
-# ===== 日志格式（唯一配置入口，可被 /etc/walle-ai.conf 或 scripts/walle-ai.conf 覆盖）=====
+# ===== 日志格式（唯一配置入口，可被 /etc/walle-ai.conf 或 etc/walle-ai.conf 覆盖）=====
 # 统一格式：[来源] YYYY-MM-DD HH:MM:SS.mmm [LEVEL] 消息
 # [来源] 由 launch 自动加的 [进程名] 前缀提供，所以这里不再打印节点名。
 # ROS 节点（rcutils 占位符）

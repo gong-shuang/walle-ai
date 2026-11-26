@@ -63,7 +63,7 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
             raise
 
         # 导入 agent 时它会加载 env_file，DEVICE_ID_FILE 可能来自环境文件。
-        # 参数优先级最高；都没有时再回退到旧安装目录 / 用户配置目录。
+        # 参数优先级最高；都没有时由 identity 默认取 $WALLE_HOME/.run/device-id。
         import net_mqtt_bridge.agent as agent
         import net_mqtt_bridge.config as config
 
@@ -75,21 +75,12 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
             raise RuntimeError(
                 'MQTT 配置不完整，拒绝启动（请检查 /etc/walle-ai.conf）')
 
-        if device_id_param:
-            device_id_file = device_id_param
-        elif config.DEVICE_ID_FILE:
-            device_id_file = config.DEVICE_ID_FILE
-        else:
-            legacy = os.path.expanduser('~/walle_linux/.device-id')
-            if os.path.isfile(legacy):
-                device_id_file = legacy
-                self.get_logger().info('复用旧设备标识: %s' % legacy)
-            else:
-                # 不再放在 install 目录（重编译会丢）
-                device_id_file = os.path.expanduser(
-                    '~/.config/walle-ai/device-id')
-        os.environ['DEVICE_ID_FILE'] = device_id_file
-        config.DEVICE_ID_FILE = device_id_file
+        # 参数 > 环境文件里的 DEVICE_ID_FILE；都没有时由 identity 默认取
+        # $WALLE_HOME/.run/device-id（不存在则生成并写入）
+        device_id_file = device_id_param or config.DEVICE_ID_FILE
+        if device_id_file:
+            os.environ['DEVICE_ID_FILE'] = device_id_file
+            config.DEVICE_ID_FILE = device_id_file
 
         self._agent_mod = agent
         self.agent = agent.RpiMonitor()

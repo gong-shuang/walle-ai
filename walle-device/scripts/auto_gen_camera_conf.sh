@@ -1,18 +1,19 @@
 #!/bin/bash
-# 交互式生成摄像头配置 scripts/etc/walle_camera.conf（JSON）
+# 交互式生成摄像头配置 etc/walle_camera.conf（JSON）
 # 依赖：v4l2-ctl（v4l-utils）、python3；可选 whiptail / dialog（无则使用文本菜单）
 # 用法：./auto_gen_camera_conf.sh [--output <path>]
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
-output="$script_dir/etc/walle_camera.conf"
+walle_home="$(cd "$script_dir/.." && pwd)"
+output="$walle_home/etc/walle_camera.conf"
 
 usage() {
     cat <<EOF
 用法: $0 [--output <path>]
 
 交互式选择摄像头、格式、分辨率、帧率并命名，生成 JSON 配置。
-默认输出：$script_dir/etc/walle_camera.conf
+默认输出：$walle_home/etc/walle_camera.conf
 EOF
 }
 
@@ -378,8 +379,7 @@ while true; do
 done
 
 # ---------- 3.5 录像配置 ----------
-# 录像存储根目录：walle-device/data（script_dir 的上一级）
-walle_home="$(cd "$script_dir/.." && pwd)"
+# 录像存储根目录：walle-device/data（walle_home 下的 data）
 data_root="$walle_home/data"
 
 # 3.5.1 录像目录名
