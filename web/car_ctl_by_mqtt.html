@@ -347,11 +347,25 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .sideNavItem.active .navIcon{opacity:1;color:var(--accent)}
 .sideNavItem .navDot{width:7px;height:7px;border-radius:50%;flex:none;margin-left:auto;
   background:var(--danger);box-shadow:0 0 6px rgba(255,107,107,.8)}
+.sideNavItem .navChev{margin-left:auto;font-size:11px;color:var(--dim);transition:transform .15s}
+.sideNavItem.open .navChev{transform:rotate(180deg)}
+.sideSubNav{display:none;flex-direction:column;gap:2px;margin:2px 0 4px 26px;padding-left:10px;
+  border-left:1px solid var(--line)}
+.sideSubNav.open{display:flex}
+.sideSubItem{width:100%;padding:8px 12px;border:1px solid transparent;border-radius:8px;
+  background:transparent;color:var(--dim);font-size:12.5px;text-align:left;cursor:pointer;
+  transition:color .15s,background .15s,border-color .15s}
+.sideSubItem:hover{color:var(--text);background:rgba(255,255,255,.035)}
+.sideSubItem.active{color:#d9ffee;background:rgba(61,220,151,.10);
+  border-color:rgba(61,220,151,.22)}
+.agentTaskEmpty{padding:36px 12px;text-align:center;color:var(--dim);font-size:12.5px;
+  border:1px dashed var(--line);border-radius:12px}
 /* 对话助手卡片 */
 .agentCard .cardHead{flex-wrap:wrap}
-.agentCard .agHeadOps{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-.agentCard .agSelect{height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--line2);
-  background:var(--card);color:var(--text);font-size:12px;max-width:220px}
+.agentCard .agHeadOps,.agentStateCard .agHeadOps{display:flex;align-items:center;gap:8px;
+  flex-wrap:wrap;justify-content:flex-end}
+.agentCard .agSelect,.agentStateCard .agSelect{height:30px;padding:0 10px;border-radius:8px;
+  border:1px solid var(--line2);background:var(--card);color:var(--text);font-size:12px;max-width:220px}
 .agentCard .agEstop{border-color:rgba(255,107,107,.5);background:rgba(255,107,107,.14);
   color:#ffd7d7;font-weight:600}
 .agentCard .agEstop:hover{background:rgba(255,107,107,.24)}
@@ -421,6 +435,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   .sidebar{width:100%;border-right:none;border-bottom:1px solid var(--line);padding:10px 0}
   .sideNav{flex-direction:row;overflow-x:auto;padding:0 10px;gap:6px}
   .sideNavItem{flex:none;padding:8px 12px;font-size:12px}
+  .sideNavGroup{flex:none}
+  .sideSubNav{margin:4px 0 0;padding-left:0;border-left:none;flex-direction:row;gap:4px}
+  .sideSubItem{padding:6px 10px;font-size:11.5px;white-space:nowrap}
   .mainArea{padding:14px}
 }
 </style>
@@ -462,9 +479,17 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
           <span class="navIcon">⚠</span><span>告警信息</span>
           <span id="navAlarmDot" class="navDot hide" title="有未读告警"></span>
         </button>
-        <button class="sideNavItem" data-tab="agent">
-          <span class="navIcon">◈</span><span>对话助手</span>
-        </button>
+        <div class="sideNavGroup">
+          <button class="sideNavItem" id="btnNavAgent" type="button">
+            <span class="navIcon">◈</span><span>agent</span>
+            <span class="navChev">⌄</span>
+          </button>
+          <div class="sideSubNav" id="sideSubAgent">
+            <button class="sideSubItem" data-tab="agent-detail">详情信息</button>
+            <button class="sideSubItem" data-tab="agent-chat">对话</button>
+            <button class="sideSubItem" data-tab="agent-tasks">任务列表</button>
+          </div>
+        </div>
         <button class="sideNavItem" data-tab="web-settings">
           <span class="navIcon">⚙</span><span>web端设置</span>
         </button>
@@ -489,7 +514,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div class="tabPanel" data-tab="video-monitor"></div>
       <div class="tabPanel" data-tab="video-record"></div>
       <div class="tabPanel" data-tab="alarm"></div>
-      <div class="tabPanel" data-tab="agent"></div>
+      <div class="tabPanel" data-tab="agent-detail"></div>
+      <div class="tabPanel" data-tab="agent-chat"></div>
+      <div class="tabPanel" data-tab="agent-tasks"></div>
       <div class="tabPanel" data-tab="web-settings"></div>
 
       <!-- 原有卡片（JS 会移动到上面的 tabPanel 中） -->
@@ -707,7 +734,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     </section>
 
     <!-- ============ 对话助手卡片 ============ -->
-    <section class="card agentCard" data-tab-target="agent">
+    <section class="card agentCard" data-tab-target="agent-chat">
       <div class="cardHead">
         <div>
           <h2>小车对话助手</h2>
@@ -736,6 +763,52 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         <button id="agSend" class="btn primary" type="submit">发送</button>
       </form>
       <div class="agHint">仅支持：前进/后退/左移/右移 N 米、左转/右转 N 度、停止、状态。其余语句在 LLM 未启用时会直接提示，不会猜测执行。</div>
+    </section>
+
+    <!-- ============ agent 详情卡片 ============ -->
+    <section class="card agentStateCard" data-tab-target="agent-detail">
+      <div class="cardHead">
+        <div>
+          <h2>Agent 详情</h2>
+          <small>agent/{a}/baseState/query/request → response</small>
+        </div>
+        <div class="agHeadOps">
+          <select id="agDetailSelect" class="agSelect" title="选择 agent"></select>
+          <button id="btnRefreshAgentState" class="btn" type="button">刷新</button>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric"><label>CPU</label><b id="adCpu">—</b><div class="bar"><i id="adCpuBar"></i></div></div>
+        <div class="metric"><label>温度</label><b id="adTemp">—</b><div class="bar"><i id="adTempBar"></i></div></div>
+        <div class="metric"><label>内存</label><b id="adMem">—</b><div class="bar"><i id="adMemBar"></i></div></div>
+        <div class="metric"><label>运行时长</label><b id="adUptime">—</b><div class="bar"><i id="adUpBar"></i></div></div>
+      </div>
+
+      <div class="detailGrid">
+        <div class="detail"><span>Agent</span><b id="adAgent">—</b></div>
+        <div class="detail"><span>版本</span><b id="adVersion">—</b></div>
+        <div class="detail"><span>主机 / IP</span><b id="adHost">—</b></div>
+        <div class="detail"><span>系统</span><b id="adOs">—</b></div>
+        <div class="detail"><span>CPU 型号 / 核心</span><b id="adCpuModel">—</b></div>
+        <div class="detail"><span>负载 1/5/15m</span><b id="adLoad">—</b></div>
+        <div class="detail"><span>内存 已用 / 总量</span><b id="adMemDetail">—</b></div>
+        <div class="detail"><span>磁盘 已用 / 总量</span><b id="adDiskDetail">—</b></div>
+        <div class="detail"><span>网络 下行/上行</span><b id="adNet">—</b></div>
+        <div class="detail"><span>更新时间</span><b id="adUpdated">—</b></div>
+      </div>
+      <div id="adStatus" class="videoMsg">—</div>
+    </section>
+
+    <!-- ============ agent 任务列表卡片 ============ -->
+    <section class="card agentTasksCard" data-tab-target="agent-tasks">
+      <div class="cardHead">
+        <div>
+          <h2>任务列表</h2>
+          <small>agent 任务编排（待实现）</small>
+        </div>
+      </div>
+      <div class="agentTaskEmpty">任务列表功能将在后续版本提供。</div>
     </section>
 
     <!-- ============ web端设置卡片 ============ -->
@@ -1108,7 +1181,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     mqtt = new MqttWS();
     mqtt.topics = SUBS.map(function (r) { return subBase() + r; });
     var agentPrefix = cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/agent/';
-    mqtt.topics.push(agentPrefix + '+/online', agentPrefix + '+/chat/response');
+    mqtt.topics.push(agentPrefix + '+/online', agentPrefix + '+/chat/response',
+      agentPrefix + '+/baseState/query/response');
     mqtt.connect({
       url: wsUrlNow(), user: cfg.user, pass: cfg.pass, clientId: clientIdNow(), keepalive: cfg.keepalive,
       willTopic: clientOnlineTopic(),
@@ -1141,7 +1215,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
   function onMessage(topic, data, retain) {
     var ap = topic.split('/');
-    // agent/{id}/online 是 5 段，chat/response 是 6 段
+    // agent 主题：online / chat/response / baseState/query/response
     if (ap.length >= 5 && ap[2] === 'agent') {
       var agentId = ap[3];
       if (/\/online$/.test(topic)) {
@@ -1151,6 +1225,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       }
       if (/\/chat\/response$/.test(topic)) {
         document.dispatchEvent(new CustomEvent('walle-agent-response',
+          { detail: { id: agentId, data: data } }));
+        return;
+      }
+      if (/\/baseState\/query\/response$/.test(topic)) {
+        document.dispatchEvent(new CustomEvent('walle-agent-state',
           { detail: { id: agentId, data: data } }));
         return;
       }
@@ -3339,16 +3418,32 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       if (panel) panel.appendChild(sec);
     });
 
-    // 2) 侧边栏切换
-    var navItems = document.querySelectorAll('.sideNavItem');
+    // 2) 侧边栏切换（agent 为分组，带子菜单）
+    var navItems = document.querySelectorAll('.sideNavItem[data-tab]');
+    var subItems = document.querySelectorAll('.sideSubItem');
     var tabPanels = document.querySelectorAll('.tabPanel');
+    var agentGroupBtn = document.getElementById('btnNavAgent');
+    var agentSubNav = document.getElementById('sideSubAgent');
+
+    function isAgentTab(name) { return !!name && name.indexOf('agent-') === 0; }
+    function setAgentSubOpen(open) {
+      if (agentSubNav) agentSubNav.classList.toggle('open', !!open);
+      if (agentGroupBtn) agentGroupBtn.classList.toggle('open', !!open);
+    }
     function switchTab(name) {
       navItems.forEach(function (btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-tab') === name);
+      });
+      if (agentGroupBtn) agentGroupBtn.classList.toggle('active', isAgentTab(name));
+      subItems.forEach(function (btn) {
         btn.classList.toggle('active', btn.getAttribute('data-tab') === name);
       });
       tabPanels.forEach(function (p) {
         p.classList.toggle('active', p.getAttribute('data-tab') === name);
       });
+      if (isAgentTab(name)) setAgentSubOpen(true);
+      else setAgentSubOpen(false);
+      document.dispatchEvent(new CustomEvent('walle-tab-change', { detail: { tab: name } }));
     }
     navItems.forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -3358,6 +3453,20 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         if (tab === 'alarm') setAlarmTab(ui.alarm.tab);
       });
     });
+    subItems.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        switchTab(btn.getAttribute('data-tab'));
+      });
+    });
+    if (agentGroupBtn) {
+      agentGroupBtn.addEventListener('click', function () {
+        var open = agentSubNav && agentSubNav.classList.contains('open');
+        if (open) { setAgentSubOpen(false); return; }
+        setAgentSubOpen(true);
+        var activeSub = document.querySelector('.sideSubItem.active');
+        switchTab(activeSub ? activeSub.getAttribute('data-tab') : 'agent-detail');
+      });
+    }
 
     // 4) 设备卡片渲染函数（扩展 renderDevices）
     function renderDeviceCards() {
@@ -3435,6 +3544,29 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     agents: document.getElementById('agSelect'),
     chip: document.getElementById('agChipMqtt')
   };
+  var detailEls = {
+    select: document.getElementById('agDetailSelect'),
+    refresh: document.getElementById('btnRefreshAgentState'),
+    status: document.getElementById('adStatus'),
+    agent: document.getElementById('adAgent'),
+    version: document.getElementById('adVersion'),
+    host: document.getElementById('adHost'),
+    os: document.getElementById('adOs'),
+    cpu: document.getElementById('adCpu'),
+    cpuBar: document.getElementById('adCpuBar'),
+    cpuModel: document.getElementById('adCpuModel'),
+    load: document.getElementById('adLoad'),
+    mem: document.getElementById('adMem'),
+    memBar: document.getElementById('adMemBar'),
+    memDetail: document.getElementById('adMemDetail'),
+    temp: document.getElementById('adTemp'),
+    tempBar: document.getElementById('adTempBar'),
+    diskDetail: document.getElementById('adDiskDetail'),
+    uptime: document.getElementById('adUptime'),
+    upBar: document.getElementById('adUpBar'),
+    net: document.getElementById('adNet'),
+    updated: document.getElementById('adUpdated')
+  };
   if (!els.messages) return;
   var agents = {};        // clientid -> status payload（由 retained status 填充）
   var selected = '';
@@ -3495,7 +3627,16 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       els.agents.value = selected;
       sessionStorage.setItem('walle_agent', selected);
     }
+    if (detailEls.select) {
+      detailEls.select.innerHTML = els.agents.innerHTML;
+      detailEls.select.value = selected;
+    }
     updateChip();
+    // 详情页已打开但还没有数据时，agent 上线后自动查询一次
+    if (detailEls.select &&
+        document.querySelector('.tabPanel[data-tab="agent-detail"].active')) {
+      requestAgentState();
+    }
   }
 
   function updateChip() {
@@ -3503,6 +3644,147 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (!a) { setChip('', 'agent 离线'); return; }
     setChip(a.online ? 'ok' : 'bad', 'agent ' + (a.online ? '在线' : '离线') +
       (a.version ? ' · v' + a.version : ''));
+  }
+
+  // ---------------- agent 详情（baseState/query） ----------------
+  function fmtBytes(n) {
+    if (typeof n !== 'number' || !isFinite(n)) return '—';
+    var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var value = n, index = 0;
+    while (value >= 1024 && index < units.length - 1) { value /= 1024; index++; }
+    return (index ? value.toFixed(1) : value.toFixed(0)) + ' ' + units[index];
+  }
+  function fmtRate(n) {
+    if (typeof n !== 'number' || !isFinite(n)) return '—';
+    return fmtBytes(n) + '/s';
+  }
+  function fmtDuration(sec) {
+    if (typeof sec !== 'number' || !isFinite(sec) || sec < 0) return '—';
+    var days = Math.floor(sec / 86400);
+    var hours = Math.floor((sec % 86400) / 3600);
+    var mins = Math.floor((sec % 3600) / 60);
+    if (days > 0) return days + ' 天 ' + hours + ' 小时';
+    if (hours > 0) return hours + ' 小时 ' + mins + ' 分';
+    return mins + ' 分';
+  }
+  function setDetailStatus(text, kind) {
+    if (!detailEls.status) return;
+    detailEls.status.textContent = text;
+    detailEls.status.className = 'videoMsg' + (kind ? ' ' + kind : '');
+  }
+  function setBar(el, pct) {
+    if (!el) return;
+    el.style.width = (typeof pct === 'number' && isFinite(pct)
+      ? Math.max(0, Math.min(100, pct)) : 0) + '%';
+  }
+  function renderAgentState(d) {
+    var cpu = d.cpu || {}, mem = d.memory || {}, disk = d.disk || {},
+      net = d.network || {}, os = d.os || {};
+    if (detailEls.agent) {
+      detailEls.agent.textContent = ((d.agent_name || '') +
+        (d.agent_id ? '（' + d.agent_id + '）' : '')) || '—';
+    }
+    if (detailEls.version) {
+      detailEls.version.textContent = 'v' + (d.version_name || '—') +
+        (d.version_code != null ? '（' + d.version_code + '）' : '');
+    }
+    if (detailEls.host) {
+      detailEls.host.textContent = (d.hostname || '—') + (d.ip ? ' / ' + d.ip : '');
+    }
+    if (detailEls.os) {
+      detailEls.os.textContent = [os.pretty_name || os.name, os.kernel, os.arch]
+        .filter(Boolean).join(' · ') || '—';
+    }
+    if (detailEls.cpu) {
+      detailEls.cpu.innerHTML = (cpu.usage_percent == null ? '—'
+        : Math.round(cpu.usage_percent) + '%') +
+        (cpu.cores ? ' <small>' + cpu.cores + ' 核</small>' : '');
+    }
+    setBar(detailEls.cpuBar, cpu.usage_percent);
+    if (detailEls.cpuModel) {
+      detailEls.cpuModel.textContent = (cpu.model || '—') +
+        (cpu.cores ? ' · ' + cpu.cores + ' 核' : '');
+    }
+    if (detailEls.load) {
+      detailEls.load.textContent = Array.isArray(cpu.load_avg) && cpu.load_avg.length
+        ? cpu.load_avg.join(' / ') : '—';
+    }
+    if (detailEls.temp) {
+      detailEls.temp.innerHTML = cpu.temperature_c == null ? '—'
+        : Number(cpu.temperature_c).toFixed(1) + ' <small>°C</small>';
+    }
+    setBar(detailEls.tempBar, cpu.temperature_c == null ? null
+      : (Number(cpu.temperature_c) / 85) * 100);
+    if (detailEls.tempBar) {
+      detailEls.tempBar.style.background = Number(cpu.temperature_c) >= 75
+        ? 'linear-gradient(90deg,#f5b45a,#ff6b6b)' : '';
+    }
+    if (detailEls.mem) {
+      detailEls.mem.textContent = mem.usage_percent == null ? '—'
+        : Math.round(mem.usage_percent) + '%';
+    }
+    setBar(detailEls.memBar, mem.usage_percent);
+    if (detailEls.memDetail) {
+      detailEls.memDetail.textContent = fmtBytes(mem.used_bytes) + ' / ' + fmtBytes(mem.total_bytes);
+    }
+    if (detailEls.diskDetail) {
+      detailEls.diskDetail.textContent = fmtBytes(disk.used_bytes) + ' / ' + fmtBytes(disk.total_bytes);
+    }
+    if (detailEls.uptime) detailEls.uptime.textContent = fmtDuration(d.uptime_sec);
+    setBar(detailEls.upBar, 100);
+    if (detailEls.net) {
+      detailEls.net.textContent = '↓ ' + fmtRate(net.rx_bytes_per_sec) +
+        ' / ↑ ' + fmtRate(net.tx_bytes_per_sec);
+    }
+    if (detailEls.updated) detailEls.updated.textContent = d.datetime || '—';
+  }
+
+  var statePendingRid = '';
+  function requestAgentState() {
+    if (!detailEls.select) return;
+    if (!selected) { setDetailStatus('当前没有在线 agent', 'err'); return; }
+    if (!window.__wallePublish) { setDetailStatus('MQTT 未连接', 'err'); return; }
+    var rid = 'web-state-' + Math.random().toString(16).slice(2, 10);
+    statePendingRid = rid;
+    setDetailStatus('正在查询 agent 状态…', null);
+    var topic = window.__walleAgentBase() + selected + '/baseState/query/request';
+    if (!window.__wallePublish(topic, { request_id: rid })) {
+      statePendingRid = '';
+      setDetailStatus('发送失败：MQTT 未连接', 'err');
+      return;
+    }
+    setTimeout(function () {
+      if (statePendingRid !== rid) return;
+      statePendingRid = '';
+      setDetailStatus('查询超时（8s）', 'err');
+    }, 8000);
+  }
+
+  document.addEventListener('walle-agent-state', function (e) {
+    var id = e.detail.id, d = e.detail.data || {};
+    if (id !== selected) return;
+    if (d.request_id && statePendingRid && d.request_id !== statePendingRid) return;
+    statePendingRid = '';
+    if (Number(d.result) !== 0) {
+      setDetailStatus('查询失败：' + (d.cause || ('result=' + d.result)), 'err');
+      return;
+    }
+    renderAgentState(d);
+    setDetailStatus('已更新：' + (d.datetime || '—'), 'ok');
+  });
+
+  document.addEventListener('walle-tab-change', function (e) {
+    if (e.detail && e.detail.tab === 'agent-detail') requestAgentState();
+  });
+  if (detailEls.refresh) detailEls.refresh.addEventListener('click', requestAgentState);
+  if (detailEls.select) {
+    detailEls.select.addEventListener('change', function () {
+      selected = detailEls.select.value;
+      sessionStorage.setItem('walle_agent', selected);
+      if (els.agents) els.agents.value = selected;
+      updateChip();
+      requestAgentState();
+    });
   }
 
   document.addEventListener('walle-agent-status', function (e) {
@@ -3571,6 +3853,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   els.agents.addEventListener('change', function () {
     selected = els.agents.value;
     sessionStorage.setItem('walle_agent', selected);
+    if (detailEls.select) detailEls.select.value = selected;
     updateChip();
   });
 
@@ -3596,8 +3879,6 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   addMsg('sys', '你好，我是小车对话助手（MQTT 直连）。可以说：前进3米、左转90度、停止、状态。');
   if (!currentDevice()) addMsg('sys', '当前未选择设备；请先在「设备列表」选择设备。');
   renderAgents();
-  var navAgent = document.querySelector('.sideNavItem[data-tab="agent"]');
-  if (navAgent) navAgent.addEventListener('click', function () { setTimeout(renderAgents, 100); });
 })();
 </script>
 </body>
