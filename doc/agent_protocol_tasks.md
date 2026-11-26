@@ -120,5 +120,5 @@
   - 设备订阅 `agent/+/online` 的 ACL 已完成；presence 复用 agent online，无需额外 client presence ACL；其他新增主题再按需补规则
 
 - [ ] 18. 文档补全
-  - 订阅关系、ACL、配置（`TENANT` / `CLIENT_ID_PREFIX` / `DEVICE_ID_FILE` / `etc/.run/agent-name`）、急停两条消息、debug 开关
+  - 订阅关系、ACL、配置（`TENANT` / `CLIENT_ID_PREFIX` / `DEVICE_ID_FILE`（默认 `etc/.run/agent-id`）/ `etc/.run/agent-name`）、急停两条消息、debug 开关
   - `walle-agent/docs/mqtt-protocol.md` 已删除，保持本文为唯一来源

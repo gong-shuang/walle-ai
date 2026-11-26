@@ -135,7 +135,7 @@ _NUM_RE = r"([0-9]+(?:\.[0-9]+)?|[零一二两三四五六七八九十百半]+)"
 _CLIENT_ID = None
 
 
-DEVICE_ID_FILE = os.path.join(REPO_ROOT, "etc", ".device-id")
+DEVICE_ID_FILE = os.path.join(REPO_ROOT, "etc", ".run", "agent-id")
 # 展示名运行时状态：首次启动生成 agent_{hostname} 并落盘，之后 MQTT 修改也写这里
 AGENT_NAME_FILE = os.path.join(REPO_ROOT, "etc", ".run", "agent-name")
 
@@ -161,7 +161,7 @@ def _machine_fingerprint():
 
 
 def mqtt_client_id():
-    """固定 clientid：首次启动按本机 MAC 生成并写入 etc/.device-id，之后复用。
+    """固定 clientid：首次启动按本机 MAC 生成并写入 etc/.run/agent-id，之后复用。
 
     文件存在即直接使用，格式为「前缀 + 8 位字母数字」，权限 600。
     取不到 MAC 时依次退回 machine-id；两者都没有则随机生成并告警（下次启动会变化）。

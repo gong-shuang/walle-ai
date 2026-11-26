@@ -16,7 +16,7 @@
 ```
 walle-agent/
 ├── src/            car_agent.py（唯一入口：解析/执行/MQTT）、vendor/paho
-├── etc/            walle-agent.conf、walle-agent.service
+├── etc/            walle-agent.conf、walle-agent.service、.run/agent-id、.run/agent-name
 ├── scripts/        auto_gen_conf_service.sh、start_agent.sh
 ├── docs/
 └── log/
@@ -39,7 +39,7 @@ bash scripts/auto_gen_conf_service.sh
 | `MQTT_USER` / `MQTT_PASSWORD` | agent 的 MQTT 凭据 |
 | `TENANT` | 主题里的租户段，默认等于用户名 |
 | `CLIENT_ID_PREFIX` | clientid 前缀，默认 `agent-` |
-| `DEVICE_ID_FILE` | 可选，固定 clientid 的保存路径，默认 `etc/.device-id` |
+| `DEVICE_ID_FILE` | 可选，固定 agent_id（clientid）的保存路径，默认 `etc/.run/agent-id` |
 
 agent 展示名不再写在配置文件里：首次启动读 `etc/.run/agent-name`，文件不存在时
 自动生成 `agent_<hostname>` 并写入；之后可通过 MQTT

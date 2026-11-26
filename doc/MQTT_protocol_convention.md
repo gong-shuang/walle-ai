@@ -39,7 +39,7 @@ walle/{tenant}/agent/{agent}/{resource}
 - `{device}`（第 4 段）：**稳定**的设备标识 `device_id`，其值就是MQTT中的 client_id。首次启动由设备端按 `md5(MAC | CPU 物理核数 | 内存 GiB)` 取前 16 位，
   随后**落盘复用**（`main.resolve_device_id`），因此重启、重装、换 IP 都不会变。
   注意内存必须按 GiB 取整：`MemTotal` 在两次启动之间会浮动几 KiB，直接进哈希会让同一台硬件换 identity。
-- `{agent}`（第 4 段）：**稳定**的agent标识 `agent_id`，其值就是MQTT中的 client_id，来自 `etc/.device-id` | 形如`agent-b851fdde`。
+- `{agent}`（第 4 段）：**稳定**的agent标识 `agent_id`，其值就是MQTT中的 client_id，来自 `etc/.run/agent-id` | 形如`agent-b851fdde`。
 - `resource`：按语义命名（见 §2.3），可能含 `/`（如 `video/start/response`）。
 
 特例：设备发现是**租户级**广播，没有 `device` 段（第 3 段是固定的 `discovery`）：`walle/{tenant}/discovery/query/request`。

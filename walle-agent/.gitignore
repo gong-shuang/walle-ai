@@ -5,7 +5,6 @@
 *.pid
 .run/
 log/
-etc/.device-id
 etc/.run/
 
 # 凭据（部署时本地生成，不入库）

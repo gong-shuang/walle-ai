@@ -3,12 +3,12 @@
 
 ### 4.0 clientid（固定身份）
 
-首次启动按本机 MAC 生成 `agent-` + 8 位字母数字，写入 `etc/.device-id`（权限 600），之后每次启动复
+首次启动按本机 MAC 生成 `agent-` + 8 位字母数字，写入 `etc/.run/agent-id`（权限 600），之后每次启动复
 用该值；不再随机、不再用 pid。取不到真实 MAC 时依次退回 `/etc/machine-id`、`/var/lib/dbus/machine-id`；
 两者都没有则随机生成并写日志告警（重启会变化）。该值同时是 `agent/{clientid}/` 主题段。
 
 同一台机器跑多个实例时，MAC 相同会生成相同 clientid，必须给每个实例单独的 `DEVICE_ID_FILE`
-或预置不同的 `etc/.device-id`，否则会互相顶掉。
+或预置不同的 `etc/.run/agent-id`，否则会互相顶掉。
 
 systemd：
 
