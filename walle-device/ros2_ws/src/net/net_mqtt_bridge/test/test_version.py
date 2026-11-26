@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P2-2.3：设备版本号单一来源（walle-device/VERSION，linux-demo 与 ROS2 共用）。"""
+"""P2-2.3：设备版本号单一来源（walle-device/VERSION）。"""
 
 import os
 from pathlib import Path

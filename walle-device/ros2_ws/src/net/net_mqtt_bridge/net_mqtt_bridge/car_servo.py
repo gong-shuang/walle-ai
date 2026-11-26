@@ -135,7 +135,7 @@ class CarServoMixin:
     """结果封装 + 非 ROS 环境的兜底处理。
 
     真正的 get_state 服务调用在 node.py 中覆盖 handle_car_servo_status；
-    独立运行（linux-demo）只返回链路不可用。
+    独立运行（非 ROS 环境）只返回链路不可用。
     """
 
     def _publish_car_servo_status_result(self, request_id, result_code, cause, servos):

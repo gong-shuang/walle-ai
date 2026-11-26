@@ -3,10 +3,10 @@
 """net_mqtt_bridge
 
 MQTT 协议入口（唯一 MQTT 客户端）：
-  - 保留原 linux-demo/main.py 的 online/LWT、discovery、state、cmd、capability、alarm、phone/audio 全部逻辑；
+  - 保留 online/LWT、discovery、state、cmd、capability、alarm、phone/audio 全部逻辑；
   - stream/start|stop 不再直接起 ffmpeg，而是通过 ROS2 service 调
     video_webrtc_bridge；
-  - 订阅 video_webrtc_bridge 的推流状态，填 baseState/query/response 的 video 分组；
+  - 订阅 video_webrtc_bridge 的推流状态，填 runState/query/response 的 stream 分组；
   - 以 Bool 心跳告知 video_webrtc_bridge 当前 MQTT 是否在线；
   - car/motor/set/request：保存最新运动状态，10Hz 重发 /cmd_vel，500ms 无有效命令自动停车，
     每条请求都发布 car/motor/set/response。

@@ -38,7 +38,7 @@ current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # walle-device/scr
 walle_home="$(cd "$current_dir/.." && pwd)"                  # walle-device
 export WALLE_HOME="$walle_home"
 
-# 版本号唯一来源：设备端根目录 VERSION（linux-demo 与 ROS2 共用）
+# 版本号唯一来源：设备端根目录 VERSION
 # （WALLE_VERSION_NUM / WALLE_VERSION_NAME / WALLE_VERSION_DATE）
 source "$walle_home/VERSION"
 export VERSION="|V${WALLE_VERSION_NAME}|${WALLE_VERSION_DATE}|"

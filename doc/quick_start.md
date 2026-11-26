@@ -2,7 +2,7 @@
 
 > 本文是 `walle` App 的完整上手指南：环境要求、构建、Broker 配置、证书与权限。
 > 项目概览见 [README](../README.md)；MQTT 报文约定见 [MQTT_protocol_convention.md](MQTT_protocol_convention.md)；
-> 设备端（树莓派）部署见 [walle-device/linux-demo/README.md](../walle-device/linux-demo/README.md)。
+> 设备端（树莓派/香橙派）部署见 [walle-device/doc/README.md](../walle-device/doc/README.md)。
 
 ## 环境要求
 
@@ -124,11 +124,10 @@ adb shell am start -n www.walle.ai/.ui.MainActivity
 
 ## 下一步
 
-1. 部署设备端采集脚本（树莓派一键安装）：[walle-device/linux-demo/README.md](../walle-device/linux-demo/README.md)
+1. 部署设备端（ROS2）：[walle-device/doc/README.md](../walle-device/doc/README.md)
 2. 了解两端通信的主题与报文字段：[MQTT_protocol_convention.md](MQTT_protocol_convention.md)
 3. 跑一遍契约测试确认环境无误：
 
 ```bash
 (cd walle-android && ./gradlew :app:testDebugUnitTest)   # App 端单测
-python3 walle-device/linux-demo/selftest_topics.py                         # 设备端主题契约自检（不需要树莓派）
 ```

@@ -125,7 +125,7 @@ class PhoneAudioMixin:
         except FileNotFoundError:
             sink.close()
             return None, (f"未找到播放器脚本 {config.PHONE_AUDIO_PLAYER_SCRIPT}"
-                          "（请把 linux-demo/whep_audio_player.py 一起部署到同目录）")
+                          "（该脚本应随 net_mqtt_bridge 包一起安装）")
         except Exception as e:  # noqa: BLE001
             sink.close()
             return None, f"启动 WHEP 播放器失败: {e}"

@@ -115,7 +115,7 @@ class CarMotorMixin:
     """车控应答封装 + 非 ROS 环境的兜底处理。
 
     真正的 /cmd_vel 发布、10Hz 重发和 500ms 死区在 node.py 中覆盖
-    handle_car_motor_set；独立运行（linux-demo）没有底盘链路，回执 result=-3。
+    handle_car_motor_set；独立运行（非 ROS 环境）没有底盘链路，回执 result=-3。
     """
 
     def _publish_car_motor_result(self, request_id, result_code, cause,

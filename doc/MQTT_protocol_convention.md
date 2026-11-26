@@ -152,7 +152,7 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 | `…/report` | 主动上报 | `alarm/report` |
 | 无后缀 | 仅 `online`（上线/下线） | `online` |
 
-这套约定由设备端 `net_mqtt_bridge/test/test_protocol.py` 与 `linux-demo/test/test_protocol.py` 强制检查：
+这套约定由设备端 `net_mqtt_bridge/test/test_protocol.py` 强制检查：
 每个 `REQ_*`（`.../request`）必须在 `REQUEST_TO_RESULT` 里登记对应的 `RES_*`（`.../response`）；
 `.../cmd` 主题不登记应答；不允许存在「没人请求的 /response 主题」。
 
@@ -465,8 +465,8 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 
 **V1.11 变更（重要）**：请求不再包含摄像头设备字段 / `room_number`。
 
-- 摄像头由设备端固定使用默认设备（ROS2 `video_webrtc_bridge` 的 `camera_device`；
-  linux-demo 的 `CAMERA_DEVICE`，未配置时取探测到的第一个 USB 采集节点）；
+- 摄像头由设备端固定使用默认设备（`video_webrtc_bridge` 的 `camera_device`，
+  未配置时取探测到的第一个 USB 采集节点）；
 - 房间号由设备端自动生成 **8 位随机字符**（小写字母 + 数字），客户端不得自行指定，
   也不能缓存旧房间号发起推流。
 - v1.24 起，应答与运行状态中的摄像头字段由 `video_device` 更名为 `camera_device`。

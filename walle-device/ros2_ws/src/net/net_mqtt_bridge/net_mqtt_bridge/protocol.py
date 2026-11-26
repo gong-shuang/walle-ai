@@ -415,7 +415,7 @@ class ProtocolMixin:
         }
 
     def build_online_payload(self, online=True):
-        """online（retained/LWT）只发最小身份，字段与 linux-demo 保持一致。
+        """online（retained/LWT）只发最小身份，字段精简以降低常驻报文体积。
 
         完整身份（MAC/序列号/磁盘/系统详情）只通过 discovery/query/response 返回，避免订阅该
         租户主题的客户端长期读取敏感信息；这里跳过磁盘扫描，避免阻塞连接路径。
