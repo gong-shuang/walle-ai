@@ -445,6 +445,11 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 通用规则：`is_supported=false` 时该分组其余字段一律为 `null` / `false`；
 `available=false` 时对应测量值为 `null`，客户端显示“无效”，不得沿用历史值。
 
+**is_supported 来源（设备端）**：`ros2_ws/src/net/net_mqtt_bridge/config/net_mqtt_bridge.yaml`
+中的 `support_*` 开关（默认全部 `true`）；`recording` 还需 `walle_camera.conf` 的
+`record.enabled` 同时为 `true`（取 AND）。关闭声呐节点（`bringup sonar:=false`）时，
+需同步将 `support_sonar` 置为 `false`。
+
 **采集方式（设备端）**：查询到达时现场采集，不跑 `v4l2-ctl` / `pactl`，无后台缓存：
 推流/手机音频复用进程状态，录像复用录像节点状态，电机/舵机由车控节点维护，
 电池/声呐复用传感器最新采样。

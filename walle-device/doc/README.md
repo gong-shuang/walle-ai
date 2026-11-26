@@ -262,6 +262,15 @@ cp walle-ai.conf.example walle-ai.conf
 vi walle-ai.conf  # 打开配置文件，并修改相关参数
 ```
 
+#### 配置 runState 功能支持开关（is_supported）
+
+`ros2_ws/src/net/net_mqtt_bridge/config/net_mqtt_bridge.yaml` 中的 `support_*` 表示本机是否
+具备该功能（默认全部 `true`），`runState/query/response` 的 `is_supported` 直接取自这些开关：
+
+- 没有对应硬件或功能未部署时改为 `false`，客户端显示“不支持/隐藏”；
+- `recording` 还需 `walle_camera.conf` 的 `record.enabled` 同时为 `true`（取 AND）；
+- 关闭声呐节点（`bringup sonar:=false`）时，同步把 `support_sonar` 改为 `false`。
+
 #### 执行部署脚本
 
 编译（`colcon build`）、Python 依赖与 udev 规则请先按上文完成；`deploy.sh` 只负责系统级安装，可重复执行：

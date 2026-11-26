@@ -32,6 +32,11 @@ from net_mqtt_bridge.alarm_sensors import SensorAlarmNodeMixin
 from net_mqtt_bridge.car_servo import CarServoStatusNodeMixin
 from net_mqtt_bridge.record import RecordNodeMixin
 
+# runState is_supported 的分组名（与 config/net_mqtt_bridge.yaml 的 support_* 一一对应）
+SUPPORT_NAMES = ('stream', 'phone_audio', 'recording', 'motor', 'servo',
+                 'battery', 'sonar')
+
+
 class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
                     SensorAlarmNodeMixin):
     def __init__(self):
@@ -46,6 +51,9 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('servo_state_service', '/ros_robot_controller/pwm_servo/get_state')
         self.declare_parameter('servo_set_topic', '/ros_robot_controller/pwm_servo/set_state')
+        # runState/query/response 的 is_supported 数据源（见 config/net_mqtt_bridge.yaml）
+        for name in SUPPORT_NAMES:
+            self.declare_parameter('support_' + name, True)
 
         env_file = self.get_parameter('env_file').value or ''
         if env_file:
@@ -84,6 +92,14 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
 
         self._agent_mod = agent
         self.agent = agent.RpiMonitor()
+        self.agent.support = {
+            name: bool(self.get_parameter('support_' + name).value)
+            for name in SUPPORT_NAMES
+        }
+        self.get_logger().info(
+            'runState is_supported: ' + ', '.join(
+                '%s=%s' % (name, 'true' if enabled else 'false')
+                for name, enabled in self.agent.support.items()))
         self._video_status_msg = None
         self._status_lock = threading.Lock()
         self._shutting_down = False

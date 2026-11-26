@@ -13,3 +13,16 @@ net_mqtt_bridge:
     # 启动流程包含首帧等待 + 启动宽限 + 音频探测，留足余量
     video_call_timeout: 15.0
     video_startup_grace: 3.0
+
+    # ---------- runState/query/response 的 is_supported 数据源 ----------
+    # 表示本设备/本部署是否具备该功能，与实时状态无关：
+    # false 时该分组其余字段一律返回 null/false，客户端显示“不支持/隐藏”。
+    # 默认全部 true；没有对应硬件或功能未部署时改为 false。
+    # 关闭声呐（bringup sonar:=false）时，请同步把 support_sonar 改为 false。
+    support_stream: true          # 推流（camera + video_webrtc_bridge）
+    support_phone_audio: true     # 手机音频拉流播放
+    support_recording: true       # 录像（与 walle_camera.conf 的 record.enabled 取 AND）
+    support_motor: true           # 底盘电机
+    support_servo: true           # 舵机
+    support_battery: true         # 电池电压采样
+    support_sonar: true           # 声呐

@@ -12,12 +12,30 @@ from .record_player import (
 )
 
 
+# is_supported 的默认值：YAML 未注入 support_* 时（单测/独立运行）按全部支持处理
+DEFAULT_SUPPORT = {
+    "stream": True,
+    "phone_audio": True,
+    "recording": True,
+    "motor": True,
+    "servo": True,
+    "battery": True,
+    "sonar": True,
+}
+
+
 class CapabilityMixin:
+    def _support_flags(self):
+        """功能支持开关：来自 net_mqtt_bridge.yaml 的 support_*（节点注入）。"""
+        flags = dict(DEFAULT_SUPPORT)
+        flags.update(getattr(self, "support", None) or {})
+        return flags
+
     def build_runtime_state(self):
         """采集各功能分组的实时运行状态。
 
-        is_supported 目前按部署写死：ROS2 端除 recording 外均为 True；
-        recording 取 walle_camera.conf 的 record.enabled。
+        is_supported 来自 YAML 的 support_* 开关；recording 还需
+        walle_camera.conf 的 record.enabled 同时为 true（取 AND）。
         is_supported=false 时，该分组其余字段一律为 null / false。
         """
         video_fn = getattr(self, "_video_status", None)
@@ -37,52 +55,64 @@ class CapabilityMixin:
         battery = sensors.get("battery") or {"voltage_v": None, "available": False}
         sonar = sensors.get("sonar") or {"distance_cm": None, "available": False}
 
+        support = self._support_flags()
+        stream_ok = bool(support["stream"])
+        phone_ok = bool(support["phone_audio"])
+        rec_ok = bool(support["recording"] and RECORD_ENABLED)
+        motor_ok = bool(support["motor"])
+        servo_ok = bool(support["servo"])
+        battery_ok = bool(support["battery"])
+        sonar_ok = bool(support["sonar"])
+
         audio_input = config.VIDEO_AUDIO_DEVICE or "default"
         if isinstance(video.get("audio"), dict):
             audio_input = video["audio"].get("device") or audio_input
 
-        recording = {
-            "is_supported": bool(RECORD_ENABLED),
-            "recording": False,
-            "filename": None,
-            "camera_device": None,
-            "audio_input": None,
-        }
-        if RECORD_ENABLED:
-            recording.update({
-                "recording": bool(rec.get("recording")),
-                "filename": rec.get("filename"),
-                "camera_device": CAMERA_DEVICE,
-                "audio_input": RECORD_AUDIO_INPUT,
-            })
-
         return {
             "stream": {
-                "is_supported": True,
-                "streaming": bool(video.get("streaming")),
-                "room_number": video.get("room_number"),
-                "camera_device": video.get("camera_device") or CAMERA_DEVICE,
-                "audio_input": audio_input,
-                "started_at": video.get("started_at"),
-                "uptime_sec": video.get("uptime_sec"),
+                "is_supported": stream_ok,
+                "streaming": bool(video.get("streaming")) if stream_ok else False,
+                "room_number": video.get("room_number") if stream_ok else None,
+                "camera_device": (
+                    video.get("camera_device") or CAMERA_DEVICE) if stream_ok else None,
+                "audio_input": audio_input if stream_ok else None,
+                "started_at": video.get("started_at") if stream_ok else None,
+                "uptime_sec": video.get("uptime_sec") if stream_ok else None,
             },
             "phone_audio": {
-                "is_supported": True,
-                "playing": phone_playing,
-                "room_number": meta.get("room_number") if phone_playing else None,
+                "is_supported": phone_ok,
+                "playing": phone_playing if phone_ok else False,
+                "room_number": (
+                    meta.get("room_number") if phone_playing else None)
+                if phone_ok else None,
             },
-            "recording": recording,
+            "recording": {
+                "is_supported": rec_ok,
+                "recording": bool(rec.get("recording")) if rec_ok else False,
+                "filename": rec.get("filename") if rec_ok else None,
+                "camera_device": CAMERA_DEVICE if rec_ok else None,
+                "audio_input": RECORD_AUDIO_INPUT if rec_ok else None,
+            },
             "motor": {
-                "is_supported": True,
-                "moving": bool(getattr(self, "motor_moving", False)),
+                "is_supported": motor_ok,
+                "moving": bool(getattr(self, "motor_moving", False)) if motor_ok else False,
             },
             "servo": {
-                "is_supported": True,
-                "moving": time.monotonic()
-                < float(getattr(self, "servo_moving_until", 0.0) or 0.0),
+                "is_supported": servo_ok,
+                "moving": (time.monotonic()
+                           < float(getattr(self, "servo_moving_until", 0.0) or 0.0))
+                if servo_ok else False,
             },
-            "battery": {"is_supported": True, **battery},
-            "sonar": {"is_supported": True, **sonar},
+            "battery": {
+                "is_supported": battery_ok,
+                "voltage_v": battery.get("voltage_v") if battery_ok else None,
+                "available": bool(battery.get("available")) if battery_ok else False,
+            },
+            "sonar": {
+                "is_supported": sonar_ok,
+                "distance_cm": sonar.get("distance_cm") if sonar_ok else None,
+                "available": bool(sonar.get("available")) if sonar_ok else False,
+            },
             "control_holder": self.control_holder_snapshot(),
         }
 

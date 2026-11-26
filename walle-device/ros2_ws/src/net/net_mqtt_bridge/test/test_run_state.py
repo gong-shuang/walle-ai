@@ -104,6 +104,46 @@ def test_recording_disabled_marks_unsupported(monkeypatch):
     }
 
 
+def test_support_flags_null_unsupported_groups(monkeypatch):
+    monkeypatch.setattr(capability, "RECORD_ENABLED", True)
+    monitor = _bare_monitor()
+    monitor.support = {name: False for name in capability.DEFAULT_SUPPORT}
+    monitor._video_status = lambda: {
+        "streaming": True, "camera_device": "/dev/video0", "room_number": "room-1",
+        "audio": {"device": "alsa_input.usb-mic"},
+        "started_at": 1700000000, "uptime_sec": 12,
+    }
+    monitor.audio_proc = _AliveProc()
+    monitor.audio_meta = {"room_number": "audio-1"}
+    monitor.recording_state = {"recording": True, "filename": "rec.mp4"}
+    monitor.motor_moving = True
+    monitor.servo_moving_until = time.monotonic() + 10
+    monitor.sensor_status = lambda: {
+        "battery": {"voltage_v": 7.42, "available": True},
+        "sonar": {"distance_cm": 35.5, "available": True},
+    }
+
+    _, data = _query(monitor)
+
+    assert data["stream"] == {
+        "is_supported": False, "streaming": False, "room_number": None,
+        "camera_device": None, "audio_input": None,
+        "started_at": None, "uptime_sec": None,
+    }
+    assert data["phone_audio"] == {
+        "is_supported": False, "playing": False, "room_number": None}
+    assert data["recording"] == {
+        "is_supported": False, "recording": False, "filename": None,
+        "camera_device": None, "audio_input": None,
+    }
+    assert data["motor"] == {"is_supported": False, "moving": False}
+    assert data["servo"] == {"is_supported": False, "moving": False}
+    assert data["battery"] == {
+        "is_supported": False, "voltage_v": None, "available": False}
+    assert data["sonar"] == {
+        "is_supported": False, "distance_cm": None, "available": False}
+
+
 def test_invalid_payload_is_ignored():
     monitor = _bare_monitor()
     published = []
