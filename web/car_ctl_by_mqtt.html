@@ -369,6 +369,15 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .agentCard .agEstop{border-color:rgba(255,107,107,.5);background:rgba(255,107,107,.14);
   color:#ffd7d7;font-weight:600}
 .agentCard .agEstop:hover{background:rgba(255,107,107,.24)}
+/* agent 改名：标签 + 输入框 + 保存 */
+.agentRenameRow{display:flex;align-items:center;gap:12px}
+.agentRenameRow label{flex:none;min-width:76px;font-size:12.5px;color:var(--muted)}
+.agentRenameRow .input{flex:1;min-width:0;height:38px}
+.agentRenameRow .btn{flex:none;height:38px}
+@media(max-width:640px){
+  .agentRenameRow{flex-wrap:wrap}
+  .agentRenameRow label{width:100%;min-width:0}
+}
 .agentCard{display:flex;flex-direction:column;height:calc(100vh - 152px);min-height:569px}
 .agentCard .agMessages{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:10px;
   padding:12px;border:1px solid var(--line);border-radius:12px;background:rgba(10,13,19,.45)}
@@ -401,6 +410,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .mainArea{flex:1;min-width:0;padding:18px 18px 18px 20px;overflow-x:hidden}
 .tabPanel{display:none;animation:fadeIn .18s ease}
 .tabPanel.active{display:block}
+.tabPanel > .card + .card{margin-top:14px}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 .tabHeader{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
 .tabTitle{font-size:15px;font-weight:650;color:var(--text);letter-spacing:.3px}
@@ -800,6 +810,16 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div id="adStatus" class="videoMsg">—</div>
     </section>
 
+    <!-- ============ agent 改名卡片 ============ -->
+    <section class="card" data-tab-target="agent-detail">
+      <div class="agentRenameRow">
+        <label for="agNameInput">agent 名字</label>
+        <input id="agNameInput" class="input" maxlength="64" placeholder="输入新的 agent 名字" spellcheck="false">
+        <button id="btnRenameAgent" class="btn primary" type="button">保存</button>
+      </div>
+      <div id="agRenameMsg" class="videoMsg">修改后写入 agent 本机 etc/.run/agent-name，并立即更新在线名称。</div>
+    </section>
+
     <!-- ============ agent 任务列表卡片 ============ -->
     <section class="card agentTasksCard" data-tab-target="agent-tasks">
       <div class="cardHead">
@@ -1182,7 +1202,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     mqtt.topics = SUBS.map(function (r) { return subBase() + r; });
     var agentPrefix = cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/agent/';
     mqtt.topics.push(agentPrefix + '+/online', agentPrefix + '+/chat/response',
-      agentPrefix + '+/baseState/query/response');
+      agentPrefix + '+/baseState/query/response', agentPrefix + '+/config/modify/response');
     mqtt.connect({
       url: wsUrlNow(), user: cfg.user, pass: cfg.pass, clientId: clientIdNow(), keepalive: cfg.keepalive,
       willTopic: clientOnlineTopic(),
@@ -1215,7 +1235,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
   function onMessage(topic, data, retain) {
     var ap = topic.split('/');
-    // agent 主题：online / chat/response / baseState/query/response
+    // agent 主题：online / chat/response / baseState/query/response / config/modify/response
     if (ap.length >= 5 && ap[2] === 'agent') {
       var agentId = ap[3];
       if (/\/online$/.test(topic)) {
@@ -1230,6 +1250,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       }
       if (/\/baseState\/query\/response$/.test(topic)) {
         document.dispatchEvent(new CustomEvent('walle-agent-state',
+          { detail: { id: agentId, data: data } }));
+        return;
+      }
+      if (/\/config\/modify\/response$/.test(topic)) {
+        document.dispatchEvent(new CustomEvent('walle-agent-config',
           { detail: { id: agentId, data: data } }));
         return;
       }
@@ -3565,7 +3590,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     uptime: document.getElementById('adUptime'),
     upBar: document.getElementById('adUpBar'),
     net: document.getElementById('adNet'),
-    updated: document.getElementById('adUpdated')
+    updated: document.getElementById('adUpdated'),
+    nameInput: document.getElementById('agNameInput'),
+    renameBtn: document.getElementById('btnRenameAgent'),
+    renameMsg: document.getElementById('agRenameMsg')
   };
   if (!els.messages) return;
   var agents = {};        // clientid -> status payload（由 retained status 填充）
@@ -3684,6 +3712,9 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       detailEls.agent.textContent = ((d.agent_name || '') +
         (d.agent_id ? '（' + d.agent_id + '）' : '')) || '—';
     }
+    if (detailEls.nameInput && document.activeElement !== detailEls.nameInput) {
+      detailEls.nameInput.value = d.agent_name || '';
+    }
     if (detailEls.version) {
       detailEls.version.textContent = 'v' + (d.version_name || '—') +
         (d.version_code != null ? '（' + d.version_code + '）' : '');
@@ -3760,6 +3791,76 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     }, 8000);
   }
 
+  // ---------------- agent 改名（config/modify） ----------------
+  var RENAME_HINT = '修改后写入 agent 本机 etc/.run/agent-name，并立即更新在线名称。';
+  var renamePendingRid = '';
+
+  function setRenameMsg(text, kind) {
+    if (!detailEls.renameMsg) return;
+    detailEls.renameMsg.textContent = text || RENAME_HINT;
+    detailEls.renameMsg.className = 'videoMsg' + (kind ? ' ' + kind : '');
+  }
+
+  function syncRenameInput() {
+    if (!detailEls.nameInput) return;
+    var a = agents[selected];
+    detailEls.nameInput.value = (a && a.name) || '';
+    setRenameMsg('', null);
+  }
+
+  function renameAgent() {
+    if (!detailEls.nameInput || !detailEls.renameBtn) return;
+    if (!selected) { setRenameMsg('当前没有在线 agent', 'err'); return; }
+    if (!window.__wallePublish) { setRenameMsg('MQTT 未连接', 'err'); return; }
+    var name = String(detailEls.nameInput.value || '').trim();
+    if (!name) { setRenameMsg('agent 名字不能为空', 'err'); return; }
+    if (name.length > 64) { setRenameMsg('agent 名字不能超过 64 个字符', 'err'); return; }
+    var rid = 'web-conf-' + Math.random().toString(16).slice(2, 10);
+    renamePendingRid = rid;
+    detailEls.renameBtn.disabled = true;
+    setRenameMsg('正在保存…', null);
+    var topic = window.__walleAgentBase() + selected + '/config/modify/request';
+    if (!window.__wallePublish(topic, { request_id: rid, agent_name: name })) {
+      renamePendingRid = '';
+      detailEls.renameBtn.disabled = false;
+      setRenameMsg('发送失败：MQTT 未连接', 'err');
+      return;
+    }
+    setTimeout(function () {
+      if (renamePendingRid !== rid) return;
+      renamePendingRid = '';
+      detailEls.renameBtn.disabled = false;
+      setRenameMsg('保存超时（8s）', 'err');
+    }, 8000);
+  }
+
+  document.addEventListener('walle-agent-config', function (e) {
+    var id = e.detail.id, d = e.detail.data || {};
+    if (id !== selected || !renamePendingRid) return;
+    if (d.request_id && d.request_id !== renamePendingRid) return;
+    renamePendingRid = '';
+    if (detailEls.renameBtn) detailEls.renameBtn.disabled = false;
+    if (Number(d.result) !== 0) {
+      setRenameMsg('保存失败：' + (d.cause || ('result=' + d.result)), 'err');
+      return;
+    }
+    var name = d.agent_name || '';
+    if (agents[id]) agents[id].name = name;
+    if (detailEls.nameInput) detailEls.nameInput.value = name;
+    if (detailEls.agent) {
+      detailEls.agent.textContent = (name || '—') + (id ? '（' + id + '）' : '');
+    }
+    renderAgents();
+    setRenameMsg('已保存：' + (name || '—'), 'ok');
+  });
+
+  if (detailEls.renameBtn) detailEls.renameBtn.addEventListener('click', renameAgent);
+  if (detailEls.nameInput) {
+    detailEls.nameInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); renameAgent(); }
+    });
+  }
+
   document.addEventListener('walle-agent-state', function (e) {
     var id = e.detail.id, d = e.detail.data || {};
     if (id !== selected) return;
@@ -3783,6 +3884,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       sessionStorage.setItem('walle_agent', selected);
       if (els.agents) els.agents.value = selected;
       updateChip();
+      syncRenameInput();
       requestAgentState();
     });
   }
@@ -3795,6 +3897,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       version: d.version_name || d.version || '',
       capabilities: d.capabilities || {}
     };
+    if (id === selected && detailEls.nameInput &&
+        document.activeElement !== detailEls.nameInput && !renamePendingRid) {
+      detailEls.nameInput.value = agents[id].name || '';
+    }
     renderAgents();
   });
 
@@ -3855,6 +3961,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     sessionStorage.setItem('walle_agent', selected);
     if (detailEls.select) detailEls.select.value = selected;
     updateChip();
+    syncRenameInput();
   });
 
   // 急停：不依赖 agent，直接向设备发零速；另发一条请求通知 agent 中止当前动作
