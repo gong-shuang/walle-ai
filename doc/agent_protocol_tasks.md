@@ -99,13 +99,15 @@
 
 - [x] 12. agent 订阅清单
   - response 使用分层通配符：`device/+/+/response`、`device/+/+/+/response`、`device/+/+/+/+/response`、`device/+/+/+/+/+/response`
-  - 保留 `device/+/online`、`agent/{self}/chat/request`
+  - 保留 `device/+/online`
+- agent 请求订阅：`agent/{self}/+/request`（`chat/request`）、`agent/{self}/+/+/request`（`baseState/query`、`config/modify`、`chat/stop`）
   - `WALLE_AGENT_DEBUG=1` 时启动打印实际订阅主题
   - 已写入协议文档「agent 订阅关系」
 
-- [ ] 13. 全功能请求信封
-  - `chat/request` 增加 `resource` + `params`，`chat/response` 增加 `result` / `data`；或定义 agent 转发 device 请求的通用格式
-  - 验收：至少覆盖 `stream/start`、`record/list`、`car/servo/status` 三类。
+- [x] 13. 全功能请求信封（已废弃：不做）
+  - 结论：用户与 agent 使用自然语言对话，不引入 `resource` / `params` 这类编程参数；
+    agent 解析自然语言后调用设备，再把设备端的 `response` 翻译成自然语言回复，
+    因此 `chat/request` 保持 `text`，`chat/response` 不增加 `result` / `data`。
 
 - [ ] 14. capabilities 协议
   - 若保留：定义 `actions` / `resources` / limits / `llm`；Web 按能力禁用不支持功能
