@@ -164,14 +164,15 @@ class ControlMixin:
         client_name = str(data.get("client_name") or "").strip()[:64]
         if not client_id or not client_name:
             self._publish_control_result(
-                config.RES_CONTROL_ACQUIRE, rid, 2,
+                config.RES_CONTROL_ACQUIRE, rid, -1,
                 "client_id/client_name 缺失或非法", "invalid",
                 self.control_holder_snapshot())
             return
         result, action, holder = self.control_lease.acquire(client_id, client_name)
-        cause = "ok" if result == 0 else "设备控制权限已被别人占用"
+        code = 0 if result == 0 else RESULT_CONTROL_DENIED
+        cause = "ok" if code == 0 else "设备控制权限已被别人占用"
         self._publish_control_result(
-            config.RES_CONTROL_ACQUIRE, rid, result, cause, action, holder)
+            config.RES_CONTROL_ACQUIRE, rid, code, cause, action, holder)
 
     def handle_control_release(self, payload):
         data = self.parse_request(payload, config.REQ_CONTROL_RELEASE)
@@ -181,13 +182,14 @@ class ControlMixin:
         client_id = str(data.get("client_id") or "").strip()[:64]
         if not client_id:
             self._publish_control_result(
-                config.RES_CONTROL_RELEASE, rid, 2,
+                config.RES_CONTROL_RELEASE, rid, -1,
                 "client_id 缺失", "invalid", self.control_holder_snapshot())
             return
         result, action, holder = self.control_lease.release(client_id)
-        cause = "ok" if result == 0 else "不是当前控制者"
+        code = 0 if result == 0 else RESULT_CONTROL_DENIED
+        cause = "ok" if code == 0 else "不是当前控制者"
         self._publish_control_result(
-            config.RES_CONTROL_RELEASE, rid, result, cause, action, holder)
+            config.RES_CONTROL_RELEASE, rid, code, cause, action, holder)
 
     def control_holder_snapshot(self):
         lease = getattr(self, "control_lease", None)
@@ -209,10 +211,7 @@ class ControlMixin:
             return
         payload = self._control_common(rid)
         payload.update({
-            # 车控/舵机按 §4.10/§4.12 用 -5（-4 已表示前方障碍），其它请求-应答仍用 -4
-            "result": (RESULT_CONTROL_DENIED
-                       if resource in (config.REQ_CAR_MOTOR_SET,
-                                       config.REQ_CAR_SERVO_SET) else -4),
+            "result": RESULT_CONTROL_DENIED,
             "cause": "设备控制权限已被别人占用",
             "error_code": "control_denied",
             "control_holder": holder,

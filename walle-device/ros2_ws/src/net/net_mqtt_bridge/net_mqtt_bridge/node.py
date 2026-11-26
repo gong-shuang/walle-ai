@@ -351,12 +351,12 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
 
         if not self._agent_mod.VIDEO_ENABLE:
             self.agent._publish_video_result(
-                req, -2, '命令执行失败',
+                req, -3, '资源不可用',
                 {'error': '推流能力已关闭（VIDEO_ENABLE=False）'})
             return
         if not self._agent_mod.rtmp_secret_ready():
             self.agent._publish_video_result(
-                req, -2, '命令执行失败',
+                req, -3, '资源不可用',
                 {'error': '未配置 Oryx 推流 secret（请在 /etc/walle-ai.conf 设置 MEDIA_SERVER_SECRET）'})
             return
 
@@ -365,7 +365,7 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
         resp = self._call_video(srv_req)
         if resp is None:
             self.agent._publish_video_result(
-                req, -2, '命令执行失败',
+                req, -3, '资源不可用',
                 {'action': 'failed',
                  'error': '视频推流服务不可用（video_webrtc_bridge 未启动或未就绪）'})
             return
@@ -414,7 +414,7 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
 
         if resp is None:
             self.agent._publish_video_stop_result(
-                rid, -1, '当前没有设备在推流',
+                rid, -3, '视频推流服务不可用',
                 {'room_number': req_room or None, 'stopped': False,
                  'error': '视频推流服务不可用（video_webrtc_bridge 未启动或未就绪）'})
             return

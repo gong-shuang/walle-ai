@@ -879,7 +879,7 @@ class Agent:
             log().info("已获取设备控制权 device=%s action=%s holder=%s",
                        device, action, (holder or {}).get("client_id") or "-")
             return {"ok": True, "action": action, "control_holder": holder}
-        if result == 1 or action == "occupied":
+        if result == -5 or action == "occupied":
             log().warning("设备控制权被占用 device=%s holder=%s", device,
                           (holder or {}).get("client_id") or "-")
             return {"ok": False, "error": "control_occupied", "action": action,

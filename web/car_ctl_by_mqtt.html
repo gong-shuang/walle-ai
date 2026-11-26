@@ -2187,8 +2187,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       // 设备刚创建录像文件，立即查询可能拿到旧状态；延迟 1s 再刷新列表
       setTimeout(recordList, 1000);
     } else {
-      var reasons = { '-1': '已在录制', '-3': '磁盘空间不足', '-4': '执行失败' };
-      setRecMsg('开始录像失败：' + (reasons[data.result] || data.cause || ('result=' + data.result)), 'err');
+      setRecMsg('开始录像失败：' + (data.cause || ('result=' + data.result)), 'err');
       applyRecordUi();
     }
   }
@@ -2226,8 +2225,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       applyRecordUi();
       recordList();  // 停止后刷新列表
     } else {
-      var reasons = { '-2': '当前未录制', '-4': '执行失败' };
-      setRecMsg('停止录像失败：' + (reasons[data.result] || data.cause || ('result=' + data.result)), 'err');
+      setRecMsg('停止录像失败：' + (data.cause || ('result=' + data.result)), 'err');
       applyRecordUi();
     }
   }
@@ -2359,8 +2357,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       setRecMsg('已删除：' + fname, 'ok');
       recordList();
     } else {
-      var reasons = { '-1': '文件不存在', '-2': '正在录制不可删', '-3': '非法路径', '-4': '执行失败' };
-      setRecMsg('删除失败：' + (reasons[data.result] || data.cause || ('result=' + data.result)), 'err');
+      setRecMsg('删除失败：' + (data.cause || ('result=' + data.result)), 'err');
     }
   }
 

@@ -263,7 +263,7 @@ class MonitorVideoMixin:
         req = self._video_req(data)
 
         if not VIDEO_ENABLE:
-            self._publish_video_result(req, -2, "命令执行失败",
+            self._publish_video_result(req, -3, "资源不可用",
                                        {"error": "推流能力已关闭（VIDEO_ENABLE=False）"})
             return
 
@@ -288,11 +288,11 @@ class MonitorVideoMixin:
             })
             return
 
-        # 2) 没有推流：使用默认摄像头；没有摄像头直接返回 -1
+        # 2) 没有推流：使用默认摄像头；没有摄像头直接返回 -3
         video_device = self._default_camera_node()
         if not video_device or not os.path.exists(video_device):
             self._publish_video_result(
-                req, -1, "没有此摄像头设备",
+                req, -3, "没有此摄像头设备",
                 {"video_device": video_device or None, "room_number": None,
                  "error": f"设备节点不存在: {video_device or '<空>'}",
                  "cameras": self.camera_nodes()})
@@ -300,14 +300,14 @@ class MonitorVideoMixin:
         ok_cam, cam_error = camera_preflight(video_device)
         if not ok_cam:
             self._publish_video_result(
-                req, -1, "没有此摄像头设备",
+                req, -3, "没有此摄像头设备",
                 {"video_device": video_device, "room_number": None,
                  "error": cam_error, "cameras": self.camera_nodes()})
             return
         video_size, size_note = pick_video_size(video_device)
         if not video_size:
             self._publish_video_result(
-                req, -1, "没有此摄像头设备",
+                req, -3, "没有此摄像头设备",
                 {"video_device": video_device, "room_number": None,
                  "error": size_note, "cameras": self.camera_nodes()})
             return
@@ -322,7 +322,7 @@ class MonitorVideoMixin:
         room_number = self._new_room_number()
         if not re.match(VIDEO_ROOM_PATTERN, room_number):
             self._publish_video_result(
-                req, -2, "命令执行失败",
+                req, -6, "执行失败",
                 {"error": "生成的 room_number 不合法"})
             return
 
@@ -330,7 +330,7 @@ class MonitorVideoMixin:
         #      没配置时不提前拦下，ffmpeg 会因为鉴权失败一直重连，看起来像“推流成功但黑屏”。
         ok_url, url_error = rtmp_url_ready()
         if not ok_url:
-            self._publish_video_result(req, -2, "命令执行失败", {"error": url_error})
+            self._publish_video_result(req, -3, "资源不可用", {"error": url_error})
             return
         rtmp_url = build_rtmp_url(room_number)
         masked_rtmp = mask_rtmp_url(rtmp_url)
@@ -364,7 +364,7 @@ class MonitorVideoMixin:
         if proc is None:
             extra["action"] = "failed"
             extra["error"] = err
-            self._publish_video_result(req, -2, "命令执行失败", extra)
+            self._publish_video_result(req, -6, "执行失败", extra)
             return
         extra["started_at"] = self.video_meta.get("started_at")
         extra["startup_grace_sec"] = VIDEO_STARTUP_GRACE
@@ -374,7 +374,7 @@ class MonitorVideoMixin:
     # ---------- video/stop/send 停止推流 ----------
 
     def _publish_video_stop_result(self, request_id, result_code, cause, extra=None):
-        """统一停止推流结果报文：result -1 当前没有设备在推流 / 0 ok"""
+        """统一停止推流结果报文：result 0 成功 / -4 没有在推流 / -6 停流失败"""
         payload = {
             "device_id": config.DEVICE_ID,
             "hostname": HOSTNAME,
@@ -410,21 +410,21 @@ class MonitorVideoMixin:
 
         if not running:
             extra = {"room_number": req_room or None, "stopped": False}
-            self._publish_video_stop_result(rid, -1, "当前没有设备在推流", extra)
+            self._publish_video_stop_result(rid, -4, "当前没有设备在推流", extra)
             return
 
         # 可选：带 room_number 时做一致性校验，避免停错流
         current_room = meta.get("room_number")
         if req_room and current_room and req_room != current_room:
             self._publish_video_stop_result(
-                rid, -1, "当前没有设备在推流",
+                rid, -4, "推流房间号不一致",
                 {"room_number": req_room, "stopped": False,
                  "error": f"当前推流房间号是 {current_room}，与请求的 {req_room} 不一致"})
             return
 
         stopped = self._stop_video_stream("收到停止推流请求")
         if not stopped:
-            self._publish_video_stop_result(rid, -1, "当前没有设备在推流",
+            self._publish_video_stop_result(rid, -6, "停止推流失败",
                                             {"room_number": current_room, "stopped": False})
             return
 

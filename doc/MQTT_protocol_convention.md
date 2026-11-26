@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.18）
+# MQTT 协议约定（文档版本 v1.19）
 
 > 本文是 控制端（App/Web）、代理端（agent）、设备端（ros2设备和非ros2设备）之间 MQTT 报文协议的契约
 > **唯一权威文档**，所有 MQTT 主题定义统一收敛到本文。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步各端与测试。
 >
-> - 本文档的版本：v1.18 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.19 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -186,9 +186,33 @@ MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求�
 
 - App 订 12 条精确响应主题：`walle/{t}/device/+` 下的 `online`、`alarm/report`、10 条 `…/response`（见 `TopicNames.responseSubscriptions`）
 - 设备端订 6 条：3 条按层数的 `+` 模式（`+/+/request`、`+/+/+/request`、`+/+/+/+/request`），
-  另加 discovery、`client/+/online`、`agent/+/online`
-  + 1 条租户级 `discovery/query/request` + 1 条客户端在线状态 `client/+/online`（见 `config.subscriptions()`）。
-  `+` 只匹配一层，因此只命中请求/持续控制与客户端 presence，不会收到自己发布的 response/report；新增不同层数的请求主题时需补一条模式。
+  另加租户级 `discovery/query/request`、`client/+/online`、`agent/+/online`（见 `config.subscriptions()`）。
+  `+` 只匹配一层，因此只命中请求主题与客户端 presence，不会收到自己发布的 response/report；
+  新增不同层数的请求主题时需补一条模式。
+
+### 2.8 统一错误码（result）
+
+所有带 `result` 字段的 `.../response` 使用同一套错误码：`0` 表示成功，负数表示失败。
+**不同命令的同类错误必须使用相同码**；客户端只判断 `result != 0`，具体原因看 `cause`。
+
+| result | 含义 | 典型场景 |
+|---|---|---|
+| `0` | 成功 | 所有请求-应答 |
+| `-1` | 请求无效 | 缺少必填字段、空列表、未知 `action` |
+| `-2` | 参数错误 | 类型错误、取值越界、互斥冲突、非法路径/文件名 |
+| `-3` | 资源不可用 | 服务/节点/设备/链路不可用、文件不存在、未配置必要参数或依赖 |
+| `-4` | 状态冲突 | 已在录制/未录制、没有可停止的流、正在使用、房间号与当前状态不一致 |
+| `-5` | 控制权被占用 | 非当前 holder；控制类请求被拒绝（带 `error_code=control_denied`） |
+| `-6` | 执行失败 | 内部异常、超时、进程启动/退出失败、查询/删除失败 |
+| `-7` | 存储空间不足 | 录像磁盘低于最低阈值 |
+| `-8` | 安全联锁 | 前方障碍，禁止前进 |
+
+补充约定：
+
+- `online`、`discovery/query/response`、`baseState/query/response`、`runState/query/response`、
+  `alarm/report` 不带 `result`，不属于本表；`agent/chat/response` 使用 `ok` 布尔值。
+- 失败时应尽量同时给出可读 `cause`；客户端不得依赖具体文案做逻辑判断。
+- 新增命令只能复用表中已有的码；确需新语义时先更新本表与各端解析。
 
 ---
 
@@ -429,7 +453,7 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 处理语义：
 
 - 当前**没有推流**：用默认摄像头开始推流，并在应答里返回新生成的 `room_number`；
-  设备没有可用摄像头时返回 `result=-1`；
+  设备没有可用摄像头时返回 `result=-3`；
 - 当前**已在推流**：直接返回 `result=0`、`action=already_streaming` 和当前
   `room_number`，不重连、不重启、不切换摄像头。
 
@@ -437,8 +461,8 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 
 | 字段 | 说明 |
 |---|---|
-| `result` | **0** 成功（新启动或已在推流）/ **-1** 此设备没有摄像头 / **-2** 命令执行失败（能力关闭、未配置 secret、等待图像超时、编码进程启动失败） |
-| `cause` | 可读原因：`ok` / `此设备没有摄像头` / `命令执行失败` |
+| `result` | `0` 成功（新启动或已在推流）/ `-3` 资源不可用（没有摄像头、能力关闭、未配置 secret、缺少编码依赖）/ `-6` 执行失败（等待图像超时、编码进程启动失败或异常退出） |
+| `cause` | 可读原因：`ok` / `此设备没有摄像头` / `资源不可用` / `执行失败` |
 | `video_device` | 实际使用的默认摄像头（没有摄像头时可能为 null） |
 | `room_number` | 设备生成的 8 位房间号（成功时必有，客户端必须用它拼 WHEP 地址） |
 | `request_id` | 原样回显 |
@@ -460,13 +484,13 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 
 | 字段 | 说明 |
 |---|---|
-| `result` | **0** 已停止 / **-1** 当前没有设备在推流 |
+| `result` | `0` 已停止 / `-3` 推流服务不可用 / `-4` 当前没有设备在推流 / `-6` 停止失败 |
 | `cause` | 可读原因 |
 | `stopped` | bool，是否真的停了一路流 |
 | `room_number` / `video_device` / `pid` / `started_at` | 被停流的信息（成功时） |
 | `request_id` 及公共字段 | — |
 
-**一致性校验**：请求带了 `room_number` 且与当前推流不一致 → `result=-1` 并在 `error`
+**一致性校验**：请求带了 `room_number` 且与当前推流不一致 → `result=-4` 并在 `error`
 里说明当前房间号，**不会误停别人的流**。
 
 ### 4.7 alarm/report —— 告警（主动上报）（V1.0，V1.6 增补 battery_low / obstacle_near）
@@ -561,7 +585,7 @@ MQTT 只负责「开 / 关」控制。
 
 | 字段 | 说明 |
 |---|---|
-| `result` | **0** 成功（`send` 时含 `already_playing`）/ **-1** 当前没有音频流（仅 stop）/ **-2** 失败（缺依赖、输出设备不可用、参数非法等） |
+| `result` | `0` 成功（`send` 时含 `already_playing`）/ `-2` 参数错误（room_number 非法）/ `-3` 资源不可用（能力关闭、缺依赖、输出设备不可用）/ `-4` 当前没有音频流或房间号不一致（仅 stop）/ `-6` 执行失败（播放器启动失败或异常退出） |
 | `cause` | 可读原因 |
 | `action` | `send`：`started` / `already_playing` / `failed` |
 | `stopped` | `stop`：是否真的停了一路播放 |
@@ -579,7 +603,7 @@ MQTT 只负责「开 / 关」控制。
 - **App 不订阅两个 `/response`**：App 侧是单向动作，按钮状态由本地推流结果驱动
   （`responseSubscriptions()` 不含 `phone/audio/*`）。设备端仍会发布 response，供日志、
   调试与其他客户端使用。
-- **一致性校验**：`stop` 带了 `room_number` 且与当前播放房间号不一致 → `result=-1`
+- **一致性校验**：`stop` 带了 `room_number` 且与当前播放房间号不一致 → `result=-4`
   并在 `error` 里说明，**不会误停别人**。
 - **旧停新启**：`send` 时若已有别的房间在播，先停旧的再起新的（同一时刻设备只有一路）。
 - **退出即关**：`PlayerActivity.onDestroy()` 与进程退出都会发 `phone/audio/stop/request`，
@@ -683,7 +707,7 @@ angular.z =  2.5  (rotate.left = true)
 **前方障碍联锁（V1.7）**：收到 `car/motor/set/request` 后，若声呐存在 1s 内的有效读数且
 `distance_cm ≤ THRESH_OBSTACLE_CM`（默认 30cm），则：
 
-- `forward` 非 0 的命令不执行：清空运动状态、立即发布零速，回执 `result=-4`、
+- `forward` 非 0 的命令不执行：清空运动状态、立即发布零速，回执 `result=-8`、
   `cause=前方有障碍物，不可前进`；
 - 后退、转向、横移（`back` / `rotate` / `left` / `right`）不受影响；
 - 声呐无数据或读数过期时不启用联锁，避免传感器故障导致车辆无法移动。
@@ -717,12 +741,12 @@ angular.z =  2.5  (rotate.left = true)
 | 字段 | 说明 |
 |---|---|
 | `request_id` | 原样回显 |
-| `result` | 0 成功并已下发；-1 命令无效（缺 `move`/`rotate`）；-2 命令错误（类型/取值/互斥）；-3 底盘控制链路不可用（`/cmd_vel` 无订阅者）；-4 前方有障碍物，不可前进；-5 控制权被其他客户端占用（带 `error_code=control_denied`，见 §4.19） |
+| `result` | 0 成功并已下发；-1 命令无效（缺 `move`/`rotate`）；-2 命令错误（类型/取值/互斥）；-3 底盘控制链路不可用（`/cmd_vel` 无订阅者）；-5 控制权被其他客户端占用（带 `error_code=control_denied`，见 §4.19）；-8 前方有障碍物，不可前进 |
 | `cause` | 可读原因：`ok` / `命令无效` / `命令错误` / `底盘控制链路不可用` / `前方有障碍物，不可前进` / `设备控制权限已被别人占用` |
 | `cmd_vel` | 实际下发的速度 `{linear_x, linear_y, angular_z}`（已按轮速预算缩放）；未执行时为 `null` |
 | `device_id` / `hostname` / `ip` / `timestamp` / `datetime` | 公共字段（§3.1） |
 
-`result=0` 表示“命令已接受并下发”，不是“车已经执行完成”。`result=-3/-4` 时设备端不会
+`result=0` 表示“命令已接受并下发”，不是“车已经执行完成”。`result=-3/-8` 时设备端不会
 保存这次状态，避免底盘恢复或障碍消失后自己动起来。
 
 **App 行为**：按住方向键每 200ms 发一条；快速点击去重后仍按 200ms 节流；松开立即发
@@ -793,8 +817,8 @@ App 订阅 `car/motor/set/response`，但只在 `result != 0` 时提示（正常
 **结果码规则**：
 
 - `0`：所有请求的舵机都读取成功；
-- `-1`：`ids` 为空、重复或超出 1–4；
-- `-2`：`ids` 不是数组、元素不是整数、`include_offset` 不是布尔等类型错误；
+- `-1`：`ids` 为空；
+- `-2`：`ids` 重复/超出 1–4，或 `ids` 不是数组、元素不是整数、`include_offset` 不是布尔等类型错误；
 - `-3`：`get_state` 服务不可用，或任意一个请求的舵机读取失败。
   此时 `servos[]` 仍保留读取成功的舵机，App 可展示部分结果。
 
@@ -876,7 +900,7 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 | 字段 | 说明 |
 |---|---|
-| `result` | `0` 成功（至少一个舵机已发布）；`-1` 命令无效（`servos` 为空或全部越界）；`-2` 命令错误（类型/ID/重复/`duration` 非法）；`-3` 舵机控制链路不可用；`-5` 控制权被其他客户端占用（带 `error_code=control_denied`，见 §4.19） |
+| `result` | `0` 成功（至少一个舵机已发布）；`-1` 命令无效（`servos` 为空）；`-2` 命令错误（类型/ID/重复/`duration` 非法，或全部越界）；`-3` 舵机控制链路不可用；`-5` 控制权被其他客户端占用（带 `error_code=control_denied`，见 §4.19） |
 | `cause` | `ok` / `命令无效` / `命令错误` / `底盘控制链路不可用` / `设备控制权限已被别人占用` |
 | `duration` | 实际生效的动作时长（秒）；解析失败时为 `null` |
 | `applied` | 已发布给底盘的舵机 `[{id, position}]`；`result != 0` 时为空数组 |
@@ -947,8 +971,8 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 | 字段 | 说明 |
 |---|---|
-| `result` | `0` 成功 / `-1` 已在录制 / `-3` 磁盘空间不足 / `-4` 执行失败 |
-| `cause` | `ok` / `已在录制` / `磁盘空间不足` / `执行失败` |
+| `result` | `0` 成功 / `-3` 录像服务不可用 / `-4` 已在录制 / `-6` 执行失败 / `-7` 磁盘空间不足 |
+| `cause` | `ok` / `服务不可用` / `已在录制` / `启动录像失败` / `磁盘空间不足` |
 | `filename` | 自动生成的录像文件名 `rec_YYYYMMDD_HHMMSS.fmp4` |
 | `started_at` | 录像开始的本地时间字符串 |
 | `started_ts` | 录像开始的 Unix 时间戳 |
@@ -956,9 +980,10 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 **结果码规则**：
 - `0`：已启动录像；
-- `-1`：已有录像会话在进行，不重复启动；
-- `-3`：磁盘剩余空间低于 6GB 最低要求，拒绝录像；
-- `-4`：`record_video_node` 服务不可用或启动 ffmpeg 失败。
+- `-3`：`record_video_node` 服务不可用；
+- `-4`：已有录像会话在进行，不重复启动；
+- `-6`：启动 ffmpeg 失败；
+- `-7`：磁盘剩余空间低于 6GB 最低要求，拒绝录像。
 
 **注意事项**：
 - 录像文件采用 fMP4（`+frag_keyframe+empty_moov+default_base_moof`），
@@ -1009,8 +1034,8 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 | 字段 | 说明 |
 |---|---|
-| `result` | `0` 成功 / `-2` 当前未录制 / `-4` 执行失败 |
-| `cause` | `ok` / `当前未录制` / `执行失败` |
+| `result` | `0` 成功 / `-3` 录像服务不可用 / `-4` 当前未录制 / `-6` 执行失败 |
+| `cause` | `ok` / `服务不可用` / `当前未录制` / `执行失败` |
 | `filename` | 被停止的当前录像文件名 |
 
 ---
@@ -1058,6 +1083,8 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 | 字段 | 说明 |
 |---|---|
+| `result` | `0` 成功 / `-3` 录像服务不可用 / `-6` 查询失败 |
+| `cause` | `ok` / `服务不可用` / `查询录像列表失败` |
 | `records[].filename` | 录像文件名 |
 | `records[].size_bytes` | 文件大小（字节） |
 | `records[].created_at` | 文件创建时间 |
@@ -1107,8 +1134,8 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 | 字段 | 说明 |
 |---|---|
-| `result` | `0` 成功 / `-1` 文件不存在 / `-2` 正在录制不可删 / `-3` 非法路径 / `-4` 执行失败 |
-| `cause` | 对应原因说明 |
+| `result` | `0` 成功 / `-1` 命令无效（filename 为空）/ `-2` 非法文件名或路径 / `-3` 文件不存在或服务不可用 / `-4` 正在录制不可删 / `-6` 删除失败 |
+| `cause` | `对应原因说明` |
 
 **安全**：文件名白名单 `^rec_\d{8}_\d{6}\.fmp4$`，删除前校验真实路径在 `data/recordings/`
 目录内，防止路径穿越。
@@ -1154,7 +1181,7 @@ App 用返回的 `flv_url` / `whep_url` 拉流播放。同一时刻只允许一�
 
 | 字段 | 说明 |
 |---|---|
-| `result` | `0` 成功 / `-1` 推流失败（未配置媒体服务器、文件不存在等） / `-3` 非法参数 |
+| `result` | `0` 成功 / `-1` 命令无效（filename 为空）/ `-2` 非法文件名或路径 / `-3` 未配置媒体服务器、文件不存在 / `-6` 启动 ffmpeg 失败 |
 | `cause` | 对应原因说明 |
 | `stream` | SRS 流名，每次播放唯一 |
 | `flv_url` | HTTP-FLV 拉流地址（SRS 默认端口 8080，可由 `RECORD_PLAY_FLV_PORT` 覆盖） |
@@ -1162,7 +1189,7 @@ App 用返回的 `flv_url` / `whep_url` 拉流播放。同一时刻只允许一�
 | `offset_sec` | 实际生效的起始秒数（仅请求带了时回显） |
 
 **停止播放**：App 退出播放时发 `record/play/stop/request`，设备端 kill ffmpeg 进程，
-返回 `record/play/stop/response`（带 `stopped: true`）。
+返回 `record/play/stop/response`（`result=0`、`stopped: true`；重复停止也返回 0）。
 
 **实现要点**：
 - ffmpeg 命令：`ffmpeg -re [-ss <offset>] -i <fmp4> -c copy -f flv rtmp://<srs>:1935/live/<stream>?secret=<secret>`
@@ -1281,8 +1308,8 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 |---|---|---|
 | 0 | `granted` | 原本空闲，获取成功 |
 | 0 | `renewed` | 同一 `client_id` 续租成功 |
-| 1 | `occupied` | 已被别人占用；`control_holder` 返回当前持有者 |
-| 2 | `invalid` | 缺少 `client_id` / `client_name` |
+| -1 | `invalid` | 缺少 `client_id` / `client_name` |
+| -5 | `occupied` | 已被别人占用；`control_holder` 返回当前持有者 |
 
 **释放（App → 设备）**
 
@@ -1298,8 +1325,8 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 |---|---|---|
 | 0 | `released` | 释放成功 |
 | 0 | `already_free` | 当前本来就没有 holder |
-| 1 | `not_holder` | 不是当前持有者；`control_holder` 返回当前持有者 |
-| 2 | `invalid` | 缺少 `client_id` |
+| -1 | `invalid` | 缺少 `client_id` |
+| -5 | `not_holder` | 不是当前持有者；`control_holder` 返回当前持有者 |
 
 **`control_holder` 对象**
 
@@ -1324,7 +1351,7 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
   "hostname": "raspberrypi",
   "ip": "192.168.1.20",
   "request_id": "v1a2b3c4",
-  "result": -4,
+  "result": -5,
   "cause": "设备控制权限已被别人占用",
   "error_code": "control_denied",
   "control_holder": { "client_id": "web-1a2b3c4d", "client_name": "Web",
@@ -1335,8 +1362,8 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 }
 ```
 
-- `car/motor/set/request` 被拒绝时回执到 `car/motor/set/response`（`result=-5`）；
-  `car/servo/set/request` 被拒绝时回执到 `car/servo/set/response`（`result=-5`，与车控一致）；
+- `car/motor/set/request` 与 `car/servo/set/request` 被拒绝时回执 `result=-5`；
+  其它请求-应答被拒绝时同样返回 `-5`，统一见 §2.8；
   客户端应通过 `runState/query/response.control_holder` 或 acquire 失败提前判断。
 
 **客户端约定**
@@ -1508,6 +1535,33 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 6. 变更记录
+
+> 历史条目中的结果码以当时版本为准；当前统一错误码见 §2.8。
+
+### 2026-11-26：统一所有 response 错误码（文档 v1.19）
+
+**变更类型**：破坏性变更（`result` 数值重映射，不保留兼容）。
+
+**变更内容**
+
+- 新增 §2.8 统一错误码表：`0` 成功、`-1` 请求无效、`-2` 参数错误、
+  `-3` 资源不可用、`-4` 状态冲突、`-5` 控制权被占用、`-6` 执行失败、
+  `-7` 存储空间不足、`-8` 安全联锁。
+- 同一失败原因在所有命令中使用同一码：例如“服务/设备/链路不可用”统一 `-3`，
+  “已在/不在某状态”统一 `-4`，“内部异常/超时/进程失败”统一 `-6`。
+- 控制权拒绝统一 `-5`：`control/acquire|release` 的 occupied/not_holder、
+  所有请求-应答类被拒绝的 `error_code=control_denied` 都改为 `-5`；
+  缺少 `client_id`/`client_name` 改 `-1`。
+- 车控前方障碍由 `-4` 改为 `-8`；舵机全部越界由 `-1` 改为 `-2`。
+- 视频/手机音频/录像/车控/舵机/控制权设备端与 linux-demo 同步调整；
+  Web 不再按码硬编码原因，统一展示 `cause`；Android 仅判断 `result != 0`，无需改解析。
+
+**影响与兼容性**：客户端必须只判断 `result != 0`；旧版按具体数字判断原因的代码会显示错误文案。
+App/Web/设备端需同版本部署。
+
+**验证方式**：`python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test`；
+`cd walle-device/linux-demo && python3 -m unittest discover -s test -t .`；
+实机抽查视频、手机音频、录像、车控、舵机的成功与失败回执，确认码值符合 §2.8。
 
 ### 2026-11-26：舵机位置设置改为 car/servo/set/request|response（文档 v1.18）
 
@@ -1809,7 +1863,7 @@ App `./gradlew :app:testDebugUnitTest`。
 **验证方式**：`test_car_motor.py` 覆盖前进拦截、后退/转向/横移放行；
 `test_alarm_sensors.py` 覆盖新鲜/过期声呐读数；实车前 30cm 内前进应返回 `result=4` 并停车。
 
-> 已废弃（v1.17）：车控结果码已改为负数，前方障碍现为 `result=-4`；本段仅作历史记录。
+> 已废弃（v1.19）：车控结果码已统一，前方障碍现为 `result=-8`；本段仅作历史记录。
 
 ### 2026-11-19：状态查询移除 alarms 分组（V1.7）
 

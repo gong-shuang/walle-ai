@@ -25,7 +25,7 @@ class PhoneAudioMixin:
             room_number + config.PHONE_AUDIO_STREAM_SUFFIX)
 
     def _publish_phone_audio_result(self, resource, req, result_code, cause, extra=None):
-        """手机音频动作的结果报文（result 语义与 video 一致：0 成功 / -1 无流 / -2 失败）"""
+        """手机音频动作的结果报文（统一错误码见 §2.8：0/-1/-2/-3/-4/-6）"""
         payload = {
             "device_id": config.DEVICE_ID,
             "hostname": config.HOSTNAME,
@@ -162,6 +162,15 @@ class PhoneAudioMixin:
                          name="phone-audio-watch").start()
         return proc, None
 
+    @staticmethod
+    def _phone_audio_error_code(err):
+        """启动失败归类：缺脚本/依赖/声卡算资源不可用，其它算执行失败。"""
+        text = str(err or "")
+        if ("未找到播放器脚本" in text or "缺依赖" in text
+                or "退出码 3" in text or "退出码 6" in text):
+            return -3
+        return -6
+
     def handle_phone_audio_send(self, payload):
         data = self.parse_request(payload, config.REQ_PHONE_AUDIO_SEND)
         if data is None:
@@ -172,12 +181,12 @@ class PhoneAudioMixin:
 
         if not config.PHONE_AUDIO_ENABLE:
             self._publish_phone_audio_result(
-                config.RES_PHONE_AUDIO_SEND_RESULT, req, -2, "命令执行失败",
+                config.RES_PHONE_AUDIO_SEND_RESULT, req, -3, "资源不可用",
                 {"error": "反向音频已关闭（PHONE_AUDIO_ENABLE=False）"})
             return
         if not re.match(config.VIDEO_ROOM_PATTERN, room_number):
             self._publish_phone_audio_result(
-                config.RES_PHONE_AUDIO_SEND_RESULT, req, -2, "命令执行失败",
+                config.RES_PHONE_AUDIO_SEND_RESULT, req, -2, "参数错误",
                 {"error": "room_number 不合法（只允许 1-64 位字母/数字/下划线/短横线）"})
             return
 
@@ -195,8 +204,10 @@ class PhoneAudioMixin:
         self._stop_phone_audio("收到新的音频上行请求")
         proc, err = self._start_phone_audio(room_number)
         if proc is None:
+            code = self._phone_audio_error_code(err)
             self._publish_phone_audio_result(
-                config.RES_PHONE_AUDIO_SEND_RESULT, req, -2, "命令执行失败",
+                config.RES_PHONE_AUDIO_SEND_RESULT, req, code,
+                "资源不可用" if code == -3 else "执行失败",
                 {"action": "failed", "error": err})
             return
         self._publish_phone_audio_result(
@@ -220,7 +231,7 @@ class PhoneAudioMixin:
         current_room = cur_meta.get("room_number")
         if playing and req_room and current_room and req_room != current_room:
             self._publish_phone_audio_result(
-                config.RES_PHONE_AUDIO_STOP_RESULT, req, -1, "当前没有音频流",
+                config.RES_PHONE_AUDIO_STOP_RESULT, req, -4, "当前音频流房间号不一致",
                 {"stopped": False,
                  "error": f"当前播放房间号是 {current_room}，与请求的 {req_room} 不一致"})
             return
@@ -228,7 +239,7 @@ class PhoneAudioMixin:
         stopped = self._stop_phone_audio("收到停止音频上行请求")
         self._publish_phone_audio_result(
             config.RES_PHONE_AUDIO_STOP_RESULT, req,
-            0 if stopped else -1,
+            0 if stopped else -4,
             "ok" if stopped else "当前没有音频流",
             {"stopped": stopped, "room_number": current_room})
 

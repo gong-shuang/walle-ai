@@ -22,14 +22,22 @@ def test_custom_ids_and_offset():
 
 @pytest.mark.parametrize("data", [
     {"ids": []},
+])
+def test_empty_ids_is_invalid(data):
+    result, cause, req = car_servo.parse_status_query(data)
+    assert (result, cause, req) == (
+        car_servo.RESULT_INVALID, car_servo.CAUSE_INVALID, None)
+
+
+@pytest.mark.parametrize("data", [
     {"ids": [0]},
     {"ids": [5]},
     {"ids": [1, 1]},
 ])
-def test_invalid_ids(data):
+def test_bad_ids_are_command_errors(data):
     result, cause, req = car_servo.parse_status_query(data)
     assert (result, cause, req) == (
-        car_servo.RESULT_INVALID, car_servo.CAUSE_INVALID, None)
+        car_servo.RESULT_ERROR, car_servo.CAUSE_ERROR, None)
 
 
 @pytest.mark.parametrize("data", [
@@ -104,14 +112,14 @@ def test_set_command_one_out_of_range_executes_the_other():
     assert "超出范围" in cmd["skipped"][0]["reason"]
 
 
-def test_set_command_all_out_of_range_is_invalid():
+def test_set_command_all_out_of_range_is_command_error():
     result, cause, cmd = car_servo.parse_set_command({
         "servos": [
             {"id": 1, "position": 700},
             {"id": 2, "position": 2300},
         ],
     })
-    assert (result, cause) == (car_servo.RESULT_INVALID, car_servo.CAUSE_INVALID)
+    assert (result, cause) == (car_servo.RESULT_ERROR, car_servo.CAUSE_ERROR)
     assert cmd["applied"] == []
     assert len(cmd["skipped"]) == 2
 

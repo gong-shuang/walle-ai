@@ -41,7 +41,7 @@ def test_standalone_video_start_points_to_ros_bridge():
     resource, data = published[0]
     assert resource == config.RES_VIDEO_START_RESULT
     assert data["request_id"] == "v1"
-    assert data["result"] == -2
+    assert data["result"] == -3
     assert "video_webrtc_bridge" in data["error"]
 
 
@@ -55,6 +55,6 @@ def test_standalone_video_stop_reports_no_stream():
     resource, data = published[0]
     assert resource == config.RES_VIDEO_STOP_RESULT
     assert data["request_id"] == "v2"
-    assert data["result"] == -1
+    assert data["result"] == -4
     assert data["stopped"] is False
     assert "video_webrtc_bridge" in data["error"]

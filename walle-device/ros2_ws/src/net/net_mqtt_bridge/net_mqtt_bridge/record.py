@@ -21,6 +21,16 @@ from .identity import now_str, now_ts
 from .record_player import RecordPlayer, RECORD_ENABLED, RECORD_STORAGE_PATH
 
 
+def _play_failure_result(cause):
+    """录像点播失败归类（统一错误码见 §2.8）。"""
+    text = str(cause or "")
+    if "未配置" in text or "不存在" in text:
+        return -3
+    if "不合法" in text or "非法路径" in text:
+        return -2
+    return -6
+
+
 class RecordMixin:
     """agent 侧：录像 MQTT 结果报文封装。"""
 
@@ -220,7 +230,7 @@ class RecordNodeMixin:
         resp = self._call_record(self._record_control_client, srv_req)
         if resp is None:
             self.agent._publish_record_start_result(
-                req, -4, '执行失败',
+                req, -3, '服务不可用',
                 {'error': '录像服务不可用（record_video_node 未启动或未就绪）'})
             return
         extra = {
@@ -253,7 +263,7 @@ class RecordNodeMixin:
         resp = self._call_record(self._record_control_client, srv_req)
         if resp is None:
             self.agent._publish_record_stop_result(
-                req, -4, '执行失败',
+                req, -3, '服务不可用',
                 {'error': '录像服务不可用（record_video_node 未启动或未就绪）'})
             return
         extra = {'filename': resp.filename or None}
@@ -275,7 +285,7 @@ class RecordNodeMixin:
         resp = self._call_record(self._record_list_client, srv_req)
         if resp is None:
             self.agent._publish_record_list_result(
-                req, -4, '执行失败',
+                req, -3, '服务不可用',
                 {'error': '录像服务不可用（record_video_node 未启动或未就绪）',
                  'records': [], 'used_bytes': 0, 'limit_bytes': 0})
             return
@@ -307,14 +317,14 @@ class RecordNodeMixin:
         filename = str(data.get('filename') or '').strip()
         if not filename:
             self.agent._publish_record_delete_result(
-                req, -3, '非法路径', {'error': 'filename 不能为空', 'filename': None})
+                req, -1, '命令无效', {'error': 'filename 不能为空', 'filename': None})
             return
         srv_req = RecordDelete.Request()
         srv_req.filename = filename
         resp = self._call_record(self._record_delete_client, srv_req)
         if resp is None:
             self.agent._publish_record_delete_result(
-                req, -4, '执行失败',
+                req, -3, '服务不可用',
                 {'error': '录像服务不可用（record_video_node 未启动或未就绪）',
                  'filename': filename})
             return
@@ -334,7 +344,7 @@ class RecordNodeMixin:
         filename = str(data.get('filename') or '').strip()
         if not filename:
             self.agent._publish_record_play_start_result(
-                req, -3, '非法参数', {'error': 'filename 不能为空', 'filename': None})
+                req, -1, '命令无效', {'error': 'filename 不能为空', 'filename': None})
             return
         try:
             offset_sec = float(data.get('offset_sec') or 0)
@@ -345,7 +355,8 @@ class RecordNodeMixin:
         ok, cause, urls = self._record_player.play(filename, offset_sec)
         if not ok:
             self.agent._publish_record_play_start_result(
-                req, -1, cause, {'filename': filename, 'error': cause})
+                req, _play_failure_result(cause), cause,
+                {'filename': filename, 'error': cause})
             return
         extra = {
             'filename': filename,

@@ -469,8 +469,8 @@ class VideoWebrtcBridge(Node):
             return self._handle_stop(request, response)
         except Exception as exc:  # noqa: BLE001
             self.get_logger().exception("处理推流请求失败")
-            response.result = -2
-            response.cause = "命令执行失败"
+            response.result = -6
+            response.cause = "执行失败"
             response.action = "failed"
             response.error = str(exc)
             return response
@@ -516,15 +516,15 @@ class VideoWebrtcBridge(Node):
 
         response.video_device = device
         if not re.match(r"^/dev/video\d+$", device) or not os.path.exists(device):
-            response.result = -1
+            response.result = -3
             response.cause = "没有此摄像头设备"
             response.action = "failed"
             response.error = "默认摄像头不存在: %s" % (device or "<空>")
             return response
 
         if not self._rtmp_secret_ready():
-            response.result = -2
-            response.cause = "命令执行失败"
+            response.result = -3
+            response.cause = "资源不可用"
             response.action = "failed"
             response.error = "未配置 Oryx 推流 secret（请在 /etc/walle-ai.conf 设置 MEDIA_SERVER_SECRET）"
             return response
@@ -538,8 +538,8 @@ class VideoWebrtcBridge(Node):
         got_frame = self._frame_event.wait(timeout=self.first_frame_timeout)
         self._starting = False
         if not got_frame:
-            response.result = -2
-            response.cause = "命令执行失败"
+            response.result = -6
+            response.cause = "执行失败"
             response.action = "failed"
             response.error = "等待 %s 图像超时（%.1fs）" % (
                 self.image_topic, self.first_frame_timeout)
@@ -547,8 +547,8 @@ class VideoWebrtcBridge(Node):
 
         with self._lock:
             if self._frame is None or self._frame_size is None:
-                response.result = -2
-                response.cause = "命令执行失败"
+                response.result = -6
+                response.cause = "执行失败"
                 response.action = "failed"
                 response.error = "没有可用的图像帧"
                 return response
@@ -584,15 +584,15 @@ class VideoWebrtcBridge(Node):
             )
         except FileNotFoundError:
             sink.close()
-            response.result = -2
-            response.cause = "命令执行失败"
+            response.result = -3
+            response.cause = "资源不可用"
             response.action = "failed"
             response.error = "未安装 %s（ffmpeg 或 gstreamer1.0-tools）" % program
             return response
         except Exception as exc:  # noqa: BLE001
             sink.close()
-            response.result = -2
-            response.cause = "命令执行失败"
+            response.result = -6
+            response.cause = "执行失败"
             response.action = "failed"
             response.error = "启动 %s 失败: %s" % (program, exc)
             return response
@@ -638,8 +638,8 @@ class VideoWebrtcBridge(Node):
             self._reset_stream(stream_id)
             self._publish_status()
             sink.close()
-            response.result = -2
-            response.cause = "命令执行失败"
+            response.result = -6
+            response.cause = "执行失败"
             response.action = "failed"
             response.error = "%s 退出码 %s（日志: %s）%s" % (
                 program, code, sink.path, (": " + tail) if tail else "")
@@ -684,7 +684,7 @@ class VideoWebrtcBridge(Node):
                 "audio": dict(self._audio),
             }
         if not streaming:
-            response.result = -1
+            response.result = -4
             response.cause = "当前没有设备在推流"
             response.action = "failed"
             response.stopped = False
@@ -692,8 +692,8 @@ class VideoWebrtcBridge(Node):
             return response
 
         if req_room and current_room and req_room != current_room:
-            response.result = -1
-            response.cause = "当前没有设备在推流"
+            response.result = -4
+            response.cause = "推流房间号不一致"
             response.action = "failed"
             response.stopped = False
             response.room_number = req_room
@@ -709,8 +709,8 @@ class VideoWebrtcBridge(Node):
         response.started_at = meta["started_at"]
         self._fill_audio(response, meta["audio"])
         if not stopped:
-            response.result = -1
-            response.cause = "当前没有设备在推流"
+            response.result = -6
+            response.cause = "停止推流失败"
             response.action = "failed"
             response.stopped = False
             return response

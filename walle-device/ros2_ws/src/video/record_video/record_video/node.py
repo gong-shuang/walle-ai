@@ -613,7 +613,7 @@ class RecordVideoNode(Node):
         if response.result == 0:
             self.get_logger().info(
                 "Walle 启动就绪，已自动开始录像：%s" % response.filename)
-        elif response.result == -1:
+        elif response.result == -4:
             self.get_logger().info(
                 "Walle 启动就绪，录像已在进行：%s" % response.filename)
         else:
@@ -626,14 +626,14 @@ class RecordVideoNode(Node):
         with self._session_lock:
             if action == "start":
                 if self._session is not None and self._session.is_recording():
-                    response.result = -1
+                    response.result = -4
                     response.cause = "已在录制"
                     response.filename = self._session.current_file or ""
                     return response
                 # 磁盘空间检查
                 free = self._free_space_gb()
                 if free < self.min_free_space_gb:
-                    response.result = -3
+                    response.result = -7
                     response.cause = ("磁盘空间不足：剩余 %.1f GB，最低要求 %.1f GB"
                                       % (free, self.min_free_space_gb))
                     return response
@@ -652,7 +652,7 @@ class RecordVideoNode(Node):
                         audio_channels=self.audio_channels,
                         audio_bitrate=self.audio_bitrate)
                     if not self._session.start():
-                        response.result = -4
+                        response.result = -6
                         response.cause = "启动录像失败"
                         self._session = None
                         return response
@@ -664,14 +664,14 @@ class RecordVideoNode(Node):
                     response.started_at = _now_str()
                     response.started_ts = float(self._session.session_started_ts)
                 except Exception as exc:  # noqa: BLE001
-                    response.result = -4
+                    response.result = -6
                     response.cause = "启动录像失败: %s" % exc
                     self._session = None
                 return response
 
             elif action == "stop":
                 if self._session is None or not self._session.is_recording():
-                    response.result = -2
+                    response.result = -4
                     response.cause = "当前未录制"
                     return response
                 filename = self._session.current_file or ""
@@ -686,7 +686,7 @@ class RecordVideoNode(Node):
                 response.filename = filename
                 return response
             else:
-                response.result = -4
+                response.result = -1
                 response.cause = "未知 action: %s（仅支持 start/stop）" % action
                 return response
 
@@ -701,7 +701,7 @@ class RecordVideoNode(Node):
             response.used_bytes = self._dir_size_bytes()
             response.limit_bytes = int(self.storage_limit_gb * GB)
         except Exception as exc:  # noqa: BLE001
-            response.result = -4
+            response.result = -6
             response.cause = "查询录像列表失败: %s" % exc
             response.records = []
             response.used_bytes = 0
@@ -761,23 +761,23 @@ class RecordVideoNode(Node):
         filename = request.filename.strip()
         response.filename = filename
         if not _FILENAME_RE.match(filename):
-            response.result = -3
+            response.result = -2
             response.cause = "非法文件名"
             return response
         filepath = os.path.join(self.storage_path, filename)
         real = os.path.realpath(filepath)
         if not real.startswith(os.path.realpath(self.storage_path) + os.sep):
-            response.result = -3
+            response.result = -2
             response.cause = "非法路径"
             return response
         with self._session_lock:
             if (self._session is not None
                     and self._session.current_file == filename):
-                response.result = -2
+                response.result = -4
                 response.cause = "该文件正在录制，不可删除"
                 return response
         if not os.path.isfile(real):
-            response.result = -1
+            response.result = -3
             response.cause = "文件不存在"
             return response
         try:
@@ -785,7 +785,7 @@ class RecordVideoNode(Node):
             response.result = 0
             response.cause = "ok"
         except OSError as exc:
-            response.result = -4
+            response.result = -6
             response.cause = "删除失败: %s" % exc
         return response
 

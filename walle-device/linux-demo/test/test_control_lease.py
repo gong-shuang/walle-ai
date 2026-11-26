@@ -104,7 +104,7 @@ class RequestGuardTest(unittest.TestCase):
         self.assertEqual(mon.called, [])
         resource, data = mon.published[-1]
         self.assertEqual(resource, main.RES_VIDEO_START_RESULT)
-        self.assertEqual(data["result"], -4)
+        self.assertEqual(data["result"], -5)
         self.assertEqual(data["error_code"], "control_denied")
         self.assertEqual(data["cause"], "设备控制权限已被别人占用")
         self.assertEqual(data["control_holder"]["client_id"], "web-a")

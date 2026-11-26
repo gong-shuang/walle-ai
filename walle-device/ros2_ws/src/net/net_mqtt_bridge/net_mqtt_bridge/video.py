@@ -15,7 +15,7 @@ from .identity import now_str, now_ts
 
 class VideoMixin:
     def _publish_video_result(self, req, result_code, cause, extra=None):
-        """统一推流结果报文：result 固定语义 -1/0/-2，细节放附加字段"""
+        """统一推流结果报文：result 0 成功 / -3 资源不可用 / -6 执行失败"""
         payload = {
             "device_id": config.DEVICE_ID,
             "hostname": config.HOSTNAME,
@@ -36,7 +36,7 @@ class VideoMixin:
         return payload
 
     def _publish_video_stop_result(self, request_id, result_code, cause, extra=None):
-        """统一停止推流结果报文：result -1 当前没有设备在推流 / 0 ok"""
+        """统一停止推流结果报文：result 0 成功 / -4 没有在推流 / -3 资源不可用"""
         payload = {
             "device_id": config.DEVICE_ID,
             "hostname": config.HOSTNAME,
@@ -68,7 +68,7 @@ class VideoMixin:
             return
         req = self._video_req(data)
         self._publish_video_result(
-            req, -2, "命令执行失败",
+            req, -3, "资源不可用",
             {"error": "当前进程不提供推流；请通过 ROS 节点 video_webrtc_bridge 推流"})
 
     def handle_video_stop(self, payload):
@@ -79,6 +79,6 @@ class VideoMixin:
         rid = self._rid(data)
         req_room = str(data.get("room_number") or "").strip()
         self._publish_video_stop_result(
-            rid, -1, "当前没有设备在推流",
+            rid, -4, "当前没有设备在推流",
             {"room_number": req_room or None, "stopped": False,
              "error": "当前进程不提供推流；请通过 ROS 节点 video_webrtc_bridge 推流"})

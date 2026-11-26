@@ -30,8 +30,8 @@ def parse_status_query(data):
 
     返回 (result, cause, req)：
       - req = {"ids": [...], "include_offset": bool}，仅 result=0 时非 None；
-      - ids 为空/重复/越界 -> result=1；
-      - 字段类型错误 -> result=2。
+      - ids 为空 -> result=-1；
+      - ids 重复/越界、字段类型错误 -> result=-2。
     """
     if not isinstance(data, dict):
         return RESULT_INVALID, CAUSE_INVALID, None
@@ -47,9 +47,9 @@ def parse_status_query(data):
         if isinstance(raw, bool) or not isinstance(raw, int):
             return RESULT_ERROR, CAUSE_ERROR, None
         if raw < config.CAR_SERVO_ID_MIN or raw > config.CAR_SERVO_ID_MAX:
-            return RESULT_INVALID, CAUSE_INVALID, None
+            return RESULT_ERROR, CAUSE_ERROR, None
         if raw in parsed:
-            return RESULT_INVALID, CAUSE_INVALID, None
+            return RESULT_ERROR, CAUSE_ERROR, None
         parsed.append(raw)
 
     include_offset = data.get("include_offset", False)
@@ -64,9 +64,10 @@ def parse_set_command(data):
 
     返回 (result, cause, cmd)：
       - cmd = {"duration": float, "applied": [...], "skipped": [...]}；
-      - 全部 position 越界 -> result=1，applied 为空；
+      - servos 为空 -> result=-1，applied 为空；
+      - 全部 position 越界 -> result=-2，applied 为空；
       - 部分越界 -> result=0，只执行 applied，skipped 记录越界项；
-      - 类型/ID/重复/duration 错误 -> result=2。
+      - 类型/ID/重复/duration 错误 -> result=-2。
     """
     if not isinstance(data, dict):
         return RESULT_ERROR, CAUSE_ERROR, None
@@ -118,7 +119,7 @@ def parse_set_command(data):
             applied.append({"id": servo_id, "position": position})
 
     if not applied:
-        return RESULT_INVALID, CAUSE_INVALID, {
+        return RESULT_ERROR, CAUSE_ERROR, {
             "duration": duration,
             "applied": [],
             "skipped": skipped,

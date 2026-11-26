@@ -105,7 +105,7 @@ def test_control_denied_when_other_client_holds_lease():
     assert monitor.called == []
     resource, data = monitor.published[-1]
     assert resource == agent.RES_VIDEO_START_RESULT
-    assert data["result"] == -4
+    assert data["result"] == -5
     assert data["error_code"] == "control_denied"
     assert data["cause"] == "设备控制权限已被别人占用"
     assert data["control_holder"]["client_id"] == "web-a"

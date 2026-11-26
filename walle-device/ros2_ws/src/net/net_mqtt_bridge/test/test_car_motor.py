@@ -155,8 +155,8 @@ def test_topic_is_request_response_pair():
 def test_result_codes_are_negative_protocol_values():
     assert (car_motor.RESULT_OK, car_motor.RESULT_INVALID,
             car_motor.RESULT_ERROR, car_motor.RESULT_LINK_DOWN,
-            car_motor.RESULT_OBSTACLE, car_motor.RESULT_CONTROL_DENIED) == (
-                0, -1, -2, -3, -4, -5)
+            car_motor.RESULT_CONTROL_DENIED, car_motor.RESULT_OBSTACLE) == (
+                0, -1, -2, -3, -5, -8)
 
 
 def test_result_payload_reports_applied_cmd_vel_and_common_fields():
