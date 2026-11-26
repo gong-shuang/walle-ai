@@ -158,6 +158,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .wsRow{display:flex;align-items:center;gap:9px}
 .wsRow .input{flex:1;min-width:0}
 .wsRow .btn{flex:none;height:38px}
+.wsNameRow label{flex:none;white-space:nowrap}
 .hint.ok{color:#9ff0cf}
 .videoTitle{flex:1;min-width:0}
 .videoMsg{margin-top:9px;font-size:11.5px;line-height:1.55;color:var(--dim);max-height:64px;overflow:auto;word-break:break-word}
@@ -841,8 +842,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       </div>
 
       <div class="field">
-        <label>客户端名字</label>
-        <div class="wsRow">
+        <div class="wsRow wsNameRow">
+          <label for="fClientName">客户端名字：</label>
           <input id="fClientName" class="input" placeholder="如：Web、我的电脑" spellcheck="false">
           <button id="btnSaveClientName" class="btn primary" type="button">保存</button>
         </div>
