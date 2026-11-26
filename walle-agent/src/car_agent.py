@@ -365,6 +365,12 @@ def agent_config_topic(resource):
         server_tenant(), agent_identity(), resource)
 
 
+def agent_stop_topic(resource):
+    """agent 会话停止主题：walle/{t}/agent/{a}/chat/stop/{request|response}"""
+    return "walle/{}/agent/{}/chat/stop/{}".format(
+        server_tenant(), agent_identity(), resource)
+
+
 def _read_first_line(path):
     try:
         with open(path, encoding="utf-8") as fh:
@@ -894,9 +900,10 @@ class Agent:
             (prefix + "/+/+/+/response", 1),       # 3 层：record/list/query/response
             (prefix + "/+/+/+/+/response", 1),     # 4 层：car/servo/status/query/response
         ]
-        # agent 自身的基本状态查询与配置修改（不依赖 chat 是否开启）
+        # agent 自身的基本状态查询、配置修改与会话停止（不依赖 chat 是否开启）
         subs.append((agent_base_state_topic("request"), 1))
         subs.append((agent_config_topic("request"), 1))
+        subs.append((agent_stop_topic("request"), 1))
         if self.chat_enabled:
             subs.append((chat_topic("request"), 1))
         return subs
@@ -946,6 +953,9 @@ class Agent:
             return
         if msg.topic == agent_config_topic("request"):
             self._on_agent_config_request(msg)
+            return
+        if msg.topic == agent_stop_topic("request"):
+            self._on_agent_stop_request(msg)
             return
         device = self._topic_device(msg.topic)
         try:
@@ -1056,6 +1066,74 @@ class Agent:
             # 名称变化后立即重发 retained online，控制台无需等重连即可看到新名字
             self._publish_topic(agent_status_topic(),
                                 self._status_payload(True), retain=True)
+
+    # ---- agent 会话停止 ----
+    def _on_agent_stop_request(self, msg):
+        payload = self._decode_payload(msg)
+        if not isinstance(payload, dict):
+            payload = {}
+        # 停止流程要等控制权应答，不能阻塞 MQTT 收包线程
+        threading.Thread(target=self._serve_agent_stop, args=(payload,),
+                         daemon=True, name="agent-stop").start()
+
+    def _serve_agent_stop(self, payload):
+        request_id = str(payload.get("request_id") or "").strip()
+        client_id = str(payload.get("client_id") or "").strip()
+        client_name = str(payload.get("client_name") or "").strip()
+        device = str(payload.get("device") or "").strip()
+        response = {
+            "result": 0,
+            "cause": "ok",
+            "request_id": request_id,
+            "agent_id": agent_identity(),
+            "tenant": self.tenant,
+            "device": None,
+            "stopped": False,
+            "released": False,
+        }
+        if not request_id:
+            response.update({"result": -1, "cause": "请求里没有 request_id"})
+        else:
+            res = self.stop_session(client_name or client_id or "unknown",
+                                    device or None)
+            if not res.get("ok"):
+                error = res.get("error")
+                if error == "control_occupied":
+                    response.update({"result": -5,
+                                     "cause": "设备控制权限已被别人占用"})
+                elif error == "mqtt_not_connected":
+                    response.update({"result": -3, "cause": "MQTT 未连接"})
+                else:
+                    response.update({"result": -6,
+                                     "cause": res.get("cause")
+                                              or res.get("note") or "停止失败"})
+            else:
+                publish = res.get("result") or {}
+                if publish and publish.get("published") is False:
+                    response.update({"result": -3,
+                                     "cause": "零速指令未下发：MQTT 未连接",
+                                     "device": res.get("device"),
+                                     "stopped": bool(res.get("stopped")),
+                                     "released": bool(res.get("released"))})
+                else:
+                    response.update({
+                        "device": res.get("device"),
+                        "stopped": bool(res.get("stopped")),
+                        "released": bool(res.get("released")),
+                        "cause": res.get("note") or "ok",
+                    })
+        response["timestamp"] = int(time.time())
+        response["datetime"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        log_line = ("agent stop request_id=%s client_id=%s client_name=%s "
+                    "device=%s result=%s stopped=%s released=%s")
+        log_args = (request_id or "-", client_id or "-", client_name or "-",
+                    response.get("device") or "-", response["result"],
+                    response.get("stopped"), response.get("released"))
+        if response["result"] == 0:
+            log().info(log_line, *log_args)
+        else:
+            log().warning(log_line, *log_args)
+        self._publish_topic(agent_stop_topic("response"), response)
 
     # ---- 对话层（用户 ↔ agent）----
     @staticmethod
@@ -1410,6 +1488,34 @@ class Agent:
                        json.dumps(release, ensure_ascii=False))
             return {"ok": True, "action": "stop", "device": target,
                     "result": res, "control": release, "mqtt": self.mqtt_status()}
+
+    def stop_session(self, client_name=None, device=None):
+        """优雅停止当前会话：中止运动线程 → 零速 → 释放控制权。
+
+        没有进行中的会话且未持有控制权时幂等返回成功（stopped=False）。
+        """
+        with self.state_lock:
+            active = self.active_device
+            worker = self.worker
+        had_session = bool(worker is not None and worker.is_alive())
+        with self.control_lock:
+            held = (self.control_held or {}).get("device")
+        target = device or active or held
+        if not target:
+            return {"ok": True, "stopped": False, "released": False,
+                    "device": None, "note": "no_active_session"}
+        res = self.stop(client_name, target)
+        control = res.get("control") or {}
+        out = {
+            "ok": bool(res.get("ok")),
+            "stopped": bool(had_session and (device is None or device == active)),
+            "released": bool(control.get("ok") and not control.get("skipped")),
+            "device": res.get("device") or target,
+        }
+        for key in ("error", "cause", "control_holder", "result"):
+            if res.get(key) is not None:
+                out[key] = res[key]
+        return out
 
     def link_test(self, username=None, device=None):
         """非运动链路验证：向指定设备发 baseState/query/request，等 baseState/query/response。"""

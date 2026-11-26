@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.21）
+# MQTT 协议约定（文档版本 v1.22）
 
 > 本文是 控制端（App/Web）、代理端（agent）、设备端（ros2设备和非ros2设备）之间 MQTT 报文协议的契约
 > **唯一权威文档**，所有 MQTT 主题定义统一收敛到本文。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步各端与测试。
 >
-> - 本文档的版本：v1.21 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.22 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -76,6 +76,7 @@ agent功能：
 | 2 | agent 在线 | — | `walle/{t}/agent/{a}/online` | 主动上报（retained + LWT） | v1.16 |  |
 | 3 | 基本状态查询 | `walle/{t}/agent/{a}/baseState/query/request` | `walle/{t}/agent/{a}/baseState/query/response` | 请求-应答 | v1.20 | 返回 agent 与所在机器的运行状态 |
 | 4 | 配置修改 | `walle/{t}/agent/{a}/config/modify/request` | `walle/{t}/agent/{a}/config/modify/response` | 请求-应答 | v1.21 | 当前仅支持修改 `agent_name`（§4.23） |
+| 5 | 会话停止 | `walle/{t}/agent/{a}/chat/stop/request` | `walle/{t}/agent/{a}/chat/stop/response` | 请求-应答 | v1.22 | 优雅停止当前会话并释放控制权（§4.24） |
 
 `{a}` = agent clientid。
 
@@ -1453,6 +1454,7 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 
 - 控制动作（运动/停止）前先 `control/acquire`，结束后 `control/release`；状态查询不 acquire；
 - acquire 返回 `occupied` 时不自动抢占，直接拒绝本次请求，并在 `reply` 中提示当前 holder。
+- 会话执行中用户可发送 `agent/{a}/chat/stop/request`（§4.24）优雅停止：中止当前运动、补发零速并释放控制权，无需等待本次 `chat/response`。
 
 失败与错误码：
 
@@ -1479,6 +1481,7 @@ agent 启动/重连后订阅：
 - `walle/{t}/agent/{agent}/chat/request`
 - `walle/{t}/agent/{agent}/baseState/query/request`
 - `walle/{t}/agent/{agent}/config/modify/request`
+- `walle/{t}/agent/{agent}/chat/stop/request`
 - `walle/{t}/device/+/online`
 - `walle/{t}/device/+/+/response`（1 层资源）
 - `walle/{t}/device/+/+/+/response`（2 层，如 `baseState/query/response`、`video/start/response`、`control/acquire/response`）
@@ -1663,6 +1666,69 @@ agent 忽略未识别的字段。
 - 名称仅用于展示与 `client_name`，不参与 topic、ACL 与身份计算；`agent_id` 始终是 clientid。
 - 写盘失败返回 `-6`，内存中的名称保持不变。
 
+### 4.24 agent 会话停止 agent/{agent}/chat/stop/request → response（v1.22）
+
+**作用**：用户中止 agent 当前正在执行的会话。agent 会**优雅停止**：
+
+1. 对当前运动线程置中止标记，线程退出时补发 3 次零速并释放控制权；
+2. agent 再向目标设备补发一次零速（兜底），随后释放设备控制权。
+
+没有进行中的会话且未持有控制权时幂等返回成功（`stopped:false`）。
+
+- 请求：`walle/{t}/agent/{a}/chat/stop/request`
+- 应答：`walle/{t}/agent/{a}/chat/stop/response`
+- 不 retained，QoS1；agent 无论 `CHAT_MQTT_ENABLED` 是否开启都会订阅并应答。
+
+**请求字段**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `request_id` | string | 是 | 配对用，原样回显 |
+| `device` | string | 否 | 要停止的设备；缺省用当前会话设备或 agent 持有的控制权设备 |
+| `client_id` / `client_name` | string | 否 | 发起方标识，仅用于 agent 审计日志 |
+
+```json
+{
+  "client_id": "web-vg8ww5er",
+  "client_name": "Web666",
+  "request_id": "web-9f3c1a2b",
+  "device": "0580a65014af4d0a"
+}
+```
+
+**应答字段**：
+
+```json
+{
+  "result": 0,
+  "cause": "ok",
+  "request_id": "web-9f3c1a2b",
+  "agent_id": "agent-772c194f",
+  "tenant": "home",
+  "device": "0580a65014af4d0a",
+  "stopped": true,
+  "released": true,
+  "timestamp": 1763000000,
+  "datetime": "2026-11-26 15:00:00"
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `result` / `cause` | 统一错误码（§2.8）：`0` 成功（含无会话的幂等成功，此时 `cause="no_active_session"`）；`-1` 缺 `request_id`；`-3` MQTT 未连接；`-5` 控制权被其他客户端占用；`-6` 停止执行失败 |
+| `request_id` | 原样回显 |
+| `agent_id` / `tenant` | agent 身份与租户 |
+| `device` | 实际停止的设备；没有会话/目标时为 `null` |
+| `stopped` | 是否中止了进行中的会话 |
+| `released` | 控制权是否已释放 |
+| `timestamp` / `datetime` | 应答时间（Unix 秒 / 本地时间） |
+
+**约束**：
+
+- 只中止 agent 会话产生的电机运动；舵机是绝对位置控制，不存在持续转动，本命令不改变舵机位置。
+- 幂等：重复发送不会报错；第二次起 `stopped:false`。
+- 停止过程复用 `chat` 的停止流程，结束后 agent 不再持有该设备控制权。
+
 ## 5. 修改协议的流程
 
 1. **先改本文档**，让文档成为讨论与评审的载体。
@@ -1691,6 +1757,22 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ## 6. 变更记录
 
 > 历史条目中的结果码以当时版本为准；当前统一错误码见 §2.8。
+
+### 2026-11-26：新增 agent 会话停止（文档 v1.22）
+
+**变更类型**：新增 agent 请求-应答主题，不改变现有设备协议。
+
+**变更内容**
+
+- 新增 `walle/{t}/agent/{a}/chat/stop/request → response`：中止当前会话的运动线程、
+  补发零速并释放设备控制权；没有进行中的会话时幂等返回成功（格式见 §4.24）。
+- agent 订阅该主题（不受 `CHAT_MQTT_ENABLED` 影响）；`chat` 会话执行中即可发送，
+  无需等待本次 `chat/response`。
+
+**影响与兼容性**：纯新增主题；客户端可用它优雅停止 agent 会话，替代直接向设备发零速。
+
+**验证方式**：发起一条运动会话后发送 stop 请求，应答 `result=0`、`stopped=true`、
+`released=true`；再次发送时 `stopped=false`；设备端收到零速并释放控制权。
 
 ### 2026-11-26：新增 agent 配置修改（文档 v1.21）
 
