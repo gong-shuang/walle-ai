@@ -1504,17 +1504,16 @@ agent 不发送「超时」响应；20 秒未收到响应：删除 pending、解
 
 agent 启动/重连后订阅：
 
-- `walle/{t}/agent/{agent}/chat/request`
-- `walle/{t}/agent/{agent}/baseState/query/request`
-- `walle/{t}/agent/{agent}/config/modify/request`
-- `walle/{t}/agent/{agent}/chat/stop/request`
+- `walle/{t}/agent/{agent}/+/request`（1 层，如 `chat/request`）
+- `walle/{t}/agent/{agent}/+/+/request`（2 层，如 `baseState/query/request`、`config/modify/request`、`chat/stop/request`）
 - `walle/{t}/device/+/online`
 - `walle/{t}/device/+/+/response`（1 层资源）
 - `walle/{t}/device/+/+/+/response`（2 层，如 `baseState/query/response`、`stream/start/response`、`control/acquire/response`）
 - `walle/{t}/device/+/+/+/+/response`（3 层，如 `record/list/query/response`）
 - `walle/{t}/device/+/+/+/+/+/response`（4 层，如 `car/servo/status/query/response`）
 
-`response` 使用分层通配符，新增同层资源无需改订阅；新增更深层级时补一条模式。`WALLE_AGENT_DEBUG=1` 时启动会打印实际订阅主题。
+`request` / `response` 均使用分层通配符，新增同层资源无需改订阅；新增更深层级时补一条模式。
+`chat/request` 始终会被订阅，但 `chat` 未启用时收到后直接忽略。`WALLE_AGENT_DEBUG=1` 时启动会打印实际订阅主题。
 
 ### 4.21 agent 在线状态 agent/{agent}/online（v1.16）
 

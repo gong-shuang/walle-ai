@@ -895,7 +895,7 @@ class Agent:
     def _subscriptions(self):
         """agent 需要订阅的主题。
 
-        response 按资源层级用通配符覆盖，新增同层功能时无需改订阅；
+        request / response 均按资源层级用通配符覆盖，新增同层功能时无需改订阅；
         新增更深层级时在这里补一条模式。
         """
         prefix = "walle/{}/device/+".format(self.tenant)
@@ -906,12 +906,12 @@ class Agent:
             (prefix + "/+/+/+/response", 1),       # 3 层：record/list/query/response
             (prefix + "/+/+/+/+/response", 1),     # 4 层：car/servo/status/query/response
         ]
-        # agent 自身的基本状态查询、配置修改与会话停止（不依赖 chat 是否开启）
-        subs.append((agent_base_state_topic("request"), 1))
-        subs.append((agent_config_topic("request"), 1))
-        subs.append((agent_stop_topic("request"), 1))
-        if self.chat_enabled:
-            subs.append((chat_topic("request"), 1))
+        # agent 自身的请求按层级用通配符覆盖，新增同层功能无需改订阅：
+        #   +/request      → chat/request
+        #   +/+/request    → baseState/query、config/modify、chat/stop
+        agent_prefix = "walle/{}/agent/{}".format(self.tenant, agent_identity())
+        subs.append((agent_prefix + "/+/request", 1))
+        subs.append((agent_prefix + "/+/+/request", 1))
         return subs
 
     @staticmethod
@@ -950,18 +950,23 @@ class Agent:
 
     def _on_message(self, client, userdata, msg):
         _trace("IN", msg.topic, msg.payload, msg.qos, msg.retain)
-        # 对话层消息不是设备主题，先分流，避免被 _topic_device 当成非法设备丢弃
-        if self.chat_enabled and msg.topic == chat_topic("request"):
-            self._on_chat_message(msg)
-            return
-        if msg.topic == agent_base_state_topic("request"):
-            self._on_agent_state_request(msg)
-            return
-        if msg.topic == agent_config_topic("request"):
-            self._on_agent_config_request(msg)
-            return
-        if msg.topic == agent_stop_topic("request"):
-            self._on_agent_stop_request(msg)
+        # agent 自身请求：订阅用通配符覆盖，这里按资源名分流
+        agent_prefix = "walle/{}/agent/{}/".format(self.tenant, agent_identity())
+        if msg.topic.startswith(agent_prefix):
+            resource = msg.topic[len(agent_prefix):]
+            if resource == "chat/request":
+                if self.chat_enabled:
+                    self._on_chat_message(msg)
+                else:
+                    log().debug("忽略 chat/request：chat 未启用")
+            elif resource == "baseState/query/request":
+                self._on_agent_state_request(msg)
+            elif resource == "config/modify/request":
+                self._on_agent_config_request(msg)
+            elif resource == "chat/stop/request":
+                self._on_agent_stop_request(msg)
+            else:
+                log().debug("忽略未处理的 agent 主题: %s", msg.topic)
             return
         device = self._topic_device(msg.topic)
         try:
