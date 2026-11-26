@@ -4,7 +4,7 @@
 > **唯一权威文档**，所有 MQTT 主题定义统一收敛到本文。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步各端与测试。
 >
-> - 本文档的版本：v1.24 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.25 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -401,7 +401,7 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 （缺分组归空、异常数值归一为 null 等）。**状态是实时查询数据，不落盘**
 （N11 曾落盘又 revert，决策见 git 历史）。
 
-### 4.4 运行状态查询 runState/query/request → runState/query/response（V1.10）
+### 4.4 运行状态查询 runState/query/request → runState/query/response（V1.10，V1.25 改 stream/is_supported）
 
 **作用**：查询设备实时运行状态：是否推视频流、是否拉取手机音频、是否录像、电机/舵机
 是否在运动、当前电压与声呐距离。
@@ -410,6 +410,19 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 `capability`、`capabilities[]`、`camera_count`、`cameras[]`、`audio`、`summary`、`probe`、
 `cache` 全部删除，不再枚举摄像头/麦克风/音响能力，也不再做后台探测与能力缓存。
 Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频入口会显示为空）。
+
+**V1.25 变更（破坏性，不保留兼容）**：
+
+- 推流分组 `video` 改名为 `stream`，与 `stream/start|stop` 主题命名一致；
+- 所有功能分组新增 `is_supported`（设备是否支持该功能）；`is_supported=false` 时该分组
+  其余字段一律为 `null` / `false`，客户端显示“不支持/隐藏”；
+- `recording` 移除 `enable`，改由 `is_supported` 表示录像配置是否启用
+  （取 `walle_camera.conf` 的 `record.enabled`）；
+- `stream` / `recording` 的摄像头字段统一为 `camera_device`；
+  `audio_input` 为录音设备名，配置为默认设备时输出字面量 `"default"`；
+- `phone_audio` 仅保留 `is_supported` / `playing` / `room_number`；
+- `battery` / `sonar` 移除 `age_sec`：超过 1 秒无新采样时 `available=false`，
+  且测量值置 `null`（不再返回最后一次旧值）。
 
 - 请求：`walle/{t}/device/{d}/runState/query/request`，字段 `{request_id}`
 - 应答：`walle/{t}/device/{d}/runState/query/response`
@@ -420,14 +433,17 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 |---|---|
 | `device_id` / `hostname` / `ip` / `timestamp` / `datetime` | 公共字段（§3.1） |
 | `request_id` | 原样回显请求的 request_id |
-| `video` | 推流状态：`streaming`（是否在推视频流）；推流中时 `camera_device` 为摄像头节点、`room_number` 为视频流房间号、`audio` 表示是否含音频；另含 `pid`、`started_at`、`uptime_sec` |
-| `phone_audio` | 手机音频上行：`playing`（是否在拉取手机音频流）、`room_number`（播放中为音频流房间号，否则 null） |
-| `recording` | 录像状态：`{enable, recording, filename}`。`enable` 取自 `walle_camera.conf` 的 `record.enabled`；`recording` 表示是否正在录像；`filename` 为当前录像文件名（未录像为 null） |
-| `motor` | 电机：`moving`（是否有运动状态，含 500ms 死区内） |
-| `servo` | 舵机：`moving`（是否处于 `duration` 动作窗口内） |
-| `battery` | 电池：`voltage_v`（V，两位小数）、`available`（采样是否新鲜）。无数据时 `voltage_v=null`、`available=false` |
-| `sonar` | 声呐：`distance_cm`（cm，一位小数）、`available`（采样是否新鲜）。无数据时 `distance_cm=null`、`available=false` |
+| `stream` | 推流状态：`is_supported`；`streaming`（是否在推视频流）；`camera_device`（摄像头设备节点，未推流时为已配置设备）；`audio_input`（录音设备名，默认 `default`）；推流中 `room_number` 为视频流房间号，否则 null；另含 `started_at`、`uptime_sec` |
+| `phone_audio` | 手机音频上行：`is_supported`、`playing`（是否在拉取手机音频流）、`room_number`（播放中为音频流房间号，否则 null） |
+| `recording` | 录像状态：`is_supported`（= `walle_camera.conf` 的 `record.enabled`）、`recording`（是否正在录像）、`filename`（当前录像文件名，未录像为 null）、`camera_device`、`audio_input` |
+| `motor` | 电机：`is_supported`、`moving`（是否有运动状态，含 500ms 死区内） |
+| `servo` | 舵机：`is_supported`、`moving`（是否处于 `duration` 动作窗口内） |
+| `battery` | 电池：`is_supported`、`voltage_v`（V，两位小数）、`available`（1 秒内是否有新采样）。无数据时 `voltage_v=null`、`available=false` |
+| `sonar` | 声呐：`is_supported`、`distance_cm`（cm，一位小数）、`available`（1 秒内是否有新采样）。无数据时 `distance_cm=null`、`available=false` |
 | `control_holder` | 当前控制权持有者（V1.15）；无 holder 时为 `null`。结构见 §4.19 |
+
+通用规则：`is_supported=false` 时该分组其余字段一律为 `null` / `false`；
+`available=false` 时对应测量值为 `null`，客户端显示“无效”，不得沿用历史值。
 
 **采集方式（设备端）**：查询到达时现场采集，不跑 `v4l2-ctl` / `pactl`，无后台缓存：
 推流/手机音频复用进程状态，录像复用录像节点状态，电机/舵机由车控节点维护，
@@ -1818,6 +1834,32 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ## 6. 变更记录
 
 > 历史条目中的结果码以当时版本为准；当前统一错误码见 §2.8。
+
+### 2026-11-26：runState 分组改名 stream 并新增 is_supported（文档 v1.25）
+
+**变更类型**：破坏性变更（分组改名 + 字段删改，不保留兼容）。
+
+**变更内容**
+
+- `runState/query/response` 的 `video` 分组改名为 `stream`，与 `stream/start|stop` 主题一致。
+- 所有功能分组新增 `is_supported`：表示设备是否支持该功能；`is_supported=false` 时该分组
+  其余字段一律为 `null` / `false`，客户端显示“不支持/隐藏”。
+  - 当前 ROS2 端除 `recording` 外写死 `true`；`recording.is_supported` 取
+    `walle_camera.conf` 的 `record.enabled`；linux-demo 的 `motor/servo/battery/sonar/recording`
+    为 `false`。
+- `stream` / `recording` 的摄像头字段统一为 `camera_device`；`audio_input` 为录音设备名，
+  默认设备输出字面量 `"default"`。
+- `recording` 移除 `enable`，改由 `is_supported` 表示配置是否启用录像。
+- `phone_audio` 仅保留 `is_supported` / `playing` / `room_number`。
+- `battery` / `sonar` 移除 `age_sec`：超过 1 秒无新采样时 `available=false`，
+  且测量值置 `null`（不再返回最后一次旧值）。
+
+**影响与兼容性**：App、Web、设备端（ROS2 与 linux-demo）必须同步升级；
+旧字段 `video` / `recording.enable` / `age_sec` 不再返回。
+
+**验证方式**：发送 `runState/query/request`，应答包含 `stream` 分组且每个分组都有
+`is_supported`；断开传感器后 `battery/sonar.available=false` 且测量值为 `null`；
+`record.enabled=false` 时 `recording.is_supported=false`。
 
 ### 2026-11-26：推流主题改为 stream，video_device 改为 camera_device（文档 v1.24）
 

@@ -52,8 +52,29 @@ def _load_record_conf():
     return {}
 
 
+def _load_camera_conf():
+    """读取 walle_camera.conf 的 camera 块，返回 dict；缺失时返回空 dict。"""
+    for path in _camera_conf_candidates():
+        try:
+            with open(path, encoding="utf-8") as f:
+                conf = json.load(f)
+        except (OSError, ValueError):
+            continue
+        return conf.get("camera") or {}
+    return {}
+
+
+_RECORD_CONF = _load_record_conf()
 RECORD_ENABLED = _load_record_enabled()
-RECORD_STORAGE_PATH = _load_record_conf().get("storage_path", "")
+RECORD_STORAGE_PATH = _RECORD_CONF.get("storage_path", "")
+
+# runState 的 recording 分组：录像使用的摄像头与音频输入（音频关闭时为 None）
+_CAMERA_CONF = _load_camera_conf()
+CAMERA_DEVICE = str(_CAMERA_CONF.get("device") or "").strip() or None
+RECORD_AUDIO_INPUT = None
+if _RECORD_CONF.get("audio_enabled", True):
+    RECORD_AUDIO_INPUT = (
+        str(_RECORD_CONF.get("audio_input") or "default").strip() or "default")
 
 # 文件名白名单：rec_YYYYMMDD_HHMMSS[.n].fmp4（与 record_video 节点一致）
 _FILENAME_RE = re.compile(r"^rec_\d{8}_\d{6}(_\d+)?\.fmp4$")

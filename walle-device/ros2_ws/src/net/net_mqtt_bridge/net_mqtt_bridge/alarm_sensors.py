@@ -22,6 +22,7 @@ THRESH_OBSTACLE_CM = float(os.environ.get("THRESH_OBSTACLE_CM", "30"))        # 
 RECOVER_OBSTACLE_CM = float(os.environ.get("RECOVER_OBSTACLE_CM", "50"))      # 障碍恢复线（cm）
 ALARM_MIN_INTERVAL = float(os.environ.get("ALARM_MIN_INTERVAL", "3"))         # 同一 alarm_type 最小间隔（s）
 SONAR_STALE_SEC = 1.0                    # 声呐 20Hz 上报，超过该时间无有效值视为不可用
+SENSOR_FRESH_SEC = 1.0                   # runState 用：电池/声呐超过该时间无新采样即无效
 BATTERY_SAMPLE_COUNT = 3                 # 判定用采样点数（每个 MONITOR_INTERVAL 取一个点）
 BATTERY_CONFIRM_COUNT = 2                # 连续越限 / 恢复多少次才发事件
 BATTERY_STALE_SEC = max(config.MONITOR_INTERVAL * 3, 15)  # 超过该时间无电池数据则跳过判定
@@ -183,7 +184,11 @@ class SensorAlarmMixin:
         return fresh and distance <= THRESH_OBSTACLE_CM
 
     def sensor_status(self):
-        """baseState/query/response 的 battery / sonar 分组（查询时读取最新采样，不阻塞）。"""
+        """runState 的 battery / sonar 分组（查询时读取最新采样，不阻塞）。
+
+        超过 SENSOR_FRESH_SEC 无新采样即 available=false，同时测量值置 null，
+        客户端只需按 available 展示“无效”，不会误用过期数据。
+        """
         with self._sensor_lock:
             now = time.monotonic()
             voltage = self._battery_latest_voltage
@@ -192,18 +197,16 @@ class SensorAlarmMixin:
             distance = self._obstacle_distance_cm
             sonar_age = (now - self._obstacle_last_update
                          if distance is not None else None)
+        battery_ok = battery_age is not None and battery_age <= SENSOR_FRESH_SEC
+        sonar_ok = sonar_age is not None and sonar_age <= SENSOR_FRESH_SEC
         return {
             "battery": {
-                "voltage_v": round(voltage, 2) if voltage is not None else None,
-                "available": (battery_age is not None
-                              and battery_age <= BATTERY_STALE_SEC),
-                "age_sec": round(battery_age, 1) if battery_age is not None else None,
+                "voltage_v": round(voltage, 2) if battery_ok else None,
+                "available": battery_ok,
             },
             "sonar": {
-                "distance_cm": distance,
-                "available": (sonar_age is not None
-                              and sonar_age <= SONAR_STALE_SEC),
-                "age_sec": round(sonar_age, 1) if sonar_age is not None else None,
+                "distance_cm": distance if sonar_ok else None,
+                "available": sonar_ok,
             },
         }
 

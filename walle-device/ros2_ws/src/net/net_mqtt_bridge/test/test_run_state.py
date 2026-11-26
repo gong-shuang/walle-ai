@@ -5,7 +5,7 @@ import json
 import time
 
 import net_mqtt_bridge.agent as agent
-import net_mqtt_bridge.record as record
+import net_mqtt_bridge.capability as capability
 from net_mqtt_bridge.agent import RpiMonitor
 
 REMOVED_FIELDS = ("cache", "capability", "capabilities", "camera_count",
@@ -40,7 +40,7 @@ def test_response_contains_only_runtime_groups():
     assert data["request_id"] == "r1"
     assert set(data) == {
         "device_id", "hostname", "ip", "timestamp", "datetime", "request_id",
-        "video", "phone_audio", "recording", "motor", "servo", "battery", "sonar",
+        "stream", "phone_audio", "recording", "motor", "servo", "battery", "sonar",
         "control_holder",
     }
     assert data["control_holder"] is None
@@ -48,12 +48,15 @@ def test_response_contains_only_runtime_groups():
         assert field not in data
 
 
-def test_runtime_groups_reflect_device_state():
+def test_runtime_groups_reflect_device_state(monkeypatch):
+    monkeypatch.setattr(capability, "RECORD_ENABLED", True)
+    monkeypatch.setattr(capability, "CAMERA_DEVICE", "/dev/video0")
+    monkeypatch.setattr(capability, "RECORD_AUDIO_INPUT", "default")
     monitor = _bare_monitor()
     monitor._video_status = lambda: {
         "streaming": True, "camera_device": "/dev/video0", "room_number": "room-1",
-        "audio": {"enabled": True}, "pid": 123, "started_at": 1700000000,
-        "uptime_sec": 12,
+        "audio": {"enabled": True, "device": "alsa_input.usb-mic"},
+        "pid": 123, "started_at": 1700000000, "uptime_sec": 12,
     }
     monitor.audio_proc = _AliveProc()
     monitor.audio_meta = {"room_number": "audio-1"}
@@ -67,19 +70,38 @@ def test_runtime_groups_reflect_device_state():
 
     _, data = _query(monitor)
 
-    assert data["video"] == {
-        "streaming": True, "camera_device": "/dev/video0", "room_number": "room-1",
-        "audio": {"enabled": True}, "pid": 123, "started_at": 1700000000,
-        "uptime_sec": 12,
+    assert data["stream"] == {
+        "is_supported": True, "streaming": True, "room_number": "room-1",
+        "camera_device": "/dev/video0", "audio_input": "alsa_input.usb-mic",
+        "started_at": 1700000000, "uptime_sec": 12,
     }
-    assert data["phone_audio"] == {"playing": True, "room_number": "audio-1"}
+    assert data["phone_audio"] == {
+        "is_supported": True, "playing": True, "room_number": "audio-1"}
     assert data["recording"] == {
-        "enable": record.RECORD_ENABLED, "recording": True, "filename": "rec.mp4",
+        "is_supported": True, "recording": True, "filename": "rec.mp4",
+        "camera_device": "/dev/video0", "audio_input": "default",
     }
-    assert data["motor"] == {"moving": True}
-    assert data["servo"] == {"moving": True}
-    assert data["battery"] == {"voltage_v": 7.42, "available": True}
-    assert data["sonar"] == {"distance_cm": 35.5, "available": True}
+    assert data["motor"] == {"is_supported": True, "moving": True}
+    assert data["servo"] == {"is_supported": True, "moving": True}
+    assert data["battery"] == {
+        "is_supported": True, "voltage_v": 7.42, "available": True}
+    assert data["sonar"] == {
+        "is_supported": True, "distance_cm": 35.5, "available": True}
+
+
+def test_recording_disabled_marks_unsupported(monkeypatch):
+    monkeypatch.setattr(capability, "RECORD_ENABLED", False)
+    monkeypatch.setattr(capability, "CAMERA_DEVICE", "/dev/video0")
+    monkeypatch.setattr(capability, "RECORD_AUDIO_INPUT", "default")
+    monitor = _bare_monitor()
+    monitor.recording_state = {"recording": True, "filename": "rec.mp4"}
+
+    _, data = _query(monitor)
+
+    assert data["recording"] == {
+        "is_supported": False, "recording": False, "filename": None,
+        "camera_device": None, "audio_input": None,
+    }
 
 
 def test_invalid_payload_is_ignored():

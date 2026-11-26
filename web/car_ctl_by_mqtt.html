@@ -1523,11 +1523,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     ui.pendingCap = null;
     ui.cap = data;
     // 运行状态是推流的权威来源：连接/切换设备后直接同步画面按钮状态
-    var video = data.video || {};
-    ui.video.streaming = video.streaming === true;
+    var stream = data.stream || {};
+    ui.video.streaming = stream.streaming === true;
     if (ui.video.streaming) {
-      if (video.room_number) {
-        ui.video.room = String(video.room_number);
+      if (stream.room_number) {
+        ui.video.room = String(stream.room_number);
         cfg.videoRoom = ui.video.room; saveCfg();
       }
     }
@@ -1705,32 +1705,51 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   }
   function renderRunState() {
     var s = ui.cap || {};
-    var video = s.video || {}, audio = s.phone_audio || {}, rec = s.recording || {};
+    var stream = s.stream || {}, audio = s.phone_audio || {}, rec = s.recording || {};
     var motor = s.motor || {}, servo = s.servo || {};
     var battery = s.battery || {}, sonar = s.sonar || {};
 
-    setRunMetric(el.rVideo, video.streaming ? '推流中' : '未推流', video.streaming);
-    var va = video.audio;
-    var audioLabel = va == null ? ''
-      : (typeof va === 'object' ? (va.available ? '含音频' : '无音频') : (va ? '含音频' : '无音频'));
-    el.rVideoSub.textContent = video.streaming
-      ? ([video.camera_device, video.room_number ? 'room ' + video.room_number : '', audioLabel]
+    setRunMetric(el.rVideo,
+      stream.is_supported === false ? '不支持' : (stream.streaming ? '推流中' : '未推流'),
+      stream.streaming === true);
+    el.rVideoSub.textContent = stream.streaming
+      ? ([stream.camera_device,
+          stream.room_number ? 'room ' + stream.room_number : '',
+          stream.audio_input ? '音频 ' + stream.audio_input : '']
         .filter(Boolean).join(' · ') || '—')
       : '—';
 
-    setRunMetric(el.rAudio, audio.playing ? '拉取中' : '未拉取', audio.playing);
+    setRunMetric(el.rAudio,
+      audio.is_supported === false ? '不支持' : (audio.playing ? '拉取中' : '未拉取'),
+      audio.playing === true);
     el.rAudioSub.textContent = (audio.playing && audio.room_number) ? 'room ' + audio.room_number : '—';
 
-    setRunMetric(el.rRecord, rec.recording ? '录像中' : (rec.enable === false ? '未启用' : '未录像'),
-      rec.recording);
+    setRunMetric(el.rRecord,
+      rec.is_supported === false ? '不支持' : (rec.recording ? '录像中' : '未录像'),
+      rec.recording === true);
     el.rRecordSub.textContent = (rec.recording && rec.filename) ? rec.filename : '—';
 
-    setRunMetric(el.rMotor, motor.moving ? '运动中' : '静止', motor.moving);
-    setRunMetric(el.rServo, servo.moving ? '动作中' : '静止', servo.moving);
-    el.rBattery.textContent = battery.voltage_v == null
-      ? '—' : Number(battery.voltage_v).toFixed(2) + ' V';
-    el.rSonar.textContent = sonar.distance_cm == null
-      ? '—' : Number(sonar.distance_cm).toFixed(1) + ' cm';
+    setRunMetric(el.rMotor,
+      motor.is_supported === false ? '不支持' : (motor.moving ? '运动中' : '静止'),
+      motor.moving === true);
+    setRunMetric(el.rServo,
+      servo.is_supported === false ? '不支持' : (servo.moving ? '动作中' : '静止'),
+      servo.moving === true);
+
+    if (battery.is_supported === false) {
+      el.rBattery.textContent = '不支持';
+    } else if (battery.available === false || battery.voltage_v == null) {
+      el.rBattery.textContent = '无效';
+    } else {
+      el.rBattery.textContent = Number(battery.voltage_v).toFixed(2) + ' V';
+    }
+    if (sonar.is_supported === false) {
+      el.rSonar.textContent = '不支持';
+    } else if (sonar.available === false || sonar.distance_cm == null) {
+      el.rSonar.textContent = '无效';
+    } else {
+      el.rSonar.textContent = Number(sonar.distance_cm).toFixed(1) + ' cm';
+    }
   }
   // 右上角刷新：同时查询基本状态与运行状态，两个应答都回来后恢复按钮
   function refreshAll() {
@@ -1838,17 +1857,16 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   // 推流应答本身就是权威结果：直接同步「运行状态」卡片，不再额外发 baseState/query
   function applyVideoRunState(streaming, data) {
     ui.cap = ui.cap || {};
-    var v = ui.cap.video || {};
+    var v = ui.cap.stream || {};
     v.streaming = streaming === true;
     if (streaming) {
       v.room_number = (data && data.room_number) ? String(data.room_number) : (ui.video.room || null);
       if (data && data.camera_device) v.camera_device = data.camera_device;
-      if (data && data.audio !== undefined) v.audio = data.audio;
+      if (data && data.audio && data.audio.device) v.audio_input = data.audio.device;
     } else {
       v.room_number = null;
-      v.camera_device = null;
     }
-    ui.cap.video = v;
+    ui.cap.stream = v;
     renderRunState();
   }
   function onVideoStartResult(dev, data) {

@@ -37,7 +37,7 @@ class RunStateTest(unittest.TestCase):
         self.assertEqual(data["request_id"], "r1")
         self.assertEqual(set(data), {
             "device_id", "hostname", "ip", "timestamp", "datetime",
-            "request_id", "video", "phone_audio", "recording", "motor", "servo",
+            "request_id", "stream", "phone_audio", "recording", "motor", "servo",
             "battery", "sonar", "control_holder",
         })
         self.assertIsNone(data["control_holder"])
@@ -47,26 +47,30 @@ class RunStateTest(unittest.TestCase):
     def test_runtime_groups_reflect_device_state(self):
         self.mon._video_status = lambda: {
             "streaming": True, "camera_device": "/dev/video0", "room_number": "room-1",
-            "audio": {"enabled": True}, "pid": 123, "started_at": 1700000000,
-            "uptime_sec": 12,
+            "audio": {"available": True, "device": "alsa_input.usb-mic"},
+            "pid": 123, "started_at": 1700000000, "uptime_sec": 12,
         }
         self.mon.audio_proc = _AliveProc()
         self.mon.audio_meta = {"room_number": "audio-1"}
 
         _, data = self._query().args
 
-        self.assertEqual(data["video"], {
-            "streaming": True, "camera_device": "/dev/video0", "room_number": "room-1",
-            "audio": {"enabled": True}, "pid": 123, "started_at": 1700000000,
-            "uptime_sec": 12,
+        self.assertEqual(data["stream"], {
+            "is_supported": True, "streaming": True, "room_number": "room-1",
+            "camera_device": "/dev/video0", "audio_input": "alsa_input.usb-mic",
+            "started_at": 1700000000, "uptime_sec": 12,
         })
-        self.assertEqual(data["phone_audio"], {"playing": True, "room_number": "audio-1"})
-        self.assertEqual(data["recording"],
-                         {"enable": False, "recording": False, "filename": None})
-        self.assertEqual(data["motor"], {"moving": False})
-        self.assertEqual(data["servo"], {"moving": False})
-        self.assertEqual(data["battery"], {"voltage_v": None, "available": False})
-        self.assertEqual(data["sonar"], {"distance_cm": None, "available": False})
+        self.assertEqual(data["phone_audio"], {
+            "is_supported": True, "playing": True, "room_number": "audio-1"})
+        self.assertEqual(data["recording"], {
+            "is_supported": False, "recording": False, "filename": None,
+            "camera_device": None, "audio_input": None})
+        self.assertEqual(data["motor"], {"is_supported": False, "moving": False})
+        self.assertEqual(data["servo"], {"is_supported": False, "moving": False})
+        self.assertEqual(data["battery"], {
+            "is_supported": False, "voltage_v": None, "available": False})
+        self.assertEqual(data["sonar"], {
+            "is_supported": False, "distance_cm": None, "available": False})
 
     def test_invalid_payload_is_ignored(self):
         self.mon.handle_capability_query("not-json")

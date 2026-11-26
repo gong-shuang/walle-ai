@@ -40,31 +40,45 @@ class MonitorCapabilityMixin:
     # ---------- runState/query/request 运行状态查询 ----------
 
     def build_runtime_state(self):
-        """采集推流/手机音频/录像/电机/舵机/电池/声呐的实时运行状态。"""
+        """采集各功能分组的实时运行状态。
+
+        linux-demo 没有底盘/舵机/电池/声呐，也没有录像实现，这些分组的
+        is_supported 固定为 false；is_supported=false 时其余字段一律 null / false。
+        """
         video_fn = getattr(self, "_video_status", None)
         video = video_fn() if callable(video_fn) else {}
         proc = getattr(self, "audio_proc", None)
         meta = dict(getattr(self, "audio_meta", {}) or {})
         playing = bool(proc is not None and proc.poll() is None)
+        audio_input = VIDEO_AUDIO_DEVICE or "default"
+        if isinstance(video.get("audio"), dict):
+            audio_input = video["audio"].get("device") or audio_input
         return {
-            "video": {
+            "stream": {
+                "is_supported": True,
                 "streaming": bool(video.get("streaming")),
-                "camera_device": video.get("camera_device"),
                 "room_number": video.get("room_number"),
-                "audio": video.get("audio"),
-                "pid": video.get("pid"),
+                "camera_device": video.get("camera_device") or (CAMERA_DEVICE or None),
+                "audio_input": audio_input,
                 "started_at": video.get("started_at"),
                 "uptime_sec": video.get("uptime_sec"),
             },
             "phone_audio": {
+                "is_supported": True,
                 "playing": playing,
                 "room_number": meta.get("room_number") if playing else None,
             },
-            "recording": {"enable": False, "recording": False, "filename": None},
-            "motor": {"moving": False},
-            "servo": {"moving": False},
-            "battery": {"voltage_v": None, "available": False},
-            "sonar": {"distance_cm": None, "available": False},
+            "recording": {
+                "is_supported": False,
+                "recording": False,
+                "filename": None,
+                "camera_device": None,
+                "audio_input": None,
+            },
+            "motor": {"is_supported": False, "moving": False},
+            "servo": {"is_supported": False, "moving": False},
+            "battery": {"is_supported": False, "voltage_v": None, "available": False},
+            "sonar": {"is_supported": False, "distance_cm": None, "available": False},
             "control_holder": self.control_holder_snapshot(),
         }
 
@@ -88,7 +102,7 @@ class MonitorCapabilityMixin:
                 "已响应运行状态查询 -> %s（request_id=%s，推流 %s，手机音频 %s，录像 %s，"
                 "电机 %s，舵机 %s）",
                 device_topic(RES_CAPABILITY_RESULT), rid or "-",
-                "是" if status["video"]["streaming"] else "否",
+                "是" if status["stream"]["streaming"] else "否",
                 "是" if status["phone_audio"]["playing"] else "否",
                 "是" if status["recording"]["recording"] else "否",
                 "是" if status["motor"]["moving"] else "否",
