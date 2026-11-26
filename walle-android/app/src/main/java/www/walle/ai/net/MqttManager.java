@@ -70,6 +70,9 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         /** car/servo/status/query/response：舵机状态查询回执 */
         default void onCarServoStatusResult(JSONObject payload) {}
 
+        /** car/servo/set/response：舵机位置设置回执（每条请求一条） */
+        default void onCarServoSetResult(JSONObject payload) {}
+
         /** control/acquire/response：获取/续租控制权回执 */
         default void onControlAcquireResult(JSONObject payload) {}
 
@@ -429,7 +432,8 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     }
 
     /**
-     * 设置一个或多个 PWM 舵机的绝对位置：{@code car/servo/set/cmd}（无应答）。
+     * 设置一个或多个 PWM 舵机的绝对位置：{@code car/servo/set/request}，
+     * 应答 {@code car/servo/set/response}。
      *
      * <p>position 必须在 800–2200；设备端规则：一个越界、另一个合法时只执行合法项，
      * 两个都越界则整条命令不执行。App 侧只做结构和 duration 校验，越界交给设备端。</p>
@@ -476,7 +480,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_CAR_SERVO_SET,
-                TopicNames.carServoSet(tenant, deviceSegment(deviceKey)), body.toString());
+                TopicNames.carServoSetRequest(tenant, deviceSegment(deviceKey)), body.toString());
         return rid;
     }
 
@@ -731,6 +735,12 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     public void onCarServoStatusResult(JSONObject payload) {
         applyControlHolder(payload);
         for (Listener l : listeners) main.post(() -> l.onCarServoStatusResult(payload));
+    }
+
+    @Override
+    public void onCarServoSetResult(JSONObject payload) {
+        applyControlHolder(payload);
+        for (Listener l : listeners) main.post(() -> l.onCarServoSetResult(payload));
     }
 
     @Override

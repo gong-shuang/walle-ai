@@ -65,10 +65,11 @@ def test_result_payload_contains_servos_and_request_id():
         {"id": 2, "position": None, "offset": None,
          "available": False, "error": "读取超时"},
     ]
-    dummy._publish_car_servo_status_result("req-1", 3, "舵机控制链路不可用", servos)
+    dummy._publish_car_servo_status_result(
+        "req-1", car_servo.RESULT_LINK_DOWN, "舵机控制链路不可用", servos)
     assert dummy.topic == config.RES_CAR_SERVO_STATUS_RESULT
     assert dummy.payload["request_id"] == "req-1"
-    assert dummy.payload["result"] == 3
+    assert dummy.payload["result"] == car_servo.RESULT_LINK_DOWN
     assert dummy.payload["servos"] == servos
 
 
@@ -138,6 +139,49 @@ def test_set_command_errors(data):
     assert cmd is None or cmd["applied"] == []
 
 
-def test_set_topic_is_continuous_command_without_response():
-    assert config.REQ_CAR_SERVO_SET == "car/servo/set/cmd"
-    assert config.REQ_CAR_SERVO_SET not in config.REQUEST_TO_RESULT
+def test_set_topic_is_request_response_pair():
+    assert config.REQ_CAR_SERVO_SET == "car/servo/set/request"
+    assert config.RES_CAR_SERVO_SET_RESULT == "car/servo/set/response"
+    assert (config.REQUEST_TO_RESULT[config.REQ_CAR_SERVO_SET]
+            == config.RES_CAR_SERVO_SET_RESULT)
+
+
+def test_result_codes_are_negative_protocol_values():
+    assert (car_servo.RESULT_OK, car_servo.RESULT_INVALID,
+            car_servo.RESULT_ERROR, car_servo.RESULT_LINK_DOWN) == (
+                0, -1, -2, -3)
+
+
+def test_set_result_payload_contains_applied_and_skipped():
+    class Dummy(car_servo.CarServoMixin):
+        lan_ip = "192.168.1.10"
+
+        def __init__(self):
+            self.topic = ""
+            self.payload = None
+
+        def publish_json(self, topic, payload):
+            self.topic = topic
+            self.payload = payload
+
+    cmd = {
+        "duration": 1.0,
+        "applied": [{"id": 2, "position": 1600}],
+        "skipped": [{"id": 1, "position": 2400, "reason": "超出范围"}],
+    }
+    dummy = Dummy()
+    payload = dummy._publish_car_servo_set_result("req-2", 0, "ok", cmd)
+    assert dummy.topic == config.RES_CAR_SERVO_SET_RESULT
+    assert payload is dummy.payload
+    assert payload["request_id"] == "req-2"
+    assert payload["result"] == 0
+    assert payload["duration"] == 1.0
+    assert payload["applied"] == cmd["applied"]
+    assert payload["skipped"] == cmd["skipped"]
+
+    dummy = Dummy()
+    payload = dummy._publish_car_servo_set_result(
+        "req-3", car_servo.RESULT_LINK_DOWN, "舵机控制链路不可用", cmd)
+    assert payload["result"] == car_servo.RESULT_LINK_DOWN
+    assert payload["applied"] == []          # 未执行时不虚报已下发
+    assert payload["skipped"] == cmd["skipped"]

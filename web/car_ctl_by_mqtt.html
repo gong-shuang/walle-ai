@@ -907,7 +907,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       raf: 0, room: '', location: '' },
     car: { held: {}, timer: null, wasActive: false, lastError: '' },
     servo: { enabled: false, held: {}, pos: { 1: null, 2: null }, timer: null,
-      queryTimer: null, pendingQueryRid: '' },
+      queryTimer: null, pendingQueryRid: '', lastError: '' },
     record: { recording: false, filename: '', startedAt: '', startedTs: 0,
       list: [], usedBytes: 0, limitBytes: 0, durationTimer: null,
       pendingStart: null, pendingStop: null, pendingList: null, pendingDelete: null,
@@ -1086,7 +1086,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function discoveryTopic() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/discovery/query/request'; }
   var SUBS = ['online', 'discovery/query/response', 'baseState/query/response', 'runState/query/response',
     'video/start/response', 'video/stop/response',
-    'car/motor/set/response', 'car/servo/status/query/response', 'alarm/report',
+    'car/motor/set/response', 'car/servo/status/query/response',
+    'car/servo/set/response', 'alarm/report',
     'control/acquire/response', 'control/release/response',
     'record/start/response', 'record/stop/response',
     'record/list/query/response', 'record/delete/response',
@@ -1163,6 +1164,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     else if (/\/video\/stop\/response$/.test(topic)) onVideoStopResult(dev, data);
     else if (/\/car\/motor\/set\/response$/.test(topic)) onCarMotorResult(dev, data);
     else if (/\/car\/servo\/status\/query\/response$/.test(topic)) onCarServoStatusResult(dev, data);
+    else if (/\/car\/servo\/set\/response$/.test(topic)) onCarServoSetResult(dev, data);
     else if (/\/control\/acquire\/response$/.test(topic)) onControlAcquireResult(dev, data);
     else if (/\/control\/release\/response$/.test(topic)) onControlReleaseResult(dev, data);
     else if (/\/record\/start\/response$/.test(topic)) onRecordStart(dev, data);
@@ -2719,6 +2721,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       servoClearQueryTimer();
       ui.servo.pos = { 1: null, 2: null };
       ui.servo.pendingQueryRid = '';
+      ui.servo.lastError = '';
     }
     servoUpdateButtons();
     if (text !== undefined) servoSetStatus(text, kind || null);
@@ -2746,6 +2749,15 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       ui.servo.pendingQueryRid = '';
       servoDisable('舵机查询超时，请重新打开开关');
     }, 6000);
+  }
+  // 设备端每条舵机设置请求都回执；只有失败才提示
+  function onCarServoSetResult(dev, data) {
+    if (dev !== cfg.device || !data) return;
+    var result = Number(data.result);
+    if (!result) { ui.servo.lastError = ''; return; }
+    noteControlDenied(dev, data);
+    ui.servo.lastError = data.cause || ('result=' + result);
+    servoSetStatus('舵机设置失败：' + ui.servo.lastError, 'err');
   }
   function onCarServoStatusResult(dev, data) {
     if (dev !== cfg.device) return;
@@ -2808,16 +2820,17 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (controlDenied(servoSetStatus, '控制舵机')) { servoStopLoop(); return; }
 
     var id = rid();
-    if (!mqtt.publish(base(cfg.device) + '/car/servo/set/cmd', {
+    if (!mqtt.publish(base(cfg.device) + '/car/servo/set/request', {
       request_id: id, servos: targets, duration: SERVO_DURATION
     })) {
-      servoSetStatus('car/servo/set/cmd 发送失败：MQTT 已断开', 'err');
+      servoSetStatus('car/servo/set/request 发送失败：MQTT 已断开', 'err');
       servoStopLoop();
       return;
     }
     targets.forEach(function (t) { ui.servo.pos[t.id] = t.position; });
     var label = targets.map(function (t) { return t.id + '号 ' + t.position; }).join(' · ');
-    servoSetStatus('已设置 ' + label, 'ok');
+    if (ui.servo.lastError) servoSetStatus('舵机设置失败：' + ui.servo.lastError, 'err');
+    else servoSetStatus('已设置 ' + label, 'ok');
     servoUpdateButtons();
   }
   function servoEnsureLoop() {

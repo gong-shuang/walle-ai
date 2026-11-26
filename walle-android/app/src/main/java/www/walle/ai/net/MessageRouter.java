@@ -50,6 +50,10 @@ public class MessageRouter {
         /** car/servo/status/query/response：舵机状态查询回执。 */
         void onCarServoStatusResult(JSONObject payload);
 
+        /** car/servo/set/response：舵机位置设置回执（每条请求一条）。 */
+        default void onCarServoSetResult(JSONObject payload) {
+        }
+
         /** control/acquire/response：获取/续租控制权回执。 */
         default void onControlAcquireResult(JSONObject payload) {
         }
@@ -140,6 +144,9 @@ public class MessageRouter {
                 break;
             case "car/servo/status/query/response":
                 if (!isDuplicate("car/servo/status", json)) sink.onCarServoStatusResult(json);
+                break;
+            case "car/servo/set/response":
+                sink.onCarServoSetResult(json);
                 break;
             case "control/acquire/response":
                 if (!isDuplicate("control/acquire", json)) sink.onControlAcquireResult(json);

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""car/servo/status/query/request：PWM 舵机状态查询的校验与结果封装。
+"""car/servo/* 舵机控制：状态查询与绝对位置设置的校验、应答封装。
 
-协议约定见 doc/MQTT_protocol_convention.md §4.11：
-  - 请求可选 ids（默认 [1,2]）、include_offset（默认 false）；
-  - 结果 0 成功 / 1 命令无效 / 2 命令错误 / 3 舵机控制链路不可用；
-  - servos[] 中每个舵机返回 id/position/offset/available/error。
+协议约定见 doc/MQTT_protocol_convention.md §4.11/§4.12：
+  - 状态查询可选 ids（默认 [1,2]）、include_offset（默认 false）；
+  - 位置设置 servos[] + duration，越界项只跳过该舵机；
+  - 结果 0 成功 / -1 命令无效 / -2 命令错误 / -3 舵机控制链路不可用；
+  - 状态查询返回 servos[]；位置设置返回 applied/skipped/duration。
 """
 
 import logging
@@ -14,13 +15,14 @@ import time
 
 from . import config
 from .car_motor import CAUSE_ERROR, CAUSE_INVALID, CAUSE_LINK_DOWN, CAUSE_OK
-
-# 舵机协议（§4.11/§4.12）使用自己的结果码 0/1/2/3，与 car/motor 的负数结果码无关
-RESULT_OK = 0
-RESULT_INVALID = 1
-RESULT_ERROR = 2
-RESULT_LINK_DOWN = 3
 from .identity import now_str, now_ts
+
+# 舵机协议（§4.11/§4.12）结果码，与 car/motor 一致使用负数；
+# -4 保留给 car/motor 的前方障碍，舵机控制权拒绝由通用逻辑回执 -5
+RESULT_OK = 0
+RESULT_INVALID = -1
+RESULT_ERROR = -2
+RESULT_LINK_DOWN = -3
 
 
 def parse_status_query(data):
@@ -179,14 +181,56 @@ class CarServoMixin:
         self._publish_car_servo_status_result(
             rid, RESULT_LINK_DOWN, CAUSE_LINK_DOWN, servos)
 
+    def _publish_car_servo_set_result(self, request_id, result_code, cause,
+                                      cmd=None):
+        """发布 car/servo/set/response：每条请求一条，携带实际执行项。"""
+        applied = []
+        skipped = []
+        duration = None
+        if cmd:
+            duration = cmd.get("duration")
+            skipped = cmd.get("skipped", [])
+            if result_code == RESULT_OK:
+                applied = cmd.get("applied", [])
+        payload = {
+            "device_id": config.DEVICE_ID,
+            "hostname": config.HOSTNAME,
+            "ip": self.lan_ip,
+            "request_id": str(request_id or ""),
+            "result": result_code,
+            "cause": cause,
+            "duration": duration,
+            "applied": applied,
+            "skipped": skipped,
+            "timestamp": now_ts(),
+            "datetime": now_str(),
+        }
+        self.publish_json(config.RES_CAR_SERVO_SET_RESULT, payload)
+        if result_code == RESULT_OK:
+            logging.debug(
+                "car/servo/set/request 结果 -> request_id=%s result=0 applied=%s",
+                payload["request_id"] or "-", applied)
+        else:
+            logging.warning(
+                "car/servo/set/request 结果 -> request_id=%s result=%s cause=%s",
+                payload["request_id"] or "-", result_code, cause)
+        return payload
+
     def handle_car_servo_set(self, payload):
-        """独立运行时没有 ROS set_state 发布者，只记录链路不可用。"""
+        """独立运行时没有 ROS set_state 发布者，回执舵机控制链路不可用。"""
         data = self.parse_request(payload, config.REQ_CAR_SERVO_SET)
         if data is None:
             return
+        rid = self._rid(data)
+        result, cause, cmd = parse_set_command(data)
+        if result != RESULT_OK:
+            self._publish_car_servo_set_result(rid, result, cause, cmd)
+            return
         logging.warning(
-            "car/servo/set/cmd request_id=%s 未执行：舵机控制链路不可用（独立运行模式）",
-            self._rid(data) or "-")
+            "car/servo/set/request request_id=%s 未执行：舵机控制链路不可用（独立运行模式）",
+            rid or "-")
+        self._publish_car_servo_set_result(
+            rid, RESULT_LINK_DOWN, CAUSE_LINK_DOWN, cmd)
 
 
 class CarServoStatusNodeMixin:
@@ -300,7 +344,7 @@ class CarServoStatusNodeMixin:
         self._servo_set_pub = self.create_publisher(SetPWMServoState, topic, 10)
 
     def _handle_car_servo_set(self, payload):
-        """car/servo/set/cmd：按绝对位置设置一个或多个 PWM 舵机（无 MQTT 应答）。"""
+        """car/servo/set/request：按绝对位置设置 PWM 舵机并发布应答。"""
         if self._shutting_down:
             return
         data = self.agent.parse_request(
@@ -312,8 +356,9 @@ class CarServoStatusNodeMixin:
         result, cause, cmd = parse_set_command(data)
         if result != RESULT_OK:
             self.get_logger().warn(
-                'car/servo/set/cmd request_id=%s 未执行：result=%s cause=%s'
+                'car/servo/set/request request_id=%s 未执行：result=%s cause=%s'
                 % (rid or '-', result, cause))
+            self.agent._publish_car_servo_set_result(rid, result, cause, cmd)
             return
 
         try:
@@ -322,8 +367,10 @@ class CarServoStatusNodeMixin:
             subscribers = 1
         if subscribers == 0:
             self.get_logger().warn(
-                'car/servo/set/cmd request_id=%s 未执行：舵机控制链路不可用'
+                'car/servo/set/request request_id=%s 未执行：舵机控制链路不可用'
                 % (rid or '-'))
+            self.agent._publish_car_servo_set_result(
+                rid, RESULT_LINK_DOWN, CAUSE_LINK_DOWN, cmd)
             return
 
         from ros_robot_controller_msgs.msg import PWMServoState, SetPWMServoState
@@ -338,11 +385,14 @@ class CarServoStatusNodeMixin:
             self._servo_set_pub.publish(msg)
         except Exception:  # noqa: BLE001
             self.get_logger().warn(
-                'car/servo/set/cmd request_id=%s 发布失败：舵机控制链路不可用'
+                'car/servo/set/request request_id=%s 发布失败：舵机控制链路不可用'
                 % (rid or '-'))
+            self.agent._publish_car_servo_set_result(
+                rid, RESULT_LINK_DOWN, CAUSE_LINK_DOWN, cmd)
             return
 
         self.get_logger().debug(
-            'car/servo/set/cmd request_id=%s applied=%s skipped=%s duration=%.2f'
+            'car/servo/set/request request_id=%s applied=%s skipped=%s duration=%.2f'
             % (rid or '-', cmd["applied"], cmd["skipped"], cmd["duration"]))
         self.agent.servo_moving_until = time.monotonic() + float(cmd["duration"])
+        self.agent._publish_car_servo_set_result(rid, RESULT_OK, CAUSE_OK, cmd)

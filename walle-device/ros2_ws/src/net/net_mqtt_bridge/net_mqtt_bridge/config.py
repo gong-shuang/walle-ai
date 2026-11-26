@@ -104,6 +104,7 @@ RES_VIDEO_STOP_RESULT = "video/stop/response"       # 收到 video/stop/request 
 RES_PHONE_AUDIO_SEND_RESULT = "phone/audio/send/response"   # 收到 phone/audio/send/request 后发布
 RES_PHONE_AUDIO_STOP_RESULT = "phone/audio/stop/response"   # 收到 phone/audio/stop/request 后发布
 RES_CAR_SERVO_STATUS_RESULT = "car/servo/status/query/response"   # 收到 car/servo/status/query/request 后发布
+RES_CAR_SERVO_SET_RESULT = "car/servo/set/response"               # 收到 car/servo/set/request 后发布（每条请求一条应答）
 RES_CAR_MOTOR_SET_RESULT = "car/motor/set/response"         # 收到 car/motor/set/request 后发布（每条请求一条应答）
 RES_RECORD_START_RESULT = "record/start/response"           # 收到 record/start/request 后发布
 RES_RECORD_STOP_RESULT = "record/stop/response"             # 收到 record/stop/request 后发布
@@ -134,7 +135,7 @@ REQ_PHONE_AUDIO_SEND = "phone/audio/send/request"   # 手机麦上行：App 开�
 REQ_PHONE_AUDIO_STOP = "phone/audio/stop/request"   # 手机麦上行：App 停止推音频
 REQ_CAR_MOTOR_SET = "car/motor/set/request"       # 持续控制：最新一条覆盖旧状态，每条请求都有应答
 REQ_CAR_SERVO_STATUS = "car/servo/status/query/request"   # 查询 PWM 舵机位置/偏移
-REQ_CAR_SERVO_SET = "car/servo/set/cmd"              # 设置 PWM 舵机绝对位置，无应答
+REQ_CAR_SERVO_SET = "car/servo/set/request"          # 设置 PWM 舵机绝对位置，每条请求都有应答
 REQ_RECORD_START = "record/start/request"        # 开始录像
 REQ_RECORD_STOP = "record/stop/request"          # 停止录像
 REQ_RECORD_LIST = "record/list/query/request"    # 查询录像列表
@@ -144,7 +145,7 @@ REQ_RECORD_PLAY_STOP = "record/play/stop/request"    # 停止录像推流
 REQ_CONTROL_ACQUIRE = "control/acquire/request"      # 获取/续租控制权
 REQ_CONTROL_RELEASE = "control/release/request"      # 释放控制权
 
-# ---- car/servo/set/cmd 常量 ----
+# ---- car/servo/set/request 常量 ----
 CAR_SERVO_POSITION_MIN = 800
 CAR_SERVO_POSITION_MAX = 2200
 CAR_SERVO_DURATION_MIN = 0.1
@@ -348,6 +349,7 @@ REQUEST_TO_RESULT = {
     REQ_PHONE_AUDIO_STOP: RES_PHONE_AUDIO_STOP_RESULT,
     REQ_CAR_MOTOR_SET: RES_CAR_MOTOR_SET_RESULT,
     REQ_CAR_SERVO_STATUS: RES_CAR_SERVO_STATUS_RESULT,
+    REQ_CAR_SERVO_SET: RES_CAR_SERVO_SET_RESULT,
     REQ_RECORD_START: RES_RECORD_START_RESULT,
     REQ_RECORD_STOP: RES_RECORD_STOP_RESULT,
     REQ_RECORD_LIST: RES_RECORD_LIST_RESULT,
@@ -405,20 +407,18 @@ QUERY_REQUESTS = frozenset({
 CONTROL_EXEMPT_REQUESTS = frozenset({REQ_CONTROL_ACQUIRE, REQ_CONTROL_RELEASE})
 
 def subscriptions():
-    """本设备要订阅的主题（只有请求类/持续控制 + 租户内发现广播）。
+    """本设备要订阅的主题（只有请求类 + 租户内发现广播）。
 
-    用按层数的 `+` 模式只匹配以 /request 或 /cmd 结尾的资源，不订整棵子树：
+    用按层数的 `+` 模式只匹配以 /request 结尾的资源，不订整棵子树：
     MQTT 3.1.1 会把客户端自己发布的报文也投递回来，白收 response/alarm。
 
-    当前层级：3/4/5 层请求，持续控制为 4 层（car/.../set/cmd）；
-    新增不同层数的请求/控制主题时，需要在这里补一条对应模式。
+    当前层级：3/4/5 层请求；新增不同层数的请求主题时，需要在这里补一条对应模式。
     """
     base = device_topic_base()
     return [
         (f"{base}/+/+/request", MQTT_QOS),       # baseState/query/request、video/start/request、record/*/request
-        (f"{base}/+/+/+/request", MQTT_QOS),     # phone/audio/*/request、record/list|play/*/request
+        (f"{base}/+/+/+/request", MQTT_QOS),     # phone/audio/*/request、record/list|play/*/request、car/*/set/request
         (f"{base}/+/+/+/+/request", MQTT_QOS),   # car/servo/status/query/request
-        (f"{base}/+/+/+/cmd", MQTT_QOS),         # car/servo/set/cmd
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
         (tenant_topic("client/+/online"), MQTT_QOS),   # App/Web 客户端在线状态
         (tenant_topic("agent/+/online"), MQTT_QOS),    # agent 在线状态

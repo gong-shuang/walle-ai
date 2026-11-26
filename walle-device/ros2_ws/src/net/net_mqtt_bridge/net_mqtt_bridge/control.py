@@ -209,9 +209,10 @@ class ControlMixin:
             return
         payload = self._control_common(rid)
         payload.update({
-            # 车控按 §4.10 用 -5（-4 已表示前方障碍），其它请求-应答仍用 -4
+            # 车控/舵机按 §4.10/§4.12 用 -5（-4 已表示前方障碍），其它请求-应答仍用 -4
             "result": (RESULT_CONTROL_DENIED
-                       if resource == config.REQ_CAR_MOTOR_SET else -4),
+                       if resource in (config.REQ_CAR_MOTOR_SET,
+                                       config.REQ_CAR_SERVO_SET) else -4),
             "cause": "设备控制权限已被别人占用",
             "error_code": "control_denied",
             "control_holder": holder,

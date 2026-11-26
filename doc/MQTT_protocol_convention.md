@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.17）
+# MQTT 协议约定（文档版本 v1.18）
 
 > 本文是 控制端（App/Web）、代理端（agent）、设备端（ros2设备和非ros2设备）之间 MQTT 报文协议的契约
 > **唯一权威文档**，所有 MQTT 主题定义统一收敛到本文。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步各端与测试。
 >
-> - 本文档的版本：v1.17 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.18 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -96,7 +96,7 @@ agent功能：
 |---|---|---|---|---|---|---|
 | 1 | 电机持续控制 | `walle/{t}/device/{d}/car/motor/set/request` | `walle/{t}/device/{d}/car/motor/set/response` | 请求-应答（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车；v1.7 前方障碍禁前进；v1.17 改为 request/response 并恢复应答 |
 | 2 | 舵机状态查询 | `walle/{t}/device/{d}/car/servo/status/query/request` | `walle/{t}/device/{d}/car/servo/status/query/response` | 请求-应答 | v1.2 | 默认只读位置，不读 offset |
-| 3 | 舵机位置设置 | `walle/{t}/device/{d}/car/servo/set/cmd` | - | 持续控制（最新状态覆盖） | v1.2 | 绝对位置；单舵机越界只跳过该舵机 |
+| 3 | 舵机位置设置 | `walle/{t}/device/{d}/car/servo/set/request` | `walle/{t}/device/{d}/car/servo/set/response` | 请求-应答（最新状态覆盖） | v1.2 | 绝对位置；单舵机越界只跳过该舵机；v1.18 改为 request/response 并恢复应答 |
 
 
 > `{t}` = tenant，`{d}` = device_id。
@@ -144,7 +144,7 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 |---|---|---|
 | `…/request` | 请求（查询或动作，请求-应答对的发起方） | `baseState/query/request`、`video/start/request` |
 | `…/response` | 应答，**只在收到对应请求后发布**，绝不主动上报 | `baseState/query/response`、`video/start/response` |
-| `…/cmd` | 持续设置命令（有副作用；最新一条覆盖旧状态，不排队，**无应答**） | `car/servo/set/cmd` |
+| `…/cmd` | 持续设置命令（有副作用；最新一条覆盖旧状态，不排队，**无应答**） | 当前无现网主题，保留后缀语义 |
 | `…/report` | 主动上报 | `alarm/report` |
 | 无后缀 | 仅 `online`（上线/下线） | `online` |
 
@@ -184,8 +184,9 @@ QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 
 MQTT 3.1.1 没有 no-local 语义，订 `walle/{t}/#` 会把自己发的请求再收一遍，浪费带宽、
 干扰排查。所以各端都不订 `#` 整棵子树：
 
-- App 订 8 条精确响应主题：`walle/{t}/device/+` 下的 `online`、`alarm/report`、6 条 `…/response`（见 `TopicNames.responseSubscriptions`）
-- 设备端订 6 条：4 条按层数的 `+` 模式（`+/+/request`、`+/+/+/request`、`+/+/+/+/request`、`+/+/+/cmd`）
+- App 订 12 条精确响应主题：`walle/{t}/device/+` 下的 `online`、`alarm/report`、10 条 `…/response`（见 `TopicNames.responseSubscriptions`）
+- 设备端订 6 条：3 条按层数的 `+` 模式（`+/+/request`、`+/+/+/request`、`+/+/+/+/request`），
+  另加 discovery、`client/+/online`、`agent/+/online`
   + 1 条租户级 `discovery/query/request` + 1 条客户端在线状态 `client/+/online`（见 `config.subscriptions()`）。
   `+` 只匹配一层，因此只命中请求/持续控制与客户端 presence，不会收到自己发布的 response/report；新增不同层数的请求主题时需补一条模式。
 
@@ -780,7 +781,7 @@ App 订阅 `car/motor/set/response`，但只在 `result != 0` 时提示（正常
 
 | 字段 | 说明 |
 |---|---|
-| `result` | `0` 成功 / `1` 命令无效 / `2` 命令错误 / `3` 舵机控制链路不可用 |
+| `result` | `0` 成功 / `-1` 命令无效 / `-2` 命令错误 / `-3` 舵机控制链路不可用 |
 | `cause` | `ok` / `命令无效` / `命令错误` / `舵机控制链路不可用` |
 | `servos[]` | 按请求的 `ids` 顺序返回 |
 | `servos[].id` | 舵机 ID；即使读取失败也要返回 |
@@ -792,9 +793,9 @@ App 订阅 `car/motor/set/response`，但只在 `result != 0` 时提示（正常
 **结果码规则**：
 
 - `0`：所有请求的舵机都读取成功；
-- `1`：`ids` 为空、重复或超出 1–4；
-- `2`：`ids` 不是数组、元素不是整数、`include_offset` 不是布尔等类型错误；
-- `3`：`get_state` 服务不可用，或任意一个请求的舵机读取失败。
+- `-1`：`ids` 为空、重复或超出 1–4；
+- `-2`：`ids` 不是数组、元素不是整数、`include_offset` 不是布尔等类型错误；
+- `-3`：`get_state` 服务不可用，或任意一个请求的舵机读取失败。
   此时 `servos[]` 仍保留读取成功的舵机，App 可展示部分结果。
 
 **性能与限制**：
@@ -814,14 +815,15 @@ App 订阅 `car/motor/set/response`，但只在 `result != 0` 时提示（正常
 （注册 `GetPWMServoState` 客户端）；`GetPWMServoState` 的 `id/position/offset` 都是数组，
 MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
-### 4.12 舵机位置设置 car/servo/set/cmd（V1.2，V1.9 取消应答）
+### 4.12 舵机位置设置 car/servo/set/request → car/servo/set/response（V1.2，V1.9 取消应答，V1.18 改为请求-应答）
 
 **作用**：按**绝对位置**设置一个或多个 PWM 舵机；设备端发布到
 `/ros_robot_controller/pwm_servo/set_state`。
 
-- 请求：`walle/{t}/device/{d}/car/servo/set/cmd`
-- 应答：**无**（持续设置命令，最新状态覆盖；执行结果只写设备端日志）
-- 请求不 retained，QoS1。
+- 请求：`walle/{t}/device/{d}/car/servo/set/request`
+- 应答：`walle/{t}/device/{d}/car/servo/set/response`
+- 请求不 retained、QoS1；每条可解析的请求都会收到一条应答（含校验失败与控制权拒绝；
+  空/非法 JSON 无法配对 `request_id`，不回执），应答不 retained、QoS1。
 
 **请求字段**：
 
@@ -838,7 +840,7 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `request_id` | 是 | 仅用于日志排查 |
+| `request_id` | 是 | 原样回显，用于应答配对 |
 | `servos` | 是 | 非空数组，最多 4 个；同一条消息一次下发 |
 | `servos[].id` | 是 | 1–4；同一请求内不能重复 |
 | `servos[].position` | 是 | 绝对位置整数，有效范围 800–2200 |
@@ -848,17 +850,44 @@ MQTT 桥接层取数组第一个元素并回填请求的 ID。
 
 - 所有请求的 `position` 都超出 800–2200 → 整条命令不执行；
 - 只有一个越界、另一个合法 → 只执行合法的那一个；
-- 越界的舵机记入设备端日志的 `skipped[]`，合法的记入 `applied[]`；
+- 越界的舵机记入应答的 `skipped[]`，合法的记入 `applied[]`；
 - 单舵机请求且越界 → 没有可执行项。
 
-**执行结果**（V1.9 起不再通过 MQTT 应答，仅供设备端日志/排障）：
+**应答字段**（V1.18 起恢复 MQTT 回执）：
 
-| 内部结果码 | 说明 |
+```json
+{
+  "device_id": "666feb85d43410b2",
+  "hostname": "orangepi5plus",
+  "ip": "192.168.1.10",
+  "request_id": "a1b2c3d4",
+  "result": 0,
+  "cause": "ok",
+  "duration": 1.0,
+  "applied": [
+    {"id": 1, "position": 1400},
+    {"id": 2, "position": 1600}
+  ],
+  "skipped": [],
+  "timestamp": 1763000000,
+  "datetime": "2026-11-26 12:00:00"
+}
+```
+
+| 字段 | 说明 |
 |---|---|
-| `0` | 至少一个舵机已成功发布 |
-| `1` | `servos` 为空，或所有 `position` 都越界 |
-| `2` | `servos` 不是数组、`id`/`position` 类型错误、`id` 重复/超出 1–4、`duration` 类型/范围错误 |
-| `3` | `/ros_robot_controller/pwm_servo/set_state` 无订阅者或发布失败 |
+| `result` | `0` 成功（至少一个舵机已发布）；`-1` 命令无效（`servos` 为空或全部越界）；`-2` 命令错误（类型/ID/重复/`duration` 非法）；`-3` 舵机控制链路不可用；`-5` 控制权被其他客户端占用（带 `error_code=control_denied`，见 §4.19） |
+| `cause` | `ok` / `命令无效` / `命令错误` / `底盘控制链路不可用` / `设备控制权限已被别人占用` |
+| `duration` | 实际生效的动作时长（秒）；解析失败时为 `null` |
+| `applied` | 已发布给底盘的舵机 `[{id, position}]`；`result != 0` 时为空数组 |
+| `skipped` | 因超出 800–2200 被跳过的舵机 `[{id, position, reason}]` |
+| `request_id` 及公共字段 | —（§3.1） |
+
+> 控制权拒绝（`result=-5`）由设备端通用拒绝逻辑生成，只含公共字段与
+> `result`/`cause`/`error_code`/`control_holder`，不含 `duration`/`applied`/`skipped`。
+
+`result=0` 只表示“已发布到 `set_state`”，不表示舵机已经转到位；需要确认实际位置时，
+在 `duration + 0.5s` 后调用 `car/servo/status/query/request`。
 
 **注意事项**：
 
@@ -1209,7 +1238,7 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 - 只读查询（`baseState`、`runState`、`car/servo/status`、`record/list`）始终放行；
   持有者发查询会续租，非持有者不会；
 - 控制类请求（`video/*`、`phone/audio/*`、`record/start|stop|delete|play/*`、
-  `car/motor/set/request`、`car/servo/set/cmd`）必须匹配当前 holder，否则拒绝；
+  `car/motor/set/request`、`car/servo/set/request`）必须匹配当前 holder，否则拒绝；
 - `control/acquire|release` 本身不参与租约校验；
 - 租约 TTL 900 秒：持有者的有效请求（查询或控制）都会续租；
 - holder 的 presence 离线后 **grace 10 秒**释放；grace 内重新上线则取消释放；
@@ -1307,7 +1336,7 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 ```
 
 - `car/motor/set/request` 被拒绝时回执到 `car/motor/set/response`（`result=-5`）；
-  `car/servo/set/cmd` 没有应答，设备端只记限频日志；
+  `car/servo/set/request` 被拒绝时回执到 `car/servo/set/response`（`result=-5`，与车控一致）；
   客户端应通过 `runState/query/response.control_holder` 或 acquire 失败提前判断。
 
 **客户端约定**
@@ -1479,6 +1508,33 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 6. 变更记录
+
+### 2026-11-26：舵机位置设置改为 car/servo/set/request|response（文档 v1.18）
+
+**变更类型**：破坏性变更（主题改名 + 恢复应答，不保留兼容）。
+
+**变更内容**
+
+- 主题：`car/servo/set/cmd` → 请求 `car/servo/set/request`、应答 `car/servo/set/response`。
+- 设备端每条可解析请求发布一条应答（QoS1、不 retained），字段含 `request_id`、`result`、
+  `cause`、`duration`、`applied`、`skipped` 与公共字段；`result`：0 成功、-1 命令无效、
+  -2 命令错误、-3 舵机控制链路不可用、-5 控制权被其他客户端占用
+  （带 `error_code=control_denied`）。`car/servo/status/query/response` 同步改用
+  0/-1/-2/-3。
+- 设备端 `REQUEST_TO_RESULT` 增加该配对，控制权拒绝自动回执到新应答主题；
+  `car/servo/set/request` 为 4 层资源，复用既有的 `+/+/+/request` 订阅模式。
+  原先仅用于 `.../cmd` 的 `+/+/+/cmd` 订阅模式随本次改版删除。
+- Android（`TopicNames` / `MqttManager` / `MessageRouter` / `PlayerViewModel`）、Web 控制台
+  与设备端（`net_mqtt_bridge` 的 `config.py` / `car_servo.py`）同步改名；App/Web 订阅
+  `car/servo/set/response`，只在 `result != 0` 时提示。
+
+**影响与兼容性**：App、Web、设备端必须同版本部署；旧主题 `car/servo/set/cmd`
+不再有处理函数，设备端收到也只会忽略、不发布应答。
+
+**验证方式**：设备端 `python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test`；
+App `./gradlew :app:testDebugUnitTest`；实机设置舵机应收到 `car/servo/set/response`
+（`result=0`、`applied` 为实际下发项）；越界项应出现在 `skipped`；断开舵机控制链路应收到
+`result=3`。
 
 ### 2026-11-26：车控命令改为 car/motor/set/request|response（文档 v1.17）
 
@@ -1705,7 +1761,8 @@ App `./gradlew :app:testDebugUnitTest`。
 **影响与兼容性**：App、设备端、walle-agent 与 Broker ACL 必须同版本部署；旧版无法互通。
 `car/motor/set/cmd` 与 `car/servo/set/cmd` 不再有 MQTT 回执，执行结果只写设备端日志。
 
-> 已废弃（v1.17）：`car/motor/set` 已改为 `request/response` 并恢复应答；本段仅作历史记录。
+> 已废弃：`car/motor/set` 已于 v1.17、`car/servo/set` 已于 v1.18 改为 `request/response`
+> 并恢复应答；本段仅作历史记录。
 
 **验证方式**：`./gradlew :app:testDebugUnitTest`；
 `python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test`；

@@ -46,14 +46,13 @@ class TopicTest(unittest.TestCase):
             self.assertEqual(main.tenant_topic("discovery/query/request"),
                              "walle/t_1/discovery/query/request")
             topics = [topic for topic, _qos in main.subscriptions()]
-        self.assertEqual(len(topics), 7)
+        self.assertEqual(len(topics), 6)
         self.assertIn("walle/t_1/discovery/query/request", topics)
         self.assertIn("walle/t_1/client/+/online", topics)
         self.assertIn("walle/t_1/agent/+/online", topics)
         self.assertIn("walle/t_1/device/dev-1/+/+/request", topics)
         self.assertIn("walle/t_1/device/dev-1/+/+/+/request", topics)
         self.assertIn("walle/t_1/device/dev-1/+/+/+/+/request", topics)
-        self.assertIn("walle/t_1/device/dev-1/+/+/+/cmd", topics)
 
     def test_request_result_pairs(self):
         for req, res in main.REQUEST_TO_RESULT.items():

@@ -125,7 +125,7 @@ public class PlayerActivity extends AppCompatActivity {
         }
     };
 
-    // —— 舵机摇杆（右下角，car/servo/set/cmd）——
+    // —— 舵机摇杆（右下角，car/servo/set/request）——
     /** 每次步进的舵机位置增量。 */
     private static final int SERVO_STEP = 100;
     /** 按住时的重发周期，与舵机 duration=1.0 对齐。 */
@@ -543,7 +543,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     // endregion
 
-    // region 舵机摇杆（car/servo/set/cmd）
+    // region 舵机摇杆（car/servo/set/request）
 
     /**
      * 舵机摇杆方向（与车轮摇杆相同的 8 扇区判定）：

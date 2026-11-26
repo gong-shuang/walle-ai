@@ -77,7 +77,6 @@ def test_subscriptions_cover_all_requests_with_layer_patterns():
         base + "/+/+/request",
         base + "/+/+/+/request",
         base + "/+/+/+/+/request",
-        base + "/+/+/+/cmd",
         discovery,
         agent.tenant_topic("client/+/online"),
         agent.tenant_topic("agent/+/online"),
@@ -203,7 +202,9 @@ def test_car_servo_status_topics_and_dispatch_registered():
 
 
 def test_car_servo_set_topics_and_realtime_dispatch_registered():
-    assert config.REQ_CAR_SERVO_SET.endswith("/cmd")
+    assert config.REQ_CAR_SERVO_SET == "car/servo/set/request"
+    assert (config.REQUEST_TO_RESULT[config.REQ_CAR_SERVO_SET]
+            == config.RES_CAR_SERVO_SET_RESULT)
     assert (config.REQUEST_HANDLERS[config.REQ_CAR_SERVO_SET]
             == "handle_car_servo_set")
     assert config.REQ_CAR_SERVO_SET in config.REALTIME_REQUESTS
@@ -214,7 +215,7 @@ def test_topic_naming_convention():
     for req, res in config.REQUEST_TO_RESULT.items():
         assert req.endswith("/request"), f"请求主题缺少 /request: {req}"
         assert res.endswith("/response"), f"应答主题缺少 /response: {res}"
-    assert config.REQ_CAR_SERVO_SET.endswith("/cmd")
+    assert not [req for req in config.REQUEST_TO_RESULT if req.endswith("/cmd")]
     assert config.RES_ONLINE == "online"
     assert config.RES_ALARM.endswith("/report")
 

@@ -15,7 +15,7 @@ package www.walle.ai.net;
  *       不能用每次重启都会变的值；</li>
  *   <li>{@code 资源}：请求-应答对的请求以 {@code .../request} 结尾、应答以 {@code .../response}
  *       结尾（如 {@code baseState/query/request} → {@code baseState/query/response}）；
- *       持续设置且不需要应答的以 {@code .../cmd} 结尾（如 {@code car/servo/set/cmd}）；
+ *       持续设置且不需要应答的以 {@code .../cmd} 结尾（当前无现网主题，保留后缀语义）；
  *       主动上报以 {@code .../report} 结尾（{@code alarm/report}）；
  *       {@code online} 单独保留，不带后缀。</li>
  * </ul>
@@ -73,7 +73,7 @@ public final class TopicNames {
     /** 舵机状态查询失败 */
     public static final String KIND_CAR_SERVO_STATUS = "car/servo/status/query/request";
     /** 舵机位置设置失败 */
-    public static final String KIND_CAR_SERVO_SET = "car/servo/set/cmd";
+    public static final String KIND_CAR_SERVO_SET = "car/servo/set/request";
     /** 获取/续租控制权失败 */
     public static final String KIND_CONTROL_ACQUIRE = "control/acquire/request";
     /** 释放控制权失败 */
@@ -175,6 +175,11 @@ public final class TopicNames {
         return deviceBase(tenant, device) + "/car/servo/status/query/response";
     }
 
+    /** 舵机位置设置结果（收到 car/servo/set/request 后发布，每条请求一条）。 */
+    public static String carServoSetResult(String tenant, String device) {
+        return deviceBase(tenant, device) + "/car/servo/set/response";
+    }
+
     /** 车控命令结果（收到 car/motor/set/request 后发布，每条请求一条）。 */
     public static String carMotorSetResult(String tenant, String device) {
         return deviceBase(tenant, device) + "/car/motor/set/response";
@@ -210,6 +215,7 @@ public final class TopicNames {
                 base + "/video/stop/response",
                 base + "/car/motor/set/response",
                 base + "/car/servo/status/query/response",
+                base + "/car/servo/set/response",
                 base + "/control/acquire/response",
                 base + "/control/release/response",
         };
@@ -249,9 +255,12 @@ public final class TopicNames {
         return deviceBase(tenant, device) + "/car/servo/status/query/request";
     }
 
-    /** 舵机位置设置（App → 设备，持续设置，无应答）。 */
-    public static String carServoSet(String tenant, String device) {
-        return deviceBase(tenant, device) + "/car/servo/set/cmd";
+    /**
+     * 舵机位置设置（App → 设备）：最新一条覆盖旧状态，每条请求都会收到
+     * {@link #carServoSetResult} 应答。
+     */
+    public static String carServoSetRequest(String tenant, String device) {
+        return deviceBase(tenant, device) + "/car/servo/set/request";
     }
 
     /** 获取/续租控制权（App → 设备，请求-应答对）。 */

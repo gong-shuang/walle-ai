@@ -133,6 +133,10 @@ public class PlayerViewModel extends MqttViewModel {
     private String lastCarError = "";
     private long lastCarErrorAt = 0L;
 
+    /** 舵机设置失败提示去重（按住时约 1 条/秒，避免重复刷状态条）。 */
+    private String lastServoError = "";
+    private long lastServoErrorAt = 0L;
+
     private final Runnable servoQueryTimeout = new Runnable() {
         @Override
         public void run() {
@@ -419,6 +423,26 @@ public class PlayerViewModel extends MqttViewModel {
         lastCarError = cause;
         lastCarErrorAt = now;
         status = "车控失败：" + cause;
+        publish();
+    }
+
+    @Override
+    public void onCarServoSetResult(JSONObject payload) {
+        if (payload == null || deviceKey.isEmpty()) return;
+        if (!mgr.isFromDevice(deviceKey, payload)) return;
+        int result = payload.optInt("result", 0);
+        if (result == 0) {
+            lastServoError = "";
+            return;
+        }
+        String cause = MqttManager.isControlDenied(payload)
+                ? controlDeniedText(payload)
+                : payload.optString("cause", "result=" + result);
+        long now = System.currentTimeMillis();
+        if (cause.equals(lastServoError) && now - lastServoErrorAt < 1000L) return;
+        lastServoError = cause;
+        lastServoErrorAt = now;
+        status = "舵机设置失败：" + cause;
         publish();
     }
 
