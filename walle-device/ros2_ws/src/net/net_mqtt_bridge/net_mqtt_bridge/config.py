@@ -99,8 +99,8 @@ TLS_PORTS = (8883, 8084)
 RES_DISCOVERY_RESULT = "discovery/query/response"   # 收到 discovery/query/request 后发布（设备身份详情）
 RES_STATE_RESULT = "baseState/query/response"           # 收到 baseState/query/request 后发布（状态快照）
 RES_CAPABILITY_RESULT = "runState/query/response" # 收到 runState/query/request 后发布
-RES_VIDEO_START_RESULT = "video/start/response"     # 收到 video/start/request 后发布
-RES_VIDEO_STOP_RESULT = "video/stop/response"       # 收到 video/stop/request 后发布
+RES_VIDEO_START_RESULT = "stream/start/response"     # 收到 stream/start/request 后发布
+RES_VIDEO_STOP_RESULT = "stream/stop/response"       # 收到 stream/stop/request 后发布
 RES_PHONE_AUDIO_SEND_RESULT = "phone/audio/send/response"   # 收到 phone/audio/send/request 后发布
 RES_PHONE_AUDIO_STOP_RESULT = "phone/audio/stop/response"   # 收到 phone/audio/stop/request 后发布
 RES_CAR_SERVO_STATUS_RESULT = "car/servo/status/query/response"   # 收到 car/servo/status/query/request 后发布
@@ -129,8 +129,8 @@ RES_ALARM = "alarm/report"                  # 告警 / 恢复 / USB 插拔
 REQ_DISCOVERY = "discovery/query/request"
 REQ_STATE = "baseState/query/request"
 REQ_CAPABILITY = "runState/query/request"
-REQ_VIDEO_START = "video/start/request"
-REQ_VIDEO_STOP = "video/stop/request"
+REQ_VIDEO_START = "stream/start/request"
+REQ_VIDEO_STOP = "stream/stop/request"
 REQ_PHONE_AUDIO_SEND = "phone/audio/send/request"   # 手机麦上行：App 开始往 {room}_audio 推音频
 REQ_PHONE_AUDIO_STOP = "phone/audio/stop/request"   # 手机麦上行：App 停止推音频
 REQ_CAR_MOTOR_SET = "car/motor/set/request"       # 持续控制：最新一条覆盖旧状态，每条请求都有应答
@@ -416,7 +416,7 @@ def subscriptions():
     """
     base = device_topic_base()
     return [
-        (f"{base}/+/+/request", MQTT_QOS),       # baseState/query/request、video/start/request、record/*/request
+        (f"{base}/+/+/request", MQTT_QOS),       # baseState/query/request、stream/start/request、record/*/request
         (f"{base}/+/+/+/request", MQTT_QOS),     # phone/audio/*/request、record/list|play/*/request、car/*/set/request
         (f"{base}/+/+/+/+/request", MQTT_QOS),   # car/servo/status/query/request
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
@@ -467,7 +467,7 @@ SKIP_FSTYPE = {"tmpfs", "devtmpfs", "squashfs", "iso9660", "overlay", "aufs", "f
 CAM_CMD_TIMEOUT = 8                      # 单条 v4l2-ctl 命令超时（秒）
 CAM_ENABLE = _env_flag("CAM_ENABLE", True)   # 不需要摄像头能力查询时置 False
 
-# ---- 视频推流（video/start，ffmpeg -> RTMP）----
+# ---- 视频推流（stream/start，ffmpeg -> RTMP）----
 VIDEO_ENABLE = _env_flag("VIDEO_ENABLE", True)  # 不需要推流能力时置 False
 VIDEO_FFMPEG_BIN = "ffmpeg"              # ffmpeg 可执行文件（不在 PATH 就写绝对路径）
 # ---- 媒体服务器（Oryx：视频 RTMP 推流 + 手机音频 WHEP 拉流）----

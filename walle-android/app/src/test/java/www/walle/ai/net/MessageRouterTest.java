@@ -48,8 +48,8 @@ public class MessageRouterTest {
         router.route(BASE + "/baseState/query/response", "{\"cpu\":{}}");
         router.route(BASE + "/alarm/report", "{\"event\":\"alarm\"}");
         router.route(BASE + "/runState/query/response", "{\"cameras\":[]}");
-        router.route(BASE + "/video/start/response", "{\"result\":0}");
-        router.route(BASE + "/video/stop/response", "{\"result\":0}");
+        router.route(BASE + "/stream/start/response", "{\"result\":0}");
+        router.route(BASE + "/stream/stop/response", "{\"result\":0}");
         router.route(BASE + "/car/servo/status/query/response", "{\"result\":0}");
         router.route(BASE + "/control/acquire/response", "{\"result\":1}");
         router.route(BASE + "/control/release/response", "{\"result\":0}");
@@ -77,8 +77,8 @@ public class MessageRouterTest {
         // 告警 / 视频结果：2 秒内重复投递只处理一次
         router.route(BASE + "/alarm/report", "{\"event\":\"alarm\",\"timestamp\":1}");
         router.route(BASE + "/alarm/report", "{\"event\":\"alarm\",\"timestamp\":1}");
-        router.route(BASE + "/video/start/response", "{\"request_id\":\"v1\"}");
-        router.route(BASE + "/video/start/response", "{\"request_id\":\"v1\"}");
+        router.route(BASE + "/stream/start/response", "{\"request_id\":\"v1\"}");
+        router.route(BASE + "/stream/start/response", "{\"request_id\":\"v1\"}");
         router.route(BASE + "/car/servo/status/query/response", "{\"request_id\":\"s1\"}");
         router.route(BASE + "/car/servo/status/query/response", "{\"request_id\":\"s1\"}");
 

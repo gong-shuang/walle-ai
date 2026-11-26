@@ -590,7 +590,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div class="cardHead">
         <div class="videoTitle">
           <h2>实时画面</h2>
-          <small>video/start|stop → WHEP 拉流</small>
+          <small>stream/start|stop → WHEP 拉流</small>
         </div>
         <button id="btnCapability" class="btn" type="button" disabled title="刷新运行状态（runState/query/request）">刷新</button>
       </div>
@@ -1178,7 +1178,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function subBase() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/device/+/'; }
   function discoveryTopic() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/discovery/query/request'; }
   var SUBS = ['online', 'discovery/query/response', 'baseState/query/response', 'runState/query/response',
-    'video/start/response', 'video/stop/response',
+    'stream/start/response', 'stream/stop/response',
     'car/motor/set/response', 'car/servo/status/query/response',
     'car/servo/set/response', 'alarm/report',
     'control/acquire/response', 'control/release/response',
@@ -1270,8 +1270,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     else if (/\/discovery\/query\/response$/.test(topic)) onDiscovery(dev, data);
     else if (/\/baseState\/query\/response$/.test(topic)) onState(dev, data);
     else if (/\/runState\/query\/response$/.test(topic)) onCapability(dev, data);
-    else if (/\/video\/start\/response$/.test(topic)) onVideoStartResult(dev, data);
-    else if (/\/video\/stop\/response$/.test(topic)) onVideoStopResult(dev, data);
+    else if (/\/stream\/start\/response$/.test(topic)) onVideoStartResult(dev, data);
+    else if (/\/stream\/stop\/response$/.test(topic)) onVideoStopResult(dev, data);
     else if (/\/car\/motor\/set\/response$/.test(topic)) onCarMotorResult(dev, data);
     else if (/\/car\/servo\/status\/query\/response$/.test(topic)) onCarServoStatusResult(dev, data);
     else if (/\/car\/servo\/set\/response$/.test(topic)) onCarServoSetResult(dev, data);
@@ -1714,7 +1714,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var audioLabel = va == null ? ''
       : (typeof va === 'object' ? (va.available ? '含音频' : '无音频') : (va ? '含音频' : '无音频'));
     el.rVideoSub.textContent = video.streaming
-      ? ([video.video_device, video.room_number ? 'room ' + video.room_number : '', audioLabel]
+      ? ([video.camera_device, video.room_number ? 'room ' + video.room_number : '', audioLabel]
         .filter(Boolean).join(' · ') || '—')
       : '—';
 
@@ -1820,18 +1820,18 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (ui.video.streaming === true) { setVideoMsg('设备已在推流，无需重复开始；请直接连接画面', 'ok'); applyVideoUi(); return; }
     if (!mqtt || !mqtt.connected || !cfg.device) { setVideoMsg('MQTT 未连接或未选择设备', 'err'); return; }
     if (controlDenied(setVideoMsg, '推流')) return;
-    // V1.11：请求不再带 video_device / room_number，摄像头与房间号均由设备端决定
+    // V1.11：请求不再带摄像头设备 / room_number，摄像头与房间号均由设备端决定
     var id = rid();
-    if (!mqtt.publish(base(cfg.device) + '/video/start/request',
+    if (!mqtt.publish(base(cfg.device) + '/stream/start/request',
       { request_id: id })) {
-      setVideoMsg('video/start/request 发送失败', 'err'); return;
+      setVideoMsg('stream/start/request 发送失败', 'err'); return;
     }
     if (ui.pendingVideo) clearTimeout(ui.pendingVideo.timer);
     setVideoMsg('已请求设备推流（使用默认摄像头），等待 room_number…', null);
     ui.pendingVideo = { rid: id, timer: setTimeout(function () {
       if (!ui.pendingVideo) return;
       ui.pendingVideo = null;
-      setVideoMsg('等待 video/start/response 超时（10s）', 'err');
+      setVideoMsg('等待 stream/start/response 超时（10s）', 'err');
       applyVideoUi();
     }, 10000) };
   }
@@ -1842,11 +1842,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     v.streaming = streaming === true;
     if (streaming) {
       v.room_number = (data && data.room_number) ? String(data.room_number) : (ui.video.room || null);
-      if (data && data.video_device) v.video_device = data.video_device;
+      if (data && data.camera_device) v.camera_device = data.camera_device;
       if (data && data.audio !== undefined) v.audio = data.audio;
     } else {
       v.room_number = null;
-      v.video_device = null;
+      v.camera_device = null;
     }
     ui.cap.video = v;
     renderRunState();
@@ -1877,13 +1877,13 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var id = rid();
     var payload = { request_id: id };
     if (rm) payload.room_number = rm;
-    if (!mqtt.publish(base(cfg.device) + '/video/stop/request', payload)) { setVideoMsg('video/stop/request 发送失败', 'err'); return; }
+    if (!mqtt.publish(base(cfg.device) + '/stream/stop/request', payload)) { setVideoMsg('stream/stop/request 发送失败', 'err'); return; }
     setVideoMsg('已请求停止推流' + (rm ? '（room ' + rm + '）' : '') + '…', null);
     if (ui.pendingVideoStop) clearTimeout(ui.pendingVideoStop.timer);
     ui.pendingVideoStop = { rid: id, timer: setTimeout(function () {
       if (!ui.pendingVideoStop) return;
       ui.pendingVideoStop = null;
-      setVideoMsg('等待 video/stop/response 超时（10s）', 'err');
+      setVideoMsg('等待 stream/stop/response 超时（10s）', 'err');
     }, 10000) };
   }
   function onVideoStopResult(dev, data) {

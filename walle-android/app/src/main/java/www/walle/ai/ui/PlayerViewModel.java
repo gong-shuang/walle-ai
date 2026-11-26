@@ -66,7 +66,7 @@ public class PlayerViewModel extends MqttViewModel {
         public final String status;
         /** 房间号：非空才代表这次播放有真实的 MQTT 会话。 */
         public final String room;
-        /** 设备主题键（用于 video/stop/send）。 */
+        /** 设备主题键（用于 stream/stop）。 */
         public final String deviceKey;
         /** 已收到舵机状态回包并缓存到至少一个位置 → 显示右下角舵机摇杆。 */
         public final boolean servoReady;

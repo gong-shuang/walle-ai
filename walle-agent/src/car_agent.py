@@ -902,7 +902,7 @@ class Agent:
         subs = [
             (prefix + "/online", 1),
             (prefix + "/+/response", 1),           # 1 层资源：xxx/response
-            (prefix + "/+/+/response", 1),         # 2 层：baseState/query/response、video/start/response、control/acquire/response
+            (prefix + "/+/+/response", 1),         # 2 层：baseState/query/response、stream/start/response、control/acquire/response
             (prefix + "/+/+/+/response", 1),       # 3 层：record/list/query/response
             (prefix + "/+/+/+/+/response", 1),     # 4 层：car/servo/status/query/response
         ]

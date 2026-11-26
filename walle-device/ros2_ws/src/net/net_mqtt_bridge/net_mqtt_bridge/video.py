@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""video/start|stop 结果报文与独立运行占位。
+"""stream/start|stop 结果报文与独立运行占位。
 
 真正的推流实现在 ROS 包 `video_webrtc_bridge`（node.py 会把
 `handle_video_request` / `handle_video_stop` / `_stop_video_stream` 覆盖为服务调用）。

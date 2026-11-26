@@ -149,7 +149,7 @@ class MonitorStatusMixin:
             return {
                 "streaming": False,
                 "room_number": None,
-                "video_device": None,
+                "camera_device": None,
                 "audio": None,
                 "pid": None,
                 "started_at": None,
@@ -159,7 +159,7 @@ class MonitorStatusMixin:
         return {
             "streaming": True,
             "room_number": meta.get("room_number"),
-            "video_device": meta.get("video_device"),
+            "camera_device": meta.get("camera_device"),
             "audio": meta.get("audio"),
             "pid": meta.get("pid"),
             "started_at": meta.get("started_at"),

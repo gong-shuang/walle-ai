@@ -132,11 +132,11 @@ public class MessageRouter {
             case "runState/query/response":
                 if (!isDuplicate("capability", json)) sink.onCapabilityResult(json);
                 break;
-            case "video/start/response":
-                if (!isDuplicate("video/start", json)) sink.onVideoStartResult(json);
+            case "stream/start/response":
+                if (!isDuplicate("stream/start", json)) sink.onVideoStartResult(json);
                 break;
-            case "video/stop/response":
-                if (!isDuplicate("video/stop", json)) sink.onVideoStopResult(json);
+            case "stream/stop/response":
+                if (!isDuplicate("stream/stop", json)) sink.onVideoStopResult(json);
                 break;
             case "car/motor/set/response":
                 // 持续控制回执是高频状态流，不去重（request_id 也会让签名每次都不同）

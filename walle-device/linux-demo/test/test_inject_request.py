@@ -30,8 +30,8 @@ class InjectRequestTest(unittest.TestCase):
     def test_build_video_start_payload(self):
         topic, payload, result = inject.build_requests(
             [inject.REQ_VIDEO_START], request_id="rid-2")[0]
-        self.assertIn("/video/start/request", topic)
-        self.assertIn("/video/start/response", result)
+        self.assertIn("/stream/start/request", topic)
+        self.assertIn("/stream/start/response", result)
         self.assertEqual(payload, {"request_id": "rid-2"})
 
     def test_dry_run_prints_without_broker(self):
@@ -40,10 +40,10 @@ class InjectRequestTest(unittest.TestCase):
                 mock.patch.object(inject.config, "MQTT_TENANT", "home"), \
                 contextlib.redirect_stdout(out):
             rc = inject.main(["--dry-run", "--device-id", "dev1",
-                              "--action", "video/start"])
+                              "--action", "stream/start"])
         self.assertEqual(rc, 0)
         text = out.getvalue()
-        self.assertIn("walle/home/device/dev1/video/start/request", text)
+        self.assertIn("walle/home/device/dev1/stream/start/request", text)
         self.assertIn('"request_id"', text)
 
     def test_phone_audio_send_requires_room_number(self):

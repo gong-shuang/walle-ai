@@ -32,7 +32,7 @@ class CapabilityMixin:
         return {
             "video": {
                 "streaming": bool(video.get("streaming")),
-                "video_device": video.get("video_device"),
+                "camera_device": video.get("camera_device"),
                 "room_number": video.get("room_number"),
                 "audio": video.get("audio"),
                 "pid": video.get("pid"),

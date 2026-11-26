@@ -51,7 +51,7 @@ def test_response_contains_only_runtime_groups():
 def test_runtime_groups_reflect_device_state():
     monitor = _bare_monitor()
     monitor._video_status = lambda: {
-        "streaming": True, "video_device": "/dev/video0", "room_number": "room-1",
+        "streaming": True, "camera_device": "/dev/video0", "room_number": "room-1",
         "audio": {"enabled": True}, "pid": 123, "started_at": 1700000000,
         "uptime_sec": 12,
     }
@@ -68,7 +68,7 @@ def test_runtime_groups_reflect_device_state():
     _, data = _query(monitor)
 
     assert data["video"] == {
-        "streaming": True, "video_device": "/dev/video0", "room_number": "room-1",
+        "streaming": True, "camera_device": "/dev/video0", "room_number": "room-1",
         "audio": {"enabled": True}, "pid": 123, "started_at": 1700000000,
         "uptime_sec": 12,
     }

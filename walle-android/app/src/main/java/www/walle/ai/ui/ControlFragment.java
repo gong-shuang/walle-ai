@@ -146,7 +146,7 @@ public class ControlFragment extends Fragment {
         if (viewModel == null) return;
         if (hidden) {
             viewModel.onScreenHidden();
-            releasePlayer();        // 切走 tab 同样只释放播放器，不下发 video/stop
+            releasePlayer();        // 切走 tab 同样只释放播放器，不下发 stream/stop
         } else {
             viewModel.onScreenVisible();
         }

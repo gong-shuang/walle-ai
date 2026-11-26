@@ -21,8 +21,8 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     walle/{t}/discovery/query/request           .../discovery/query/response         设备发现（租户级广播）
     .../baseState/query/request                     .../baseState/query/response             状态快照
     .../runState/query/request                 .../runState/query/response          运行状态（能力 + 推流/录像/车控/传感器）
-    .../video/start/request                     .../video/start/response             开始推流（动作）
-    .../video/stop/request                      .../video/stop/response              停止推流（动作）
+    .../stream/start/request                    .../stream/start/response            开始推流（动作）
+    .../stream/stop/request                     .../stream/stop/response             停止推流（动作）
     .../phone/audio/send/request                .../phone/audio/send/response        手机麦上行·开（App 发起）
     .../phone/audio/stop/request                .../phone/audio/stop/response        手机麦上行·关（App 发起）
     .../car/motor/set/request                   .../car/motor/set/response           电机持续控制（最新状态覆盖，每条请求都有应答）
@@ -60,7 +60,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     capability.py   外设能力探测与缓存
     media.py        摄像头探测、ffmpeg 参数与日志
     audio.py        音频能力探测
-    video.py        video/start|stop（ROS 下由 node.py 覆盖为服务调用）
+    video.py        stream/start|stop（ROS 下由 node.py 覆盖为服务调用）
     phone_audio.py  phone/audio/* 手机麦上行
 本文件保留 RpiMonitor 组合、启动流程和 --check，并 re-export 原有公共名字。
 """

@@ -312,7 +312,7 @@ class MonitorMixin:
         return {
             "streaming": False,
             "room_number": None,
-            "video_device": None,
+            "camera_device": None,
             "audio": None,
             "pid": None,
             "started_at": None,

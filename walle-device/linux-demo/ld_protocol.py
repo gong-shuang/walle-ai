@@ -110,7 +110,7 @@ def subscriptions():
     """
     base = device_topic_base()
     return [
-        (f"{base}/+/+/request", MQTT_QOS),       # baseState/query/request、video/start/request、record/*/request
+        (f"{base}/+/+/request", MQTT_QOS),       # baseState/query/request、stream/start/request、record/*/request
         (f"{base}/+/+/+/request", MQTT_QOS),     # phone/audio/*/request、record/list|play/*/request、car/*/set/request
         (f"{base}/+/+/+/+/request", MQTT_QOS),   # car/servo/status/query/request
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),

@@ -12,7 +12,7 @@ from ld_camera import *
 
 class MonitorCapabilityMixin:
     """摄像头节点缓存与 runState/query/request 运行状态应答。"""
-    # ---------- 摄像头节点缓存（video/start 复用） ----------
+    # ---------- 摄像头节点缓存（stream/start 复用） ----------
 
     def cameras_cached(self):
         """摄像头探测结果缓存，避免每次推流都跑 v4l2-ctl；USB 插拔时失效。"""
@@ -49,7 +49,7 @@ class MonitorCapabilityMixin:
         return {
             "video": {
                 "streaming": bool(video.get("streaming")),
-                "video_device": video.get("video_device"),
+                "camera_device": video.get("camera_device"),
                 "room_number": video.get("room_number"),
                 "audio": video.get("audio"),
                 "pid": video.get("pid"),

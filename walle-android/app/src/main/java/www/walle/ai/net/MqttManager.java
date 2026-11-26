@@ -58,10 +58,10 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         /** runState/query/response：设备能力（摄像头/麦克风/音响等外设枚举结果） */
         default void onCapability(JSONObject payload) {}
 
-        /** video/start/response：推流启动结果 */
+        /** stream/start/response：推流启动结果 */
         default void onVideoRequestResult(JSONObject payload) {}
 
-        /** video/stop/response：停止推流结果 */
+        /** stream/stop/response：停止推流结果 */
         default void onVideoStopResult(JSONObject payload) {}
 
         /** car/motor/set/response：车控命令回执（每条请求一条） */

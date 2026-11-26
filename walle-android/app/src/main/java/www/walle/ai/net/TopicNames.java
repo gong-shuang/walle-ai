@@ -61,9 +61,9 @@ public final class TopicNames {
     /** 设备能力查询失败 */
     public static final String KIND_CAPABILITY = "runState/query/request";
     /** 推流启动失败 */
-    public static final String KIND_VIDEO_START = "video/start/request";
+    public static final String KIND_VIDEO_START = "stream/start/request";
     /** 停止推流失败 */
-    public static final String KIND_VIDEO_STOP = "video/stop/request";
+    public static final String KIND_VIDEO_STOP = "stream/stop/request";
     /** 开启手机麦克风音频上行失败 */
     public static final String KIND_PHONE_AUDIO_SEND = "phone/audio/send/request";
     /** 关闭手机麦克风音频上行失败 */
@@ -160,14 +160,14 @@ public final class TopicNames {
         return deviceBase(tenant, device) + "/runState/query/response";
     }
 
-    /** 推流启动结果（收到 video/start/request 后发布）。 */
+    /** 推流启动结果（收到 stream/start/request 后发布）。 */
     public static String videoStartResult(String tenant, String device) {
-        return deviceBase(tenant, device) + "/video/start/response";
+        return deviceBase(tenant, device) + "/stream/start/response";
     }
 
-    /** 停止推流结果（收到 video/stop/request 后发布）。 */
+    /** 停止推流结果（收到 stream/stop/request 后发布）。 */
     public static String videoStopResult(String tenant, String device) {
-        return deviceBase(tenant, device) + "/video/stop/response";
+        return deviceBase(tenant, device) + "/stream/stop/response";
     }
 
     /** 舵机状态查询结果（收到 car/servo/status/query/request 后发布）。 */
@@ -211,8 +211,8 @@ public final class TopicNames {
                 base + "/discovery/query/response",          // 查询应答
                 base + "/baseState/query/response",
                 base + "/runState/query/response",
-                base + "/video/start/response",
-                base + "/video/stop/response",
+                base + "/stream/start/response",
+                base + "/stream/stop/response",
                 base + "/car/motor/set/response",
                 base + "/car/servo/status/query/response",
                 base + "/car/servo/set/response",
@@ -234,12 +234,12 @@ public final class TopicNames {
 
     /** 开始推流（请求-应答对，用 /request）。 */
     public static String videoStartRequest(String tenant, String device) {
-        return deviceBase(tenant, device) + "/video/start/request";
+        return deviceBase(tenant, device) + "/stream/start/request";
     }
 
     /** 停止推流（请求-应答对，用 /request）。 */
     public static String videoStopRequest(String tenant, String device) {
-        return deviceBase(tenant, device) + "/video/stop/request";
+        return deviceBase(tenant, device) + "/stream/stop/request";
     }
 
     /**

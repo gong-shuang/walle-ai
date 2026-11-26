@@ -183,7 +183,7 @@ public class ControlViewModel extends MqttViewModel {
         queryCapability();
     }
 
-    /** Tab 切走：保持推流，不下发 video/stop；本地播放器由 Fragment 自行释放。 */
+    /** Tab 切走：保持推流，不下发 stream/stop；本地播放器由 Fragment 自行释放。 */
     public void onScreenHidden() {
     }
 
@@ -256,7 +256,7 @@ public class ControlViewModel extends MqttViewModel {
         audioPlayback = cap.audioPlayback;
         if (cameras.isEmpty()) {
             selectedNode = "";
-            // V1.11：摄像头由设备端在收到 video/start 时自动选择，这里不再要求能力里有摄像头
+            // V1.11：摄像头由设备端在收到 stream/start 时自动选择，这里不再要求能力里有摄像头
             status = app().getString(R.string.video_tap_to_play);
             if (!cap.probeError.isEmpty()) Log.w(TAG, "探测异常: " + cap.probeError);
         } else {
@@ -421,7 +421,7 @@ public class ControlViewModel extends MqttViewModel {
                 status = app().getString(R.string.video_start_failed, "设备未返回 room_number");
             } else {
                 activeRoom = room;
-                String camera = payload.optString("video_device", "");
+                String camera = payload.optString("camera_device", "");
                 if (!camera.isEmpty()) activeCamera = camera;
                 phase = Phase.LIVE;
                 status = "● 推流中";

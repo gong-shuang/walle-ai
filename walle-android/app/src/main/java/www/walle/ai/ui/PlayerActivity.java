@@ -41,7 +41,7 @@ import java.util.List;
  * <p>主要职责：
  * <ol>
  *   <li>从控制页接手一路推流（房间号 + 当前摄像头），通过 WHEP / WebRTC 拉流上屏；</li>
- *   <li>支持在播放过程中切换设备端摄像头（发 video/start 重启 ffmpeg），
+ *   <li>支持在播放过程中切换设备端摄像头（发 stream/start 重启 ffmpeg），
  *       房间号不变 → PeerConnection 不动 → 只换设备端视频源；</li>
  *   <li>退出时释放会话并通知设备端停流。</li>
  * </ol>

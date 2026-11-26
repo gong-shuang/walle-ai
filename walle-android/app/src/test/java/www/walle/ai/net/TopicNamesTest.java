@@ -48,8 +48,8 @@ public class TopicNamesTest {
     public void requestTopics() {
         assertEquals(BASE + "/baseState/query/request", TopicNames.baseStateQuery(TENANT, DEVICE));
         assertEquals(BASE + "/runState/query/request", TopicNames.capabilityQuery(TENANT, DEVICE));
-        assertEquals(BASE + "/video/start/request", TopicNames.videoStartRequest(TENANT, DEVICE));
-        assertEquals(BASE + "/video/stop/request", TopicNames.videoStopRequest(TENANT, DEVICE));
+        assertEquals(BASE + "/stream/start/request", TopicNames.videoStartRequest(TENANT, DEVICE));
+        assertEquals(BASE + "/stream/stop/request", TopicNames.videoStopRequest(TENANT, DEVICE));
         assertEquals("walle/home/discovery/query/request", TopicNames.discoveryQuery(TENANT));
         assertEquals(BASE + "/car/motor/set/request", TopicNames.carMotorSetRequest(TENANT, DEVICE));
         assertEquals(BASE + "/car/servo/status/query/request",
@@ -72,9 +72,9 @@ public class TopicNamesTest {
         assertEquals(BASE + "/baseState/query/response", TopicNames.baseStateResult(TENANT, DEVICE));
         assertEquals(BASE + "/runState/query/response",
                 TopicNames.capabilityResult(TENANT, DEVICE));
-        assertEquals(BASE + "/video/start/response",
+        assertEquals(BASE + "/stream/start/response",
                 TopicNames.videoStartResult(TENANT, DEVICE));
-        assertEquals(BASE + "/video/stop/response",
+        assertEquals(BASE + "/stream/stop/response",
                 TopicNames.videoStopResult(TENANT, DEVICE));
         assertEquals(BASE + "/car/motor/set/response",
                 TopicNames.carMotorSetResult(TENANT, DEVICE));
@@ -117,7 +117,7 @@ public class TopicNamesTest {
         for (String expected : new String[]{
                 "/online", "/alarm/report", "/discovery/query/response",
                 "/baseState/query/response", "/runState/query/response",
-                "/video/start/response", "/video/stop/response",
+                "/stream/start/response", "/stream/stop/response",
                 "/car/motor/set/response", "/car/servo/status/query/response",
                 "/car/servo/set/response",
                 "/control/acquire/response", "/control/release/response"}) {

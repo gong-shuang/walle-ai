@@ -8,12 +8,12 @@ video/* 与 phone/audio/* 动作必须显式用 --action 指定。--dry-run 只�
 
 示例：
     # 只打印主题与报文，不连接
-    python3 inject_request.py --dry-run --action video/start
+    python3 inject_request.py --dry-run --action stream/start
     # 查询状态与能力，并打印设备返回的结果
     python3 inject_request.py
     # 触发推流（会真正占用摄像头），用完手动停止
-    python3 inject_request.py --action video/start
-    python3 inject_request.py --action video/stop
+    python3 inject_request.py --action stream/start
+    python3 inject_request.py --action stream/stop
 
 设备是否在线不影响发包（主题第 4 段就是 device_id），设备离线时只是收不到应答。
 严格 ACL 环境下请改用 App 账号：--username home --password '***'（服务端 ACL
@@ -40,8 +40,8 @@ from ld_utils import *           # noqa: F401,F403
 ACTION_MAP = {
     "baseState/query": REQ_STATE,
     "runState/query": REQ_CAPABILITY,
-    "video/start": REQ_VIDEO_START,
-    "video/stop": REQ_VIDEO_STOP,
+    "stream/start": REQ_VIDEO_START,
+    "stream/stop": REQ_VIDEO_STOP,
     "phone/audio/send": REQ_PHONE_AUDIO_SEND,
     "phone/audio/stop": REQ_PHONE_AUDIO_STOP,
 }
@@ -82,7 +82,7 @@ def parse_args(argv=None):
         epilog=__doc__)
     parser.add_argument("--action", action="append", choices=ACTION_CHOICES,
                         help="可重复；默认只发 baseState/query 与 runState/query")
-    parser.add_argument("--room-number", default="", help="房间号（phone/audio/send 必填；video/start 由设备自动生成）")
+    parser.add_argument("--room-number", default="", help="房间号（phone/audio/send 必填；stream/start 由设备自动生成）")
     parser.add_argument("--device-id", default="", help="目标设备号（默认按本机硬件指纹计算）")
     parser.add_argument("--request-id", default="", help="请求 id（默认自动生成）")
     parser.add_argument("--username", default=config.MQTT_USER, help="覆盖 MQTT 用户名（如 App 账号）")

@@ -21,8 +21,8 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     walle/{t}/discovery/query/request           .../discovery/query/response         设备发现（租户级广播）
     .../baseState/query/request                     .../baseState/query/response             状态快照
     .../runState/query/request                 .../runState/query/response          运行状态（能力 + 实时状态）
-    .../video/start/request                     .../video/start/response             开始推流（动作）
-    .../video/stop/request                      .../video/stop/response              停止推流（动作）
+    .../stream/start/request                    .../stream/start/response            开始推流（动作）
+    .../stream/stop/request                     .../stream/stop/response             停止推流（动作）
     .../phone/audio/send/request                .../phone/audio/send/response        手机麦上行·开（App 发起）
     .../phone/audio/stop/request                .../phone/audio/stop/response        手机麦上行·关（App 发起）
 

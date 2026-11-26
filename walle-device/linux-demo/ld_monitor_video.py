@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""视频推流：启动/停止、进程看护、中断告警与 video/start|stop 应答。"""
+"""视频推流：启动/停止、进程看护、中断告警与 stream/start|stop 应答。"""
 import logging
 import os
 import re
@@ -21,7 +21,7 @@ from ld_media import _child_preexec
 
 class MonitorVideoMixin:
     """推流启动/停止、进程看护与 video 应答。"""
-    # ---------- video/start 推流 ----------
+    # ---------- stream/start 推流 ----------
 
     def _publish_video_result(self, req, result_code, cause, extra=None):
         """统一推流结果报文：result 固定语义 -1/0/-2，细节放附加字段"""
@@ -147,7 +147,7 @@ class MonitorVideoMixin:
             f"推流已恢复（room={room_number}）",
             {
                 "room_number": room_number,
-                "video_device": video_device,
+                "camera_device": video_device,
                 "previous_exit_code": lost.get("exit_code"),
                 "lost_at": lost.get("lost_at"),
             },
@@ -225,7 +225,7 @@ class MonitorVideoMixin:
             self.video_proc = proc
             self.video_meta = {
                 "room_number": room_number,
-                "video_device": video_device,
+                "camera_device": video_device,
                 "pid": proc.pid,
                 "started_at": now_str(),
                 "started_ts": time.time(),
@@ -274,7 +274,7 @@ class MonitorVideoMixin:
         if cur_proc is not None and cur_proc.poll() is None:
             self._publish_video_result(req, 0, "ok", {
                 "action": "already_streaming",
-                "video_device": cur_meta.get("video_device"),
+                "camera_device": cur_meta.get("camera_device"),
                 "room_number": cur_meta.get("room_number"),
                 "rtmp_url": cur_meta.get("rtmp_url"),
                 "video_size": cur_meta.get("video_size"),
@@ -293,7 +293,7 @@ class MonitorVideoMixin:
         if not video_device or not os.path.exists(video_device):
             self._publish_video_result(
                 req, -3, "没有此摄像头设备",
-                {"video_device": video_device or None, "room_number": None,
+                {"camera_device": video_device or None, "room_number": None,
                  "error": f"设备节点不存在: {video_device or '<空>'}",
                  "cameras": self.camera_nodes()})
             return
@@ -301,14 +301,14 @@ class MonitorVideoMixin:
         if not ok_cam:
             self._publish_video_result(
                 req, -3, "没有此摄像头设备",
-                {"video_device": video_device, "room_number": None,
+                {"camera_device": video_device, "room_number": None,
                  "error": cam_error, "cameras": self.camera_nodes()})
             return
         video_size, size_note = pick_video_size(video_device)
         if not video_size:
             self._publish_video_result(
                 req, -3, "没有此摄像头设备",
-                {"video_device": video_device, "room_number": None,
+                {"camera_device": video_device, "room_number": None,
                  "error": size_note, "cameras": self.camera_nodes()})
             return
         if size_note:
@@ -347,7 +347,7 @@ class MonitorVideoMixin:
         proc, err = self._start_video_stream(
             video_device, room_number, audio, rtmp_url, video_size, encoder)
         extra = {
-            "video_device": video_device,
+            "camera_device": video_device,
             "room_number": room_number,
             "rtmp_url": masked_rtmp,
             "video_size": video_size,
@@ -371,7 +371,7 @@ class MonitorVideoMixin:
         self._publish_video_result(req, 0, "ok", extra)
         self._clear_video_lost(room_number, video_device)
 
-    # ---------- video/stop/send 停止推流 ----------
+    # ---------- stream/stop 停止推流 ----------
 
     def _publish_video_stop_result(self, request_id, result_code, cause, extra=None):
         """统一停止推流结果报文：result 0 成功 / -4 没有在推流 / -6 停流失败"""
@@ -430,7 +430,7 @@ class MonitorVideoMixin:
 
         self._publish_video_stop_result(rid, 0, "ok", {
             "room_number": current_room,
-            "video_device": meta.get("video_device"),
+            "camera_device": meta.get("camera_device"),
             "pid": meta.get("pid"),
             "started_at": meta.get("started_at"),
             "audio": meta.get("audio") or {"available": False, "reason": None},

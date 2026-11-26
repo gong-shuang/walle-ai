@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.23）
+# MQTT 协议约定（文档版本 v1.24）
 
 > 本文是 控制端（App/Web）、代理端（agent）、设备端（ros2设备和非ros2设备）之间 MQTT 报文协议的契约
 > **唯一权威文档**，所有 MQTT 主题定义统一收敛到本文。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步各端与测试。
 >
-> - 本文档的版本：v1.23 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.24 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -40,7 +40,7 @@ walle/{tenant}/agent/{agent}/{resource}
   随后**落盘复用**（`main.resolve_device_id`），因此重启、重装、换 IP 都不会变。
   注意内存必须按 GiB 取整：`MemTotal` 在两次启动之间会浮动几 KiB，直接进哈希会让同一台硬件换 identity。
 - `{agent}`（第 4 段）：**稳定**的agent标识 `agent_id`，其值就是MQTT中的 client_id，来自 `etc/.run/agent-id` | 形如`agent-b851fdde`。
-- `resource`：按语义命名（见 §2.3），可能含 `/`（如 `video/start/response`）。
+- `resource`：按语义命名（见 §2.3），可能含 `/`（如 `stream/start/response`）。
 
 特例：设备发现是**租户级**广播，没有 `device` 段（第 3 段是固定的 `discovery`）：`walle/{tenant}/discovery/query/request`。
 
@@ -84,8 +84,8 @@ agent功能：
 视频语音功能：
 | # | 协议 | App → 设备（请求） | 设备 → App（应答/上报） | 类型 | 版本 | 备注 |
 |---|---|---|---|---|---|---|
-| 1 | 开始推流 | `walle/{t}/device/{d}/video/start/request` | `walle/{t}/device/{d}/video/start/response` | 请求-应答 | v1.11 | v1.11 请求去掉 video_device/room_number，设备端用默认摄像头并自动生成 8 位房间号 |
-| 2 | 停止推流 | `walle/{t}/device/{d}/video/stop/request` | `walle/{t}/device/{d}/video/stop/response` | 请求-应答 | v1.0 |  |
+| 1 | 开始推流 | `walle/{t}/device/{d}/stream/start/request` | `walle/{t}/device/{d}/stream/start/response` | 请求-应答 | v1.11 | v1.11 请求去掉 video_device/room_number；v1.24 主题 video→stream，字段 video_device→camera_device |
+| 2 | 停止推流 | `walle/{t}/device/{d}/stream/stop/request` | `walle/{t}/device/{d}/stream/stop/response` | 请求-应答 | v1.0 | v1.24 主题 video→stream，字段 video_device→camera_device |
 | 3 | 手机音频上行·开 | `walle/{t}/device/{d}/phone/audio/send/request` | `walle/{t}/device/{d}/phone/audio/send/response` | 单向动作（App 不订阅应答） | v1.0 |  |
 | 4 | 手机音频上行·关 | `walle/{t}/device/{d}/phone/audio/stop/request` | `walle/{t}/device/{d}/phone/audio/stop/response` | 单向动作（App 不订阅应答） | v1.0 |  |
 | 5 | 开始录像 | `walle/{t}/device/{d}/record/start/request` | `walle/{t}/device/{d}/record/start/response` | 请求-应答 | v1.3 | 本地 fMP4 落盘 |
@@ -146,8 +146,8 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 
 | 后缀 | 语义 | 例子 |
 |---|---|---|
-| `…/request` | 请求（查询或动作，请求-应答对的发起方） | `baseState/query/request`、`video/start/request` |
-| `…/response` | 应答，**只在收到对应请求后发布**，绝不主动上报 | `baseState/query/response`、`video/start/response` |
+| `…/request` | 请求（查询或动作，请求-应答对的发起方） | `baseState/query/request`、`stream/start/request` |
+| `…/response` | 应答，**只在收到对应请求后发布**，绝不主动上报 | `baseState/query/response`、`stream/start/response` |
 | `…/cmd` | 持续设置命令（有副作用；最新一条覆盖旧状态，不排队，**无应答**） | 当前无现网主题，保留后缀语义 |
 | `…/report` | 主动上报 | `alarm/report` |
 | 无后缀 | 仅 `online`（上线/下线） | `online` |
@@ -172,7 +172,7 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 
 QoS 1 允许 broker 重复投递（重连补发、未及时 PUBACK）。App 侧 `MessageRouter` 用
 「键排序后的 JSON 签名 + 2 秒窗口」去重，但只针对**一次性事件**：
-`alarm/report`、`runState/query/response`、`video/start/response`、`video/stop/response`、`car/servo/status/query/response`
+`alarm/report`、`runState/query/response`、`stream/start/response`、`stream/stop/response`、`car/servo/status/query/response`
 （重复处理会出事，例如推流结果重复 → 播放器初始化两次）。
 `online` 与 `baseState/query/response` 是幂等的（同一份状态重复应用无害），**不去重**。
 
@@ -370,7 +370,7 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 
 **V1.10 变更**：`baseState/query/response` 只保留 `system`、`cpu`、`memory`、`disk`、`network`、
 `usb` 六个分组；移除 `recording`、`video`、`battery`、`sonar`。录像状态由 `record/*` 主题维护，
-推流状态以 `video/start|stop/response` 为准，电池/声呐仍通过 `alarm/report` 上报。
+推流状态以 `stream/start|stop/response` 为准，电池/声呐仍通过 `alarm/report` 上报。
 
 - 请求：`walle/{t}/device/{d}/baseState/query/request`
 - 应答：`walle/{t}/device/{d}/baseState/query/response`
@@ -420,7 +420,7 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 |---|---|
 | `device_id` / `hostname` / `ip` / `timestamp` / `datetime` | 公共字段（§3.1） |
 | `request_id` | 原样回显请求的 request_id |
-| `video` | 推流状态：`streaming`（是否在推视频流）；推流中时 `video_device` 为摄像头节点、`room_number` 为视频流房间号、`audio` 表示是否含音频；另含 `pid`、`started_at`、`uptime_sec` |
+| `video` | 推流状态：`streaming`（是否在推视频流）；推流中时 `camera_device` 为摄像头节点、`room_number` 为视频流房间号、`audio` 表示是否含音频；另含 `pid`、`started_at`、`uptime_sec` |
 | `phone_audio` | 手机音频上行：`playing`（是否在拉取手机音频流）、`room_number`（播放中为音频流房间号，否则 null） |
 | `recording` | 录像状态：`{enable, recording, filename}`。`enable` 取自 `walle_camera.conf` 的 `record.enabled`；`recording` 表示是否正在录像；`filename` 为当前录像文件名（未录像为 null） |
 | `motor` | 电机：`moving`（是否有运动状态，含 500ms 死区内） |
@@ -433,13 +433,13 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 推流/手机音频复用进程状态，录像复用录像节点状态，电机/舵机由车控节点维护，
 电池/声呐复用传感器最新采样。
 
-### 4.5 开始推流 video/start/request → video/start/response（V1.11）
+### 4.5 开始推流 stream/start/request → stream/start/response（V1.11，V1.24 改为 stream）
 
 **作用**：让设备端用默认摄像头推流到流媒体服务（RTMP），客户端从应答中拿到
 `room_number` 后拼 WHEP 地址拉流播放（`BuildConfig.WHEP_URL_TEMPLATE`）。
 
-- 请求：`walle/{t}/device/{d}/video/start/request`
-- 应答：`walle/{t}/device/{d}/video/start/response`
+- 请求：`walle/{t}/device/{d}/stream/start/request`
+- 应答：`walle/{t}/device/{d}/stream/start/response`
 
 请求字段：
 
@@ -447,12 +447,13 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 |---|---|---|
 | `request_id` | 是 | 配对用 |
 
-**V1.11 变更（重要）**：请求不再包含 `video_device` / `room_number`。
+**V1.11 变更（重要）**：请求不再包含摄像头设备字段 / `room_number`。
 
 - 摄像头由设备端固定使用默认设备（ROS2 `video_webrtc_bridge` 的 `camera_device`；
   linux-demo 的 `CAMERA_DEVICE`，未配置时取探测到的第一个 USB 采集节点）；
 - 房间号由设备端自动生成 **8 位随机字符**（小写字母 + 数字），客户端不得自行指定，
   也不能缓存旧房间号发起推流。
+- v1.24 起，应答与运行状态中的摄像头字段由 `video_device` 更名为 `camera_device`。
 
 处理语义：
 
@@ -467,7 +468,7 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 |---|---|
 | `result` | `0` 成功（新启动或已在推流）/ `-3` 资源不可用（没有摄像头、能力关闭、未配置 secret、缺少编码依赖）/ `-6` 执行失败（等待图像超时、编码进程启动失败或异常退出） |
 | `cause` | 可读原因：`ok` / `此设备没有摄像头` / `资源不可用` / `执行失败` |
-| `video_device` | 实际使用的默认摄像头（没有摄像头时可能为 null） |
+| `camera_device` | 实际使用的默认摄像头（没有摄像头时可能为 null） |
 | `room_number` | 设备生成的 8 位房间号（成功时必有，客户端必须用它拼 WHEP 地址） |
 | `request_id` | 原样回显 |
 | `action` | `started` / `already_streaming` / `failed` |
@@ -475,12 +476,12 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 | `pid`、`started_at`、`startup_grace_sec` | 进程信息（`already_streaming` 时是当前流的） |
 | `error` | `failed` 时的具体错误 |
 
-### 4.6 停止推流 video/stop/request → video/stop/response（V1.0）
+### 4.6 停止推流 stream/stop/request → stream/stop/response（V1.0，V1.24 改为 stream）
 
 **作用**：停掉设备当前推流。
 
-- 请求：`walle/{t}/device/{d}/video/stop/request`
-- 应答：`walle/{t}/device/{d}/video/stop/response`
+- 请求：`walle/{t}/device/{d}/stream/stop/request`
+- 应答：`walle/{t}/device/{d}/stream/stop/response`
 
 请求字段：`{request_id}` + 可选 `room_number`。
 
@@ -491,7 +492,7 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 | `result` | `0` 已停止 / `-3` 推流服务不可用 / `-4` 当前没有设备在推流 / `-6` 停止失败 |
 | `cause` | 可读原因 |
 | `stopped` | bool，是否真的停了一路流 |
-| `room_number` / `video_device` / `pid` / `started_at` | 被停流的信息（成功时） |
+| `room_number` / `camera_device` / `pid` / `started_at` | 被停流的信息（成功时） |
 | `request_id` 及公共字段 | — |
 
 **一致性校验**：请求带了 `room_number` 且与当前推流不一致 → `result=-4` 并在 `error`
@@ -1346,7 +1347,7 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 
 **控制请求被拒绝**
 
-请求-应答类控制请求（如 `video/start/request`）被拒绝时，设备在对应 `.../response`
+请求-应答类控制请求（如 `stream/start/request`）被拒绝时，设备在对应 `.../response`
 里返回（字段与正常失败应答同构）：
 
 ```json
@@ -1488,7 +1489,7 @@ agent 启动/重连后订阅：
 - `walle/{t}/agent/{agent}/chat/stop/request`
 - `walle/{t}/device/+/online`
 - `walle/{t}/device/+/+/response`（1 层资源）
-- `walle/{t}/device/+/+/+/response`（2 层，如 `baseState/query/response`、`video/start/response`、`control/acquire/response`）
+- `walle/{t}/device/+/+/+/response`（2 层，如 `baseState/query/response`、`stream/start/response`、`control/acquire/response`）
 - `walle/{t}/device/+/+/+/+/response`（3 层，如 `record/list/query/response`）
 - `walle/{t}/device/+/+/+/+/+/response`（4 层，如 `car/servo/status/query/response`）
 
@@ -1818,6 +1819,25 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 
 > 历史条目中的结果码以当时版本为准；当前统一错误码见 §2.8。
 
+### 2026-11-26：推流主题改为 stream，video_device 改为 camera_device（文档 v1.24）
+
+**变更类型**：破坏性变更（主题资源名与应答字段重命名，不保留兼容）。
+
+**变更内容**
+
+- `device/{d}/video/start/request|response` → `device/{d}/stream/start/request|response`
+- `device/{d}/video/stop/request|response` → `device/{d}/stream/stop/request|response`
+- 推流相关字段 `video_device` → `camera_device`（`stream/start|stop/response`
+  与 `runState/query/response` 的 `video` 分组）。
+- Web/Android/设备端（ROS2 `net_mqtt_bridge` 与 linux-demo）同步；录像 `record/*` 不变。
+
+**影响与兼容性**：旧主题 `video/start|stop/*` 与旧字段 `video_device` 不再可用，
+所有客户端必须同步升级。
+
+**验证方式**：订阅 `walle/{t}/device/{d}/stream/start/response` 并发送 start 请求，
+应答含 `camera_device` 与 `room_number`、不含 `video_device`；stop 流程同样；
+`runState/query/response` 的 `video.camera_device` 正常返回。
+
 ### 2026-11-26：新增 agent 会话进度上报（文档 v1.23）
 
 **变更类型**：新增 agent 主动上报主题，不改变现有请求-应答协议。
@@ -2009,7 +2029,7 @@ App `./gradlew :app:testDebugUnitTest`；实机按住方向键应收到连续的
 新客户端 acquire 会超时，但可直接控制。不引入 `control_token`：`client_id` 是自报字段，
 租约只是同租户可信客户端之间的协作锁，不是安全凭证。
 
-**验证方式**：客户端 A acquire 后，客户端 B 的 `video/start/request` 应返回
+**验证方式**：客户端 A acquire 后，客户端 B 的 `stream/start/request` 应返回
 `error_code="control_denied"` 和 A 的 `control_holder`；A release 后 B 恢复正常。
 
 ### 2026-11-25：所有客户端请求补充 client_id / client_name（文档 v1.14）

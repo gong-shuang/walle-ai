@@ -139,7 +139,7 @@ video_webrtc_bridge（只混流/推流）
 - `/image_raw` 仍由 `walle_camera` 发布，AI/网页/startup_check 无感；
 - 视频只硬件解码一次、硬件编码一次，bridge 不再接触原始图像；
 - `shmsink wait-for-connection=true`：没有消费端时只阻塞 H.264 分支，前置 `queue leaky=downstream` 保证 ROS 分支继续出图；
-- bridge 收到 `video/start` 后才启动 `shmsrc`，实现按需推流；
+- bridge 收到 `stream/start` 后才启动 `shmsrc`，实现按需推流；
 - bridge 停止时关闭 `shmsrc`，摄像头与 `/image_raw` 继续运行；
 - `shmsink/shmsrc` 为 GStreamer 共享内存传输，不经过 UDP/TCP/物理网卡，减少协议栈和 socket 拷贝；
 - `video_gop` 调整为 30：30fps 下关键帧间隔 1s，晚启动/丢包后的首帧等待从最多 2s 降到 1s。

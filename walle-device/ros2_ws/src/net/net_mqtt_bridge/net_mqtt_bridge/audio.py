@@ -114,7 +114,7 @@ def detect_microphone():
       3) pactl 不可用/未运行（精简系统常见）→ 退化为 ffmpeg 试读一次。
 
     返回 {"available","device","reason","codec","bitrate"}，
-    该结构会原样回填到 video/start/response 的 audio 字段，便于 App/日志排查。
+    该结构会原样回填到 stream/start/response 的 audio 字段，便于 App/日志排查。
     """
     info = {
         "available": False,

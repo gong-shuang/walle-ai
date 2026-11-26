@@ -4,7 +4,7 @@
 
 MQTT 协议入口（唯一 MQTT 客户端）：
   - 保留原 linux-demo/main.py 的 online/LWT、discovery、state、cmd、capability、alarm、phone/audio 全部逻辑；
-  - video/start|stop 不再直接起 ffmpeg，而是通过 ROS2 service 调
+  - stream/start|stop 不再直接起 ffmpeg，而是通过 ROS2 service 调
     video_webrtc_bridge；
   - 订阅 video_webrtc_bridge 的推流状态，填 baseState/query/response 的 video 分组；
   - 以 Bool 心跳告知 video_webrtc_bridge 当前 MQTT 是否在线；
@@ -288,7 +288,7 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
             return {
                 'streaming': False,
                 'room_number': None,
-                'video_device': None,
+                'camera_device': None,
                 'audio': None,
                 'pid': None,
                 'started_at': None,
@@ -304,7 +304,7 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
         return {
             'streaming': True,
             'room_number': st.room_number or None,
-            'video_device': st.video_device or None,
+            'camera_device': st.video_device or None,
             'audio': audio,
             'pid': int(st.pid) if st.pid else None,
             'started_at': st.started_at or None,
@@ -372,7 +372,7 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
 
         extra = {
             'action': resp.action or ('failed' if resp.result != 0 else 'started'),
-            'video_device': resp.video_device or None,
+            'camera_device': resp.video_device or None,
             'room_number': resp.room_number or None,
             'rtmp_url': resp.rtmp_url or None,
             'command': resp.command or None,
@@ -421,7 +421,7 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
 
         extra = {
             'room_number': resp.room_number or req_room or None,
-            'video_device': resp.video_device or None,
+            'camera_device': resp.video_device or None,
             'pid': int(resp.pid) if resp.pid > 0 else None,
             'started_at': resp.started_at or None,
             'audio': {

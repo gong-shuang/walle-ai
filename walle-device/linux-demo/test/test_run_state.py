@@ -46,7 +46,7 @@ class RunStateTest(unittest.TestCase):
 
     def test_runtime_groups_reflect_device_state(self):
         self.mon._video_status = lambda: {
-            "streaming": True, "video_device": "/dev/video0", "room_number": "room-1",
+            "streaming": True, "camera_device": "/dev/video0", "room_number": "room-1",
             "audio": {"enabled": True}, "pid": 123, "started_at": 1700000000,
             "uptime_sec": 12,
         }
@@ -56,7 +56,7 @@ class RunStateTest(unittest.TestCase):
         _, data = self._query().args
 
         self.assertEqual(data["video"], {
-            "streaming": True, "video_device": "/dev/video0", "room_number": "room-1",
+            "streaming": True, "camera_device": "/dev/video0", "room_number": "room-1",
             "audio": {"enabled": True}, "pid": 123, "started_at": 1700000000,
             "uptime_sec": 12,
         })

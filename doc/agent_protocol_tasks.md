@@ -105,7 +105,7 @@
 
 - [ ] 13. 全功能请求信封
   - `chat/request` 增加 `resource` + `params`，`chat/response` 增加 `result` / `data`；或定义 agent 转发 device 请求的通用格式
-  - 验收：至少覆盖 `video/start`、`record/list`、`car/servo/status` 三类。
+  - 验收：至少覆盖 `stream/start`、`record/list`、`car/servo/status` 三类。
 
 - [ ] 14. capabilities 协议
   - 若保留：定义 `actions` / `resources` / limits / `llm`；Web 按能力禁用不支持功能
