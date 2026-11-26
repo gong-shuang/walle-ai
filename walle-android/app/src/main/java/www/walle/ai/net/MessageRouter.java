@@ -43,6 +43,10 @@ public class MessageRouter {
 
         void onVideoStopResult(JSONObject payload);
 
+        /** car/motor/set/response：车控命令回执（每条请求一条，约 5 条/秒）。 */
+        default void onCarMotorResult(JSONObject payload) {
+        }
+
         /** car/servo/status/query/response：舵机状态查询回执。 */
         void onCarServoStatusResult(JSONObject payload);
 
@@ -129,6 +133,10 @@ public class MessageRouter {
                 break;
             case "video/stop/response":
                 if (!isDuplicate("video/stop", json)) sink.onVideoStopResult(json);
+                break;
+            case "car/motor/set/response":
+                // 持续控制回执是高频状态流，不去重（request_id 也会让签名每次都不同）
+                sink.onCarMotorResult(json);
                 break;
             case "car/servo/status/query/response":
                 if (!isDuplicate("car/servo/status", json)) sink.onCarServoStatusResult(json);

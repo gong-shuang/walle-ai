@@ -103,16 +103,17 @@ def subscriptions():
     walle/{t}/device/{d}/#：MQTT 3.1.1 会把客户端自己发布的报文也投递回来，
     订全子树会收到自己发的 response/alarm，白白浪费带宽。
 
-    当前层级：3 层（baseState/query/request 等）、4 层（phone/audio/*/request 等）、
-    5 层（car/servo/status/query/request）；持续控制为 4 层（car/.../set/cmd）。
+    当前层级：3 层（baseState/query/request 等）、4 层（phone/audio/*/request、
+    car/motor/set/request 等）、5 层（car/servo/status/query/request）；
+    持续控制为 4 层（car/servo/set/cmd）。
     新增不同层数的请求/控制主题时，需要在这里补一条对应模式。
     """
     base = device_topic_base()
     return [
         (f"{base}/+/+/request", MQTT_QOS),       # baseState/query/request、video/start/request、record/*/request
-        (f"{base}/+/+/+/request", MQTT_QOS),     # phone/audio/*/request、record/list|play/*/request
+        (f"{base}/+/+/+/request", MQTT_QOS),     # phone/audio/*/request、record/list|play/*/request、car/motor/set/request
         (f"{base}/+/+/+/+/request", MQTT_QOS),   # car/servo/status/query/request
-        (f"{base}/+/+/+/cmd", MQTT_QOS),         # car/motor/set/cmd、car/servo/set/cmd
+        (f"{base}/+/+/+/cmd", MQTT_QOS),         # car/servo/set/cmd
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
         (tenant_topic("client/+/online"), MQTT_QOS),   # App/Web 客户端在线状态
         (tenant_topic("agent/+/online"), MQTT_QOS),    # agent 在线状态

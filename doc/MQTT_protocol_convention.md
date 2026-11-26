@@ -1,10 +1,10 @@
-# MQTT 协议约定（文档版本 v1.16）
+# MQTT 协议约定（文档版本 v1.17）
 
 > 本文是 控制端（App/Web）、代理端（agent）、设备端（ros2设备和非ros2设备）之间 MQTT 报文协议的契约
 > **唯一权威文档**，所有 MQTT 主题定义统一收敛到本文。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步各端与测试。
 >
-> - 本文档的版本：v1.16 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
+> - 本文档的版本：v1.17 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
 > 
 
@@ -94,7 +94,7 @@ agent功能：
 外部设备功能：
 | # | 协议 | App → 设备（请求） | 设备 → App（应答/上报） | 类型 | 版本 | 备注 |
 |---|---|---|---|---|---|---|
-| 1 | 电机持续控制 | `walle/{t}/device/{d}/car/motor/set/cmd` | - | 持续控制（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车；v1.7 前方障碍禁前进 |
+| 1 | 电机持续控制 | `walle/{t}/device/{d}/car/motor/set/request` | `walle/{t}/device/{d}/car/motor/set/response` | 请求-应答（最新状态覆盖） | v1.2 | 500ms 无有效命令自动停车；v1.7 前方障碍禁前进；v1.17 改为 request/response 并恢复应答 |
 | 2 | 舵机状态查询 | `walle/{t}/device/{d}/car/servo/status/query/request` | `walle/{t}/device/{d}/car/servo/status/query/response` | 请求-应答 | v1.2 | 默认只读位置，不读 offset |
 | 3 | 舵机位置设置 | `walle/{t}/device/{d}/car/servo/set/cmd` | - | 持续控制（最新状态覆盖） | v1.2 | 绝对位置；单舵机越界只跳过该舵机 |
 
@@ -144,7 +144,7 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 |---|---|---|
 | `…/request` | 请求（查询或动作，请求-应答对的发起方） | `baseState/query/request`、`video/start/request` |
 | `…/response` | 应答，**只在收到对应请求后发布**，绝不主动上报 | `baseState/query/response`、`video/start/response` |
-| `…/cmd` | 持续设置命令（有副作用；最新一条覆盖旧状态，不排队，**无应答**） | `car/motor/set/cmd` |
+| `…/cmd` | 持续设置命令（有副作用；最新一条覆盖旧状态，不排队，**无应答**） | `car/servo/set/cmd` |
 | `…/report` | 主动上报 | `alarm/report` |
 | 无后缀 | 仅 `online`（上线/下线） | `online` |
 
@@ -526,7 +526,7 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 - 障碍：边沿触发，只在跨越阈值时各发一条；同一 `alarm_type` 最小间隔
   `ALARM_MIN_INTERVAL`（默认 3s）。App 的 2 秒签名去重对障碍告警基本无效
   （`distance_cm` 每次变化都会改变签名），**限流必须在设备端完成**。
-- 车静止时（500ms 内无有效 `car/motor/set/cmd`）检出障碍按 `level=info` 上报，避免有人
+- 车静止时（500ms 内无有效 `car/motor/set/request`）检出障碍按 `level=info` 上报，避免有人
   从车前经过时刷 warning。
 
 **安全边界（重要）**：
@@ -629,14 +629,17 @@ PeerConnection（sendonly）→ ICE 收集完成后 POST 完整 SDP 到 WHIP 端
 安全开关（设备端环境变量 / 常量）：`ENABLE_CMD_EXEC`（总开关）、`CMD_ALLOWLIST`
 （前缀白名单，为空=允许任意命令）。**这是高危能力**，Broker ACL 必须保证租户隔离。
 
-### 4.10 电机持续控制 car/motor/set/cmd（V1.2，V1.7 增补前方障碍联锁，V1.9 取消应答）
+### 4.10 电机持续控制 car/motor/set/request → car/motor/set/response（V1.2，V1.7 增补前方障碍联锁，V1.17 改为请求-应答）
 
 **作用**：App 按住方向键时，以 200ms 周期下发目标运动状态；设备端保存最新状态，
 以 10Hz 重发 `/cmd_vel`，500ms 没有收到有效命令就自动停车。
 
-- 请求：`walle/{t}/device/{d}/car/motor/set/cmd`
-- 应答：**无**（持续控制命令，最新状态覆盖；执行结果只写设备端日志）
-- 请求不 retained，QoS1；设备重启默认停车，运动状态不落盘。
+- 请求：`walle/{t}/device/{d}/car/motor/set/request`
+- 应答：`walle/{t}/device/{d}/car/motor/set/response`
+- 请求不 retained、QoS1；**每条可解析的请求都会收到一条应答**（含校验失败与控制权拒绝；
+  空/非法 JSON 无法配对 `request_id`，不回执），应答不 retained、QoS1。应答频率 = 请求频率
+  （按住时约 5 条/秒），客户端只应在 `result != 0` 时提示，避免状态条闪烁。
+- 设备重启默认停车，运动状态不落盘。
 
 **请求字段**（`request_id` 必填；v1.12 起 uuid 已删除，`request_id` 仅用于日志排查）：
 
@@ -676,11 +679,11 @@ angular.z =  2.5  (rotate.left = true)
 同时旋转的线速度上限为 `1.0 - 0.1389*2.5 = 0.653 m/s`；超过时按比例缩放线速度
 （不改变角速度）。纯平移最大 1.0 m/s。
 
-**前方障碍联锁（V1.7）**：收到 `car/motor/set/cmd` 后，若声呐存在 1s 内的有效读数且
+**前方障碍联锁（V1.7）**：收到 `car/motor/set/request` 后，若声呐存在 1s 内的有效读数且
 `distance_cm ≤ THRESH_OBSTACLE_CM`（默认 30cm），则：
 
-- `forward` 非 0 的命令不执行：清空运动状态、立即发布零速（设备端记 `result=4` 日志，
-  **不通过 MQTT 回执**）；
+- `forward` 非 0 的命令不执行：清空运动状态、立即发布零速，回执 `result=-4`、
+  `cause=前方有障碍物，不可前进`；
 - 后退、转向、横移（`back` / `rotate` / `left` / `right`）不受影响；
 - 声呐无数据或读数过期时不启用联锁，避免传感器故障导致车辆无法移动。
 
@@ -694,18 +697,37 @@ angular.z =  2.5  (rotate.left = true)
 - 500ms 死区触发 → 清空状态、立即发布零速；
 - 设备退出 → 清空状态、发布零速。
 
-**执行结果**（V1.9 起不再通过 MQTT 应答，仅供设备端日志/排障）：
+**应答字段**（V1.17 起恢复 MQTT 回执）：
 
-| 内部结果码 | 取值 | 说明 |
-|---|---|---|
-| `result` | `0` / `1` / `2` / `3` / `4` | 0 成功并已下发；1 命令无效（缺 `move`/`rotate`）；2 命令错误（类型/取值/互斥）；3 底盘控制链路不可用（`/cmd_vel` 无订阅者）；4 前方有障碍物，不可前进 |
-| `cause` | `ok` / `命令无效` / `命令错误` / `底盘控制链路不可用` / `前方有障碍物，不可前进` | 可读原因 |
+```json
+{
+  "device_id": "666feb85d43410b2",
+  "hostname": "orangepi5plus",
+  "ip": "192.168.1.10",
+  "request_id": "a1b2c3d4",
+  "result": 0,
+  "cause": "ok",
+  "cmd_vel": {"linear_x": 0.6, "linear_y": 0.0, "angular_z": 0.0},
+  "timestamp": 1763000000,
+  "datetime": "2026-11-26 12:00:00"
+}
+```
 
-`result=0` 表示“命令已接受并下发”，不是“车已经执行完成”。`result=3/4` 时设备端不会
+| 字段 | 说明 |
+|---|---|
+| `request_id` | 原样回显 |
+| `result` | 0 成功并已下发；-1 命令无效（缺 `move`/`rotate`）；-2 命令错误（类型/取值/互斥）；-3 底盘控制链路不可用（`/cmd_vel` 无订阅者）；-4 前方有障碍物，不可前进；-5 控制权被其他客户端占用（带 `error_code=control_denied`，见 §4.19） |
+| `cause` | 可读原因：`ok` / `命令无效` / `命令错误` / `底盘控制链路不可用` / `前方有障碍物，不可前进` / `设备控制权限已被别人占用` |
+| `cmd_vel` | 实际下发的速度 `{linear_x, linear_y, angular_z}`（已按轮速预算缩放）；未执行时为 `null` |
+| `device_id` / `hostname` / `ip` / `timestamp` / `datetime` | 公共字段（§3.1） |
+
+`result=0` 表示“命令已接受并下发”，不是“车已经执行完成”。`result=-3/-4` 时设备端不会
 保存这次状态，避免底盘恢复或障碍消失后自己动起来。
 
 **App 行为**：按住方向键每 200ms 发一条；快速点击去重后仍按 200ms 节流；松开立即发
 停止命令（停止不受 200ms 去重限制）。去重只针对完全相同的 payload，方向反转必须立即发。
+App 订阅 `car/motor/set/response`，但只在 `result != 0` 时提示（正常运动回执约 5 条/秒，
+不刷新状态条）。
 
 **设备端实现**：`net_mqtt_bridge/car_motor.py`（校验/结果/障碍联锁）与 `node.py`
 （`/cmd_vel` 发布、10Hz 重发、500ms 死区）；`/cmd_vel` 为 `geometry_msgs/msg/Twist`。
@@ -1187,7 +1209,7 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 - 只读查询（`baseState`、`runState`、`car/servo/status`、`record/list`）始终放行；
   持有者发查询会续租，非持有者不会；
 - 控制类请求（`video/*`、`phone/audio/*`、`record/start|stop|delete|play/*`、
-  `car/motor/set/cmd`、`car/servo/set/cmd`）必须匹配当前 holder，否则拒绝；
+  `car/motor/set/request`、`car/servo/set/cmd`）必须匹配当前 holder，否则拒绝；
 - `control/acquire|release` 本身不参与租约校验；
 - 租约 TTL 900 秒：持有者的有效请求（查询或控制）都会续租；
 - holder 的 presence 离线后 **grace 10 秒**释放；grace 内重新上线则取消释放；
@@ -1284,7 +1306,8 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 }
 ```
 
-- `.../cmd`（车控、舵机）没有应答：设备端只记限频日志，不下发任何报文；
+- `car/motor/set/request` 被拒绝时回执到 `car/motor/set/response`（`result=-5`）；
+  `car/servo/set/cmd` 没有应答，设备端只记限频日志；
   客户端应通过 `runState/query/response.control_holder` 或 acquire 失败提前判断。
 
 **客户端约定**
@@ -1438,7 +1461,7 @@ agent 启动/重连后订阅：
    - App：`TopicNamesTest`（主题命名/清洗）、`MessageRouterTest`（路由/去重）、
      以及对应模型的解析测试（`StatusSnapshotTest` 等）
    - 设备端：`net_mqtt_bridge/test/test_protocol.py`（主题配对/订阅清单/request_id）、
-     `test_car_motor.py`（车控校验与轮速预算）等
+     `test_car_motor.py`（车控校验、轮速预算与应答字段）等
    - agent：对话/在线报文字段与必填校验测试（待补）
 4. 本地验证通过后提交（CI 工作流已移除，提交前务必本地跑通以下检查）：
 
@@ -1456,6 +1479,32 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ---
 
 ## 6. 变更记录
+
+### 2026-11-26：车控命令改为 car/motor/set/request|response（文档 v1.17）
+
+**变更类型**：破坏性变更（主题改名 + 恢复应答，不保留兼容）。
+
+**变更内容**
+
+- 主题：`car/motor/set/cmd` → 请求 `car/motor/set/request`、应答 `car/motor/set/response`。
+- 设备端每条请求发布一条应答（QoS1、不 retained），字段含 `request_id`、`result`、
+  `cause`、`cmd_vel` 与公共字段；`result`：0 成功、-1 命令无效、-2 命令错误、
+  -3 底盘控制链路不可用、-4 前方有障碍物、-5 控制权被其他客户端占用
+  （带 `error_code=control_denied`）。旧的正数结果码 1/2/3/4 随本次改版废弃。
+- 设备端 `REQUEST_TO_RESULT` 增加该配对，控制权拒绝自动回执到新应答主题；
+  `car/motor/set/request` 为 4 层资源，复用既有的 `+/+/+/request` 订阅模式。
+- Android（`TopicNames` / `MqttManager` / `MessageRouter` / `PlayerViewModel`）、Web 控制台、
+  `walle-agent` 与设备端（`net_mqtt_bridge` 的 `config.py` / `node.py` / `car_motor.py`）
+  同步改名；App/Web 订阅 `car/motor/set/response`，只在 `result != 0` 时提示，
+  避免正常运动回执（约 5 条/秒）刷状态条。
+
+**影响与兼容性**：App、Web、agent、设备端必须同版本部署；旧主题 `car/motor/set/cmd`
+不再有处理函数，设备端收到也只会忽略、不发布应答（500ms 死区仍会停车）。
+
+**验证方式**：设备端 `python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test`；
+App `./gradlew :app:testDebugUnitTest`；实机按住方向键应收到连续的
+`car/motor/set/response`（`result=0`、`cmd_vel` 为实际下发速度），前方 30cm 内前进应收到
+`result=-4` 并立即停车。
 
 ### 2026-11-25：新增 agent 相关主题后，修改代码（文档 v1.16，保存不变）
 
@@ -1656,6 +1705,8 @@ App `./gradlew :app:testDebugUnitTest`。
 **影响与兼容性**：App、设备端、walle-agent 与 Broker ACL 必须同版本部署；旧版无法互通。
 `car/motor/set/cmd` 与 `car/servo/set/cmd` 不再有 MQTT 回执，执行结果只写设备端日志。
 
+> 已废弃（v1.17）：`car/motor/set` 已改为 `request/response` 并恢复应答；本段仅作历史记录。
+
 **验证方式**：`./gradlew :app:testDebugUnitTest`；
 `python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test`；
 `cd walle-device/linux-demo && python3 -m unittest discover -s test -t .`。
@@ -1700,6 +1751,8 @@ App `./gradlew :app:testDebugUnitTest`。
 
 **验证方式**：`test_car_motor.py` 覆盖前进拦截、后退/转向/横移放行；
 `test_alarm_sensors.py` 覆盖新鲜/过期声呐读数；实车前 30cm 内前进应返回 `result=4` 并停车。
+
+> 已废弃（v1.17）：车控结果码已改为负数，前方障碍现为 `result=-4`；本段仅作历史记录。
 
 ### 2026-11-19：状态查询移除 alarms 分组（V1.7）
 

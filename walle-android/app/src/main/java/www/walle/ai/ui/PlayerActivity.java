@@ -96,7 +96,7 @@ public class PlayerActivity extends AppCompatActivity {
     private String micTarget = "";
     private MqttManager mgr;
 
-    // —— 车控摇杆（左下角，car/motor/set/cmd）——
+    // —— 车控摇杆（左下角，car/motor/set/request）——
     /** 目标设备：主题键。 */
     private String carTarget = "";
     /** 摇杆的线速度，与 Web 测试页保持一致（协议要求 0.5–1.0 m/s）。 */
@@ -465,7 +465,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     // endregion
 
-    // region 车控摇杆（car/motor/set/cmd）
+    // region 车控摇杆（car/motor/set/request）
 
     /**
      * 摇杆位置 → 方向：上下为前进/后退，左右为左旋/右旋，斜向同时下发。

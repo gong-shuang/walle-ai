@@ -905,7 +905,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     video: { pc: null, location: '', room: '', lastAlarmKey: '', connected: false, streaming: false, uiStreaming: null },
     mic: { on: false, starting: false, pc: null, stream: null, ac: null, analyser: null,
       raf: 0, room: '', location: '' },
-    car: { held: {}, timer: null, wasActive: false },
+    car: { held: {}, timer: null, wasActive: false, lastError: '' },
     servo: { enabled: false, held: {}, pos: { 1: null, 2: null }, timer: null,
       queryTimer: null, pendingQueryRid: '' },
     record: { recording: false, filename: '', startedAt: '', startedTs: 0,
@@ -1086,7 +1086,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   function discoveryTopic() { return cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/discovery/query/request'; }
   var SUBS = ['online', 'discovery/query/response', 'baseState/query/response', 'runState/query/response',
     'video/start/response', 'video/stop/response',
-    'car/servo/status/query/response', 'alarm/report',
+    'car/motor/set/response', 'car/servo/status/query/response', 'alarm/report',
     'control/acquire/response', 'control/release/response',
     'record/start/response', 'record/stop/response',
     'record/list/query/response', 'record/delete/response',
@@ -1161,6 +1161,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     else if (/\/runState\/query\/response$/.test(topic)) onCapability(dev, data);
     else if (/\/video\/start\/response$/.test(topic)) onVideoStartResult(dev, data);
     else if (/\/video\/stop\/response$/.test(topic)) onVideoStopResult(dev, data);
+    else if (/\/car\/motor\/set\/response$/.test(topic)) onCarMotorResult(dev, data);
     else if (/\/car\/servo\/status\/query\/response$/.test(topic)) onCarServoStatusResult(dev, data);
     else if (/\/control\/acquire\/response$/.test(topic)) onControlAcquireResult(dev, data);
     else if (/\/control\/release\/response$/.test(topic)) onControlReleaseResult(dev, data);
@@ -2529,6 +2530,14 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     el.carStatus.textContent = text;
     el.carStatus.className = 'carStatus' + (kind ? ' ' + kind : '');
   }
+  // 设备端每条车控请求都回执；正常运动回执约 5 条/秒，只缓存失败原因
+  function onCarMotorResult(dev, data) {
+    if (dev !== cfg.device || !data) return;
+    var result = Number(data.result);
+    if (!result) { ui.car.lastError = ''; return; }
+    ui.car.lastError = data.cause || ('result=' + result);
+    carSetStatus('车控失败：' + ui.car.lastError, 'err');
+  }
   function carActiveMove() {
     for (var i = 0; i < CAR_MOVE_ORDER.length; i++) {
       if (ui.car.held[CAR_MOVE_ORDER[i]]) return CAR_MOVE_ORDER[i];
@@ -2575,8 +2584,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var id = rid();
     var payload = carPayload();
     payload.request_id = id;
-    if (!mqtt.publish(base(cfg.device) + '/car/motor/set/cmd', payload)) {
-      carSetStatus('car/motor/set/cmd 发送失败：MQTT 已断开', 'err');
+    if (!mqtt.publish(base(cfg.device) + '/car/motor/set/request', payload)) {
+      carSetStatus('car/motor/set/request 发送失败：MQTT 已断开', 'err');
       carStopLoop();
       return;
     }
@@ -2584,14 +2593,15 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var m = carActiveMove(), r = carActiveRotate();
     var label = m ? m.toUpperCase() : '';
     if (r) label += (label ? ' + ' : '') + (r === 'a' ? '左旋' : '右旋');
-    carSetStatus('已下发 ' + label + ' · ' + CAR_SPEED + ' m/s', 'ok');
+    if (ui.car.lastError) carSetStatus('车控失败：' + ui.car.lastError, 'err');
+    else carSetStatus('已下发 ' + label + ' · ' + CAR_SPEED + ' m/s', 'ok');
   }
   function carSendStop() {
     if (!ui.car.wasActive) return;
     ui.car.wasActive = false;
     if (!mqtt || !mqtt.connected || !cfg.device) return;
     var id = rid();
-    mqtt.publish(base(cfg.device) + '/car/motor/set/cmd', {
+    mqtt.publish(base(cfg.device) + '/car/motor/set/request', {
       request_id: id,
       move: { forward: 0, back: 0, left: 0, right: 0 },
       rotate: { left: false, right: false }
@@ -3563,7 +3573,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       move: { forward: 0, back: 0, left: 0, right: 0 },
       rotate: { left: false, right: false }
     };
-    var ok = window.__wallePublish(window.__walleDeviceBase(dev) + '/car/motor/set/cmd', zero);
+    var ok = window.__wallePublish(window.__walleDeviceBase(dev) + '/car/motor/set/request', zero);
     addMsg('sys', ok ? '急停：已直接向设备下发零速。' : '急停：MQTT 未连接，未发出。');
     if (selected && window.__wallePublish) {
       window.__wallePublish(window.__walleAgentBase() + selected + '/chat/request', {

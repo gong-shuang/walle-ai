@@ -13,9 +13,13 @@ import threading
 import time
 
 from . import config
-from .car_motor import (CAUSE_ERROR, CAUSE_INVALID, CAUSE_LINK_DOWN, CAUSE_OK,
-                        RESULT_ERROR, RESULT_INVALID, RESULT_LINK_DOWN,
-                        RESULT_OK)
+from .car_motor import CAUSE_ERROR, CAUSE_INVALID, CAUSE_LINK_DOWN, CAUSE_OK
+
+# 舵机协议（§4.11/§4.12）使用自己的结果码 0/1/2/3，与 car/motor 的负数结果码无关
+RESULT_OK = 0
+RESULT_INVALID = 1
+RESULT_ERROR = 2
+RESULT_LINK_DOWN = 3
 from .identity import now_str, now_ts
 
 

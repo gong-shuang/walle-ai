@@ -111,6 +111,22 @@ def test_control_denied_when_other_client_holds_lease():
     assert data["control_holder"]["client_id"] == "web-a"
 
 
+def test_car_motor_control_denied_uses_minus_five():
+    monitor = _bare_monitor()
+    monitor.control_lease.acquire("web-a", "Web A")
+
+    monitor._handle_request(
+        agent.device_topic(agent.REQ_CAR_MOTOR_SET),
+        json.dumps({"request_id": "m1", "client_id": "android-b"}))
+
+    assert monitor.called == []
+    resource, data = monitor.published[-1]
+    assert resource == agent.RES_CAR_MOTOR_SET_RESULT
+    assert data["result"] == -5
+    assert data["error_code"] == "control_denied"
+    assert data["cause"] == "设备控制权限已被别人占用"
+
+
 def test_control_fail_open_and_holder_allowed():
     monitor = _bare_monitor()
     payload = json.dumps({"request_id": "v1", "client_id": "web-a"})

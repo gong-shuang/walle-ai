@@ -7,6 +7,7 @@ import threading
 import time
 
 from . import config
+from .car_motor import RESULT_CONTROL_DENIED
 from .identity import now_str, now_ts
 
 
@@ -208,7 +209,9 @@ class ControlMixin:
             return
         payload = self._control_common(rid)
         payload.update({
-            "result": -4,
+            # 车控按 §4.10 用 -5（-4 已表示前方障碍），其它请求-应答仍用 -4
+            "result": (RESULT_CONTROL_DENIED
+                       if resource == config.REQ_CAR_MOTOR_SET else -4),
             "cause": "设备控制权限已被别人占用",
             "error_code": "control_denied",
             "control_holder": holder,

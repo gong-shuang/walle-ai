@@ -25,7 +25,7 @@ RaspberryPi 系统监控 Agent（基于 paho-mqtt 2.x）
     .../video/stop/request                      .../video/stop/response              停止推流（动作）
     .../phone/audio/send/request                .../phone/audio/send/response        手机麦上行·开（App 发起）
     .../phone/audio/stop/request                .../phone/audio/stop/response        手机麦上行·关（App 发起）
-    .../car/motor/set/cmd                       —                                    电机持续控制（最新状态覆盖，无应答）
+    .../car/motor/set/request                   .../car/motor/set/response           电机持续控制（最新状态覆盖，每条请求都有应答）
 
     命名约定：请求-应答对的请求 .../request、应答 .../response；
     持续设置且不需要应答的 .../cmd；主动上报为 online 与 alarm/report。
@@ -100,7 +100,8 @@ from .config import (ACTION_REQUESTS, MQTT_CA_FILE, MQTT_HOST, MQTT_KEEPALIVE,  
                      REQ_CAR_SERVO_STATUS, REQ_DISCOVERY, REQ_PHONE_AUDIO_SEND,
                      REQ_PHONE_AUDIO_STOP, REQ_STATE, REQ_VIDEO_START,
                      REQ_VIDEO_STOP, RES_ALARM, RES_CAPABILITY_RESULT,
-                     RES_CAR_SERVO_STATUS_RESULT, RES_DISCOVERY_RESULT, RES_ONLINE,
+                     RES_CAR_SERVO_STATUS_RESULT, RES_CAR_MOTOR_SET_RESULT,
+                     RES_DISCOVERY_RESULT, RES_ONLINE,
                      RES_PHONE_AUDIO_SEND_RESULT, RES_PHONE_AUDIO_STOP_RESULT,
                      RES_STATE_RESULT, RES_VIDEO_START_RESULT,
                      RES_VIDEO_STOP_RESULT, VIDEO_ENABLE, VIDEO_ROOM_PATTERN,

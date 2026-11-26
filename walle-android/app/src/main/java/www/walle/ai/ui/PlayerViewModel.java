@@ -129,6 +129,10 @@ public class PlayerViewModel extends MqttViewModel {
     /** 在途查询的 request_id；空串表示没有在途查询。 */
     private String servoQueryRid = "";
 
+    /** 车控失败提示去重：设备端每条请求都回执，只有 result != 0 才提示。 */
+    private String lastCarError = "";
+    private long lastCarErrorAt = 0L;
+
     private final Runnable servoQueryTimeout = new Runnable() {
         @Override
         public void run() {
@@ -398,6 +402,23 @@ public class PlayerViewModel extends MqttViewModel {
         status = result == 0
                 ? describeServoPositions()
                 : "舵机查询失败：" + payload.optString("cause", "result=" + result);
+        publish();
+    }
+
+    @Override
+    public void onCarMotorResult(JSONObject payload) {
+        if (payload == null || deviceKey.isEmpty()) return;
+        if (!mgr.isFromDevice(deviceKey, payload)) return;
+        int result = payload.optInt("result", 0);
+        if (result == 0) return;      // 正常运动回执约 5 条/秒，不刷新状态条
+        String cause = MqttManager.isControlDenied(payload)
+                ? controlDeniedText(payload)
+                : payload.optString("cause", "result=" + result);
+        long now = System.currentTimeMillis();
+        if (cause.equals(lastCarError) && now - lastCarErrorAt < 1000L) return;
+        lastCarError = cause;
+        lastCarErrorAt = now;
+        status = "车控失败：" + cause;
         publish();
     }
 

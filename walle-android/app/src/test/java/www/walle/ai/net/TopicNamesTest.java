@@ -51,7 +51,7 @@ public class TopicNamesTest {
         assertEquals(BASE + "/video/start/request", TopicNames.videoStartRequest(TENANT, DEVICE));
         assertEquals(BASE + "/video/stop/request", TopicNames.videoStopRequest(TENANT, DEVICE));
         assertEquals("walle/home/discovery/query/request", TopicNames.discoveryQuery(TENANT));
-        assertEquals(BASE + "/car/motor/set/cmd", TopicNames.carMotorSet(TENANT, DEVICE));
+        assertEquals(BASE + "/car/motor/set/request", TopicNames.carMotorSetRequest(TENANT, DEVICE));
         assertEquals(BASE + "/car/servo/status/query/request",
                 TopicNames.carServoStatusQuery(TENANT, DEVICE));
         assertEquals(BASE + "/car/servo/set/cmd", TopicNames.carServoSet(TENANT, DEVICE));
@@ -76,6 +76,8 @@ public class TopicNamesTest {
                 TopicNames.videoStartResult(TENANT, DEVICE));
         assertEquals(BASE + "/video/stop/response",
                 TopicNames.videoStopResult(TENANT, DEVICE));
+        assertEquals(BASE + "/car/motor/set/response",
+                TopicNames.carMotorSetResult(TENANT, DEVICE));
         assertEquals(BASE + "/car/servo/status/query/response",
                 TopicNames.carServoStatusResult(TENANT, DEVICE));
     }
@@ -88,11 +90,12 @@ public class TopicNamesTest {
         assertTrue(TopicNames.discoveryQuery(TENANT).endsWith("/request"));
         assertTrue(TopicNames.videoStartRequest(TENANT, DEVICE).endsWith("/request"));
         assertTrue(TopicNames.videoStopRequest(TENANT, DEVICE).endsWith("/request"));
+        assertTrue(TopicNames.carMotorSetRequest(TENANT, DEVICE).endsWith("/request"));
         assertTrue(TopicNames.baseStateResult(TENANT, DEVICE).endsWith("/response"));
         assertTrue(TopicNames.capabilityResult(TENANT, DEVICE).endsWith("/response"));
+        assertTrue(TopicNames.carMotorSetResult(TENANT, DEVICE).endsWith("/response"));
 
         // 持续设置且无应答：/cmd
-        assertTrue(TopicNames.carMotorSet(TENANT, DEVICE).endsWith("/cmd"));
         assertTrue(TopicNames.carServoSet(TENANT, DEVICE).endsWith("/cmd"));
 
         // 主动上报：online 单独；alarm 用 /report
@@ -103,7 +106,7 @@ public class TopicNamesTest {
     @Test
     public void subscriptionsCoverAllResponsesAndAvoidWildcards() {
         String[] subs = TopicNames.responseSubscriptions(TENANT);
-        assertEquals(10, subs.length);
+        assertEquals(11, subs.length);
         for (String s : subs) {
             assertTrue("不应订通配子树: " + s, !s.endsWith("/#"));
             assertTrue("订阅必须以 walle/home/device/+ 开头: " + s,
@@ -114,7 +117,7 @@ public class TopicNamesTest {
                 "/online", "/alarm/report", "/discovery/query/response",
                 "/baseState/query/response", "/runState/query/response",
                 "/video/start/response", "/video/stop/response",
-                "/car/servo/status/query/response",
+                "/car/motor/set/response", "/car/servo/status/query/response",
                 "/control/acquire/response", "/control/release/response"}) {
             assertTrue("缺少订阅: " + expected, joined.contains(expected));
         }

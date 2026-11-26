@@ -104,6 +104,7 @@ RES_VIDEO_STOP_RESULT = "video/stop/response"       # 收到 video/stop/request 
 RES_PHONE_AUDIO_SEND_RESULT = "phone/audio/send/response"   # 收到 phone/audio/send/request 后发布
 RES_PHONE_AUDIO_STOP_RESULT = "phone/audio/stop/response"   # 收到 phone/audio/stop/request 后发布
 RES_CAR_SERVO_STATUS_RESULT = "car/servo/status/query/response"   # 收到 car/servo/status/query/request 后发布
+RES_CAR_MOTOR_SET_RESULT = "car/motor/set/response"         # 收到 car/motor/set/request 后发布（每条请求一条应答）
 RES_RECORD_START_RESULT = "record/start/response"           # 收到 record/start/request 后发布
 RES_RECORD_STOP_RESULT = "record/stop/response"             # 收到 record/stop/request 后发布
 RES_RECORD_LIST_RESULT = "record/list/query/response"       # 收到 record/list/query/request 后发布
@@ -131,7 +132,7 @@ REQ_VIDEO_START = "video/start/request"
 REQ_VIDEO_STOP = "video/stop/request"
 REQ_PHONE_AUDIO_SEND = "phone/audio/send/request"   # 手机麦上行：App 开始往 {room}_audio 推音频
 REQ_PHONE_AUDIO_STOP = "phone/audio/stop/request"   # 手机麦上行：App 停止推音频
-REQ_CAR_MOTOR_SET = "car/motor/set/cmd"           # 持续控制：最新一条覆盖旧状态，无应答
+REQ_CAR_MOTOR_SET = "car/motor/set/request"       # 持续控制：最新一条覆盖旧状态，每条请求都有应答
 REQ_CAR_SERVO_STATUS = "car/servo/status/query/request"   # 查询 PWM 舵机位置/偏移
 REQ_CAR_SERVO_SET = "car/servo/set/cmd"              # 设置 PWM 舵机绝对位置，无应答
 REQ_RECORD_START = "record/start/request"        # 开始录像
@@ -157,7 +158,7 @@ CAR_SERVO_ID_MAX = 4
 CAR_SERVO_READ_TIMEOUT_SEC = 2.0    # SDK 单次读取超时
 CAR_SERVO_QUERY_GRACE_SEC = 1.0     # 服务调用额外宽限
 
-# ---- car/motor/set/cmd 常量（协议固定值，改协议时同步文档 §4.10）----
+# ---- car/motor/set/request 常量（协议固定值，改协议时同步文档 §4.10）----
 CAR_MOTOR_LINEAR_MIN = 0.5          # 允许的线速度下限（m/s）
 CAR_MOTOR_LINEAR_MAX = 1.0          # 允许的线速度上限（m/s）
 CAR_MOTOR_ANGULAR_SPEED = 2.5       # 固定角速度（rad/s）
@@ -345,6 +346,7 @@ REQUEST_TO_RESULT = {
     REQ_VIDEO_STOP: RES_VIDEO_STOP_RESULT,
     REQ_PHONE_AUDIO_SEND: RES_PHONE_AUDIO_SEND_RESULT,
     REQ_PHONE_AUDIO_STOP: RES_PHONE_AUDIO_STOP_RESULT,
+    REQ_CAR_MOTOR_SET: RES_CAR_MOTOR_SET_RESULT,
     REQ_CAR_SERVO_STATUS: RES_CAR_SERVO_STATUS_RESULT,
     REQ_RECORD_START: RES_RECORD_START_RESULT,
     REQ_RECORD_STOP: RES_RECORD_STOP_RESULT,
@@ -416,7 +418,7 @@ def subscriptions():
         (f"{base}/+/+/request", MQTT_QOS),       # baseState/query/request、video/start/request、record/*/request
         (f"{base}/+/+/+/request", MQTT_QOS),     # phone/audio/*/request、record/list|play/*/request
         (f"{base}/+/+/+/+/request", MQTT_QOS),   # car/servo/status/query/request
-        (f"{base}/+/+/+/cmd", MQTT_QOS),         # car/motor/set/cmd、car/servo/set/cmd
+        (f"{base}/+/+/+/cmd", MQTT_QOS),         # car/servo/set/cmd
         (tenant_topic(REQ_DISCOVERY), MQTT_QOS),
         (tenant_topic("client/+/online"), MQTT_QOS),   # App/Web 客户端在线状态
         (tenant_topic("agent/+/online"), MQTT_QOS),    # agent 在线状态

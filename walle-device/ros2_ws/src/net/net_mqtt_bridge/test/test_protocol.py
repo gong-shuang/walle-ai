@@ -186,7 +186,9 @@ def test_agent_presence_rejects_id_mismatch():
 
 
 def test_car_motor_topics_and_realtime_dispatch_registered():
-    assert config.REQ_CAR_MOTOR_SET.endswith("/cmd")
+    assert config.REQ_CAR_MOTOR_SET == "car/motor/set/request"
+    assert (config.REQUEST_TO_RESULT[config.REQ_CAR_MOTOR_SET]
+            == config.RES_CAR_MOTOR_SET_RESULT)
     assert (config.REQUEST_HANDLERS[config.REQ_CAR_MOTOR_SET]
             == "handle_car_motor_set")
     assert config.REQ_CAR_MOTOR_SET in config.REALTIME_REQUESTS
@@ -212,7 +214,6 @@ def test_topic_naming_convention():
     for req, res in config.REQUEST_TO_RESULT.items():
         assert req.endswith("/request"), f"请求主题缺少 /request: {req}"
         assert res.endswith("/response"), f"应答主题缺少 /response: {res}"
-    assert config.REQ_CAR_MOTOR_SET.endswith("/cmd")
     assert config.REQ_CAR_SERVO_SET.endswith("/cmd")
     assert config.RES_ONLINE == "online"
     assert config.RES_ALARM.endswith("/report")

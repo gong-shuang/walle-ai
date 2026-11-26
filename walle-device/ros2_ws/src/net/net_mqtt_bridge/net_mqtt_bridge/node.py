@@ -8,7 +8,8 @@ MQTT 协议入口（唯一 MQTT 客户端）：
     video_webrtc_bridge；
   - 订阅 video_webrtc_bridge 的推流状态，填 baseState/query/response 的 video 分组；
   - 以 Bool 心跳告知 video_webrtc_bridge 当前 MQTT 是否在线；
-  - car/motor/set/cmd：保存最新运动状态，10Hz 重发 /cmd_vel，500ms 无有效命令自动停车。
+  - car/motor/set/request：保存最新运动状态，10Hz 重发 /cmd_vel，500ms 无有效命令自动停车，
+    每条请求都发布 car/motor/set/response。
 """
 
 import logging
@@ -117,7 +118,7 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
             status_qos)
         self._heartbeat_pub = self.create_publisher(Bool, '~/heartbeat', 10)
         self.create_timer(1.0, self._publish_heartbeat)
-        # ---- car/motor/set/cmd：/cmd_vel 发布 + 本地状态 + 10Hz 重发 + 500ms 死区 ----
+        # ---- car/motor/set/request：/cmd_vel 发布 + 本地状态 + 10Hz 重发 + 500ms 死区 ----
         self._cmd_vel_pub = self.create_publisher(
             Twist, self.get_parameter('cmd_vel_topic').value, 10)
         self._car_lock = threading.Lock()
@@ -232,11 +233,11 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
                 expired = False
         if expired:
             self.get_logger().warn(
-                'car/motor/set/cmd 超过 %.1fs 未收到有效命令，自动停车'
+                'car/motor/set/request 超过 %.1fs 未收到有效命令，自动停车'
                 % self._agent_mod.CAR_MOTOR_DEADMAN_SEC)
 
     def _handle_car_motor_set(self, payload):
-        """car/motor/set/cmd：校验 -> 更新状态 -> 立即下发 /cmd_vel（无 MQTT 应答）。"""
+        """car/motor/set/request：校验 -> 更新状态 -> 下发 /cmd_vel -> 发布应答。"""
         if self._shutting_down:
             return
         data = self.agent.parse_request(
@@ -249,8 +250,9 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
         if result != car_motor.RESULT_OK:
             self._car_stop(cause if result == car_motor.RESULT_OBSTACLE else '命令无效/错误')
             self.get_logger().warn(
-                'car/motor/set/cmd request_id=%s 未执行：result=%s cause=%s'
+                'car/motor/set/request request_id=%s 未执行：result=%s cause=%s'
                 % (rid or '-', result, cause))
+            self.agent._publish_car_motor_result(rid, result, cause)
             return
 
         # 没有 /cmd_vel 订阅者说明底盘节点不在线；不要更新状态，避免恢复后自己动起来。
@@ -261,14 +263,18 @@ class NetMqttBridge(Node, CarServoStatusNodeMixin, RecordNodeMixin,
         if subscribers == 0:
             self._car_stop('底盘控制链路不可用')
             self.get_logger().warn(
-                'car/motor/set/cmd request_id=%s 未执行：底盘控制链路不可用'
+                'car/motor/set/request request_id=%s 未执行：底盘控制链路不可用'
                 % (rid or '-'))
+            self.agent._publish_car_motor_result(
+                rid, car_motor.RESULT_LINK_DOWN, car_motor.CAUSE_LINK_DOWN)
             return
 
         self._apply_car_state(*twist)
         self.get_logger().debug(
-            'car/motor/set/cmd request_id=%s -> linear=(%.3f, %.3f) angular=%.3f'
+            'car/motor/set/request request_id=%s -> linear=(%.3f, %.3f) angular=%.3f'
             % (rid or '-', twist[0], twist[1], twist[2]))
+        self.agent._publish_car_motor_result(
+            rid, car_motor.RESULT_OK, car_motor.CAUSE_OK, twist)
 
     def _on_video_status(self, msg):
         with self._status_lock:

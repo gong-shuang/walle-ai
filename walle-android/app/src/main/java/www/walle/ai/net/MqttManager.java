@@ -64,6 +64,9 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         /** video/stop/response：停止推流结果 */
         default void onVideoStopResult(JSONObject payload) {}
 
+        /** car/motor/set/response：车控命令回执（每条请求一条） */
+        default void onCarMotorResult(JSONObject payload) {}
+
         /** car/servo/status/query/response：舵机状态查询回执 */
         default void onCarServoStatusResult(JSONObject payload) {}
 
@@ -330,11 +333,12 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     }
 
     /**
-     * 车控持续命令：{@code car/motor/set/cmd}（无应答）。
+     * 车控持续命令：{@code car/motor/set/request}，应答 {@code car/motor/set/response}。
      *
      * <p>move 四个方向只允许一个非 0，取值 0 或 [0.5,1.0] m/s；
      * rotate 的 left/right 互斥，都为 false 表示停止旋转。
-     * 设备端保存最新状态并以 10Hz 重发 /cmd_vel，500ms 没有有效命令会自动停车。</p>
+     * 设备端保存最新状态并以 10Hz 重发 /cmd_vel，500ms 没有有效命令会自动停车；
+     * 每条请求都会回执 result/cause（正常运动回执约 5 条/秒，不应逐条刷 UI）。</p>
      *
      * @return 本次 request_id；参数不合法或未选设备时返回空串
      */
@@ -366,7 +370,7 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
         } catch (JSONException ignore) {
         }
         client.publish(TopicNames.KIND_CAR_MOTOR,
-                TopicNames.carMotorSet(tenant, deviceSegment(deviceKey)), body.toString());
+                TopicNames.carMotorSetRequest(tenant, deviceSegment(deviceKey)), body.toString());
         return rid;
     }
 
@@ -715,6 +719,12 @@ public class MqttManager implements MqttClient.Listener, MessageRouter.Sink {
     @Override
     public void onVideoStopResult(JSONObject payload) {
         for (Listener l : listeners) main.post(() -> l.onVideoStopResult(payload));
+    }
+
+    @Override
+    public void onCarMotorResult(JSONObject payload) {
+        applyControlHolder(payload);
+        for (Listener l : listeners) main.post(() -> l.onCarMotorResult(payload));
     }
 
     @Override

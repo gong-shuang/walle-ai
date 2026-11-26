@@ -15,7 +15,7 @@ package www.walle.ai.net;
  *       不能用每次重启都会变的值；</li>
  *   <li>{@code 资源}：请求-应答对的请求以 {@code .../request} 结尾、应答以 {@code .../response}
  *       结尾（如 {@code baseState/query/request} → {@code baseState/query/response}）；
- *       持续设置且不需要应答的以 {@code .../cmd} 结尾（如 {@code car/motor/set/cmd}）；
+ *       持续设置且不需要应答的以 {@code .../cmd} 结尾（如 {@code car/servo/set/cmd}）；
  *       主动上报以 {@code .../report} 结尾（{@code alarm/report}）；
  *       {@code online} 单独保留，不带后缀。</li>
  * </ul>
@@ -69,7 +69,7 @@ public final class TopicNames {
     /** 关闭手机麦克风音频上行失败 */
     public static final String KIND_PHONE_AUDIO_STOP = "phone/audio/stop/request";
     /** 车控持续命令失败 */
-    public static final String KIND_CAR_MOTOR = "car/motor/set/cmd";
+    public static final String KIND_CAR_MOTOR = "car/motor/set/request";
     /** 舵机状态查询失败 */
     public static final String KIND_CAR_SERVO_STATUS = "car/servo/status/query/request";
     /** 舵机位置设置失败 */
@@ -175,6 +175,11 @@ public final class TopicNames {
         return deviceBase(tenant, device) + "/car/servo/status/query/response";
     }
 
+    /** 车控命令结果（收到 car/motor/set/request 后发布，每条请求一条）。 */
+    public static String carMotorSetResult(String tenant, String device) {
+        return deviceBase(tenant, device) + "/car/motor/set/response";
+    }
+
     /** 获取/续租控制权结果（收到 control/acquire/request 后发布）。 */
     public static String controlAcquireResult(String tenant, String device) {
         return deviceBase(tenant, device) + "/control/acquire/response";
@@ -203,6 +208,7 @@ public final class TopicNames {
                 base + "/runState/query/response",
                 base + "/video/start/response",
                 base + "/video/stop/response",
+                base + "/car/motor/set/response",
                 base + "/car/servo/status/query/response",
                 base + "/control/acquire/response",
                 base + "/control/release/response",
@@ -231,10 +237,11 @@ public final class TopicNames {
     }
 
     /**
-     * 车控持续命令（App → 设备）：最新一条覆盖旧状态，无应答。
+     * 车控持续命令（App → 设备）：最新一条覆盖旧状态，每条请求都会收到
+     * {@link #carMotorSetResult} 应答。
      */
-    public static String carMotorSet(String tenant, String device) {
-        return deviceBase(tenant, device) + "/car/motor/set/cmd";
+    public static String carMotorSetRequest(String tenant, String device) {
+        return deviceBase(tenant, device) + "/car/motor/set/request";
     }
 
     /** 舵机状态查询（App → 设备）。 */

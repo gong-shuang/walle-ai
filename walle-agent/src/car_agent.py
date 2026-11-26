@@ -3,7 +3,7 @@
 """car-agent：网页对话 -> 意图 -> MQTT 车控指令。
 
 设计约束：
-  - 通过 MQTT 主题控制：walle/{tenant}/device/{device}/car/motor/set/cmd；
+  - 通过 MQTT 主题控制：walle/{tenant}/device/{device}/car/motor/set/request；
     tenant 取服务端 MQTT 账号名，device 取页面当前选中的设备。
   - 运动指令通过 MQTT 真实下发；急停优先，随时可零速打断。
   - 简单指令走确定性解析；复杂语句可选走 LLM（默认关闭；失败则提示，不猜）。
@@ -951,13 +951,13 @@ class Agent:
             while not self.abort.is_set():
                 if time.monotonic() - t0 >= duration:
                     break
-                self._publish(device, "car/motor/set/cmd", payload)
+                self._publish(device, "car/motor/set/request", payload)
                 time.sleep(period)
         finally:
             zero = self._drive_payload({"action": "stop"}, request_id)
             try:
                 for _ in range(3):
-                    self._publish(device, "car/motor/set/cmd", zero)
+                    self._publish(device, "car/motor/set/request", zero)
                     time.sleep(0.05)
             finally:
                 release = self._release_control(device)
@@ -1029,7 +1029,7 @@ class Agent:
                         "cause": control.get("cause"), "mqtt": self.mqtt_status()}
             zero = self._drive_payload({"action": "stop"},
                                        "agent-stop-{}".format(random.randint(1000, 9999)))
-            res = self._publish(target, "car/motor/set/cmd", zero)
+            res = self._publish(target, "car/motor/set/request", zero)
             release = self._release_control(target)
             log().info("stop requested by %s device=%s result=%s release=%s",
                        client_name, target, json.dumps(res, ensure_ascii=False),

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""car/motor/set/cmd 报文校验与轮速预算测试。"""
+"""car/motor/set/request 报文校验、轮速预算与应答测试。"""
 
 import pytest
 
@@ -145,6 +145,49 @@ def test_boundary_speeds_are_valid(value):
     assert twist == (value, 0.0, 0.0)
 
 
-def test_topic_is_continuous_command_without_response():
-    assert config.REQ_CAR_MOTOR_SET == "car/motor/set/cmd"
-    assert config.REQ_CAR_MOTOR_SET not in config.REQUEST_TO_RESULT
+def test_topic_is_request_response_pair():
+    assert config.REQ_CAR_MOTOR_SET == "car/motor/set/request"
+    assert config.RES_CAR_MOTOR_SET_RESULT == "car/motor/set/response"
+    assert (config.REQUEST_TO_RESULT[config.REQ_CAR_MOTOR_SET]
+            == config.RES_CAR_MOTOR_SET_RESULT)
+
+
+def test_result_codes_are_negative_protocol_values():
+    assert (car_motor.RESULT_OK, car_motor.RESULT_INVALID,
+            car_motor.RESULT_ERROR, car_motor.RESULT_LINK_DOWN,
+            car_motor.RESULT_OBSTACLE, car_motor.RESULT_CONTROL_DENIED) == (
+                0, -1, -2, -3, -4, -5)
+
+
+def test_result_payload_reports_applied_cmd_vel_and_common_fields():
+    class _Stub(car_motor.CarMotorMixin):
+        lan_ip = "192.168.1.10"
+
+        def publish_json(self, resource, data):
+            self.published = (resource, data)
+
+    stub = _Stub()
+    payload = stub._publish_car_motor_result(
+        "rid-1", car_motor.RESULT_OK, car_motor.CAUSE_OK, (0.653, 0.0, 2.5))
+    resource, sent = stub.published
+    assert resource == "car/motor/set/response"
+    assert sent == payload
+    assert payload["request_id"] == "rid-1"
+    assert payload["result"] == 0
+    assert payload["cause"] == "ok"
+    assert payload["cmd_vel"] == {
+        "linear_x": 0.653, "linear_y": 0.0, "angular_z": 2.5}
+    assert payload["device_id"] == config.DEVICE_ID
+    assert payload["timestamp"] and payload["datetime"]
+
+
+def test_result_payload_has_no_cmd_vel_when_not_applied():
+    class _Stub(car_motor.CarMotorMixin):
+        def publish_json(self, resource, data):
+            self.published = (resource, data)
+
+    stub = _Stub()
+    payload = stub._publish_car_motor_result(
+        "rid-2", car_motor.RESULT_OBSTACLE, car_motor.CAUSE_OBSTACLE)
+    assert payload["result"] == car_motor.RESULT_OBSTACLE
+    assert payload["cmd_vel"] is None
