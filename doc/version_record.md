@@ -57,6 +57,11 @@ fix(rtc): 修复弱网下推流超时
 
 ```
 
+### 需要注意的有：
+
+（1）每次 walle-ai/doc/MQTT_protocol_convention.md 文档的版本号变化时，编写commit的内容的时候，一定要体现版本号的变化，方便跟踪追述。
+
+
 ## main分支保护
 github服务器开启了main分支保护和CI，不能在main分支上push代码，只能先在dev分支上进行开发，push之后服务器会进行代码检查，检查通过后，才能合并到main分支。
 
