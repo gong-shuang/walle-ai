@@ -370,7 +370,8 @@ MAC 归并专治 `device_id` 漂移：同一块网卡的两条 online（旧 id �
 
 **V1.10 变更**：`baseState/query/response` 只保留 `system`、`cpu`、`memory`、`disk`、`network`、
 `usb` 六个分组；移除 `recording`、`video`、`battery`、`sonar`。录像状态由 `record/*` 主题维护，
-推流状态以 `stream/start|stop/response` 为准，电池/声呐仍通过 `alarm/report` 上报。
+推流状态以 `stream/start|stop/response` 为准，电池/声呐实时值走 `runState/query/response`，
+`alarm/report` 只负责越限事件上报。
 
 - 请求：`walle/{t}/device/{d}/baseState/query/request`
 - 应答：`walle/{t}/device/{d}/baseState/query/response`
@@ -585,7 +586,7 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 - 障碍急停必须在设备本地闭环完成（声呐/车控节点直接限速或停车），**不得依赖 MQTT
   往返**；`alarm/report` 只负责通知，不负责刹车。
 - 告警主题不承载连续遥测：实时电压、实时距离不要按采样周期发布，否则会把 App 告警
-  列表（200 条滚动）冲掉。需要实时表盘时走 `baseState/query/response` 或另设低频遥测主题。
+  列表（200 条滚动）冲掉。需要实时表盘时走 `runState/query/response` 或另设低频遥测主题。
 - 设备端不持久化告警（不建 SQLite、不写盘），告警历史由服务端数据库保存。
 
 ### 4.8 手机麦克风上行 phone/audio/send|stop/request（控制面）＋ WebRTC WHIP/WHEP（媒体面）（V1.0）
