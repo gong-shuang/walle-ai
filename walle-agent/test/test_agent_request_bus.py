@@ -263,3 +263,124 @@ def test_parse_intent_routes_device_status():
 
     intent, _ = car_agent.parse_intent("状态")
     assert intent == {"action": "status"}
+
+
+def _call_with_response(agent, call, request_suffix, response_topic,
+                        response_payload):
+    results = []
+
+    def worker():
+        results.append(call())
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    assert _wait_for(lambda: any(
+        item["topic"].endswith(request_suffix)
+        for item in agent.mqtt_client.published))
+    request = [
+        item for item in agent.mqtt_client.published
+        if item["topic"].endswith(request_suffix)
+    ][-1]["payload"]
+    payload = dict(response_payload)
+    payload["request_id"] = request["request_id"]
+    agent._on_message(None, None, _message(response_topic, payload))
+    thread.join(timeout=2)
+    assert results
+    return results[0]
+
+
+def _run_state_payload():
+    return {
+        "device_id": "dev-id-1", "hostname": "walle-pc",
+        "ip": "192.168.1.10",
+        "stream": {
+            "is_supported": True, "streaming": True, "room_number": "room-1",
+        },
+        "phone_audio": {
+            "is_supported": True, "playing": False, "room_number": None,
+        },
+        "recording": {
+            "is_supported": True, "recording": True, "filename": "a.mp4",
+        },
+        "motor": {"is_supported": True, "moving": False},
+        "servo": {"is_supported": True, "moving": False},
+        "battery": {
+            "is_supported": True, "voltage_v": 8.0, "available": True,
+        },
+        "sonar": {
+            "is_supported": True, "distance_cm": 120.0, "available": True,
+        },
+        "control_holder": {"client_id": "web-a", "client_name": "Web A"},
+    }
+
+
+def test_device_run_state_summary(agent):
+    out = _call_with_response(
+        agent, lambda: agent.device_run_state("dev-1"),
+        "/runState/query/request",
+        "walle/test/device/dev-1/runState/query/response",
+        _run_state_payload())
+
+    assert out["ok"] is True
+    summary = out["summary"]
+    assert summary["recording"]["recording"] is True
+    assert summary["stream"]["room_number"] == "room-1"
+    assert summary["battery"]["voltage_v"] == 8.0
+    assert summary["sonar"]["distance_cm"] == 120.0
+    assert summary["control_holder"]["client_id"] == "web-a"
+    assert summary["unsupported"] == []
+    assert "正在录像" in out["reply"]
+    assert "正在推流" in out["reply"]
+    assert "电量 8.00V" in out["reply"]
+    assert "前方 120cm" in out["reply"]
+    assert "控制权：Web A" in out["reply"]
+    assert agent.device_supports("dev-1", "battery") is True
+
+
+def test_device_run_state_is_supported_false_is_hidden(agent):
+    payload = _run_state_payload()
+    payload["battery"] = {
+        "is_supported": False, "voltage_v": 8.0, "available": True,
+    }
+    payload["stream"] = {
+        "is_supported": False, "streaming": True, "room_number": "room-1",
+    }
+    out = _call_with_response(
+        agent, lambda: agent.device_run_state("dev-1"),
+        "/runState/query/request",
+        "walle/test/device/dev-1/runState/query/response", payload)
+
+    assert out["summary"]["battery"] is None
+    assert out["summary"]["stream"] is None
+    assert set(out["summary"]["unsupported"]) == {"battery", "stream"}
+    assert "电量" not in out["reply"]
+    assert "推流" not in out["reply"]
+    assert agent.device_supports("dev-1", "battery") is False
+
+
+def test_device_run_state_available_false_shows_invalid(agent):
+    payload = _run_state_payload()
+    payload["battery"]["available"] = False
+    payload["sonar"]["available"] = False
+    out = _call_with_response(
+        agent, lambda: agent.device_run_state("dev-1"),
+        "/runState/query/request",
+        "walle/test/device/dev-1/runState/query/response", payload)
+
+    assert out["summary"]["battery"]["voltage_v"] is None
+    assert out["summary"]["sonar"]["distance_cm"] is None
+    assert "电量 无效" in out["reply"]
+    assert "前方距离 无效" in out["reply"]
+
+
+def test_parse_intent_routes_run_state():
+    for text in ("在录像吗", "在推流吗", "电量多少", "前方多远",
+                 "谁持有控制权", "运行状态"):
+        intent, error = car_agent.parse_intent(text)
+        assert error is None
+        assert intent == {"action": "device_run_state"}, text
+
+    intent, _ = car_agent.parse_intent("状态")
+    assert intent == {"action": "status"}
+    intent, _ = car_agent.parse_intent("设备状态")
+    assert intent == {"action": "device_base_state"}

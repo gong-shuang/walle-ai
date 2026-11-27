@@ -7,7 +7,7 @@
 > 使用方式：每完成一项，把 `[ ]` 改成 `[x]`，补上完成日期、提交或证据，并更新「进度总览」和「更新记录」。
 >
 > 最后更新：2026-11-27
-> 当前阶段：M1 进行中（3/8）
+> 当前阶段：M1 进行中（4/8）
 
 ---
 
@@ -237,7 +237,7 @@ agent：
 | 里程碑 | 状态 | 完成项 | 说明 |
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
-| M1 请求总线与设备状态 | 进行中 | 3/8 | RequestBus、DeviceRegistry、baseState 工具已落地；runState 与状态对话待做 |
+| M1 请求总线与设备状态 | 进行中 | 4/8 | RequestBus、DeviceRegistry、baseState/runState 工具已落地；状态对话与发现待做 |
 | M2 核心设备动作 | 未开始 | 0/10 | 录像、推流、舵机、电机回执、结构化返回 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
@@ -485,12 +485,18 @@ agent：
 
 - **层级**：L3 设备通信与状态层
 - **小白解释**：回答“在录像吗、在推流吗、电量多少、前面多远、谁在控制”这些“正在做什么”的问题。
-- [ ] 发 `runState/query/request`，解析 `stream/phone_audio/recording/motor/servo/battery/sonar/control_holder`。
-- [ ] 尊重 `is_supported=false`：该分组不展示、不允许后续控制。
-- [ ] `available=false` 时显示「无效」，不沿用旧值。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] 发 `runState/query/request`，解析 `stream/phone_audio/recording/motor/servo/battery/sonar/control_holder`。
+- [x] 尊重 `is_supported=false`：该分组不展示、不允许后续控制。
+- [x] `available=false` 时显示「无效」，不沿用旧值。
+- 实现：
+  - 新增 `Agent.device_run_state(device)`：走 RequestBus 发 `runState/query/request`，超时 6s，不申请控制权。
+  - 复用 `_normalize_run_group`：`is_supported=false` 的分组从摘要和回复中隐藏，并记入 `unsupported`；`available=false` 的电池/声呐显示“无效”，值置 None。
+  - 新增 `Agent.device_supports(device, feature)`，供后续动作在控制前检查能力。
+  - 对话路由：“录像/推流/电量/电池/声呐/前方多远/控制权/运行状态”等走 `device_run_state`；单独的“状态”仍保持原语义，留给 M1-06。
+  - `execute` / `_reply_text` / LLM 动作白名单同步支持 `device_run_state`。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/test/test_agent_request_bus.py`
 - 验收：能回答「在录像吗」「在推流吗」「电量多少」「前方多远」「谁持有控制权」。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次提交 / 新增 4 个 runState 工具与意图测试；`pytest walle-agent/test` 37 passed；未修改 MQTT 协议
 
 #### M1-05 device.discover 工具
 
@@ -1112,6 +1118,7 @@ agent：
 | 2026-11-27 | M1-01 | RequestBus 落地：pending/超时/重复/离线失败，control 与 link_test 接入；M1 进度 1/8 | 本次提交 |
 | 2026-11-27 | M1-02 | DeviceRegistry 落地：online/baseState/runState/告警/控制权缓存，TTL 与 is_supported/available 处理；M1 进度 2/8 | 本次提交 |
 | 2026-11-27 | M1-03 | device_base_state 工具落地：baseState 查询、摘要与对话路由；M1 进度 3/8 | 本次提交 |
+| 2026-11-27 | M1-04 | device_run_state 工具落地：录像/推流/电量/声呐/控制权解析、is_supported/available 处理；M1 进度 4/8 | 本次提交 |
 
 ---
 

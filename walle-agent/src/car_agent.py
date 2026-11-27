@@ -731,6 +731,12 @@ def parse_intent(text):
                              "磁盘", "运行多久", "运行时间"))
             and not any(w in t for w in motion_words)):
         return {"action": "device_base_state"}, None
+    if (any(w in t for w in ("录像", "录制", "推流", "直播", "电量", "电池",
+                             "battery", "声呐", "前方多远", "前方距离", "障碍",
+                             "控制权", "谁在控制", "谁持有", "在做什么",
+                             "正在做什么", "运行状态", "车状态"))
+            and not any(w in t for w in motion_words)):
+        return {"action": "device_run_state"}, None
     if re.search(r"(状态|电量|battery|status)", t) and not any(w in t for w in motion_words):
         return {"action": "status"}, None
 
@@ -781,7 +787,8 @@ def parse_intent(text):
 
 def validate_intent(intent, cfg):
     """返回 (intent, warning)。校验失败时 intent=None，warning 为原因。"""
-    if intent["action"] in ("stop", "status", "device_base_state"):
+    if intent["action"] in ("stop", "status", "device_base_state",
+                            "device_run_state"):
         return intent, None
 
     max_distance = float(cfg["MAX_DISTANCE"])
@@ -1777,6 +1784,8 @@ class Agent:
                     "status": self.health(device)}
         if intent["action"] == "device_base_state":
             return self.device_base_state(device)
+        if intent["action"] == "device_run_state":
+            return self.device_run_state(device)
 
         duration = self._duration(intent)
         if not (self.mqtt_client and self.mqtt_connected):
@@ -2031,6 +2040,127 @@ class Agent:
             parts.append("运行 {}".format(uptime))
         return "；".join(parts) or "设备状态已返回，但缺少可展示字段。"
 
+    def device_run_state(self, device, timeout=6.0):
+        """查询设备 runState 并解析录像/推流/电量/声呐/控制权（M1-04）。"""
+        if not (self.mqtt_client and self.mqtt_connected):
+            return {"ok": False, "action": "device_run_state",
+                    "device": device, "error": "mqtt_not_connected",
+                    "cause": "MQTT 未连接"}
+        res = self.request_bus.request(
+            device, "runState/query/request", {}, timeout=timeout)
+        if not res.get("received"):
+            return {"ok": False, "action": "device_run_state",
+                    "device": device, "request_id": res.get("request_id"),
+                    "error": res.get("error"), "cause": res.get("cause")}
+        payload = res.get("payload")
+        if not isinstance(payload, dict):
+            return {"ok": False, "action": "device_run_state",
+                    "device": device, "request_id": res.get("request_id"),
+                    "error": "invalid_response",
+                    "cause": "设备运行状态应答不是 JSON 对象"}
+
+        groups = {}
+        unsupported = []
+        for name in _RUN_GROUP_DEFAULTS:
+            group = self._normalize_run_group(name, payload.get(name))
+            if not isinstance(group, dict):
+                groups[name] = None
+                continue
+            if group.get("is_supported") is False:
+                # is_supported=false：该分组不展示，也不允许后续控制
+                groups[name] = None
+                unsupported.append(name)
+            else:
+                groups[name] = group
+
+        summary = {
+            "device_id": payload.get("device_id"),
+            "hostname": payload.get("hostname"),
+            "ip": payload.get("ip"),
+            "recording": groups["recording"],
+            "stream": groups["stream"],
+            "phone_audio": groups["phone_audio"],
+            "motor": groups["motor"],
+            "servo": groups["servo"],
+            "battery": groups["battery"],
+            "sonar": groups["sonar"],
+            "control_holder": payload.get("control_holder"),
+            "unsupported": unsupported,
+        }
+        return {
+            "ok": True,
+            "action": "device_run_state",
+            "device": device,
+            "request_id": res.get("request_id"),
+            "runState": payload,
+            "summary": summary,
+            "reply": self._run_state_reply(summary),
+        }
+
+    def device_supports(self, device, feature):
+        """查询缓存中某能力分组是否 is_supported；未知返回 None。"""
+        state = self.device_state(device)
+        if not state:
+            return None
+        group = state.get(feature)
+        if not isinstance(group, dict):
+            return None
+        return group.get("is_supported")
+
+    @staticmethod
+    def _run_state_reply(summary):
+        parts = []
+        recording = summary.get("recording")
+        if isinstance(recording, dict):
+            if recording.get("recording"):
+                filename = recording.get("filename")
+                parts.append("正在录像" + (
+                    "（{}）".format(filename) if filename else ""))
+            else:
+                parts.append("未录像")
+        stream = summary.get("stream")
+        if isinstance(stream, dict):
+            if stream.get("streaming"):
+                room = stream.get("room_number")
+                parts.append("正在推流" + (
+                    "（房间 {}）".format(room) if room else ""))
+            else:
+                parts.append("未推流")
+        phone = summary.get("phone_audio")
+        if isinstance(phone, dict):
+            parts.append("正在播放手机音频" if phone.get("playing")
+                         else "未播放手机音频")
+        motor = summary.get("motor")
+        if isinstance(motor, dict):
+            parts.append("运动中" if motor.get("moving") else "小车静止")
+        servo = summary.get("servo")
+        if isinstance(servo, dict):
+            parts.append("舵机运动中" if servo.get("moving") else "舵机静止")
+        battery = summary.get("battery")
+        if isinstance(battery, dict):
+            if (battery.get("available")
+                    and battery.get("voltage_v") is not None):
+                parts.append("电量 {:.2f}V".format(
+                    float(battery["voltage_v"])))
+            else:
+                parts.append("电量 无效")
+        sonar = summary.get("sonar")
+        if isinstance(sonar, dict):
+            if (sonar.get("available")
+                    and sonar.get("distance_cm") is not None):
+                parts.append("前方 {:.0f}cm".format(
+                    float(sonar["distance_cm"])))
+            else:
+                parts.append("前方距离 无效")
+        holder = summary.get("control_holder")
+        if isinstance(holder, dict) and (
+                holder.get("client_id") or holder.get("client_name")):
+            who = holder.get("client_name") or holder.get("client_id")
+            parts.append("控制权：{}".format(who))
+        else:
+            parts.append("控制权：空闲")
+        return "；".join(parts) or "设备运行状态已返回，但没有可展示的信息。"
+
     def mqtt_status(self):
         return {
             "configured": self.mqtt_configured,
@@ -2104,7 +2234,8 @@ def _get_agent():
 _LLM_SYSTEM = (
     "你是小车控制意图解析器。只输出 JSON，不要解释。"
     "允许的动作：move(forward/backward/left/right, distance_m, speed_mps)、"
-    "rotate(left/right, angle_deg)、stop、status、device_base_state。"
+    "rotate(left/right, angle_deg)、stop、status、device_base_state、"
+    "device_run_state。"
     "无法确定时输出 {\"action\":\"unknown\"}。"
 )
 
@@ -2133,7 +2264,7 @@ def _llm_parse(text):
         content = data["choices"][0]["message"]["content"]
         intent = json.loads(content)
         if intent.get("action") in ("move", "rotate", "stop", "status",
-                                    "device_base_state"):
+                                    "device_base_state", "device_run_state"):
             return intent
     except (urlerror.URLError, KeyError, ValueError, TimeoutError) as exc:
         log().warning("LLM 解析失败: %s", exc)
@@ -2164,6 +2295,18 @@ def _reply_text(intent, result):
         if inner.get("error") == "mqtt_not_connected":
             return "停止未下发：MQTT 未连接。"
         return "停止未下发。"
+    elif action == "device_run_state":
+        if result.get("ok"):
+            return result.get("reply") or "设备运行状态查询完成。"
+        error = result.get("error")
+        if error == "timeout":
+            return "设备运行状态查询超时（6 秒无应答）。"
+        if error == "mqtt_not_connected":
+            return "设备运行状态查询失败：MQTT 未连接。"
+        if error == "device_offline":
+            return "设备运行状态查询失败：设备离线。"
+        return "设备运行状态查询失败：{}。".format(
+            result.get("cause") or error or "未知错误")
     elif action == "device_base_state":
         if result.get("ok"):
             return result.get("reply") or "设备状态查询完成。"
