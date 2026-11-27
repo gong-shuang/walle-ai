@@ -1047,3 +1047,179 @@ def test_parse_intent_routes_stream_commands():
 
     intent, _ = car_agent.parse_intent("在推流吗")
     assert intent == {"action": "device_run_state"}
+
+
+def test_servo_status_is_query_without_lease(agent):
+    out = _call_with_response(
+        agent, lambda: agent.servo_status("dev-1"),
+        "/car/servo/status/query/request",
+        "walle/test/device/dev-1/car/servo/status/query/response", {
+            "result": 0, "cause": "ok",
+            "servos": [
+                {"id": 1, "position": 1500, "offset": None,
+                 "available": True, "error": None},
+                {"id": 2, "position": 1480, "offset": None,
+                 "available": True, "error": None},
+            ],
+        })
+
+    assert out["ok"] is True
+    assert out["servos"][0]["position"] == 1500
+    assert out["servos"][1]["position"] == 1480
+    assert _published(agent, "/control/acquire/request") == []
+    assert _published(agent, "/control/release/request") == []
+    request = _published(agent, "/car/servo/status/query/request")[-1]["payload"]
+    assert request["ids"] == [1, 2]
+    assert request["include_offset"] is False
+
+
+def test_servo_status_include_offset_uses_long_timeout(agent):
+    out = _call_with_response(
+        agent, lambda: agent.servo_status(
+            "dev-1", ids=[1], include_offset=True),
+        "/car/servo/status/query/request",
+        "walle/test/device/dev-1/car/servo/status/query/response", {
+            "result": 0, "cause": "ok",
+            "servos": [{"id": 1, "position": 1500, "offset": 20,
+                        "available": True, "error": None}],
+        })
+
+    assert out["ok"] is True
+    assert out["servos"][0]["offset"] == 20
+    request = _published(agent, "/car/servo/status/query/request")[-1]["payload"]
+    assert request["ids"] == [1]
+    assert request["include_offset"] is True
+
+
+def test_servo_set_success_acquires_and_releases(agent):
+    out = _call_with_response(
+        agent, lambda: agent.servo_set(
+            "dev-1", [{"id": 1, "position": 1400},
+                      {"id": 2, "position": 1600}], 1.0),
+        "/car/servo/set/request",
+        "walle/test/device/dev-1/car/servo/set/response", {
+            "result": 0, "cause": "ok", "duration": 1.0,
+            "applied": [{"id": 1, "position": 1400},
+                        {"id": 2, "position": 1600}],
+            "skipped": [],
+        })
+
+    assert out["ok"] is True
+    assert out["applied"][0] == {"id": 1, "position": 1400}
+    assert out["skipped"] == []
+    assert out["control"]["ok"] is True
+    assert agent.control_held is None
+    request = _published(agent, "/car/servo/set/request")[-1]["payload"]
+    assert request["servos"] == [{"id": 1, "position": 1400},
+                                 {"id": 2, "position": 1600}]
+    assert request["duration"] == 1.0
+    assert len(_published(agent, "/control/acquire/request")) == 1
+    assert len(_published(agent, "/control/release/request")) == 1
+
+
+def test_servo_set_reports_skipped_out_of_range(agent):
+    out = _call_with_response(
+        agent, lambda: agent.servo_set(
+            "dev-1", [{"id": 1, "position": 1400},
+                      {"id": 2, "position": 2300}], 1.0),
+        "/car/servo/set/request",
+        "walle/test/device/dev-1/car/servo/set/response", {
+            "result": 0, "cause": "ok", "duration": 1.0,
+            "applied": [{"id": 1, "position": 1400}],
+            "skipped": [{"id": 2, "position": 2300,
+                         "reason": "超出 800-2200"}],
+        })
+
+    assert out["ok"] is True
+    assert out["applied"] == [{"id": 1, "position": 1400}]
+    assert out["skipped"][0]["id"] == 2
+    assert "800-2200" in out["skipped"][0]["reason"]
+
+
+def test_servo_center_sets_both_to_1500(agent):
+    out = _call_with_response(
+        agent, lambda: agent.servo_center("dev-1"),
+        "/car/servo/set/request",
+        "walle/test/device/dev-1/car/servo/set/response", {
+            "result": 0, "cause": "ok", "duration": 1.0,
+            "applied": [{"id": 1, "position": 1500},
+                        {"id": 2, "position": 1500}],
+            "skipped": [],
+        })
+
+    assert out["ok"] is True
+    assert out["action"] == "servo_center"
+    request = _published(agent, "/car/servo/set/request")[-1]["payload"]
+    assert request["servos"] == [{"id": 1, "position": 1500},
+                                 {"id": 2, "position": 1500}]
+
+
+def test_servo_raise_queries_then_sets(agent):
+    results = []
+    worker = threading.Thread(
+        target=lambda: results.append(
+            agent.servo_relative("dev-1", 1, car_agent.SERVO_STEP)),
+        daemon=True)
+    worker.start()
+
+    assert _wait_for(lambda: bool(
+        _published(agent, "/car/servo/status/query/request")))
+    status_request = _published(
+        agent, "/car/servo/status/query/request")[-1]["payload"]
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/car/servo/status/query/response", {
+            "request_id": status_request["request_id"],
+            "result": 0, "cause": "ok",
+            "servos": [{"id": 1, "position": 1500, "offset": None,
+                        "available": True, "error": None}],
+        }))
+
+    assert _wait_for(lambda: bool(_published(agent, "/car/servo/set/request")))
+    set_request = _published(agent, "/car/servo/set/request")[-1]["payload"]
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/car/servo/set/response", {
+            "request_id": set_request["request_id"],
+            "result": 0, "cause": "ok", "duration": 1.0,
+            "applied": [{"id": 1, "position": 1600}], "skipped": [],
+        }))
+    worker.join(timeout=2)
+
+    out = results[0]
+    assert out["ok"] is True
+    assert out["previous_position"] == 1500
+    assert out["target"] == 1600
+    assert out["delta"] == 100
+    assert set_request["servos"] == [{"id": 1, "position": 1600}]
+    assert agent.control_held is None
+
+
+def test_servo_set_unsupported_blocks_before_control(agent):
+    payload = _run_state_payload()
+    payload["servo"]["is_supported"] = False
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/runState/query/response", payload))
+
+    out = agent.servo_set("dev-1", [{"id": 1, "position": 1500}])
+
+    assert out["ok"] is False
+    assert out["error"] == "unsupported"
+    assert agent.control_held is None
+    assert _published(agent, "/car/servo/set/request") == []
+    assert _published(agent, "/control/acquire/request") == []
+
+
+def test_parse_intent_routes_servo_commands():
+    intent, error = car_agent.parse_intent("舵机回中")
+    assert error is None
+    assert intent == {"action": "servo_center"}
+
+    intent, _ = car_agent.parse_intent("抬高一点")
+    assert intent == {"action": "servo_relative", "servo_id": 1,
+                      "delta": car_agent.SERVO_STEP}
+
+    intent, _ = car_agent.parse_intent("舵机状态")
+    assert intent == {"action": "servo_status"}
+
+    intent, _ = car_agent.parse_intent("舵机1到1400")
+    assert intent == {"action": "servo_set", "duration": 1.0,
+                      "servos": [{"id": 1, "position": 1400}]}

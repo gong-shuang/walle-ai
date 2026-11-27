@@ -7,7 +7,7 @@
 > 使用方式：每完成一项，把 `[ ]` 改成 `[x]`，补上完成日期、提交或证据，并更新「进度总览」和「更新记录」。
 >
 > 最后更新：2026-11-27
-> 当前阶段：M2 进行中（2/10）
+> 当前阶段：M2 进行中（3/10）
 
 ---
 
@@ -238,7 +238,7 @@ agent：
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
-| M2 核心设备动作 | 进行中 | 2/10 | record、stream 已落地；舵机、回执等待做 |
+| M2 核心设备动作 | 进行中 | 3/10 | record、stream、servo 已落地；电机回执等待做 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
@@ -620,13 +620,21 @@ agent：
 
 - **层级**：L2 动作编排层
 - **小白解释**：摄像头的上下左右是舵机控制的。用户说“抬高一点”，agent 要先查当前位置，再算新位置，再设置。
-- [ ] `car/servo/status/query/request`：`ids`、`include_offset`；超时 6s/10s。
-- [ ] `car/servo/set/request`：绝对位置、`duration`；返回 `applied/skipped`。
-- [ ] ID 映射：ID1=上下、ID2=左右；范围 800–2200。
-- [ ] 「抬高一点」等相对语义：先 status 再 set。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] `car/servo/status/query/request`：`ids`、`include_offset`；超时 6s/10s。
+- [x] `car/servo/set/request`：绝对位置、`duration`；返回 `applied/skipped`。
+- [x] ID 映射：ID1=上下、ID2=左右；范围 800–2200。
+- [x] 「抬高一点」等相对语义：先 status 再 set。
+- 实现：
+  - 新增 `Agent.servo_status(device, ids=[1,2], include_offset=False)`：只读查询，不申请控制权；6s，带 offset 时 10s；`-3` 保留部分结果并标记 `partial`。
+  - 新增 `Agent.servo_set(device, servos, duration=1.0)`：能力预检 → acquire → `car/servo/set/request` → release；返回 `applied/skipped/duration`；越界项由设备放入 `skipped`，agent 原样提示。
+  - 新增 `Agent.servo_center(device)`：ID1/ID2 设为 1500。
+  - 新增 `Agent.servo_relative(device, servo_id, delta)`：先 `servo_status` 读当前位置，再 `servo_set` 绝对位置；结果附带 `previous_position/target/delta`。
+  - ID 映射常量 `SERVO_NAMES`；范围 800–2200、中位 1500、步进 100（若实机“抬高”方向相反，调整 `SERVO_STEP` 符号即可）。
+  - 对话路由：「舵机回中」「抬高一点/降低一点」「舵机状态」「舵机1到1400」。
+  - `execute` / `_reply_text` / LLM 动作白名单同步支持。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/test/test_agent_request_bus.py`
 - 验收：对话「舵机回中」「抬高一点」可用；越界项在 `skipped` 中提示。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次提交 / 新增 8 个舵机查询、设置、回中、相对调整、越界提示、能力拦截与意图测试；`pytest walle-agent/test` 79 passed；未修改 MQTT 协议
 
 #### M2-04 电机运动回执处理
 
@@ -1169,6 +1177,7 @@ agent：
 | 2026-11-27 | M1-08 | alarm/report 接入：告警缓存、障碍/低压联锁停车、recent_alarm 对话；M1 完成 8/8 | 本次提交 |
 | 2026-11-27 | M2-01 | record.start/stop/list 落地：能力预检、控制权 acquire/release、-4 幂等、列表查询；M2 进度 1/10 | 本次提交 |
 | 2026-11-27 | M2-02 | stream.start/stop 落地：房间号复用、房间号一致性校验、-3 无摄像头提示；M2 进度 2/10 | 本次提交 |
+| 2026-11-27 | M2-03 | servo.status/set 落地：6s/10s 查询、applied/skipped、回中、先查后设相对调整；M2 进度 3/10 | 本次提交 |
 
 ---
 

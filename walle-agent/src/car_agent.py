@@ -721,6 +721,11 @@ def _human_duration(seconds):
 
 DISCOVER_WORDS = ("刷新设备", "发现设备", "扫描设备", "设备列表",
                   "有哪些设备", "查找设备", "搜设备")
+SERVO_NAMES = {1: "上下", 2: "左右", 3: "ID3", 4: "ID4"}
+SERVO_MIN = 800
+SERVO_MAX = 2200
+SERVO_CENTER = 1500
+SERVO_STEP = 100
 
 
 def _record_segment(text):
@@ -732,6 +737,19 @@ def _record_segment(text):
     if m.group(2) in ("分钟", "分"):
         value *= 60
     return max(0, min(value, 86400))
+
+
+def _servo_error_text(result):
+    error = result.get("error")
+    if error == "mqtt_not_connected":
+        return "MQTT 未连接"
+    if error in ("control_occupied", "control_denied"):
+        holder = result.get("control_holder") or {}
+        who = holder.get("client_name") or holder.get("client_id") or "其他客户端"
+        return "设备控制权已被 {} 占用".format(who)
+    if error == "unsupported":
+        return result.get("cause") or "设备不支持舵机"
+    return result.get("cause") or error or "未知错误"
 
 
 def parse_intent(text):
@@ -761,6 +779,30 @@ def parse_intent(text):
     if any(w in t for w in ("停止推流", "停止直播", "结束推流",
                              "关闭推流", "关播")):
         return {"action": "stream_stop"}, None
+    if "舵机" in t or "摄像头云台" in t:
+        if any(w in t for w in ("回中", "居中", "中位", "复位")):
+            return {"action": "servo_center"}, None
+        m = re.search(r"舵机\s*([1-4])\s*(?:到|为|至|设成|设置为)?\s*(\d{3,4})", t)
+        if m:
+            return {"action": "servo_set", "duration": 1.0,
+                    "servos": [{"id": int(m.group(1)),
+                                "position": int(m.group(2))}]}, None
+        if any(w in t for w in ("状态", "位置", "查询", "多少")):
+            return {"action": "servo_status"}, None
+    if any(w in t for w in ("抬高", "升高", "抬一点")):
+        return {"action": "servo_relative", "servo_id": 1,
+                "delta": SERVO_STEP}, None
+    if any(w in t for w in ("降低", "放低", "降一点")):
+        return {"action": "servo_relative", "servo_id": 1,
+                "delta": -SERVO_STEP}, None
+    if ("舵机" in t or "摄像头" in t) and any(
+            w in t for w in ("向左一点", "左一点")):
+        return {"action": "servo_relative", "servo_id": 2,
+                "delta": -SERVO_STEP}, None
+    if ("舵机" in t or "摄像头" in t) and any(
+            w in t for w in ("向右一点", "右一点")):
+        return {"action": "servo_relative", "servo_id": 2,
+                "delta": SERVO_STEP}, None
 
     if (("agent" in t and ("状态" in t or "status" in t or "状况" in t))
             or any(w in t for w in ("你的状态", "你自己状态", "自身状态"))):
@@ -834,7 +876,8 @@ def validate_intent(intent, cfg):
                             "device_run_state", "device_discover",
                             "agent_status", "service_health", "alarm_status",
                             "record_start", "record_stop", "record_list",
-                            "stream_start", "stream_stop"):
+                            "stream_start", "stream_stop", "servo_status",
+                            "servo_set", "servo_center", "servo_relative"):
         return intent, None
 
     max_distance = float(cfg["MAX_DISTANCE"])
@@ -2036,6 +2079,17 @@ class Agent:
             return self.stream_start(device)
         if intent["action"] == "stream_stop":
             return self.stream_stop(device)
+        if intent["action"] == "servo_status":
+            return self.servo_status(device)
+        if intent["action"] == "servo_set":
+            return self.servo_set(device, intent.get("servos") or [],
+                                  intent.get("duration", 1.0))
+        if intent["action"] == "servo_center":
+            return self.servo_center(device)
+        if intent["action"] == "servo_relative":
+            return self.servo_relative(device, intent.get("servo_id"),
+                                       intent.get("delta"),
+                                       intent.get("duration", 1.0))
 
         if intent["action"] in ("move", "rotate"):
             preflight = self.preflight_features(device, ("motor",))
@@ -2593,6 +2647,195 @@ class Agent:
             out["cause"] = decoded.get("cause") or "查询录像列表失败"
         return out
 
+    def servo_status(self, device, ids=None, include_offset=False):
+        """查询舵机位置：只读查询，不申请控制权（M2-03）。"""
+        if ids is None:
+            ids = [1, 2]
+        if not isinstance(ids, (list, tuple)) or not ids:
+            return {"ok": False, "action": "servo_status", "device": device,
+                    "error": "parameter_error", "cause": "ids 不能为空"}
+        clean_ids = []
+        for servo_id in ids:
+            if (isinstance(servo_id, bool)
+                    or not isinstance(servo_id, int)
+                    or servo_id not in (1, 2, 3, 4)):
+                return {"ok": False, "action": "servo_status",
+                        "device": device, "error": "parameter_error",
+                        "cause": "ids 只能是 1-4"}
+            if servo_id in clean_ids:
+                return {"ok": False, "action": "servo_status",
+                        "device": device, "error": "parameter_error",
+                        "cause": "ids 不能重复"}
+            clean_ids.append(servo_id)
+        if not (self.mqtt_client and self.mqtt_connected):
+            return {"ok": False, "action": "servo_status", "device": device,
+                    "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
+        timeout = 10.0 if include_offset else 6.0
+        res = self.request_bus.request(
+            device, "car/servo/status/query/request",
+            {"ids": clean_ids, "include_offset": bool(include_offset)},
+            timeout=timeout)
+        if not res.get("received"):
+            return {"ok": False, "action": "servo_status", "device": device,
+                    "request_id": res.get("request_id"),
+                    "error": res.get("error") or "timeout",
+                    "cause": res.get("cause") or "等待舵机状态超时"}
+        payload = res.get("payload") or {}
+        decoded = res.get("decoded") or decode_result(payload)
+        result = decoded.get("result")
+        servos = payload.get("servos")
+        if not isinstance(servos, list):
+            servos = []
+        return {
+            "ok": result == 0,
+            "partial": result == -3 and any(
+                item.get("available") for item in servos
+                if isinstance(item, dict)),
+            "action": "servo_status",
+            "device": device,
+            "request_id": res.get("request_id"),
+            "result": result,
+            "servos": servos,
+            "include_offset": bool(include_offset),
+            "cause": decoded.get("cause"),
+            "error": (decoded.get("error")
+                      if result not in (0, -3) else None),
+        }
+
+    def servo_set(self, device, servos, duration=1.0):
+        """按绝对位置设置舵机；越界项由设备放入 skipped（M2-03）。"""
+        preflight = self.preflight_features(device, ("servo",))
+        if not preflight.get("ok"):
+            return {"ok": False, "action": "servo_set", "device": device,
+                    "error": preflight.get("error"),
+                    "cause": preflight.get("cause"),
+                    "capabilities": preflight.get("capabilities")}
+        if not (self.mqtt_client and self.mqtt_connected):
+            return {"ok": False, "action": "servo_set", "device": device,
+                    "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
+        if not isinstance(servos, (list, tuple)) or not servos:
+            return {"ok": False, "action": "servo_set", "device": device,
+                    "error": "parameter_error", "cause": "servos 不能为空"}
+        clean = []
+        for item in servos:
+            if not isinstance(item, dict):
+                return {"ok": False, "action": "servo_set", "device": device,
+                        "error": "parameter_error",
+                        "cause": "servos 元素必须是对象"}
+            servo_id = item.get("id")
+            position = item.get("position")
+            if (isinstance(servo_id, bool) or not isinstance(servo_id, int)
+                    or servo_id not in (1, 2, 3, 4)):
+                return {"ok": False, "action": "servo_set",
+                        "device": device, "error": "parameter_error",
+                        "cause": "舵机 id 只能是 1-4"}
+            if isinstance(position, bool) or not isinstance(position, int):
+                return {"ok": False, "action": "servo_set",
+                        "device": device, "error": "parameter_error",
+                        "cause": "舵机 position 必须是整数"}
+            clean.append({"id": servo_id, "position": position})
+        try:
+            duration = float(duration)
+        except (TypeError, ValueError):
+            duration = -1.0
+        if duration < 0.1 or duration > 5.0:
+            return {"ok": False, "action": "servo_set", "device": device,
+                    "error": "parameter_error",
+                    "cause": "duration 必须在 0.1-5.0 秒"}
+        control = self._acquire_control(device)
+        if not control.get("ok"):
+            return {"ok": False, "action": "servo_set", "device": device,
+                    "error": control.get("error"),
+                    "cause": control.get("cause"),
+                    "control_holder": control.get("control_holder")}
+        try:
+            res = self.request_bus.request(
+                device, "car/servo/set/request",
+                {"servos": clean, "duration": duration}, timeout=10.0)
+        finally:
+            release = self._release_control(device)
+
+        if not res.get("received"):
+            return {"ok": False, "action": "servo_set", "device": device,
+                    "request_id": res.get("request_id"),
+                    "error": res.get("error") or "timeout",
+                    "cause": res.get("cause") or "等待舵机设置应答超时",
+                    "control": release}
+        payload = res.get("payload") or {}
+        decoded = res.get("decoded") or decode_result(payload)
+        result = decoded.get("result")
+        applied = payload.get("applied")
+        skipped = payload.get("skipped")
+        if not isinstance(applied, list):
+            applied = []
+        if not isinstance(skipped, list):
+            skipped = []
+        out = {
+            "ok": result == 0,
+            "action": "servo_set",
+            "device": device,
+            "request_id": res.get("request_id"),
+            "result": result,
+            "duration": payload.get("duration", duration),
+            "applied": applied,
+            "skipped": skipped,
+            "cause": payload.get("cause") or decoded.get("cause"),
+            "control": release,
+        }
+        if result != 0:
+            out["error"] = decoded.get("error") or "failed"
+            if result == -5:
+                out["error"] = "control_denied"
+                out["control_holder"] = payload.get("control_holder")
+        return out
+
+    def servo_center(self, device):
+        result = self.servo_set(
+            device, [{"id": 1, "position": SERVO_CENTER},
+                     {"id": 2, "position": SERVO_CENTER}], 1.0)
+        result["action"] = "servo_center"
+        return result
+
+    def servo_relative(self, device, servo_id, delta, duration=1.0):
+        """相对语义：先查当前位置，再按 delta 计算绝对位置并设置（M2-03）。"""
+        if (isinstance(servo_id, bool) or not isinstance(servo_id, int)
+                or servo_id not in (1, 2, 3, 4)):
+            return {"ok": False, "action": "servo_relative",
+                    "device": device, "error": "parameter_error",
+                    "cause": "舵机 id 只能是 1-4"}
+        try:
+            delta = int(delta)
+        except (TypeError, ValueError):
+            return {"ok": False, "action": "servo_relative",
+                    "device": device, "error": "parameter_error",
+                    "cause": "delta 必须是整数"}
+        status = self.servo_status(device, ids=[servo_id])
+        if not (status.get("ok") or status.get("partial")):
+            result = dict(status)
+            result["action"] = "servo_relative"
+            result["servo_id"] = servo_id
+            return result
+        current = None
+        for item in status.get("servos") or []:
+            if isinstance(item, dict) and item.get("id") == servo_id:
+                current = item.get("position")
+                break
+        if current is None:
+            return {"ok": False, "action": "servo_relative",
+                    "device": device, "error": "servo_unavailable",
+                    "cause": "无法读取舵机当前位置",
+                    "servo_id": servo_id}
+        target = max(SERVO_MIN, min(SERVO_MAX, int(current) + delta))
+        result = self.servo_set(
+            device, [{"id": servo_id, "position": target}], duration)
+        result["action"] = "servo_relative"
+        result["servo_id"] = servo_id
+        result["servo_name"] = SERVO_NAMES.get(servo_id, "ID{}".format(servo_id))
+        result["previous_position"] = int(current)
+        result["target"] = target
+        result["delta"] = delta
+        return result
+
     def stream_start(self, device):
         """开始推流：设备无参数，返回 room_number/camera_device/action（M2-02）。"""
         preflight = self.preflight_features(device, ("stream",))
@@ -3060,8 +3303,9 @@ _LLM_SYSTEM = (
     "允许的动作：move(forward/backward/left/right, distance_m, speed_mps)、"
     "rotate(left/right, angle_deg)、stop、status、agent_status、"
     "service_health、alarm_status、record_start(segment_sec)、record_stop、"
-    "record_list、stream_start、stream_stop、device_base_state、"
-    "device_run_state、device_discover。"
+    "record_list、stream_start、stream_stop、servo_status、servo_set(servos, "
+    "duration)、servo_center、servo_relative(servo_id, delta)、"
+    "device_base_state、device_run_state、device_discover。"
     "无法确定时输出 {\"action\":\"unknown\"}。"
 )
 
@@ -3094,6 +3338,8 @@ def _llm_parse(text):
                                     "alarm_status", "record_start",
                                     "record_stop", "record_list",
                                     "stream_start", "stream_stop",
+                                    "servo_status", "servo_set",
+                                    "servo_center", "servo_relative",
                                     "device_base_state", "device_run_state",
                                     "device_discover"):
             return intent
@@ -3180,6 +3426,67 @@ def _reply_text(intent, result):
             return "停止推流失败：设备控制权已被 {} 占用。".format(who)
         return "停止推流失败：{}。".format(
             result.get("cause") or result.get("error") or "未知错误")
+    elif action == "servo_status":
+        servos = result.get("servos") or []
+        if not servos and not result.get("ok"):
+            return "查询舵机状态失败：{}。".format(_servo_error_text(result))
+        parts = []
+        for item in servos:
+            if not isinstance(item, dict):
+                continue
+            servo_id = item.get("id")
+            name = SERVO_NAMES.get(servo_id, "ID{}".format(servo_id))
+            if item.get("available") and item.get("position") is not None:
+                text = "ID{}（{}）={}".format(servo_id, name, item["position"])
+                if item.get("offset") is not None:
+                    text += "，offset={}".format(item["offset"])
+            else:
+                text = "ID{}（{}）不可用（{}）".format(
+                    servo_id, name, item.get("error") or "读取失败")
+            parts.append(text)
+        prefix = "舵机状态：" if result.get("ok") else "部分舵机读取失败："
+        return prefix + "；".join(parts) + "。"
+    elif action == "servo_set":
+        applied = result.get("applied") or []
+        skipped = result.get("skipped") or []
+        if result.get("ok"):
+            applied_text = "、".join(
+                "ID{}={}".format(item.get("id"), item.get("position"))
+                for item in applied if isinstance(item, dict))
+            reply = "舵机已设置：{}".format(applied_text or "无")
+            if skipped:
+                skipped_text = "、".join(
+                    "ID{}={}（{}）".format(
+                        item.get("id"), item.get("position"),
+                        item.get("reason") or "越界")
+                    for item in skipped if isinstance(item, dict))
+                reply += "；已跳过：{}".format(skipped_text)
+            return reply + "。"
+        reply = "设置舵机失败：{}".format(_servo_error_text(result))
+        if skipped:
+            reply += "；已跳过：{}".format("、".join(
+                "ID{}={}（{}）".format(
+                    item.get("id"), item.get("position"),
+                    item.get("reason") or "越界")
+                for item in skipped if isinstance(item, dict)))
+        return reply + "。"
+    elif action == "servo_center":
+        if result.get("ok"):
+            return "舵机已回中（ID1={}，ID2={}）。".format(
+                SERVO_CENTER, SERVO_CENTER)
+        return "舵机回中失败：{}。".format(_servo_error_text(result))
+    elif action == "servo_relative":
+        name = result.get("servo_name") or "舵机"
+        if result.get("ok"):
+            delta = result.get("delta") or 0
+            if result.get("servo_id") == 1:
+                direction = "抬高" if delta > 0 else "降低"
+            else:
+                direction = "向右" if delta > 0 else "向左"
+            return "已{}：ID{}（{}）从 {} 到 {}。".format(
+                direction, result.get("servo_id"), name,
+                result.get("previous_position"), result.get("target"))
+        return "舵机调整失败：{}。".format(_servo_error_text(result))
     elif action == "device_base_state":
         if result.get("ok"):
             return result.get("reply") or "设备状态查询完成。"
