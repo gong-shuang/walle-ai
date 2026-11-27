@@ -1091,6 +1091,75 @@ def test_parse_intent_routes_record_commands():
     assert intent == {"action": "device_run_state"}
 
 
+def test_parse_intent_routes_record_delete_and_play():
+    intent, error = car_agent.parse_intent("删除最新录像")
+    assert error is None
+    assert intent == {"action": "record_delete", "latest": True}
+
+    intent, _ = car_agent.parse_intent("删除录像 20261127_080000.fmp4")
+    assert intent == {"action": "record_delete",
+                      "filename": "20261127_080000.fmp4"}
+
+    intent, _ = car_agent.parse_intent("播放最新录像")
+    assert intent == {"action": "record_play_start", "latest": True}
+
+    intent, _ = car_agent.parse_intent("回放一下昨天的录像")
+    assert intent["action"] == "record_play_start"
+
+    intent, _ = car_agent.parse_intent("停止播放")
+    assert intent == {"action": "record_play_stop"}
+
+
+def test_record_delete_and_play_are_recognized_but_not_implemented(agent):
+    for text, action in (("删除最新录像", "record_delete"),
+                         ("播放最新录像", "record_play_start"),
+                         ("停止播放", "record_play_stop")):
+        intent, error = car_agent.parse_intent(text)
+        assert error is None
+        validated, warning = car_agent.validate_intent(intent, agent.cfg)
+        assert validated is not None
+        assert warning is None
+        out = agent.execute("dev-1", validated, "web")
+        assert out["ok"] is False
+        assert out["action"] == action
+        assert out["error"] == "unsupported"
+        assert "M5" in out["cause"]
+        assert car_agent._reply_text(validated, out) == out["cause"]
+
+
+def test_parse_intent_common_commands_do_not_need_llm():
+    cases = [
+        ("开始录像", "record_start"),
+        ("录一段", "record_start"),
+        ("停止录像", "record_stop"),
+        ("别录了", "record_stop"),
+        ("查看录像", "record_list"),
+        ("删除最新录像", "record_delete"),
+        ("播放最新录像", "record_play_start"),
+        ("停止播放", "record_play_stop"),
+        ("开始推流", "stream_start"),
+        ("停止推流", "stream_stop"),
+        ("舵机回中", "servo_center"),
+        ("云台回中", "servo_center"),
+        ("云台抬高", "servo_relative"),
+        ("云台降低", "servo_relative"),
+        ("云台向左一点", "servo_relative"),
+        ("云台向右一点", "servo_relative"),
+        ("设备状态", "device_base_state"),
+        ("agent 状态", "agent_status"),
+        ("服务健康", "service_health"),
+        ("查看任务", "task_list"),
+        ("取消任务 task-1a2b3c4d", "task_cancel"),
+        ("每天8点开始录像，晚上9点停止", "task_create"),
+        ("明天早上8点开始录像", "task_create"),
+    ]
+    for text, action in cases:
+        intent, error = car_agent.parse_intent(text)
+        assert error is None, text
+        assert intent is not None, text
+        assert intent["action"] == action, text
+
+
 def test_stream_start_success_returns_room(agent):
     out = _call_with_response(
         agent, lambda: agent.stream_start("dev-1"),

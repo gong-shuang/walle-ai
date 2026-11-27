@@ -776,6 +776,26 @@ def _record_segment(text):
     return max(0, min(value, 86400))
 
 
+_RECORD_FILE_RE = re.compile(
+    r"([A-Za-z0-9_.-]+\.(?:mp4|fmp4|mkv|avi|mov|flv))", re.IGNORECASE)
+
+
+def _record_filename(text):
+    """从“删除/播放录像 xxx.mp4”中提取文件名。"""
+    match = _RECORD_FILE_RE.search(text or "")
+    return match.group(1) if match else None
+
+
+def _record_target(intent, text):
+    """补充录像文件名或 latest 标记。"""
+    filename = _record_filename(text)
+    if filename:
+        intent["filename"] = filename
+    elif any(w in text for w in ("最新", "最后一个", "最后一条")):
+        intent["latest"] = True
+    return intent
+
+
 def _servo_error_text(result):
     error = result.get("error")
     if error == "mqtt_not_connected":
@@ -941,21 +961,30 @@ def parse_intent(text):
         return {"action": "device_discover"}, None
     if any(w in t for w in ("告警", "报警", "最新告警", "有没有告警", "alarm")):
         return {"action": "alarm_status"}, None
-    if any(w in t for w in ("开始录像", "开始录制", "开启录像", "打开录像")):
+    if any(w in t for w in ("停止播放", "结束播放", "关闭播放", "停止回放")):
+        return {"action": "record_play_stop"}, None
+    if (("播放" in t or "回放" in t)
+            and ("录像" in t or "视频" in t)):
+        return _record_target({"action": "record_play_start"}, t), None
+    if (("删除" in t or "删掉" in t)
+            and ("录像" in t or "视频" in t) and "任务" not in t):
+        return _record_target({"action": "record_delete"}, t), None
+    if any(w in t for w in ("开始录像", "开始录制", "开启录像", "打开录像",
+                             "帮我录像", "录一段", "录一下")):
         return {"action": "record_start",
                 "segment_sec": _record_segment(t)}, None
     if any(w in t for w in ("停止录像", "停止录制", "结束录像",
-                             "关闭录像", "关闭录制")):
+                             "关闭录像", "关闭录制", "别录了", "停录")):
         return {"action": "record_stop"}, None
     if any(w in t for w in ("查看录像", "录像列表", "有哪些录像",
-                             "录像文件", "录像记录", "查录像")):
+                             "录像文件", "录像记录", "查录像", "查一下录像")):
         return {"action": "record_list"}, None
     if any(w in t for w in ("开始推流", "开始直播", "开启推流", "打开推流")):
         return {"action": "stream_start"}, None
     if any(w in t for w in ("停止推流", "停止直播", "结束推流",
                              "关闭推流", "关播")):
         return {"action": "stream_stop"}, None
-    if "舵机" in t or "摄像头云台" in t:
+    if any(w in t for w in ("舵机", "云台")):
         if any(w in t for w in ("回中", "居中", "中位", "复位")):
             return {"action": "servo_center"}, None
         m = re.search(r"舵机\s*([1-4])\s*(?:到|为|至|设成|设置为)?\s*(\d{3,4})", t)
@@ -971,11 +1000,19 @@ def parse_intent(text):
     if any(w in t for w in ("降低", "放低", "降一点")):
         return {"action": "servo_relative", "servo_id": 1,
                 "delta": -SERVO_STEP}, None
-    if ("舵机" in t or "摄像头" in t) and any(
+    if any(w in t for w in ("舵机", "云台")) and any(
+            w in t for w in ("往上一点", "往上抬", "向上一点")):
+        return {"action": "servo_relative", "servo_id": 1,
+                "delta": SERVO_STEP}, None
+    if any(w in t for w in ("舵机", "云台")) and any(
+            w in t for w in ("往下一点", "往下压", "向下一点")):
+        return {"action": "servo_relative", "servo_id": 1,
+                "delta": -SERVO_STEP}, None
+    if ("舵机" in t or "云台" in t or "摄像头" in t) and any(
             w in t for w in ("向左一点", "左一点")):
         return {"action": "servo_relative", "servo_id": 2,
                 "delta": -SERVO_STEP}, None
-    if ("舵机" in t or "摄像头" in t) and any(
+    if ("舵机" in t or "云台" in t or "摄像头" in t) and any(
             w in t for w in ("向右一点", "右一点")):
         return {"action": "servo_relative", "servo_id": 2,
                 "delta": SERVO_STEP}, None
@@ -1052,6 +1089,8 @@ def validate_intent(intent, cfg):
                             "device_run_state", "device_discover",
                             "agent_status", "service_health", "alarm_status",
                             "record_start", "record_stop", "record_list",
+                            "record_delete", "record_play_start",
+                            "record_play_stop",
                             "stream_start", "stream_stop", "servo_status",
                             "servo_set", "servo_center", "servo_relative",
                             "task_list", "task_create", "task_cancel",
@@ -3103,6 +3142,15 @@ class Agent:
             return self.record_stop(device)
         if intent["action"] == "record_list":
             return self.record_list(device)
+        if intent["action"] == "record_delete":
+            # 规则层已识别；实际删除在 M5-01 接入
+            return {"ok": False, "action": "record_delete", "device": device,
+                    "error": "unsupported",
+                    "cause": "录像删除功能尚未实现（M5-01）"}
+        if intent["action"] in ("record_play_start", "record_play_stop"):
+            return {"ok": False, "action": intent["action"], "device": device,
+                    "error": "unsupported",
+                    "cause": "录像播放功能尚未实现（M5-02）"}
         if intent["action"] == "stream_start":
             return self.stream_start(device)
         if intent["action"] == "stream_stop":
@@ -4732,6 +4780,8 @@ def _reply_text(intent, result):
                 _human_bytes(result.get("limit_bytes")) or "?")
         return "查询录像列表失败：{}。".format(
             result.get("cause") or result.get("error") or "未知错误")
+    elif action in ("record_delete", "record_play_start", "record_play_stop"):
+        return result.get("cause") or "该录像功能尚未实现。"
     else:
         return "已解析。"
 
