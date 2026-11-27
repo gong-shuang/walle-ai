@@ -245,3 +245,27 @@ def test_prod_rejects_plaintext_mqtt(valid_mqtt_config, monkeypatch):
 
     problems = config.validate_mqtt_config()
     assert any("MQTT_TLS=off" in problem for problem in problems)
+
+
+def test_alarm_event_uses_unified_source_fields(monkeypatch):
+    monitor = object.__new__(RpiMonitor)
+    monitor.lan_ip = "192.168.1.10"
+    captured = {}
+    monkeypatch.setattr(
+        monitor, "publish_json",
+        lambda resource, payload: captured.update(
+            resource=resource, payload=payload))
+    monkeypatch.setattr(config, "DEVICE_ID", "dev-1")
+    monkeypatch.setattr(config, "HOSTNAME", "pi-1")
+
+    monitor._event("alarm", "warning", "battery", "battery_low",
+                   "电池电压过低", {"value": 6.8})
+
+    payload = captured["payload"]
+    assert captured["resource"] == config.RES_ALARM
+    assert payload["alarm_source_type"] == "device"
+    assert payload["alarm_source_id"] == "dev-1"
+    assert payload["alarm_source_name"] == "pi-1"
+    assert payload["ip"] == "192.168.1.10"
+    assert "device_id" not in payload
+    assert "hostname" not in payload

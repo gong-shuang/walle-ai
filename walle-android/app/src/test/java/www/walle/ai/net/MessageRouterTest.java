@@ -1,6 +1,7 @@
 package www.walle.ai.net;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.json.JSONObject;
@@ -67,6 +68,35 @@ public class MessageRouterTest {
         router.route(BASE + "/baseState/query/response", "{\"cpu\":{}}");
 
         assertEquals("666feb85d43410b2", sink.lastPayload.optString("device_id"));
+    }
+
+    @Test
+    public void routesAgentAlarmAndFillsSourceFields() {
+        RecordingSink sink = new RecordingSink();
+        MessageRouter router = new MessageRouter(sink);
+
+        router.route("walle/home/agent/agent-1/alarm/report",
+                "{\"event\":\"alarm\",\"metric\":\"control\","
+                        + "\"alarm_type\":\"control_occupied\",\"timestamp\":1}");
+
+        assertEquals(List.of("alarm"), sink.events);
+        assertEquals("agent", sink.lastPayload.optString("alarm_source_type"));
+        assertEquals("agent-1", sink.lastPayload.optString("alarm_source_id"));
+        assertEquals("agent-1", sink.lastPayload.optString("alarm_source_name"));
+    }
+
+    @Test
+    public void deviceAlarmUsesSourceFieldsWithoutDeviceIdInjection() {
+        RecordingSink sink = new RecordingSink();
+        MessageRouter router = new MessageRouter(sink);
+
+        router.route(BASE + "/alarm/report",
+                "{\"event\":\"alarm\",\"timestamp\":1}");
+
+        assertEquals("device", sink.lastPayload.optString("alarm_source_type"));
+        assertEquals("666feb85d43410b2",
+                sink.lastPayload.optString("alarm_source_id"));
+        assertFalse(sink.lastPayload.has("device_id"));
     }
 
     @Test

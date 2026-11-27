@@ -56,8 +56,8 @@ public class AlarmStoreTest {
         }
     }
 
-    /** 设备端 _event() 的报文形状：event / level / metric / alarm_type / device_id / ts。 */
-    private static JSONObject event(String event, String device, String metric, String type, int ts) {
+    /** 统一告警报文形状：event / level / metric / alarm_type / alarm_source_* / ts。 */
+    private static JSONObject event(String event, String source, String metric, String type, int ts) {
         try {
             return new JSONObject()
                     .put("ts", ts)
@@ -65,12 +65,23 @@ public class AlarmStoreTest {
                     .put("level", "warning")
                     .put("metric", metric)
                     .put("alarm_type", type)
-                    .put("device_id", device)
-                    .put("hostname", device)
+                    .put("alarm_source_type", "device")
+                    .put("alarm_source_id", source)
+                    .put("alarm_source_name", source)
                     .put("message", event + "-" + metric + "-" + ts);
         } catch (JSONException e) {
             throw new IllegalArgumentException(e);
         }
+    }
+
+    private static JSONObject agentAlarm(String source, String metric, int ts) {
+        JSONObject alarm = event("alarm", source, metric, metric + "_high", ts);
+        try {
+            alarm.put("alarm_source_type", "agent");
+        } catch (JSONException e) {
+            throw new IllegalArgumentException(e);
+        }
+        return alarm;
     }
 
     private static JSONObject alarm(int ts) {
@@ -103,7 +114,8 @@ public class AlarmStoreTest {
                     .put("level", "warning")
                     .put("metric", "cpu")
                     .put("alarm_type", "cpu_high")
-                    .put("device_id", "d1")
+                    .put("alarm_source_type", "device")
+                    .put("alarm_source_id", "d1")
                     .put("datetime", datetime);
         } catch (JSONException e) {
             throw new IllegalArgumentException(e);
@@ -137,6 +149,17 @@ public class AlarmStoreTest {
         assertEquals("卡片取最新一条", 2, store.activeAlarms().get(0).optInt("ts"));
         assertEquals("卡片更新不再重复计未读", 1, store.unread());
         assertEquals("历史仍保留两条", 2, store.items().size());
+    }
+
+    @Test
+    public void deviceAndAgentAlarmsWithSameMetricDoNotCollide() {
+        AlarmStore store = new AlarmStore();
+
+        store.add(alarm("d1", "control", 1));
+        store.add(agentAlarm("agent-1", "control", 2));
+
+        assertEquals("设备与 agent 来源不同，应保留两张卡片",
+                2, store.activeAlarms().size());
     }
 
     @Test

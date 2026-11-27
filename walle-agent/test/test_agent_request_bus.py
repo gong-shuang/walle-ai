@@ -1824,6 +1824,30 @@ def test_task_run_control_denied_records_holder(agent, tmp_path, monkeypatch):
     assert "Web A" in run["cause"]
 
 
+def test_task_run_control_denied_publishes_agent_alarm(agent, tmp_path,
+                                                       monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+    monkeypatch.setattr(agent, "record_start", lambda device: {
+        "ok": False, "action": "record_start", "result": -5,
+        "error": "control_denied", "cause": "控制权被占用",
+        "control_holder": {"client_id": "web-1", "client_name": "Web A"}})
+
+    agent._run_task(task, "2026-11-27 08:00:00")
+
+    alarms = _published(agent, "/alarm/report")
+    assert len(alarms) == 1
+    payload = alarms[-1]["payload"]
+    assert payload["alarm_source_type"] == "agent"
+    assert payload["alarm_source_id"] == "agent-test"
+    assert payload["alarm_source_name"] == "Test Agent"
+    assert payload["metric"] == "control"
+    assert payload["alarm_type"] == "control_occupied"
+    assert payload["detail"]["task_id"] == task["id"]
+    assert payload["detail"]["phase"] == "start"
+    assert payload["detail"]["holder"]["client_name"] == "Web A"
+
+
 def test_task_run_skips_disabled_task(agent, tmp_path, monkeypatch):
     store = _use_task_store(agent, tmp_path)
     task = _window_task(store)

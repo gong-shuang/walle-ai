@@ -1,4 +1,4 @@
-# MQTT 协议约定（文档版本 v1.27）
+# MQTT 协议约定（文档版本 v1.28）
 > - 每次修改mqtt的topic格式或者报文的json字段，都需要更新本文档。
 > - 本文档的内容可新增，可修改，但是不能删除，对于不需要的记录废弃即可。
 > - 如果只是修改bug，没有改变topic格式或者报文的json字段，则不要更新本文档。
@@ -84,6 +84,7 @@ agent功能：
 | 9 | 取消任务 | `walle/{t}/agent/{a}/task/cancel/request` | `walle/{t}/agent/{a}/task/cancel/response` | 请求-应答 | v1.27 | 删除任务及执行记录（§4.26） |
 | 10 | 暂停任务 | `walle/{t}/agent/{a}/task/pause/request` | `walle/{t}/agent/{a}/task/pause/response` | 请求-应答 | v1.27 | `enabled=false`（§4.26） |
 | 11 | 恢复任务 | `walle/{t}/agent/{a}/task/resume/request` | `walle/{t}/agent/{a}/task/resume/response` | 请求-应答 | v1.27 | `enabled=true` 并重算下次执行（§4.26） |
+| 12 | agent 告警 | - | `walle/{t}/agent/{a}/alarm/report` | 主动上报 | v1.28 | 仅任务执行告警，JSON 与设备告警一致（§4.7） |
 
 `{a}` = agent clientid。
 
@@ -527,25 +528,86 @@ Android/Web 暂不同步适配（仍按旧能力字段解析，摄像头/音频�
 **一致性校验**：请求带了 `room_number` 且与当前推流不一致 → `result=-4` 并在 `error`
 里说明当前房间号，**不会误停别人的流**。
 
-### 4.7 alarm/report —— 告警（主动上报）（V1.0，V1.6 增补 battery_low / obstacle_near）
+### 4.7 alarm/report —— 告警（主动上报）（V1.0，V1.6 增补 battery_low / obstacle_near， v1.28补偿agent告警）
 
 **作用**：阈值越限/恢复、USB 插拔、推流/手机音频中断、电池低压与前方障碍的实时通知，
-驱动 App 告警中心（App 侧 SQLite，200 条滚动淘汰）。**设备端只发布、不落盘**：告警历史
-由服务端数据库持久化，设备端不建本地告警库（避免双份数据不一致与 SD 卡磨损）。
+驱动 App/Web 告警中心（同一列表展示设备告警与 agent 任务告警）。**发布端只发布、不落盘**：告警历史
+由服务端/客户端持久化，设备端与 agent 不建本地告警库（避免双份数据不一致与 SD 卡磨损）。
 
-- 主题：`walle/{t}/device/{d}/alarm/report`（非 retained，QoS1，App 侧 2 秒签名去重）
+- 设备主题：`walle/{t}/device/{d}/alarm/report`（非 retained，QoS1，客户端 2 秒签名去重）
+- agent 主题：`walle/{t}/agent/{a}/alarm/report`（非 retained，QoS1，仅任务执行相关告警）
+- Web/App 订阅：`walle/{t}/device/+/alarm/report` 与 `walle/{t}/agent/+/alarm/report`，
+  两类告警进入同一个告警列表，按 `alarm_source_type` 区分来源。
+- 两类主题使用**完全相同的 JSON 结构**，通过 `alarm_source_type` 区分来源。
 
 字段：
 
 | 字段 | 取值 | 说明 |
 |---|---|---|
+| `alarm_source_type` | `device` / `agent` | 告警来源类型 |
+| `alarm_source_id` | string | 来源 ID：设备告警为 `device_id`，agent 告警为 `agent_id` |
+| `alarm_source_name` | string | 来源名称：设备告警为 `hostname`，agent 告警为 `agent_name` |
+| `ip` | string | 来源所在机器的 IP |
 | `event` | `alarm` / `recover` / `usb_connect` / `usb_disconnect` | 事件类型 |
 | `level` | `critical` / `warning` / `info` | 级别（阈值告警=warning，恢复=info，USB 拔出=warning，USB 接入=info，电池极低=critical） |
-| `metric` | `cpu` / `memory` / `disk` / `network` / `temperature` / `usb` / `video` / `audio` / `battery` / `obstacle` | 指标 |
-| `alarm_type` | 稳定代码如 `cpu_high` / `video_lost` / `phone_audio_lost` / `battery_low` / `obstacle_near` | 分类用 |
+| `metric` | `cpu` / `memory` / `disk` / `network` / `temperature` / `usb` / `video` / `audio` / `battery` / `obstacle` / `control` | 指标；`control` 为 agent 任务控制权告警 |
+| `alarm_type` | 稳定代码如 `cpu_high` / `video_lost` / `phone_audio_lost` / `battery_low` / `obstacle_near` / `control_occupied` | 分类用 |
 | `message` | 中文可读描述 | 直接可展示 |
-| `detail` | 阈值类：`{value, unit, threshold}`；USB：`{device{...}, current_count}`；视频中断：`{room_number, exit_code, log_file, tail}`；手机音频中断：`{room_number, exit_code, reason, log_file, tail}`；电池低压：`{value, unit, threshold}`；障碍：`{distance_cm, threshold_cm, sensor, direction}` | 结构化细节 |
-| `device_id`、`hostname`、`ip`、`timestamp`、`datetime` | 公共字段 | |
+| `detail` | 阈值类：`{value, unit, threshold}`；USB：`{device{...}, current_count}`；视频中断：`{room_number, exit_code, log_file, tail}`；手机音频中断：`{room_number, exit_code, reason, log_file, tail}`；电池低压：`{value, unit, threshold}`；障碍：`{distance_cm, threshold_cm, sensor, direction}`；控制权：`{device, task_id, phase, holder}` | 结构化细节 |
+| `timestamp`、`datetime` | 公共字段 | |
+
+**agent 告警范围**：
+
+- agent **只发自己的任务执行告警**，不转发设备告警，也不为聊天请求中的失败发告警
+  （聊天有 `chat/response`，用户能直接看到）。
+- 当前仅 `metric=control`、`alarm_type=control_occupied`：shared 模式下任务到点时
+  申请设备控制权失败，通知 Web/App；`detail.holder` 带当前控制者。
+- agent 重启后不补发历史告警；客户端只依赖实时 `alarm/report`。
+
+**报文示例**：
+
+设备告警：
+
+```json
+{
+  "alarm_source_type": "device",
+  "alarm_source_id": "0580a65014af4d0a",
+  "alarm_source_name": "orangepi5plus",
+  "ip": "192.168.31.38",
+  "event": "alarm",
+  "level": "warning",
+  "metric": "battery",
+  "alarm_type": "battery_low",
+  "message": "电池电压过低",
+  "detail": {"value": 6.8, "unit": "V", "threshold": 7.0},
+  "timestamp": 1763000000,
+  "datetime": "2026-11-27 18:30:00"
+}
+```
+
+agent 任务告警：
+
+```json
+{
+  "alarm_source_type": "agent",
+  "alarm_source_id": "agent-b851fdde",
+  "alarm_source_name": "小橙车",
+  "ip": "192.168.31.218",
+  "event": "alarm",
+  "level": "warning",
+  "metric": "control",
+  "alarm_type": "control_occupied",
+  "message": "设备控制权被 Web A 占用，定时录像任务已跳过",
+  "detail": {
+    "device": "0580a65014af4d0a",
+    "task_id": "task-1a2b3c4d",
+    "phase": "start",
+    "holder": {"client_id": "web-1", "client_name": "Web A"}
+  },
+  "timestamp": 1763000000,
+  "datetime": "2026-11-27 18:30:00"
+}
+```
 
 **高阈值回滞防抖（cpu/memory/disk/network/temperature）**：越限（≥阈值）告警后，要降到 **阈值 × 0.9** 以下才发 `recover`，防止边界
 抖动反复报警。阈值均可用环境变量覆盖（`THRESH_CPU`/`THRESH_MEM`/`THRESH_DISK`/
@@ -2039,6 +2101,30 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ## 6. 变更记录
 
 > 历史条目中的结果码以当时版本为准；当前统一错误码见 §2.8。
+
+### 2026-11-27：统一告警来源字段并新增 agent 告警（文档 v1.28）
+
+**变更类型**：破坏性变更（`alarm/report` 字段改名，不保留旧字段）。
+
+**变更内容**
+
+- `alarm/report` 的 `device_id` 改名为 `alarm_source_id`，`hostname` 改名为
+  `alarm_source_name`；新增 `alarm_source_type`（`device` / `agent`）。`ip`、
+  `event`、`level`、`metric`、`alarm_type`、`message`、`detail`、`timestamp`、
+  `datetime` 保持原样。
+- 新增 agent 告警主题 `walle/{t}/agent/{a}/alarm/report`，JSON 与设备告警完全一致。
+- `metric` 新增 `control`，`alarm_type` 新增 `control_occupied`。
+- agent 只发布任务执行相关告警（如 shared 模式控制权获取失败），不转发设备告警；
+  聊天请求失败只通过 `chat/response` 返回，不发告警。
+- Web/App 告警中心在同一列表展示两类来源，通过 `alarm_source_type` 区分。
+- 仅 `alarm/report` 改名；`online`、`baseState`、`runState`、各 `response` 中的
+  `device_id` / `hostname` 不变。
+
+**影响与兼容性**：设备端、agent、Web、App 必须同版本升级；旧告警报文缺少
+`alarm_source_*` 时客户端不再保证正确归并。
+
+**验证方式**：设备告警仍能展示电池/障碍；shared 模式任务控制权被占时 Web/App
+收到 agent 告警；两类告警在同一列表可见且来源标签正确。
 
 ### 2026-11-27：新增 agent 任务管理主题（文档 v1.27）
 

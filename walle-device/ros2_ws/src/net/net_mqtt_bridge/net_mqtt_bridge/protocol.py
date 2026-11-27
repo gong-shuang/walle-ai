@@ -335,8 +335,9 @@ class ProtocolMixin:
     def _event(self, event, level, metric, alarm_type, message, detail=None):
         """统一告警报文封装"""
         payload = {
-            "device_id": config.DEVICE_ID,
-            "hostname": config.HOSTNAME,
+            "alarm_source_type": "device",
+            "alarm_source_id": config.DEVICE_ID,
+            "alarm_source_name": config.HOSTNAME,
             "ip": self.lan_ip,
             "event": event,           # alarm / recover / usb_connect / usb_disconnect
             "level": level,           # info / warning / critical

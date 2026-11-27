@@ -89,6 +89,37 @@ public class MessageRouter {
             sink.onIgnored(topic, "非本协议主题");
             return;
         }
+        // agent 告警：walle/{tenant}/agent/{agent}/alarm/report
+        String[] agentParts = topic.split("/", 6);
+        if (agentParts.length == 6
+                && TopicNames.AGENT_SEGMENT.equals(agentParts[2])
+                && "alarm".equals(agentParts[4])
+                && "report".equals(agentParts[5])) {
+            JSONObject agentJson;
+            try {
+                agentJson = payload == null || payload.trim().isEmpty()
+                        ? new JSONObject() : new JSONObject(payload);
+            } catch (JSONException e) {
+                Log.w(TAG, "非 JSON 报文 on " + topic + ": " + payload);
+                sink.onIgnored(topic, "非法 JSON");
+                return;
+            }
+            String agentId = agentParts[3];
+            try {
+                if (agentJson.optString("alarm_source_type", "").isEmpty()) {
+                    agentJson.put("alarm_source_type", "agent");
+                }
+                if (agentJson.optString("alarm_source_id", "").isEmpty()) {
+                    agentJson.put("alarm_source_id", agentId);
+                }
+                if (agentJson.optString("alarm_source_name", "").isEmpty()) {
+                    agentJson.put("alarm_source_name", agentId);
+                }
+            } catch (JSONException ignore) {
+            }
+            if (!isDuplicate("alarm", agentJson)) sink.onAlarm(agentJson);
+            return;
+        }
         String[] parts = TopicNames.parse(topic);
         if (parts == null) {
             // 租户级发现主题 walle/{tenant}/discovery/query/request 没有 device 段，不是报文入口
@@ -106,9 +137,20 @@ public class MessageRouter {
             sink.onIgnored(topic, "非法 JSON");
             return;
         }
-        // 设备端可能省略 device_id，用主题里的设备段兜底，保证归并不会因为缺字段而退化
+        // 设备端可能省略 device_id，用主题里的设备段兜底，保证归并不会因为缺字段而退化。
+        // alarm/report 使用统一的 alarm_source_* 字段，不再注入 device_id。
         try {
-            if (json.optString("device_id", "").isEmpty()) {
+            if ("alarm/report".equals(resource)) {
+                if (json.optString("alarm_source_type", "").isEmpty()) {
+                    json.put("alarm_source_type", "device");
+                }
+                if (json.optString("alarm_source_id", "").isEmpty()) {
+                    json.put("alarm_source_id", device);
+                }
+                if (json.optString("alarm_source_name", "").isEmpty()) {
+                    json.put("alarm_source_name", device);
+                }
+            } else if (json.optString("device_id", "").isEmpty()) {
                 json.put("device_id", device);
             }
         } catch (JSONException ignore) {

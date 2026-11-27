@@ -239,7 +239,7 @@ agent：
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
-| M3 调度与任务 | 进行中 | 5/10 | SQLite、调度线程、四种任务类型、任务工具/Web 页签、录像任务执行已落地；控制权策略、对账待后续 |
+| M3 调度与任务 | 进行中 | 5/10 | SQLite、调度线程、四种类型、任务工具/Web 页签、录像执行已落地；M3-06 shared 已落地、exclusive 待定 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
 
@@ -841,12 +841,20 @@ agent：
 
 - **层级**：L4 任务调度层 + L2 动作编排层
 - **小白解释**：如果 Web 正在控制，agent 的定时任务要不要抢？`shared` 是让路，`exclusive` 是独占。要能配置，避免打架。
-- [ ] `shared`：动作前 acquire，结束后 release；被占则通知/跳过。
-- [ ] `exclusive`：任务期间持有，每 5 分钟用查询续租，结束时 release。
-- [ ] 配置 `TASK_CONTROL_MODE`，默认 `shared`。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] `shared`：动作前 acquire，结束后 release；被占则通知/跳过。
+- [ ] `exclusive`：任务期间持有，每 5 分钟用查询续租，结束时 release（本期未实现，配置为 exclusive 时按 shared 执行并记 warning）。
+- [x] 配置 `TASK_CONTROL_MODE`，默认 `shared`。
+- 实现：
+  - `TASK_CONTROL_MODE` 默认 `shared`；任务执行沿用 `record_start/record_stop` 的 acquire/release。
+  - 控制权获取失败（`control_occupied` / `control_denied`）时，agent 发布
+    `agent/{a}/alarm/report`（`metric=control`、`alarm_type=control_occupied`），
+    `detail` 带 device/task_id/phase/holder，任务记为失败并跳过。
+  - 聊天请求中的控制权失败只通过 `chat/response` 回复，不发告警。
+  - `alarm/report` 字段统一：`alarm_source_type` / `alarm_source_id` / `alarm_source_name`，
+    设备与 agent 共用同一 JSON；Web/App 同一告警列表按来源区分。
+- 文件：`walle-agent/src/car_agent.py`、`walle-device/.../protocol.py`、`web/car_ctl_by_mqtt.html`、`walle-android/...`
 - 验收：两种策略都有测试；被占时行为符合配置。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / shared 与 agent 控制权告警已完成，exclusive 待后续；`pytest walle-agent/test` 145 passed、设备协议 29 passed、Android 相关单测通过；协议文档 v1.28
 
 #### M3-07 重启对账
 
@@ -1166,6 +1174,7 @@ agent：
 | 30 | 取消任务 | `agent/{a}/task/cancel/request|response` | M3-04 | L4 | 已完成 |
 | 31 | 暂停任务 | `agent/{a}/task/pause/request|response` | M3-04 | L4 | 已完成 |
 | 32 | 恢复任务 | `agent/{a}/task/resume/request|response` | M3-04 | L4 | 已完成 |
+| 33 | agent 告警 | `agent/{a}/alarm/report` | M3-06 | L4 | 已完成（任务控制权失败） |
 
 ---
 

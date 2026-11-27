@@ -44,13 +44,20 @@ public class AlarmAdapter extends RecyclerView.Adapter<AlarmAdapter.VH> {
         h.bar.setBackgroundColor(color);
         h.tvEvent.setText(UiUtil.eventLabel(event) + " · " + a.optString("metric", ""));
         h.tvEvent.setTextColor(color);
-        String host = a.optString("hostname", "");
-        if (host.isEmpty()) {
-            String id = a.optString("device_id", "");
-            host = id.length() >= 8 ? id.substring(0, 8) : id;
+        String sourceType = a.optString("alarm_source_type", "device");
+        String sourceName = a.optString("alarm_source_name", "");
+        if (sourceName.isEmpty()) sourceName = a.optString("hostname", "");
+        if (sourceName.isEmpty()) {
+            String id = a.optString("alarm_source_id",
+                    a.optString("device_id", ""));
+            sourceName = id.length() >= 8 ? id.substring(0, 8) : id;
         }
         String type = a.optString("alarm_type", "");
-        h.tvType.setText(host.isEmpty() ? type : (host + " · " + type));
+        String sourceLabel = ("agent".equals(sourceType) ? "Agent" : "设备");
+        h.tvType.setText(sourceName.isEmpty()
+                ? sourceLabel + (type.isEmpty() ? "" : " · " + type)
+                : sourceLabel + " · " + sourceName
+                        + (type.isEmpty() ? "" : " · " + type));
         h.tvMessage.setText(a.optString("message", ""));
         h.tvTime.setText(a.optString("datetime", ""));
     }

@@ -78,6 +78,8 @@ DEFAULTS = {
     # M3-05/M3-08：任务失败重试次数与退避秒数
     "TASK_RETRY_MAX": "2",
     "TASK_RETRY_BACKOFF_SEC": "2",
+    # M3-06：任务控制权策略；当前实现 shared
+    "TASK_CONTROL_MODE": "shared",
 }
 
 AGENT_VERSION_FILE = os.path.join(REPO_ROOT, "VERSION")
@@ -422,6 +424,12 @@ def agent_task_topic(action, resource="request"):
     """任务管理主题：walle/{t}/agent/{a}/task/{action}/{request|response}"""
     return "walle/{}/agent/{}/task/{}/{}".format(
         server_tenant(), agent_identity(), action, resource)
+
+
+def agent_alarm_topic():
+    """agent 任务告警：walle/{t}/agent/{a}/alarm/report"""
+    return "walle/{}/agent/{}/alarm/report".format(
+        server_tenant(), agent_identity())
 
 
 # 统一错误码与 request_id 生成器已迁移到 walle_protocol.py（M1-01），
@@ -2335,11 +2343,35 @@ class Agent:
         """启动任务调度线程；由 main() 调用，测试可单独调用。"""
         with self.task_scheduler_lock:
             if self.task_scheduler is None:
+                mode = str(self.cfg.get("TASK_CONTROL_MODE") or "shared").lower()
+                if mode != "shared":
+                    log().warning(
+                        "TASK_CONTROL_MODE=%s 暂未实现，按 shared 执行", mode)
                 self.task_scheduler = TaskScheduler(
                     self.task_db(), self._dispatch_task, tick_sec=1.0,
                     timezone=self.cfg.get("TASK_TIMEZONE"))
             self.task_scheduler.start()
             return self.task_scheduler
+
+    def _publish_agent_alarm(self, alarm_type, metric, message, detail=None,
+                             level="warning", event="alarm"):
+        """agent 任务告警；统一使用 alarm_source_* 字段（§4.7）。"""
+        payload = {
+            "alarm_source_type": "agent",
+            "alarm_source_id": agent_identity(),
+            "alarm_source_name": agent_name(),
+            "ip": _local_ip(),
+            "event": event,
+            "level": level,
+            "metric": metric,
+            "alarm_type": alarm_type,
+            "message": message,
+            "timestamp": int(time.time()),
+            "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        if detail:
+            payload["detail"] = detail
+        return self._publish_topic(agent_alarm_topic(), payload)
 
     def _dispatch_task(self, task, scheduled_at):
         threading.Thread(target=self._run_task, args=(task, scheduled_at),
@@ -2414,6 +2446,18 @@ class Agent:
             cause = "{}（控制权：{}）".format(cause, who)
             log().warning("任务控制权被占用 task_id=%s phase=%s holder=%s",
                           task_id, phase, who)
+        if error in ("control_occupied", "control_denied"):
+            who = (holder.get("client_name") or holder.get("client_id")
+                   or "其他客户端")
+            detail = {"device": fresh.get("device"), "task_id": task_id,
+                      "phase": phase}
+            if holder:
+                detail["holder"] = holder
+            self._publish_agent_alarm(
+                "control_occupied", "control",
+                "设备控制权被 {} 占用，任务「{}」未执行".format(
+                    who, fresh.get("name") or task_id),
+                detail)
         if not out.get("ok"):
             log().warning("任务执行失败 task_id=%s phase=%s error=%s cause=%s",
                           task_id, phase, error, cause)

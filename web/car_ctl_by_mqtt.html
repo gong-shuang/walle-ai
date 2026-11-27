@@ -175,6 +175,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .alarmItem p{margin:3px 0 0;font-size:11px;color:var(--dim)}
 .alarmItem time{flex:none;font-size:10.5px;color:var(--dim);white-space:nowrap}
 .alarmItem .dev{font-size:13px;font-weight:600;color:var(--accent);margin-bottom:2px;word-break:break-word}
+.alarmSrc{display:inline-block;margin-right:6px;padding:0 6px;border-radius:6px;font-size:10px;
+  font-weight:600;vertical-align:1px;border:1px solid rgba(61,220,151,.35);
+  color:#bfffe0;background:rgba(61,220,151,.10)}
+.alarmSrc.agent{border-color:rgba(74,168,255,.4);color:#cfe8ff;background:rgba(74,168,255,.12)}
 .alarmItem.unread{cursor:pointer}
 .alarmItem .unreadDot{width:7px;height:7px;border-radius:50%;flex:none;align-self:center;
   background:var(--danger);box-shadow:0 0 6px rgba(255,107,107,.8)}
@@ -1235,6 +1239,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var agentPrefix = cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/agent/';
     mqtt.topics.push(agentPrefix + '+/online', agentPrefix + '+/chat/response',
       agentPrefix + '+/chat/progress/report',
+      agentPrefix + '+/alarm/report',
       agentPrefix + '+/baseState/query/response', agentPrefix + '+/config/modify/response',
       agentPrefix + '+/chat/stop/response',
       agentPrefix + '+/task/+/response', agentPrefix + '+/task/+/+/response');
@@ -1286,6 +1291,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       if (/\/chat\/progress\/report$/.test(topic)) {
         document.dispatchEvent(new CustomEvent('walle-agent-progress',
           { detail: { id: agentId, data: data } }));
+        return;
+      }
+      if (/\/alarm\/report$/.test(topic)) {
+        onAlarm(agentId, data);
         return;
       }
       if (/\/baseState\/query\/response$/.test(topic)) {
@@ -2016,7 +2025,14 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var mark = document.createElement('div'); mark.className = 'mark';
     var txt = document.createElement('div'); txt.className = 'txt';
     var devLine = document.createElement('div'); devLine.className = 'dev';
-    devLine.textContent = row.hostname || row.device || '—';
+    var sourceType = row.source_type || row.alarm_source_type || 'device';
+    var sourceName = row.source_name || row.alarm_source_name ||
+      row.hostname || row.device || '—';
+    var sourceTag = document.createElement('span');
+    sourceTag.className = 'alarmSrc' + (sourceType === 'agent' ? ' agent' : '');
+    sourceTag.textContent = sourceType === 'agent' ? 'Agent' : '设备';
+    devLine.appendChild(sourceTag);
+    devLine.appendChild(document.createTextNode(sourceName));
     var title = document.createElement('b');
     title.textContent = row.message || ((row.event || 'alarm') + ' · ' + (row.metric || ''));
     var sub = document.createElement('p');
@@ -2024,7 +2040,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var time = document.createElement('time');
     var when = row.occurred_text || '';
     time.textContent = when ? when.slice(11, 19) : '';
-    if (when) item.title = when + (row.device ? ' · ' + row.device : '');
+    if (when) item.title = when + (sourceName ? ' · ' + sourceName : '');
     txt.appendChild(devLine); txt.appendChild(title); txt.appendChild(sub);
     item.appendChild(mark); item.appendChild(txt); item.appendChild(time);
     var dot = null;
@@ -2229,12 +2245,20 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     });
   }
   function onAlarm(dev, data) {
-    var key = [dev, data.event, data.metric, data.alarm_type, data.timestamp, data.message].join('|');
+    var sourceType = data.alarm_source_type || 'device';
+    var sourceId = data.alarm_source_id || dev || '';
+    var sourceName = data.alarm_source_name ||
+      (ui.devices[dev] && ui.devices[dev].hostname) || sourceId;
+    var key = [sourceType, sourceId, data.event, data.metric,
+      data.alarm_type, data.timestamp, data.message].join('|');
     if (ui.lastAlarm && ui.lastAlarm.key === key && Date.now() - ui.lastAlarm.at < 2000) return;
     ui.lastAlarm = { key: key, at: Date.now() };
     var row = {
-      device: dev,
-      hostname: data.hostname || (ui.devices[dev] && ui.devices[dev].hostname) || data.device_id,
+      source_type: sourceType,
+      source_id: sourceId,
+      source_name: sourceName,
+      device: sourceId,
+      hostname: sourceName,
       event: data.event,
       level: data.level || 'info',
       metric: data.metric,

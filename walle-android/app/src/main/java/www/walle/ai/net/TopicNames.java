@@ -35,6 +35,9 @@ public final class TopicNames {
     /** 设备级主题的固定层级段：{@code walle/{tenant}/device/{device}/{resource}}。 */
     public static final String DEVICE_SEGMENT = "device";
 
+    /** agent 级主题的固定层级段：{@code walle/{tenant}/agent/{agent}/{resource}}。 */
+    public static final String AGENT_SEGMENT = "agent";
+
     /** 客户端在线状态主题的固定层级段：{@code walle/{tenant}/client/{client_id}/online}。 */
     public static final String CLIENT_SEGMENT = "client";
 
@@ -205,9 +208,11 @@ public final class TopicNames {
      */
     public static String[] responseSubscriptions(String tenant) {
         String base = ROOT + "/" + sanitize(tenant) + "/" + DEVICE_SEGMENT + "/+";
+        String agentBase = ROOT + "/" + sanitize(tenant) + "/" + AGENT_SEGMENT + "/+";
         return new String[]{
                 base + "/online",                            // 主动上报
-                base + "/alarm/report",                      // 主动上报
+                base + "/alarm/report",                      // 设备告警
+                agentBase + "/alarm/report",                 // agent 任务告警
                 base + "/discovery/query/response",          // 查询应答
                 base + "/baseState/query/response",
                 base + "/runState/query/response",

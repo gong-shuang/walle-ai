@@ -88,7 +88,8 @@ public class LocalDb implements AlarmStore.Persistence {
         if (alarm == null) return;
         final String payload = alarm.toString();
         final long ts = alarm.optLong("ts", System.currentTimeMillis());
-        final String device = alarm.optString("device_id", "");
+        final String device = alarm.optString("alarm_source_id",
+                alarm.optString("device_id", ""));
         submit(() -> {
             SQLiteDatabase db = writable();
             if (db == null) return;

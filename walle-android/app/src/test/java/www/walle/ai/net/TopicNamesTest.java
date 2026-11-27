@@ -107,11 +107,12 @@ public class TopicNamesTest {
     @Test
     public void subscriptionsCoverAllResponsesAndAvoidWildcards() {
         String[] subs = TopicNames.responseSubscriptions(TENANT);
-        assertEquals(12, subs.length);
+        assertEquals(13, subs.length);
         for (String s : subs) {
             assertTrue("不应订通配子树: " + s, !s.endsWith("/#"));
-            assertTrue("订阅必须以 walle/home/device/+ 开头: " + s,
-                    s.startsWith("walle/home/device/+"));
+            assertTrue("订阅必须以 walle/home/device/+ 或 walle/home/agent/+ 开头: " + s,
+                    s.startsWith("walle/home/device/+")
+                            || s.startsWith("walle/home/agent/+"));
         }
         String joined = String.join(",", subs);
         for (String expected : new String[]{
@@ -123,6 +124,8 @@ public class TopicNamesTest {
                 "/control/acquire/response", "/control/release/response"}) {
             assertTrue("缺少订阅: " + expected, joined.contains(expected));
         }
+        assertTrue("缺少 agent 告警订阅", joined.contains(
+                "walle/home/agent/+/alarm/report"));
         // 请求类/持续控制主题不能被订阅，否则会收到自己发出的报文
         for (String s : subs) {
             assertFalse("不应订阅请求主题: " + s, s.endsWith("/request"));

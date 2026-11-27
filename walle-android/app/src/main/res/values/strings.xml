@@ -32,7 +32,7 @@
     <string name="alarm_tab_today">今日</string>
     <string name="alarm_tab_today_count">今日 (%1$d)</string>
     <string name="alarm_tab_history">历史</string>
-    <string name="no_today_alarms">今天还没有收到告警\n设备产生的告警与 USB 插拔会实时出现在这里</string>
+    <string name="no_today_alarms">今天还没有收到告警\n设备与 agent 的告警会实时出现在这里</string>
     <string name="no_alarm_history">暂无历史记录\n今天之前收到的告警与事件会出现在这里</string>
     <string name="clear_alarms">清空</string>
     <string name="clear_alarms_confirm_title">清空确认</string>

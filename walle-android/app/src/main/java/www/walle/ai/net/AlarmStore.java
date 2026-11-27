@@ -220,16 +220,20 @@ public class AlarmStore {
         notifyObservers();
     }
 
-    /** 活动告警的身份：设备 + metric + alarm_type。 */
+    /** 活动告警的身份：来源类型 + 来源 ID + metric + alarm_type。 */
     static String activeKey(JSONObject o) {
         if (o == null) return "";
         String metric = o.optString("metric", "").trim();
         String type = o.optString("alarm_type", "").trim();
         if (metric.isEmpty() && type.isEmpty()) return "";
-        // 设备段必须带上，否则多台设备上同名的指标会互相覆盖
-        String device = firstNonEmpty(o.optString("device_id", ""),
+        String sourceType = firstNonEmpty(
+                o.optString("alarm_source_type", ""), "device", "");
+        // 来源段必须带上，否则设备/agent 上同名的指标会互相覆盖
+        String source = firstNonEmpty(
+                o.optString("alarm_source_id", ""),
+                o.optString("device_id", ""),
                 o.optString("hostname", ""));
-        return device + "|" + metric + "|" + type;
+        return sourceType + "|" + source + "|" + metric + "|" + type;
     }
 
     private void trim() {

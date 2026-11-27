@@ -115,8 +115,8 @@
 - [ ] 14. capabilities 协议
   - 若保留：定义 `actions` / `resources` / limits / `llm`；Web 按能力禁用不支持功能
 
-- [ ] 15. 异步事件
-  - 定义 agent → Web 的 `alarm/report`、设备上下线、长任务进度主题；或明确 Web 直连设备主题
+- [x] 15. 异步事件
+  - agent → Web/App 的 `alarm/report` 已定义（§4.7）；长任务进度见 §4.25；设备上下线沿用 `online`
 
 - [ ] 16. 并发与超时
   - 定义单运动 / 多查询、排队、长任务超时，与 Web 20s 超时协调
