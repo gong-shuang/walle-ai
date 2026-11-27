@@ -91,6 +91,9 @@ _RUN_GROUP_DEFAULTS = {
     "sonar": {"distance_cm": None, "available": False},
 }
 
+# M1-07：可从 runState 缓存的能力分组
+CAPABILITY_FEATURES = tuple(_RUN_GROUP_DEFAULTS)
+
 
 def _load_agent_version(path):
     """读取 walle-agent/VERSION（shell export 格式）。缺失或非法时回落默认值。"""
@@ -1845,6 +1848,18 @@ class Agent:
         if intent["action"] == "device_discover":
             return self.discover_devices()
 
+        if intent["action"] in ("move", "rotate"):
+            preflight = self.preflight_features(device, ("motor",))
+            if not preflight.get("ok"):
+                return {
+                    "ok": False,
+                    "accepted": False,
+                    "action": intent["action"],
+                    "error": preflight.get("error"),
+                    "cause": preflight.get("cause"),
+                    "capabilities": preflight.get("capabilities"),
+                }
+
         duration = self._duration(intent)
         if not (self.mqtt_client and self.mqtt_connected):
             return {"ok": False, "accepted": False, "action": intent["action"],
@@ -2164,6 +2179,62 @@ class Agent:
         if not isinstance(group, dict):
             return None
         return group.get("is_supported")
+
+    def capabilities(self, device):
+        """从 DeviceRegistry 缓存读取各功能 is_supported（M1-07）。"""
+        state = self.device_state(device)
+        caps = {}
+        for feature in CAPABILITY_FEATURES:
+            group = state.get(feature) if state else None
+            caps[feature] = (group.get("is_supported")
+                             if isinstance(group, dict) else None)
+        return caps
+
+    def preflight_features(self, device, features, refresh=False):
+        """控制/任务前的能力预检；未知能力默认放行，明确 false 才拒绝。"""
+        caps = self.capabilities(device)
+        if refresh and any(caps.get(feature) is None for feature in features):
+            self.device_run_state(device)
+            caps = self.capabilities(device)
+        unsupported = [feature for feature in features
+                       if caps.get(feature) is False]
+        unknown = [feature for feature in features
+                   if caps.get(feature) is None]
+        if unsupported:
+            return {
+                "ok": False,
+                "error": "unsupported",
+                "cause": "设备不支持：{}".format("、".join(unsupported)),
+                "unsupported": unsupported,
+                "unknown": unknown,
+                "capabilities": caps,
+            }
+        return {
+            "ok": True,
+            "unsupported": [],
+            "unknown": unknown,
+            "capabilities": caps,
+        }
+
+    def preflight_recording_task(self, device):
+        """创建录像任务前的预检；不支持或无法确认时拒绝（M1-07）。"""
+        result = self.preflight_features(device, ("recording",), refresh=True)
+        caps = result.get("capabilities") or {}
+        if caps.get("recording") is False:
+            return {
+                "ok": False,
+                "error": "capability_unsupported",
+                "cause": "设备不支持录像（recording.is_supported=false），不能创建录像任务",
+                "capabilities": caps,
+            }
+        if caps.get("recording") is None:
+            return {
+                "ok": False,
+                "error": "capability_unknown",
+                "cause": "无法确认设备录像能力（runState 无有效 recording.is_supported），不能创建录像任务",
+                "capabilities": caps,
+            }
+        return {"ok": True, "capabilities": caps}
 
     def device_status(self, device):
         """「状态」默认查设备 baseState + runState（M1-06）。"""

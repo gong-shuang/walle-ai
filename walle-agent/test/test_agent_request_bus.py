@@ -590,3 +590,80 @@ def test_chat_agent_status_without_selected_device(agent, monkeypatch):
     payload = responses[-1]["payload"]
     assert payload["ok"] is True
     assert payload["reply"] == "agent 机器状态：CPU 5.0%"
+
+
+def test_capabilities_cached_from_run_state(agent):
+    payload = _run_state_payload()
+    payload["recording"]["is_supported"] = False
+    payload["battery"]["is_supported"] = False
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/runState/query/response", payload))
+
+    caps = agent.capabilities("dev-1")
+
+    assert caps["recording"] is False
+    assert caps["battery"] is False
+    assert caps["stream"] is True
+    assert caps["motor"] is True
+    assert caps["sonar"] is True
+
+
+def test_recording_task_preflight_rejects_unsupported(agent):
+    payload = _run_state_payload()
+    payload["recording"]["is_supported"] = False
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/runState/query/response", payload))
+
+    out = agent.preflight_recording_task("dev-1")
+
+    assert out["ok"] is False
+    assert out["error"] == "capability_unsupported"
+    assert "recording.is_supported=false" in out["cause"]
+    assert not [
+        item for item in agent.mqtt_client.published
+        if item["topic"].endswith("/runState/query/request")
+    ]
+
+
+def test_recording_task_preflight_allows_supported(agent):
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/runState/query/response",
+        _run_state_payload()))
+
+    out = agent.preflight_recording_task("dev-1")
+
+    assert out["ok"] is True
+    assert out["capabilities"]["recording"] is True
+
+
+def test_recording_task_preflight_rejects_unknown(agent, monkeypatch):
+    monkeypatch.setattr(agent, "device_run_state", lambda device: {
+        "ok": False, "error": "timeout", "cause": "等待应答超时"})
+
+    out = agent.preflight_recording_task("dev-1")
+
+    assert out["ok"] is False
+    assert out["error"] == "capability_unknown"
+
+
+def test_motor_preflight_blocks_unsupported_without_publish(agent):
+    payload = _run_state_payload()
+    payload["motor"]["is_supported"] = False
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/runState/query/response", payload))
+
+    out = agent.execute(
+        "dev-1",
+        {"action": "move", "direction": "forward",
+         "speed_mps": 0.5, "distance_m": 1.0},
+        "Web A")
+
+    assert out["ok"] is False
+    assert out["accepted"] is False
+    assert out["error"] == "unsupported"
+    assert "motor" in out["cause"]
+    assert not [
+        item for item in agent.mqtt_client.published
+        if item["topic"].endswith("/car/motor/set/request")
+        or item["topic"].endswith("/control/acquire/request")
+    ]
