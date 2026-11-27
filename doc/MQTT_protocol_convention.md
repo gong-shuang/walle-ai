@@ -1,4 +1,4 @@
-# MQTT 协议约定（文档版本 v1.25）
+# MQTT 协议约定（文档版本 v1.26）
 > - 每次修改mqtt的topic格式或者报文的json字段，都需要更新本文档。
 > - 本文档的内容可新增，可修改，但是不能删除，对于不需要的记录废弃即可。
 > - 如果只是修改bug，没有改变topic格式或者报文的json字段，则不要更新本文档。
@@ -73,7 +73,7 @@ walle/{tenant}/agent/{agent}/{resource}
 agent功能：
 | # | 协议 | Web → agent（请求） | agent → Web（应答/上报） | 类型 | 版本 | 备注 |
 |---|---|---|---|---|---|---|
-| 1 | 自然对话 | `walle/{t}/agent/{a}/chat/request` | `walle/{t}/agent/{a}/chat/response` | 请求-应答（QoS1） | v1.16 |  |
+| 1 | 自然对话 | `walle/{t}/agent/{a}/chat/request` | `walle/{t}/agent/{a}/chat/response` | 请求-应答（QoS1） | v1.16 | v1.26 增加可选 `data` / `result` |
 | 2 | agent 在线 | — | `walle/{t}/agent/{a}/online` | 主动上报（retained + LWT） | v1.16 |  |
 | 3 | 基本状态查询 | `walle/{t}/agent/{a}/baseState/query/request` | `walle/{t}/agent/{a}/baseState/query/response` | 请求-应答 | v1.20 | 返回 agent 与所在机器的运行状态 |
 | 4 | 配置修改 | `walle/{t}/agent/{a}/config/modify/request` | `walle/{t}/agent/{a}/config/modify/response` | 请求-应答 | v1.21 | 当前仅支持修改 `agent_name`（§4.23） |
@@ -1405,7 +1405,7 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 - 收到 `error_code="control_denied"` 时同步 `control_holder` 并提示用户；
 - 持有者离线超过 grace 或 TTL 到期后，设备自动恢复 fail-open。
 
-### 4.20 agent 对话 agent/{agent}/chat/request|response（v1.16）
+### 4.20 agent 对话 agent/{agent}/chat/request|response（v1.16，v1.26 增加 data/result）
 
 > 适用于 `walle-agent`（实现见 `walle-agent/src/car_agent.py`）。Web 控制台与 agent 之间使用
 > 独立的 `agent/{agent}` 子树。
@@ -1452,8 +1452,23 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 | `intent` | object | 可选，解析结果 |
 | `warning` | string | 可选，参数被夹紧的提示 |
 | `error` | string | 可选，错误码 |
-| `action` | string | 可选：`move` / `rotate` / `stop` / `status` |
+| `action` | string | 可选，动作名：`move` / `rotate` / `stop` / `status` / `record_*` / `stream_*` / `servo_*` 等 |
 | `duration_sec` | number | 可选，预计运动时长 |
+| `data` | object | 可选，结构化结果，见下方「data 字段」；仅动作产生时携带 |
+| `result` | object | 可选，设备原始 `response`；超过 4096 字节时返回 `{truncated,size_bytes,summary}` |
+
+**data 字段（可选，v1.26）**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `data.room_number` | string | 推流房间号；`stream_start` / `stream_stop` 携带 |
+| `data.records` | array | 录像列表；`record_list` 携带。元素含 `filename`、`size_bytes`、`created_at`、`duration_sec`、`play_url`，最多 50 条；超出时附 `data.records_total` |
+| `data.servos` | array / object | 舵机结果：`servo_status` 为数组（同设备 `servos`）；`servo_set` / `servo_center` / `servo_relative` 为 `{applied, skipped}` |
+| `data.recording` | object | 录像状态：`{recording, filename, started_at, play_url}`；`record_start` / `record_stop` 携带 |
+| `data.task` | object | 任务信息；M3 任务调度落地后携带 |
+
+`data` 各键独立可选，没有对应结果时不出现。`result` 保留设备端原始应答，便于 Web 排障；
+agent 自身的 `mqtt` / `control` / `capabilities` 等字段不会进入 `result` 或 `data`。
 
 成功示例（运动）：
 
@@ -1476,8 +1491,33 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
  "intent":{"action":"stop"},"action":"stop"}
 ```
 
-`chat/response` 只携带上表字段；`mqtt`、`note`、`active_device`、`status`、`result`
-等属于 agent 内部结果，不会透传到应答报文。
+成功示例（推流 / 录像列表 / 舵机设置，含 `data`）：
+
+```json
+{"request_id":"web-9f3c1a2b","agent_id":"agent-b851fdde","device":"0580a65014af4d0a",
+ "ts":1795449999,"ok":true,"reply":"已开始推流，房间号：1001。",
+ "intent":{"action":"stream_start"},"action":"stream_start",
+ "data":{"room_number":"1001"},
+ "result":{"result":0,"room_number":"1001","camera_device":"/dev/video0"}}
+{"request_id":"web-9f3c1a2b","agent_id":"agent-b851fdde","device":"0580a65014af4d0a",
+ "ts":1795449999,"ok":true,"reply":"共 1 个录像：rec_20261115_143000.fmp4。",
+ "intent":{"action":"record_list"},"action":"record_list",
+ "data":{"records":[{"filename":"rec_20261115_143000.fmp4","size_bytes":125829120,
+   "created_at":"2026-11-15 14:30:00","duration_sec":3600,
+   "play_url":"http://192.168.1.10:8088/recordings/rec_20261115_143000.fmp4"}]},
+ "result":{"result":0,"cause":"ok","records_count":1,"used_bytes":125829120,
+   "limit_bytes":17179869184}}
+{"request_id":"web-9f3c1a2b","agent_id":"agent-b851fdde","device":"0580a65014af4d0a",
+ "ts":1795449999,"ok":true,"reply":"舵机已设置：ID1=1400。",
+ "intent":{"action":"servo_set","servos":[{"id":1,"position":1400}]},
+ "action":"servo_set",
+ "data":{"servos":{"applied":[{"id":1,"position":1400}],"skipped":[]}},
+ "result":{"result":0,"applied":[{"id":1,"position":1400}],"skipped":[]}}
+```
+
+`chat/response` 只携带上表字段；`mqtt`、`note`、`active_device`、`status`、`control`、
+`capabilities` 等属于 agent 内部结果，不会透传到应答报文。`data` 用于 Web 展示/播放，
+`result` 用于排障，二者均可选。
 
 长会话进度：agent 可通过 §4.25 的 `chat/progress/report` 主动上报关键节点；
 `chat/response` 仍是唯一的最终结果，进度报文不能替代应答。
@@ -1848,6 +1888,29 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ## 6. 变更记录
 
 > 历史条目中的结果码以当时版本为准；当前统一错误码见 §2.8。
+
+### 2026-11-27：chat/response 增加结构化 data / result（文档 v1.26）
+
+**变更类型**：兼容性新增（可选字段，不影响旧客户端）。
+
+**变更内容**
+
+- `chat/response` 新增可选 `data`：
+  - `room_number`：推流房间号（`stream_start` / `stream_stop`）；
+  - `records`：录像列表，元素含 `filename` / `size_bytes` / `created_at` /
+    `duration_sec` / `play_url`，最多 50 条，超出附 `records_total`（`record_list`）；
+  - `servos`：舵机查询为数组；设置/回中/相对调整为 `{applied, skipped}`；
+  - `recording`：录像状态 `{recording, filename, started_at, play_url}`；
+  - `task`：任务信息（M3 预留）。
+- `chat/response` 新增可选 `result`：设备原始 `response`；超过 4096 字节时返回
+  `{truncated, size_bytes, summary}`，不再透传 agent 内部字段。
+- Web 对话卡片读取 `data` 展示房间号、录像文件名、舵机 applied/skipped 与任务信息。
+
+**影响与兼容性**：旧客户端忽略新字段即可；`chat/request` 不变，自然语言入口不变。
+
+**验证方式**：对话「开始推流」返回 `data.room_number`；「录像列表」返回
+`data.records[].filename`；「舵机1到1400」返回 `data.servos.applied/skipped`；
+`pytest -q walle-agent/test` 全部通过。
 
 ### 2026-11-27：agent 停车只停自己的会话（文档 v1.25）
 

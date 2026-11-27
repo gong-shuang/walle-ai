@@ -1796,6 +1796,12 @@ class Agent:
             for key in ("intent", "warning", "error", "action", "duration_sec"):
                 if result.get(key) is not None:
                     response[key] = result[key]
+            data = _chat_data(result)
+            if data:
+                response["data"] = data
+            raw = _chat_device_result(result)
+            if raw is not None:
+                response["result"] = raw
         except Exception as exc:  # noqa: BLE001
             self.chat_errors += 1
             response.update({"ok": False, "reply": "agent 内部错误：{}".format(exc),
@@ -2716,6 +2722,7 @@ class Agent:
             "used_bytes": payload.get("used_bytes"),
             "limit_bytes": payload.get("limit_bytes"),
             "cause": decoded.get("cause"),
+            "payload": payload,
         }
         if result != 0:
             out["error"] = decoded.get("error") or "failed"
@@ -2775,6 +2782,7 @@ class Agent:
             "cause": decoded.get("cause"),
             "error": (decoded.get("error")
                       if result not in (0, -3) else None),
+            "payload": payload,
         }
 
     def servo_set(self, device, servos, duration=1.0):
@@ -2863,6 +2871,7 @@ class Agent:
             "skipped": skipped,
             "cause": payload.get("cause") or decoded.get("cause"),
             "control": release,
+            "payload": payload,
         }
         if result != 0:
             out["error"] = decoded.get("error") or "failed"
@@ -3679,6 +3688,71 @@ def _reply_text(intent, result):
     elif result.get("error") in ("control_failed", "control_timeout"):
         text += " 获取设备控制权失败，未执行。"
     return text
+
+
+# chat/response 结构化字段（M2-06）：data 给 Web 展示/播放，result 保留设备原始应答。
+CHAT_DEVICE_RESULT_LIMIT = 4096  # 字节，超过后只回摘要
+CHAT_RECORD_LIMIT = 50           # data.records 最多条数，避免报文过大
+CHAT_RECORD_FIELDS = ("filename", "size_bytes", "created_at",
+                      "duration_sec", "play_url")
+CHAT_RESULT_SUMMARY_FIELDS = (
+    "result", "cause", "request_id", "action", "room_number", "filename",
+    "started_at", "play_url", "used_bytes", "limit_bytes", "device_id",
+    "hostname", "ip", "timestamp", "datetime",
+)
+
+
+def _chat_data(result):
+    """把动作结果整理成 Web 可直接使用的 data（§4.20）。"""
+    action = result.get("action")
+    data = {}
+    if action in ("stream_start", "stream_stop"):
+        room = result.get("room_number")
+        if room:
+            data["room_number"] = str(room)
+    if action in ("record_start", "record_stop"):
+        recording = {}
+        for key in ("recording", "filename", "started_at", "play_url"):
+            if result.get(key) is not None:
+                recording[key] = result[key]
+        if recording:
+            data["recording"] = recording
+    if action == "record_list":
+        records = result.get("records") or []
+        data["records"] = [
+            {key: item[key] for key in CHAT_RECORD_FIELDS if key in item}
+            for item in records[:CHAT_RECORD_LIMIT] if isinstance(item, dict)
+        ]
+        if len(records) > CHAT_RECORD_LIMIT:
+            data["records_total"] = len(records)
+    if action == "servo_status":
+        data["servos"] = result.get("servos") or []
+    elif action in ("servo_set", "servo_center", "servo_relative"):
+        if "applied" in result or "skipped" in result:
+            data["servos"] = {
+                "applied": result.get("applied") or [],
+                "skipped": result.get("skipped") or [],
+            }
+    if result.get("task") is not None:
+        data["task"] = result["task"]
+    return data
+
+
+def _chat_device_result(result):
+    """设备原始应答；超过 CHAT_DEVICE_RESULT_LIMIT 时返回摘要。"""
+    payload = result.get("payload")
+    if not isinstance(payload, dict) or not payload:
+        return None
+    size = len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+    if size <= CHAT_DEVICE_RESULT_LIMIT:
+        return payload
+    summary = {key: payload[key] for key in CHAT_RESULT_SUMMARY_FIELDS
+               if key in payload}
+    if isinstance(payload.get("records"), list):
+        summary["records_count"] = len(payload["records"])
+    if isinstance(payload.get("servos"), list):
+        summary["servos_count"] = len(payload["servos"])
+    return {"truncated": True, "size_bytes": size, "summary": summary}
 
 
 def handle_chat(client_name, device, text):

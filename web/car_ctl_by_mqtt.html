@@ -3646,6 +3646,60 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     els.messages.scrollTop = els.messages.scrollHeight;
   }
 
+  // chat/response 可选 data（§4.20）：房间号、录像、舵机、任务
+  function formatAgentData(d) {
+    var data = d && d.data;
+    if (!data) return '';
+    var lines = [];
+    if (data.room_number) {
+      lines.push('房间号：<code>' + escapeHtml(data.room_number) + '</code>');
+    }
+    if (data.recording) {
+      var rec = data.recording;
+      if (rec.filename) {
+        lines.push((rec.recording === false ? '录像文件：' : '录像中：') +
+          '<code>' + escapeHtml(rec.filename) + '</code>');
+      } else if (rec.recording === false) {
+        lines.push('录像已停止');
+      }
+    }
+    if (data.records && data.records.length) {
+      var names = data.records.slice(0, 5).map(function (r) {
+        return '<code>' + escapeHtml((r && r.filename) || '') + '</code>';
+      });
+      var total = data.records_total || data.records.length;
+      lines.push('录像：' + names.join('、') +
+        (total > names.length ? ' 等 ' + total + ' 个' : ''));
+    }
+    if (Array.isArray(data.servos)) {
+      var positions = data.servos.filter(function (s) {
+        return s && s.position !== undefined && s.position !== null;
+      }).map(function (s) { return 'ID' + s.id + '=' + s.position; });
+      if (positions.length) lines.push('舵机：' + escapeHtml(positions.join('、')));
+    } else if (data.servos) {
+      var applied = (data.servos.applied || []).map(function (s) {
+        return 'ID' + s.id + '=' + s.position;
+      });
+      if (applied.length) {
+        lines.push('舵机已设置：' + escapeHtml(applied.join('、')));
+      }
+      var skipped = data.servos.skipped || [];
+      if (skipped.length) {
+        lines.push('已跳过：' + escapeHtml(skipped.map(function (s) {
+          return 'ID' + s.id + '=' + s.position +
+            (s.reason ? '（' + s.reason + '）' : '');
+        }).join('、')));
+      }
+    }
+    if (data.task) {
+      var task = data.task;
+      var taskText = typeof task === 'object'
+        ? (task.name || task.id || JSON.stringify(task)) : String(task);
+      lines.push('任务：<code>' + escapeHtml(taskText) + '</code>');
+    }
+    return lines.join('<br>');
+  }
+
   function currentDevice() {
     var sel = document.getElementById('deviceSelect');
     return sel && sel.value ? String(sel.value) : '';
@@ -3950,6 +4004,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var meta = '';
     if (d.intent) meta += '解析：<code>' + escapeHtml(JSON.stringify(d.intent)) + '</code>';
     if (d.action) meta += (meta ? '<br>' : '') + '动作：<code>' + escapeHtml(d.action) + '</code>';
+    var dataMeta = formatAgentData(d);
+    if (dataMeta) meta += (meta ? '<br>' : '') + dataMeta;
     addMsg(d.ok === false ? 'sys' : 'bot', d.reply || (d.ok ? '已完成' : '处理失败'), meta);
   });
 

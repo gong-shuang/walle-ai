@@ -109,7 +109,8 @@
 - [x] 13. 全功能请求信封（已废弃：不做）
   - 结论：用户与 agent 使用自然语言对话，不引入 `resource` / `params` 这类编程参数；
     agent 解析自然语言后调用设备，再把设备端的 `response` 翻译成自然语言回复，
-    因此 `chat/request` 保持 `text`，`chat/response` 不增加 `result` / `data`。
+    因此 `chat/request` 保持 `text`；`chat/response` 的 `data` / `result` 仅用于回传动作结果
+    （v1.26 / M2-06），不引入结构化请求参数。
 
 - [ ] 14. capabilities 协议
   - 若保留：定义 `actions` / `resources` / limits / `llm`；Web 按能力禁用不支持功能

@@ -612,6 +612,86 @@ def test_chat_agent_status_without_selected_device(agent, monkeypatch):
     assert payload["reply"] == "agent 机器状态：CPU 5.0%"
 
 
+def _chat_response(agent):
+    agent._run_chat_request({
+        "request_id": "chat-data", "client_id": "web-a",
+        "client_name": "Web A", "device": "dev-1", "text": "测试",
+    })
+    responses = [
+        item for item in agent.mqtt_client.published
+        if item["topic"].endswith("/chat/response")
+    ]
+    assert responses
+    return responses[-1]["payload"]
+
+
+def test_chat_response_stream_start_carries_room_number(agent, monkeypatch):
+    monkeypatch.setattr(car_agent, "handle_chat", lambda *args: {
+        "ok": True, "action": "stream_start", "room_number": "room-123",
+        "reply": "已开始推流，房间号：room-123。",
+        "payload": {"result": 0, "room_number": "room-123"},
+    })
+
+    payload = _chat_response(agent)
+
+    assert payload["data"]["room_number"] == "room-123"
+    assert payload["result"] == {"result": 0, "room_number": "room-123"}
+
+
+def test_chat_response_record_list_carries_filenames(agent, monkeypatch):
+    monkeypatch.setattr(car_agent, "handle_chat", lambda *args: {
+        "ok": True, "action": "record_list", "count": 1,
+        "reply": "共 1 个录像：rec_20261127_080000.fmp4。",
+        "records": [{
+            "filename": "rec_20261127_080000.fmp4", "size_bytes": 1024,
+            "created_at": "2026-11-27 08:00:00", "duration_sec": 60,
+            "play_url": "http://192.168.1.10:8088/recordings/rec_20261127_080000.fmp4",
+            "extra": "drop-me",
+        }],
+    })
+
+    payload = _chat_response(agent)
+
+    assert payload["data"]["records"] == [{
+        "filename": "rec_20261127_080000.fmp4", "size_bytes": 1024,
+        "created_at": "2026-11-27 08:00:00", "duration_sec": 60,
+        "play_url": "http://192.168.1.10:8088/recordings/rec_20261127_080000.fmp4",
+    }]
+    assert "result" not in payload  # 设备原始应答缺失时不伪造
+
+
+def test_chat_response_servo_set_carries_applied_skipped(agent, monkeypatch):
+    monkeypatch.setattr(car_agent, "handle_chat", lambda *args: {
+        "ok": True, "action": "servo_set",
+        "reply": "舵机已设置：ID1=1500；已跳过：ID2=3000（越界）。",
+        "applied": [{"id": 1, "position": 1500}],
+        "skipped": [{"id": 2, "position": 3000, "reason": "out_of_range"}],
+        "payload": {"result": 0, "applied": [{"id": 1, "position": 1500}],
+                    "skipped": [{"id": 2, "position": 3000,
+                                 "reason": "out_of_range"}]},
+    })
+
+    payload = _chat_response(agent)
+
+    assert payload["data"]["servos"]["applied"] == [{"id": 1, "position": 1500}]
+    assert payload["data"]["servos"]["skipped"][0]["reason"] == "out_of_range"
+
+
+def test_chat_response_truncates_large_device_result(agent, monkeypatch):
+    monkeypatch.setattr(car_agent, "handle_chat", lambda *args: {
+        "ok": True, "action": "record_list", "records": [],
+        "reply": "暂无录像。",
+        "payload": {"result": 0, "cause": "ok", "records": [],
+                    "blob": "x" * 6000},
+    })
+
+    payload = _chat_response(agent)
+
+    assert payload["result"]["truncated"] is True
+    assert payload["result"]["summary"]["result"] == 0
+    assert payload["result"]["summary"]["records_count"] == 0
+
+
 def test_capabilities_cached_from_run_state(agent):
     payload = _run_state_payload()
     payload["recording"]["is_supported"] = False

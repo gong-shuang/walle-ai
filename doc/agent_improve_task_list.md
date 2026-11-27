@@ -196,7 +196,7 @@ agent：
 
 - [x] 主题统一为 `walle/{t}/agent/{a}/...`（单数 `agent`）
 - [x] `chat/request` 必填校验：`client_id` / `client_name` / `request_id` / `device` / `text`
-- [x] `chat/response` 使用 `agent_id`，不再透传内部 `mqtt/status/result`
+- [x] `chat/response` 使用 `agent_id`，不透传内部 `mqtt/status/control`；v1.26 起可选 `data` / `result`（M2-06）
 - [x] agent online 字段：`agent_id` / `agent_name` / `online` / `version_code` / `version_name` / `ts`
 - [x] agent presence：retained + LWT + 正常退出补发 `online:false`
 - [x] agent 身份文件：`etc/.run/agent-id`、`etc/.run/agent-name`
@@ -222,7 +222,7 @@ agent：
 - [x] 订阅里有无效的 `+/response` 层；没有订阅 `device/+/alarm/report`。（M0-03）
 - [ ] 对话「状态」仍返回 agent health，不是设备 `baseState` / `runState`。
 - [ ] `capabilities.actions` 仍只有 `move/rotate/stop/status`。
-- [ ] `chat/response` 没有 `data` / `result`，无法返回房间号、录像列表、舵机位置、任务 ID。
+- [x] `chat/response` 没有 `data` / `result`，无法返回房间号、录像列表、舵机位置、任务 ID。（M2-06）
 - [ ] `report_progress()` 已定义但业务未调用。
 - [ ] `chat/stop` 只停运动，不能停止录像/推流/任务。
 - [x] `chat/stop` 在没有自己会话时会去 acquire 别人的租约，失败后返回 `-5`，无法区分“本来就没在动”。（M0-10）
@@ -238,7 +238,7 @@ agent：
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
-| M2 核心设备动作 | 进行中 | 5/10 | record、stream、servo、电机回执、控制权/会话 per-device 已落地 |
+| M2 核心设备动作 | 进行中 | 6/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化已落地 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
@@ -677,13 +677,13 @@ agent：
 
 - **层级**：L1 对话理解层 + L2 动作编排层
 - **小白解释**：聊天窗口只会显示文字，但“房间号”“录像文件列表”“舵机结果”需要结构化数据才能展示和播放。这个功能让 agent 把结果整理好交给 Web。
-- [ ] 增加可选 `data`：`room_number`、`records`、`servos`、`recording`、`task`。
-- [ ] 增加可选 `result`：设备原始 response（过大时截断/摘要）。
-- [ ] 更新 `doc/MQTT_protocol_convention.md` §4.20。
-- [ ] Web 兼容读取 `data`。
+- [x] 增加可选 `data`：`room_number`、`records`、`servos`、`recording`、`task`。
+- [x] 增加可选 `result`：设备原始 response（过大时截断/摘要）。
+- [x] 更新 `doc/MQTT_protocol_convention.md` §4.20。
+- [x] Web 兼容读取 `data`。
 - 文件：`walle-agent/src/car_agent.py`、`web/car_ctl_by_mqtt.html`、`doc/`
 - 验收：推流返回房间号；录像列表返回文件名；舵机返回 applied/skipped。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / `data` 覆盖 room_number/records/servos/recording/task；`result` 超过 4096 字节转摘要；新增 4 个 chat/response 用例；`pytest walle-agent/test` 88 passed；未修改 MQTT topic
 
 #### M2-07 长动作进度上报
 
