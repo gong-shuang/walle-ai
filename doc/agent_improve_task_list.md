@@ -7,7 +7,7 @@
 > 使用方式：每完成一项，把 `[ ]` 改成 `[x]`，补上完成日期、提交或证据，并更新「进度总览」和「更新记录」。
 >
 > 最后更新：2026-11-27
-> 当前阶段：M1 进行中（1/8）
+> 当前阶段：M1 进行中（2/8）
 
 ---
 
@@ -237,7 +237,7 @@ agent：
 | 里程碑 | 状态 | 完成项 | 说明 |
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
-| M1 请求总线与设备状态 | 进行中 | 1/8 | RequestBus 已落地；DeviceRegistry、baseState/runState、状态对话待做 |
+| M1 请求总线与设备状态 | 进行中 | 2/8 | RequestBus、DeviceRegistry 已落地；baseState/runState 工具与状态对话待做 |
 | M2 核心设备动作 | 未开始 | 0/10 | 录像、推流、舵机、电机回执、结构化返回 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
@@ -450,13 +450,20 @@ agent：
 
 - **层级**：L3 设备通信与状态层
 - **小白解释**：agent 要像档案柜一样记住每台设备：在不在线、在录什么、在推流吗、谁在控制、电量多少。这样用户一问就能答，不用每次现查。
-- [ ] 字段：`online`、`online_ts`、`baseState`、`runState`、`recording`、`stream`、
+- [x] 字段：`online`、`online_ts`、`baseState`、`runState`、`recording`、`stream`、
   `phone_audio`、`motor`、`servo`、`battery`、`sonar`、`control_holder`、`last_alarm`。
-- [ ] 设备上线/下线/重启更新缓存。
-- [ ] 过期数据按 `is_supported` / `available` 处理，不沿用旧值。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] 设备上线/下线/重启更新缓存。
+- [x] 过期数据按 `is_supported` / `available` 处理，不沿用旧值。
+- 实现：
+  - `Agent.devices` 扩展为设备状态缓存：baseState/runState 原文 + 各 runState 分组 + control_holder + last_alarm。
+  - `_on_message` 自动更新缓存：`online`、`baseState/query/response`、`runState/query/response`、`alarm/report`、`control/acquire|release/response`。
+  - 离线或重启（`online:false`、再次上线、device_id 变化）时清空 baseState/runState/分组，避免沿用旧值。
+  - 新增 `Agent.device_state(device)` 快照：按 `WALLE_DEVICE_STATE_TTL_SEC`（默认 15s）过期；`is_supported=false` / `available=false` 的分组值置空；离线时状态分组全部为 None。
+  - `health(device)` 增加 `device_state`，方便后续状态对话直接读缓存。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/test/test_device_registry.py`、`walle-agent/test/test_agent_request_bus.py`
 - 验收：对话能回答录像/推流/电池/声呐/控制权，不依赖现场查询。
-- 完成：<!-- 日期 / commit / 证据 -->
+  - 缓存层已提供上述数据；对话工具在 M1-03/M1-04/M1-06 接入。
+- 完成：2026-11-27 / 本次提交 / 新增 8 个缓存单元测试 + 1 个 `_on_message` 缓存集成测试；`pytest walle-agent/test` 30 passed；未修改 MQTT 协议
 
 #### M1-03 device.base_state 工具
 
@@ -1098,6 +1105,7 @@ agent：
 | 2026-11-27 | M0-07 | PC 模拟环境落地：pc_robot、bringup platform 分支、startup_check 平台化、env_walle 平台判定与 22.04/Humble 兼容 | 0b87a50 |
 | 2026-11-27 | M0-08 | 新增控制权与安全停止回归：agent 6 例 + device 3 例；chat/stop 收尾去重（零速帧 6→3） | 本次提交 |
 | 2026-11-27 | M1-01 | RequestBus 落地：pending/超时/重复/离线失败，control 与 link_test 接入；M1 进度 1/8 | 本次提交 |
+| 2026-11-27 | M1-02 | DeviceRegistry 落地：online/baseState/runState/告警/控制权缓存，TTL 与 is_supported/available 处理；M1 进度 2/8 | 本次提交 |
 
 ---
 

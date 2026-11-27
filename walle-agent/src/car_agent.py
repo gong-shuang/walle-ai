@@ -10,6 +10,7 @@
 """
 
 import hashlib
+import copy
 import glob
 import json
 import logging
@@ -69,6 +70,26 @@ DEFAULTS = {
 }
 
 AGENT_VERSION_FILE = os.path.join(REPO_ROOT, "VERSION")
+
+# M1-02：设备状态缓存新鲜度。超过该时长未更新的 baseState/runState 不再展示。
+DEVICE_STATE_TTL_SEC = float(os.environ.get("WALLE_DEVICE_STATE_TTL_SEC", "15"))
+
+# runState 子分组在 is_supported=false / available=false 时的空值模板。
+_RUN_GROUP_DEFAULTS = {
+    "stream": {
+        "streaming": False, "room_number": None, "camera_device": None,
+        "audio_input": None, "started_at": None, "uptime_sec": None,
+    },
+    "phone_audio": {"playing": False, "room_number": None},
+    "recording": {
+        "recording": False, "filename": None, "camera_device": None,
+        "audio_input": None,
+    },
+    "motor": {"moving": False},
+    "servo": {"moving": False},
+    "battery": {"voltage_v": None, "available": False},
+    "sonar": {"distance_cm": None, "available": False},
+}
 
 
 def _load_agent_version(path):
@@ -814,7 +835,24 @@ class Agent:
                     "online_ts": None,
                     "device_id": None,
                     "hostname": None,
+                    "ip": None,
                     "timestamp": None,
+                    # M1-02 设备状态缓存
+                    "baseState": None,
+                    "baseState_ts": None,
+                    "runState": None,
+                    "runState_ts": None,
+                    "recording": None,
+                    "stream": None,
+                    "phone_audio": None,
+                    "motor": None,
+                    "servo": None,
+                    "battery": None,
+                    "sonar": None,
+                    "control_holder": None,
+                    "control_holder_ts": None,
+                    "last_alarm": None,
+                    "last_alarm_ts": None,
                 }
                 self.devices[device] = item
             return item
@@ -825,6 +863,150 @@ class Agent:
             item = self.devices.get(device)
             online = item.get("online") if item else None
         return online is not False
+
+    @staticmethod
+    def _reset_device_state(item):
+        """设备重启/离线时清空状态，避免沿用旧值。"""
+        for key in ("baseState", "baseState_ts", "runState", "runState_ts",
+                    "recording", "stream", "phone_audio", "motor", "servo",
+                    "battery", "sonar", "control_holder", "control_holder_ts"):
+            item[key] = None
+
+    def _update_device_cache(self, item, topic, payload, now=None):
+        """根据设备主动上报/应答更新 M1-02 缓存。"""
+        if not isinstance(payload, dict):
+            return
+        now = time.time() if now is None else now
+        with self.dev_lock:
+            if topic.endswith("/online"):
+                self._update_online(item, payload, now)
+            elif topic.endswith("/alarm/report"):
+                self._update_alarm(item, payload, now)
+            elif topic.endswith("/baseState/query/response"):
+                self._update_base_state(item, payload, now)
+            elif topic.endswith("/runState/query/response"):
+                self._update_run_state(item, payload, now)
+            elif (topic.endswith("/control/acquire/response")
+                  or topic.endswith("/control/release/response")):
+                self._update_control_holder(item, payload, now)
+
+    def _update_online(self, item, payload, now):
+        online = payload.get("online")
+        if online is not True and online is not False:
+            return
+        previous = item.get("online")
+        new_device_id = payload.get("device_id") or item.get("device_id")
+        device_changed = bool(
+            item.get("device_id") and new_device_id
+            and item["device_id"] != new_device_id)
+        if online is False or device_changed or (
+                previous is False and online is True):
+            self._reset_device_state(item)
+        item["online"] = online
+        item["online_ts"] = now
+        item["device_id"] = new_device_id
+        item["hostname"] = payload.get("hostname") or item.get("hostname")
+        item["ip"] = payload.get("ip") or item.get("ip")
+        item["timestamp"] = payload.get("timestamp")
+
+    def _update_base_state(self, item, payload, now):
+        item["baseState"] = copy.deepcopy(payload)
+        item["baseState_ts"] = now
+        for key in ("device_id", "hostname", "ip"):
+            if payload.get(key):
+                item[key] = payload[key]
+
+    def _update_run_state(self, item, payload, now):
+        item["runState"] = copy.deepcopy(payload)
+        item["runState_ts"] = now
+        for name in _RUN_GROUP_DEFAULTS:
+            item[name] = copy.deepcopy(payload.get(name))
+        if "control_holder" in payload:
+            item["control_holder"] = copy.deepcopy(payload.get("control_holder"))
+            item["control_holder_ts"] = now
+        for key in ("device_id", "hostname", "ip"):
+            if payload.get(key):
+                item[key] = payload[key]
+
+    def _update_alarm(self, item, payload, now):
+        item["last_alarm"] = copy.deepcopy(payload)
+        item["last_alarm_ts"] = now
+
+    def _update_control_holder(self, item, payload, now):
+        if "control_holder" in payload:
+            item["control_holder"] = copy.deepcopy(payload.get("control_holder"))
+            item["control_holder_ts"] = now
+
+    @staticmethod
+    def _normalize_run_group(name, group):
+        """is_supported=false / available=false 时清空该分组的值，避免沿用旧值。"""
+        if not isinstance(group, dict):
+            return None
+        result = copy.deepcopy(group)
+        if (result.get("is_supported") is False
+                or result.get("available") is False):
+            for key, default in _RUN_GROUP_DEFAULTS.get(name, {}).items():
+                result[key] = default
+        return result
+
+    @staticmethod
+    def _fresh_payload(payload, ts, now):
+        if not isinstance(payload, dict) or ts is None:
+            return None
+        if now - float(ts) > DEVICE_STATE_TTL_SEC:
+            return None
+        return copy.deepcopy(payload)
+
+    def device_state(self, device, now=None):
+        """返回设备状态快照；过期或离线时状态分组为 None。"""
+        now = time.time() if now is None else now
+        with self.dev_lock:
+            item = self.devices.get(device)
+            data = copy.deepcopy(item) if item is not None else None
+        if data is None:
+            return None
+
+        online = data.get("online")
+        base_state = self._fresh_payload(
+            data.get("baseState"), data.get("baseState_ts"), now)
+        run_state = self._fresh_payload(
+            data.get("runState"), data.get("runState_ts"), now)
+        if online is False:
+            base_state = None
+            run_state = None
+
+        snapshot = {
+            "device": device,
+            "device_id": data.get("device_id"),
+            "hostname": data.get("hostname"),
+            "ip": data.get("ip"),
+            "online": online,
+            "online_ts": data.get("online_ts"),
+            "baseState": base_state,
+            "runState": run_state,
+            "control_holder": None,
+            "last_alarm": data.get("last_alarm"),
+            "last_alarm_ts": data.get("last_alarm_ts"),
+        }
+        if run_state is None:
+            for name in _RUN_GROUP_DEFAULTS:
+                snapshot[name] = None
+        else:
+            for name in _RUN_GROUP_DEFAULTS:
+                snapshot[name] = self._normalize_run_group(
+                    name, run_state.get(name))
+            holder_ts = data.get("control_holder_ts")
+            holder = data.get("control_holder")
+            if holder_ts is None:
+                holder = run_state.get("control_holder")
+            elif now - float(holder_ts) > DEVICE_STATE_TTL_SEC:
+                holder = None
+            snapshot["control_holder"] = holder
+        if online is False:
+            snapshot["control_holder"] = None
+            for name in _RUN_GROUP_DEFAULTS:
+                snapshot[name] = None
+        return snapshot
 
     @staticmethod
     def _topic_device(topic):
@@ -1029,15 +1211,10 @@ class Agent:
             self.request_bus.on_message(device, msg.topic, payload)
         if msg.topic.endswith("/car/motor/set/response"):
             self._on_motor_response(device, payload, decoded)
-        if isinstance(payload, dict) and "online" in msg.topic:
-            item["online"] = payload.get("online")
-            item["online_ts"] = time.time()
-            item["device_id"] = payload.get("device_id") or device
-            item["hostname"] = payload.get("hostname")
-            item["timestamp"] = payload.get("timestamp")
-            if payload.get("online") is False:
-                self.request_bus.fail_device(
-                    device, "device_offline", "设备离线")
+        self._update_device_cache(item, msg.topic, payload)
+        if (isinstance(payload, dict) and "online" in msg.topic
+                and payload.get("online") is False):
+            self.request_bus.fail_device(device, "device_offline", "设备离线")
         if msg.topic.endswith("/car/motor/set/response"):
             log().debug("MQTT 收到 %s %s", msg.topic,
                         json.dumps(payload, ensure_ascii=False)[:500])
@@ -1764,6 +1941,7 @@ class Agent:
                 "last_publish": item.get("last_publish"),
                 "last_result": item.get("last_result"),
                 "last_decode": item.get("last_decode"),
+                "device_state": self.device_state(device),
             })
         return out
 

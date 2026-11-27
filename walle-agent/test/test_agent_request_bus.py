@@ -149,3 +149,25 @@ def test_link_test_uses_request_bus(agent):
     assert out["request_id"] == request["request_id"]
     assert out["result"]["payload"]["result"] == 0
     assert out["decoded"]["ok"] is True
+
+
+def test_on_message_updates_device_cache(agent):
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/online",
+        {"online": True, "device_id": "dev-id-1", "hostname": "walle-pc"}))
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/runState/query/response", {
+            "battery": {
+                "is_supported": True, "voltage_v": 8.0, "available": True},
+            "sonar": {
+                "is_supported": True, "distance_cm": 80.0, "available": True},
+            "control_holder": {"client_id": "web-a"},
+        }))
+
+    state = agent.device_state("dev-1")
+
+    assert state["online"] is True
+    assert state["device_id"] == "dev-id-1"
+    assert state["battery"]["voltage_v"] == 8.0
+    assert state["sonar"]["distance_cm"] == 80.0
+    assert state["control_holder"]["client_id"] == "web-a"
