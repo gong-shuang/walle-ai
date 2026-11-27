@@ -6,8 +6,8 @@
 > 代码基线：`walle-agent/src/car_agent.py`（约 1817 行，2026-11-26）
 > 使用方式：每完成一项，把 `[ ]` 改成 `[x]`，补上完成日期、提交或证据，并更新「进度总览」和「更新记录」。
 >
-> 最后更新：2026-11-26
-> 当前阶段：M0 未开始
+> 最后更新：2026-11-27
+> 当前阶段：M0 进行中（9/10，仅剩 M0-08）
 
 ---
 
@@ -236,7 +236,7 @@ agent：
 
 | 里程碑 | 状态 | 完成项 | 说明 |
 |---|---|---|---|
-| M0 安全、Bug 与契约 | 进行中 | 8/10 | 停车语义、online、订阅、错误码、5Hz、PC 模拟（暂缓） |
+| M0 安全、Bug 与契约 | 进行中 | 9/10 | 停车语义、online、订阅、错误码、5Hz、PC 模拟已落地；仅剩 M0-08 回归测试 |
 | M1 请求总线与设备状态 | 未开始 | 0/8 | RequestBus、DeviceRegistry、baseState/runState、状态对话 |
 | M2 核心设备动作 | 未开始 | 0/10 | 录像、推流、舵机、电机回执、结构化返回 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
@@ -345,31 +345,37 @@ agent：
 - 验收：抓包可见 `client_id` / `client_name`；request_id 不重复。
 - 完成：2026-11-27 / c1ecc39 / 格式与 2000 次唯一性断言通过；三类请求均带身份字段
 
-#### M0-07 PC 节点模拟小车环境（方案已定，暂不实现）
+#### M0-07 PC 节点模拟小车环境
 
 - **层级**：跨层（开发/测试环境）
 - **小白解释**：没有真车时，希望设备端也能在 PC 上完整跑起来。做法是加一个“PC 节点”：在 PC 环境下只启动它，不启动 `car_control` 里依赖真实硬件的节点；由它模拟电机、舵机和传感器。这样 `net_mqtt_bridge` 一行都不用改，Web/agent 看到的仍是一台正常设备。摄像头、麦克风、扬声器直接用 PC 自带的，不做模拟。
-- **方案（暂不实现，后续排期）**：
-  - 新增 PC 节点（建议独立包，如 `walle-device/ros2_ws/src/simulation/pc_robot`），对 `net_mqtt_bridge` 提供与真机一致的话题/服务：
-    - 电机：订阅 `/cmd_vel`（让 bridge 的订阅者检查通过），维护运动状态并按 500ms 死区停车；可选发布 `/odom`。
-    - 舵机：提供 `/ros_robot_controller/pwm_servo/get_state` 服务，订阅 `/ros_robot_controller/pwm_servo/set_state`，保存并返回模拟位置。
-    - 传感器：发布 `/ros_robot_controller/battery`（mV）、`/sonar_controller/get_distance`（mm），可选 IMU/按键；支持参数注入低压、30cm 障碍、断链等故障。
-  - 启动时按环境选择：PC 环境只启动 PC 节点 + `net_mqtt_bridge`（以及 PC 自带的摄像头/麦克风/扬声器相关节点），不启动 `ros_robot_controller`、`sonar_controller`、`controller/mecanum` 等真实底盘节点；真机环境保持现状。
-  - 环境判定：启动参数（如 `platform:=pc`）或平台检测，默认沿用真机流程。
-  - `net_mqtt_bridge` 不做任何修改；`support_*` 按 PC 实际能力配置（摄像头/音频可用则保持 true）。
-- [ ] 新增 PC 节点包与 launch（暂不实现）。
-- [ ] `bringup` 增加 PC 环境分支，只启动 PC 节点，不启动 `car_control` 硬件节点（暂不实现）。
-- [ ] PC 节点实现电机/舵机/电池/声呐接口与可注入故障（暂不实现）。
-- [ ] 摄像头/麦克风/扬声器直接复用 PC 设备，不模拟（暂不实现）。
-- 文件：`walle-device/ros2_ws/src/simulation/...`、`walle-device/ros2_ws/src/bringup/launch/bringup.launch.py`
-- 验收（后续实现时）：PC 上启动后设备 `online`；`car/motor/set`、`car/servo/set|status`、`runState`、`alarm/report` 全部正常；`net_mqtt_bridge` 无改动；不启动任何真实底盘节点。
-- 完成：<!-- 日期 / commit / 证据 -->
+- **方案**：
+  - 新增 PC 节点 `walle-device/ros2_ws/src/simulation/pc_robot`，对 `net_mqtt_bridge` 提供与真机一致的话题/服务：
+    - 电机：订阅 `/cmd_vel`（让 bridge 的订阅者检查通过），维护运动状态并按 `cmd_vel_timeout`（默认 0.6s）停车；可选 `/odom` 未实现。
+    - 舵机：提供 `/ros_robot_controller/pwm_servo/get_state` 服务，订阅 `/ros_robot_controller/pwm_servo/set_state`，保存并返回模拟位置/偏移。
+    - 传感器：发布 `/ros_robot_controller/battery`（mV）、`/sonar_controller/get_distance`（mm）；IMU/按键未实现。
+    - 故障注入：运行时用 `ros2 param set` 修改 `battery_mv` / `sonar_distance_mm` / `sonar_valid` / `battery_enabled`。
+  - 启动时按环境选择：PC 环境只启动 `pc_robot` + `net_mqtt_bridge`（以及 PC 自带且存在的摄像头/音频相关节点），不启动 `ros_robot_controller`、`sonar_controller`、`controller/mecanum` 等真实底盘节点；真机环境保持现状。
+  - 环境判定：`env_walle.sh` 导出 `WALLE_PLATFORM=robot|pc`（有 `/proc/device-tree` 为 robot，否则 pc，可显式覆盖）；`bringup.launch.py` 同时接受 `platform:=pc`。
+  - `net_mqtt_bridge` 不做任何修改；PC 模式通过 `pc_robot/config/net_mqtt_bridge_pc.yaml` 覆盖 `support_*`。
+  - 其他落地细节：
+    - `bringup` 的 PC 分支仅在 `walle_camera.conf` 存在且设备节点存在时启动 `usb_cam` / `video_webrtc_bridge` / `record_video`；
+    - 语音盒子与 `large_models` 在 PC 默认关闭，可用 `enable_speech:=true` / `enable_ai:=true` 开启；
+    - `startup_check` 按平台校验必需节点/话题，PC 跳过蜂鸣器/PWM 播报；
+    - `env_walle.sh` 新增 PC venv 自动定位、按 Ubuntu 版本选择 ROS2 发行版（22.04→Humble，24.04→Jazzy）、修复 `WALLE_RUNTIME_ENV` 恒为 debug 的问题。
+- [x] 新增 PC 节点包与 launch。
+- [x] `bringup` 增加 PC 环境分支，只启动 PC 节点，不启动 `car_control` 硬件节点。
+- [x] PC 节点实现电机/舵机/电池/声呐接口与可注入故障。
+- [x] 摄像头/麦克风/扬声器直接复用 PC 设备，不模拟。
+- 文件：`walle-device/ros2_ws/src/simulation/pc_robot/`、`walle-device/ros2_ws/src/bringup/launch/bringup.launch.py`、`walle-device/ros2_ws/src/bringup/bringup/startup_check.py`、`walle-device/scripts/env_walle.sh`
+- 验收（ROS 侧已验证，MQTT 端到端待补测）：PC 上启动后不启动任何真实底盘节点；`car/motor/set`、`car/servo/set|status`、`runState`、`alarm/report` 的 ROS 链路正常；`net_mqtt_bridge` 无改动。设备 `online` 与 MQTT 端到端需配置 Broker 后验证。
+- 完成：2026-11-27 / 0b87a50 / `colcon build` 通过；PC 有/无摄像头启动通过；`/cmd_vel`、舵机 set/get、电池、声呐链路计数正确；真机分支冒烟通过；`startup_check` 正常退出
 
 #### M0-08 控制权与安全停止回归测试
 
 - **层级**：跨层（测试工程）
 - **小白解释**：保证“别人控制时不能抢”“agent 只停自己的车”“断线会自己停”这些规则不会被后续改动破坏。
-- **依赖**：端到端用例依赖 M0-07 的 PC 模拟环境；M0-07 落地前先做可脱离设备的单元测试（假总线/桩）。
+- **依赖**：M0-07 的 PC 模拟环境已落地（`platform:=pc`），端到端用例可直接在此基础上编写。
 - [ ] 用例：Web holder 时 agent 运动请求 → `-5`。
 - [ ] 用例：Web holder 时 agent `chat/stop` → `no_session`，设备端收不到零速。
 - [ ] 用例：agent 自己运动中 `chat/stop` → 零速 + 释放租约。
@@ -1073,6 +1079,7 @@ agent：
 |---|---|---|---|
 | 2026-11-26 | 初始版本 | 建立 M0-M5 任务清单 | 本文件 |
 | 2026-11-26 | 文档增强 | 增加最终架构、四层模型、每项任务的层级与小白解释 | 本文件 |
+| 2026-11-27 | M0-07 | PC 模拟环境落地：pc_robot、bringup platform 分支、startup_check 平台化、env_walle 平台判定与 22.04/Humble 兼容 | 0b87a50 |
 
 ---
 
