@@ -24,6 +24,13 @@ EXPECTED_TOOLS = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _reset_llm_circuit():
+    llm_router.reset_circuit()
+    yield
+    llm_router.reset_circuit()
+
+
 class _SilentLogger:
     def info(self, *args, **kwargs):
         pass
@@ -374,3 +381,107 @@ def test_parse_local_disabled_or_unconfigured():
     cfg["LLM_LOCAL_MODEL"] = ""
     cfg["LLM_MODEL"] = ""
     assert llm_router.parse_local("停", cfg) == (None, "llm_not_configured")
+
+
+# ---------------- M4-04 在线模型客户端 ----------------
+
+def _online_config():
+    cfg = _llm_config()
+    cfg.update({
+        "LLM_ONLINE_BASE_URL": "https://api.example.com/v1",
+        "LLM_ONLINE_API_KEY": "secret-key",
+        "LLM_ONLINE_MODEL": "deepseek-chat",
+        "LLM_CIRCUIT_FAILS": "2",
+        "LLM_CIRCUIT_COOLDOWN_SEC": "60",
+    })
+    return cfg
+
+
+def test_parse_online_tools_success(monkeypatch):
+    cfg = _online_config()
+    calls = []
+
+    def fake(req, timeout=8):
+        body = json.loads(req.data.decode("utf-8"))
+        calls.append(body)
+        assert req.headers.get("Authorization") == "Bearer secret-key"
+        return _FakeResponse({"choices": [{"message": {"tool_calls": [{
+            "function": {"name": "stop", "arguments": "{}"}}]}}]})
+
+    monkeypatch.setattr(llm_router.urlrequest, "urlopen", fake)
+
+    intent, error = llm_router.parse_online("停", cfg)
+
+    assert error is None
+    assert intent == {"action": "stop"}
+    assert "tools" in calls[0]
+
+
+def test_parse_online_requires_api_key():
+    cfg = _online_config()
+    cfg["LLM_ONLINE_API_KEY"] = ""
+    cfg["LLM_API_KEY"] = ""
+    assert llm_router.parse_online("停", cfg) == (
+        None, "llm_online_not_configured")
+
+
+def test_parse_online_circuit_opens_and_recovers(monkeypatch):
+    cfg = _online_config()
+    cfg["LLM_CIRCUIT_FAILS"] = "1"
+    cfg["LLM_RETRY_MAX"] = "0"
+    calls = {"fail": 0, "ok": 0}
+    now = {"value": 1000.0}
+
+    def offline(req, timeout=8):
+        calls["fail"] += 1
+        raise urlerror.URLError("offline")
+
+    def online(req, timeout=8):
+        calls["ok"] += 1
+        return _FakeResponse({"choices": [{"message": {
+            "content": json.dumps({"action": "stop"})}}]})
+
+    monkeypatch.setattr(llm_router.urlrequest, "urlopen", offline)
+    monkeypatch.setattr(llm_router, "_now", lambda: now["value"])
+
+    intent, error = llm_router.parse_online("复杂的话", cfg)
+    assert intent is None
+    assert calls["fail"] == 1        # 传输失败后不再尝试 JSON 模式
+    assert error
+
+    intent, error = llm_router.parse_online("复杂的话", cfg)
+    assert intent is None
+    assert error == "llm_online_circuit_open"
+    assert calls["fail"] == 1        # 熔断期间不发请求
+
+    now["value"] += 61
+    monkeypatch.setattr(llm_router.urlrequest, "urlopen", online)
+    intent, error = llm_router.parse_online("停", cfg)
+
+    assert error is None
+    assert intent == {"action": "stop"}
+    assert calls["ok"] == 1          # 冷却后恢复真实请求
+
+
+def test_parse_online_does_not_log_api_key(monkeypatch):
+    cfg = _online_config()
+    cfg["LLM_RETRY_MAX"] = "1"
+    cfg["LLM_RETRY_BACKOFF_SEC"] = "0"
+    messages = []
+
+    class Recorder:
+        def __getattr__(self, name):
+            def record(*args, **kwargs):
+                messages.append("{} {}".format(args, kwargs))
+            return record
+
+    def offline(req, timeout=8):
+        raise urlerror.URLError("offline")
+
+    monkeypatch.setattr(llm_router, "LOG", Recorder())
+    monkeypatch.setattr(llm_router.urlrequest, "urlopen", offline)
+
+    llm_router.parse_online("复杂的话", cfg)
+
+    assert messages
+    assert "secret-key" not in "\n".join(messages)

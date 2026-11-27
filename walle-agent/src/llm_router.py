@@ -15,6 +15,7 @@ topic / payload / device；设备由 chat 请求上下文提供。
 import json
 import logging
 import re
+import threading
 import time
 from urllib import error as urlerror
 from urllib import request as urlrequest
@@ -459,6 +460,25 @@ def local_config(cfg):
     }
 
 
+def online_config(cfg):
+    """在线模型配置；LLM_ONLINE_* 留空时回落到旧 LLM_* 配置。"""
+    cfg = cfg or {}
+    return {
+        "base_url": str(cfg.get("LLM_ONLINE_BASE_URL")
+                        or cfg.get("LLM_BASE_URL") or "").strip(),
+        "api_key": str(cfg.get("LLM_ONLINE_API_KEY")
+                       or cfg.get("LLM_API_KEY") or "").strip(),
+        "model": str(cfg.get("LLM_ONLINE_MODEL")
+                     or cfg.get("LLM_MODEL") or "").strip(),
+        "timeout": max(1.0, _number(cfg.get("LLM_TIMEOUT_SEC"), 8.0)),
+        "retry_max": max(0, _number(cfg.get("LLM_RETRY_MAX"), 1, int)),
+        "backoff": max(0.0, _number(cfg.get("LLM_RETRY_BACKOFF_SEC"), 0.5)),
+        "circuit_fails": max(1, _number(cfg.get("LLM_CIRCUIT_FAILS"), 3, int)),
+        "cooldown": max(
+            1.0, _number(cfg.get("LLM_CIRCUIT_COOLDOWN_SEC"), 60.0)),
+    }
+
+
 def _read_http_error(exc):
     try:
         raw = exc.read().decode("utf-8", "replace")
@@ -565,6 +585,7 @@ def _messages(text, context=None):
 
 
 def _parse_with_tools(url, conf, messages):
+    """返回 (intent, error, transport_failed)。"""
     body = {
         "model": conf["model"],
         "temperature": 0,
@@ -575,14 +596,16 @@ def _parse_with_tools(url, conf, messages):
     try:
         data = _request_with_retry(body, conf, url)
     except _ToolsUnsupported as exc:
-        LOG.info("本地模型不支持 tools，改用 JSON 模式: %s", exc)
-        return None, "tools_unsupported"
+        LOG.info("模型不支持 tools，改用 JSON 模式: %s", exc)
+        return None, "tools_unsupported", False
     except _RequestError as exc:
-        return None, str(exc)
-    return _intent_from_response(data)
+        return None, str(exc), True
+    intent, error = _intent_from_response(data)
+    return intent, error, False
 
 
 def _parse_with_json(url, conf, messages):
+    """返回 (intent, error, transport_failed)。"""
     body = {
         "model": conf["model"],
         "temperature": 0,
@@ -598,8 +621,22 @@ def _parse_with_json(url, conf, messages):
         try:
             data = _request_with_retry(body, conf, url)
         except (_RequestError, _ToolsUnsupported) as retry_exc:
-            return None, str(retry_exc)
-    return _intent_from_response(data)
+            return None, str(retry_exc), True
+    intent, error = _intent_from_response(data)
+    return intent, error, False
+
+
+def _parse_model(text, conf, context=None):
+    """按 tools -> JSON 顺序解析，返回 (intent, error, transport_failed)。"""
+    url = conf["base_url"].rstrip("/") + "/chat/completions"
+    messages = _messages(text, context)
+    intent, error, failed = _parse_with_tools(url, conf, messages)
+    if intent is not None:
+        return intent, None, False
+    if failed:
+        return None, error, True
+    intent, error, failed = _parse_with_json(url, conf, messages)
+    return intent, error, failed
 
 
 def parse_local(text, cfg, context=None):
@@ -618,17 +655,87 @@ def parse_local(text, cfg, context=None):
     text = str(text or "").strip()
     if not text:
         return None, "empty_text"
-    url = conf["base_url"].rstrip("/") + "/chat/completions"
-    messages = _messages(text, context)
-    errors = []
+    intent, error, _ = _parse_model(text, conf, context)
+    return intent, error
 
-    intent, error = _parse_with_tools(url, conf, messages)
-    if intent is not None:
-        return intent, None
-    errors.append(error)
 
-    intent, error = _parse_with_json(url, conf, messages)
+# ---------------- M4-04 在线模型客户端 ----------------
+
+_CIRCUIT_LOCK = threading.Lock()
+_CIRCUIT = {}  # "base_url|model" -> {"fails": int, "open_until": float}
+
+
+def _now():
+    return time.time()
+
+
+def _circuit_key(conf):
+    return "{}|{}".format(conf["base_url"], conf["model"])
+
+
+def reset_circuit():
+    """清空熔断状态（测试/重载配置用）。"""
+    with _CIRCUIT_LOCK:
+        _CIRCUIT.clear()
+
+
+def _circuit_open(key):
+    now = _now()
+    with _CIRCUIT_LOCK:
+        state = _CIRCUIT.get(key)
+        if not state:
+            return False
+        if state["open_until"] <= now:
+            # 冷却结束，半开：允许一次尝试
+            _CIRCUIT.pop(key, None)
+            return False
+        return True
+
+
+def _circuit_failure(key, conf):
+    now = _now()
+    with _CIRCUIT_LOCK:
+        state = _CIRCUIT.setdefault(
+            key, {"fails": 0, "open_until": 0.0})
+        state["fails"] += 1
+        if state["fails"] >= conf["circuit_fails"]:
+            state["open_until"] = now + conf["cooldown"]
+            LOG.warning("在线模型熔断开启 %s，%ss 后重试",
+                        key, conf["cooldown"])
+
+
+def _circuit_success(key):
+    with _CIRCUIT_LOCK:
+        _CIRCUIT.pop(key, None)
+
+
+def parse_online(text, cfg, context=None):
+    """调用在线 OpenAI 兼容模型（DeepSeek/Qwen 等），返回 (intent, error)。
+
+    - API Key 只用于请求头，不写日志；
+    - 连续传输失败达到 `LLM_CIRCUIT_FAILS` 后熔断
+      `LLM_CIRCUIT_COOLDOWN_SEC` 秒，期间直接返回 `llm_online_circuit_open`；
+    - 失败返回 None，由上层回退本地/规则（M4-05）。
+    """
+    cfg = cfg or {}
+    if str(cfg.get("LLM_ENABLED") or "0") != "1":
+        return None, "llm_disabled"
+    conf = online_config(cfg)
+    if (not conf["base_url"] or not conf["model"]
+            or not conf["api_key"]):
+        return None, "llm_online_not_configured"
+    text = str(text or "").strip()
+    if not text:
+        return None, "empty_text"
+
+    key = _circuit_key(conf)
+    if _circuit_open(key):
+        return None, "llm_online_circuit_open"
+
+    intent, error, failed = _parse_model(text, conf, context)
     if intent is not None:
+        _circuit_success(key)
         return intent, None
-    errors.append(error)
-    return None, errors[-1] if errors else "llm_failed"
+    if failed:
+        _circuit_failure(key, conf)
+    return None, error

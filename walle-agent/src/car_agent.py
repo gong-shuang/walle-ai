@@ -77,6 +77,12 @@ DEFAULTS = {
     "LLM_TIMEOUT_SEC": "8",
     "LLM_RETRY_MAX": "1",
     "LLM_RETRY_BACKOFF_SEC": "0.5",
+    # M4-04：在线模型（DeepSeek/Qwen 等 OpenAI 兼容）与熔断
+    "LLM_ONLINE_BASE_URL": "",
+    "LLM_ONLINE_API_KEY": "",
+    "LLM_ONLINE_MODEL": "",
+    "LLM_CIRCUIT_FAILS": "3",
+    "LLM_CIRCUIT_COOLDOWN_SEC": "60",
     # M3-01：任务库路径；相对路径按 walle-agent/ 解析，默认 data/agent.db
     "TASK_DB_PATH": "data/agent.db",
     # M3-02：任务调度时区
