@@ -2191,3 +2191,110 @@ def test_reconcile_catch_up_retries_timeout(agent, tmp_path, monkeypatch):
     run = store.list_runs(task["id"])[0]
     assert run["error"] is None
     assert run["request_id"] == "agent-record-retry"
+
+
+# ---------------- M3-09 任务事件 ----------------
+
+def _task_events(agent):
+    return [item["payload"] for item in _published(agent, "/task/report")]
+
+
+def test_task_run_publishes_started_and_completed_events(agent, tmp_path,
+                                                         monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+    monkeypatch.setattr(agent, "record_start", lambda device: {
+        "ok": True, "action": "record_start", "result": 0,
+        "request_id": "agent-record-1", "filename": "rec.fmp4",
+        "cause": "ok"})
+
+    agent._run_task(task, "2026-11-27 08:00:00")
+
+    events = _task_events(agent)
+    assert [e["stage"] for e in events] == ["started", "completed"]
+    run = store.list_runs(task["id"])[0]
+    assert events[0]["run_id"] == run["run_id"] == events[1]["run_id"]
+    assert events[0]["task_id"] == task["id"]
+    assert events[0]["agent_id"] == "agent-test"
+    assert events[0]["phase"] == "start"
+    assert events[0]["progress"] == 0
+    assert events[1]["progress"] == 100
+    assert events[1]["result"] == 0
+    assert "rec.fmp4" in events[1]["message"]
+
+
+def test_task_run_no_space_publishes_failed_event(agent, tmp_path,
+                                                  monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+    monkeypatch.setattr(agent, "record_start", lambda device: {
+        "ok": False, "action": "record_start", "result": -7,
+        "error": "no_space", "cause": "磁盘空间不足"})
+
+    agent._run_task(task, "2026-11-27 08:00:00")
+
+    events = _task_events(agent)
+    assert [e["stage"] for e in events] == ["started", "failed"]
+    assert events[1]["cause"] == "磁盘空间不足"
+    assert events[1]["result"] == -7
+    assert "失败" in events[1]["message"]
+
+
+def test_task_run_control_denied_publishes_skipped_event(agent, tmp_path,
+                                                         monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+    monkeypatch.setattr(agent, "record_start", lambda device: {
+        "ok": False, "action": "record_start", "result": -5,
+        "error": "control_denied", "cause": "控制权被占用",
+        "control_holder": {"client_id": "web-1", "client_name": "Web A"}})
+
+    agent._run_task(task, "2026-11-27 08:00:00")
+
+    events = _task_events(agent)
+    assert [e["stage"] for e in events] == ["started", "skipped"]
+    assert events[1]["cause"] == "控制权被占用（控制权：Web A）"
+    assert "被跳过" in events[1]["message"]
+
+
+def test_reconcile_missed_publishes_skipped_event(agent, tmp_path,
+                                                  monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+    monkeypatch.setattr(agent, "record_start",
+                        lambda device: {"ok": True})
+    monkeypatch.setattr(agent, "_advance_task", lambda store, fresh: None)
+    monkeypatch.setattr(agent, "device_run_state",
+                        lambda device: _recording_state(True))
+
+    agent.reconcile_tasks(now=datetime(2026, 11, 27, 9, 0, 0))
+
+    events = _task_events(agent)
+    assert len(events) == 1
+    assert events[0]["stage"] == "skipped"
+    assert events[0]["task_id"] == task["id"]
+    assert events[0]["run_id"]
+    assert "超过宽限" in events[0]["cause"]
+
+
+def test_reconcile_catch_up_publishes_events(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store, next_run_at="2026-11-27 21:00:00")
+    agent.cfg["TASK_RETRY_MAX"] = "0"
+    monkeypatch.setattr(agent, "device_run_state",
+                        lambda device: _recording_state(False))
+    monkeypatch.setattr(agent, "_advance_task", lambda store, fresh: None)
+    monkeypatch.setattr(agent, "record_start", lambda device: {
+        "ok": True, "action": "record_start", "result": 0,
+        "request_id": "agent-reconcile-1", "filename": "rec.fmp4",
+        "cause": "ok"})
+
+    agent.reconcile_tasks(now=datetime(2026, 11, 27, 10, 0, 0))
+
+    events = _task_events(agent)
+    assert [e["stage"] for e in events] == ["started", "completed"]
+    run = store.list_runs(task["id"])[0]
+    assert events[0]["run_id"] == run["run_id"]
+    assert events[1]["message"].endswith("rec.fmp4")
+    assert run["request_id"] == "agent-reconcile-1"
+    assert run["error"] is None

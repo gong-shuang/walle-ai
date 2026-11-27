@@ -1,4 +1,4 @@
-# MQTT 协议约定（文档版本 v1.28）
+# MQTT 协议约定（文档版本 v1.29）
 > - 每次修改mqtt的topic格式或者报文的json字段，都需要更新本文档。
 > - 本文档的内容可新增，可修改，但是不能删除，对于不需要的记录废弃即可。
 > - 如果只是修改bug，没有改变topic格式或者报文的json字段，则不要更新本文档。
@@ -85,6 +85,7 @@ agent功能：
 | 10 | 暂停任务 | `walle/{t}/agent/{a}/task/pause/request` | `walle/{t}/agent/{a}/task/pause/response` | 请求-应答 | v1.27 | `enabled=false`（§4.26） |
 | 11 | 恢复任务 | `walle/{t}/agent/{a}/task/resume/request` | `walle/{t}/agent/{a}/task/resume/response` | 请求-应答 | v1.27 | `enabled=true` 并重算下次执行（§4.26） |
 | 12 | agent 告警 | - | `walle/{t}/agent/{a}/alarm/report` | 主动上报 | v1.28 | 仅任务执行告警，JSON 与设备告警一致（§4.7） |
+| 13 | 任务事件 | - | `walle/{t}/agent/{a}/task/report` | 主动上报 | v1.29 | 任务开始/成功/失败/跳过（§4.27） |
 
 `{a}` = agent clientid。
 
@@ -2071,7 +2072,67 @@ agent 忽略未识别的字段。
 **订阅关系**：
 
 - agent：`walle/{t}/agent/{a}/+/+/+/request`（`task/list/query`）；`task/create|cancel|pause|resume` 由已有的 `+/+/request` 覆盖。
-- Web/App：`walle/{t}/agent/+/task/+/response`、`walle/{t}/agent/+/task/+/+/response`。
+- Web/App：`walle/{t}/agent/+/task/+/response`、`walle/{t}/agent/+/task/+/+/response`；
+  任务事件另订 `walle/{t}/agent/+/task/report`（§4.27）。
+
+### 4.27 agent 任务事件 agent/{agent}/task/report（v1.29）
+
+**作用**：任务执行或启动对账时，agent 主动上报开始、成功、失败、跳过事件，
+Web/App 不必轮询 `task/list/query` 就能实时展示任务状态。
+
+- 主题：`walle/{t}/agent/{a}/task/report`
+- 方向：agent → Web/App（主动上报，无请求、无应答）
+- QoS1，不 retained；重复投递按 `task_id + run_id + stage` 幂等展示。
+- 只上报任务生命周期事件，不替代 `task/list/query` 的最终状态；客户端重连后以查询结果为准。
+
+**报文字段**：
+
+```json
+{
+  "agent_id": "agent-b851fdde",
+  "task_id": "task-1a2b3c4d",
+  "run_id": "run-1a2b3c4d5e6f",
+  "device": "0580a65014af4d0a",
+  "phase": "start",
+  "stage": "completed",
+  "progress": 100,
+  "message": "任务「每天 8 点录像」开始录像成功：20261127_080000.fmp4",
+  "cause": null,
+  "result": 0,
+  "timestamp": 1763000000,
+  "datetime": "2026-11-27 08:00:01"
+}
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `agent_id` | 是 | agent clientid |
+| `task_id` | 是 | 任务 ID |
+| `run_id` | 否 | 本次执行记录 ID；通常与 `task_runs` 一致，未创建记录时省略 |
+| `device` | 否 | 目标设备 |
+| `phase` | 否 | `start` / `stop` |
+| `stage` | 是 | 见下表 |
+| `progress` | 否 | 0–100；`started` 为 0，`completed` 为 100，`failed/skipped` 可省略 |
+| `message` | 否 | 人类可读说明，客户端只展示、不解析 |
+| `cause` | 否 | 失败/跳过原因（人类可读），如「磁盘空间不足」「控制权被占用（控制权：Web A）」 |
+| `result` | 否 | 设备 `result`（0/-4/-6/-7 等） |
+| `timestamp` / `datetime` | 是 | 上报时间（Unix 秒 / 本地时间） |
+
+**stage 取值**：
+
+| stage | 含义 |
+|---|---|
+| `started` | 已创建 `task_runs` 记录并开始执行动作 |
+| `completed` | 动作成功；`-4`（已在录/未录制）也按成功上报 |
+| `failed` | 重试后仍失败，或遇到不可重试错误（如 `-7` 空间不足） |
+| `skipped` | 未执行：控制权被占用、错过触发点、`daily_window` 已结束、阶段无法识别 |
+
+**约束**：
+
+- 只在任务生命周期关键节点上报，不做高频轮询。
+- `missed` 等跳过事件会带 `run_id`（若已创建执行记录）与 `cause`，便于 Web 直接展示原因。
+- 任务执行与启动对账共用同一套重试规则（`-4` 成功、`-7` 不重试、`-6` 重试）。
+- Web/App 订阅 `walle/{t}/agent/+/task/report`；同一任务同一阶段重复投递只展示一次。
 
 ## 5. 修改协议的流程
 
@@ -2101,6 +2162,22 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ## 6. 变更记录
 
 > 历史条目中的结果码以当时版本为准；当前统一错误码见 §2.8。
+
+### 2026-11-27：新增 agent 任务事件上报（文档 v1.29）
+
+**变更类型**：新增主题（兼容旧版本，不影响已有 task 管理主题）。
+
+**变更内容**
+
+- 新增 `walle/{t}/agent/{a}/task/report`，agent 主动上报任务事件；
+  `stage` 取值 `started` / `completed` / `failed` / `skipped`。
+- 字段：`task_id`、`run_id`、`device`、`phase`、`stage`、`progress`、
+  `message`、`cause`、`result`、`timestamp`、`datetime`（§4.27）。
+- `completed` 包含 `-4`（已在录/未录制）的幂等成功；`skipped` 覆盖控制权被占、
+  错过触发、窗口已结束等未执行场景。
+- Web 订阅 `walle/{t}/agent/+/task/report` 并展示任务动态；
+  任务最终状态仍以 `task/list/query` 的 `last_run` 为准。
+- 未修改设备协议，设备端无需升级；App 本期未接入任务列表，暂不订阅该主题。
 
 ### 2026-11-27：统一告警来源字段并新增 agent 告警（文档 v1.28）
 

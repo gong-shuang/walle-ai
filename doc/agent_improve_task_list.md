@@ -239,7 +239,7 @@ agent：
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
-| M3 调度与任务 | 进行中 | 7/10 | SQLite、调度线程、四种类型、任务工具/Web 页签、录像执行、shared 控制权、重启对账、重试/幂等已落地；exclusive 待定 |
+| M3 调度与任务 | 进行中 | 8/10 | SQLite、调度线程、四种类型、任务工具/Web 页签、录像执行、shared 控制权、重启对账、重试/幂等、任务事件已落地；exclusive 待定 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
 
@@ -896,12 +896,21 @@ agent：
 
 - **层级**：L4 任务调度层 + L1 展示
 - **小白解释**：任务成功/失败/跳过要通知用户，不然用户不知道到底录没录。
-- [ ] 复用 `chat/progress/report`（`request_id=task-...`）或新增 `agent/{a}/task/report`。
-- [ ] 字段：`task_id`、`run_id`、`stage`、`progress`、`message`、`cause`。
-- [ ] Web 订阅并展示任务状态。
-- 文件：`walle-agent/src/car_agent.py`、`web/`、`doc/`
+- [x] 复用 `chat/progress/report`（`request_id=task-...`）或新增 `agent/{a}/task/report`。
+- [x] 字段：`task_id`、`run_id`、`stage`、`progress`、`message`、`cause`。
+- [x] Web 订阅并展示任务状态。
+- 实现：
+  - 新增 `agent/{a}/task/report`（§4.27，文档 v1.29），QoS1、不 retained。
+  - `stage`：`started` / `completed` / `failed` / `skipped`；字段含 `task_id`、`run_id`、
+    `device`、`phase`、`progress`、`message`、`cause`、`result`。
+  - 任务执行：创建 run 后发 `started`；成功（含 `-4`）发 `completed`；
+    控制权被占发 `skipped`；其他失败发 `failed`。
+  - 重启对账：错过触发发 `skipped`；补启动/补停止发 `started` + 终态。
+  - Web 订阅 `agent/+/task/report`，任务页签展示最近 20 条任务动态（按 agent 保存，
+    按 `task_id + run_id + stage` 去重），终态到达后自动刷新任务列表。
+- 文件：`walle-agent/src/car_agent.py`、`web/car_ctl_by_mqtt.html`、`doc/MQTT_protocol_convention.md`
 - 验收：任务开始/成功/失败/跳过都有通知。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 5 个事件用例（开始+成功、失败、控制权跳过、错过触发跳过、对账补启动）；`pytest walle-agent/test` 167 passed；协议文档 v1.29
 
 #### M3-10 调度测试
 
@@ -1181,7 +1190,7 @@ agent：
 | 23 | agent 基本状态 | `agent/{a}/baseState/query/request|response` | — | L3 | 已完成 |
 | 24 | agent 配置修改 | `agent/{a}/config/modify/request|response` | — | L3 | 已完成 |
 | 25 | agent 会话停止 | `agent/{a}/chat/stop/request|response` | M3 | L2/L3 | 部分（仅 agent 自己的运动会话） |
-| 26 | agent 进度 | `agent/{a}/chat/progress/report` | M2-07/M3-09 | L2/L4 | 已完成（record/stream/servo 已接入） |
+| 26 | agent 进度 | `agent/{a}/chat/progress/report` | M2-07/M3-09 | L2/L4 | 已完成（record/stream/servo 已接入；任务事件见 #34） |
 | 27 | 客户端在线 | `client/{client_id}/online` | 可选 | L3 | 未订阅（可选） |
 | 28 | 任务列表 | `agent/{a}/task/list/query/request|response` | M3-04 | L4 | 已完成 |
 | 29 | 创建任务 | `agent/{a}/task/create/request|response` | M3-04 | L4 | 已完成 |
@@ -1189,6 +1198,7 @@ agent：
 | 31 | 暂停任务 | `agent/{a}/task/pause/request|response` | M3-04 | L4 | 已完成 |
 | 32 | 恢复任务 | `agent/{a}/task/resume/request|response` | M3-04 | L4 | 已完成 |
 | 33 | agent 告警 | `agent/{a}/alarm/report` | M3-06 | L4 | 已完成（任务控制权失败） |
+| 34 | 任务事件 | `agent/{a}/task/report` | M3-09 | L4 | 已完成（started/completed/failed/skipped） |
 
 ---
 

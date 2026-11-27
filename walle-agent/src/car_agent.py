@@ -428,6 +428,12 @@ def agent_task_topic(action, resource="request"):
         server_tenant(), agent_identity(), action, resource)
 
 
+def agent_task_report_topic():
+    """任务事件上报主题：walle/{t}/agent/{a}/task/report"""
+    return "walle/{}/agent/{}/task/report".format(
+        server_tenant(), agent_identity())
+
+
 def agent_alarm_topic():
     """agent 任务告警：walle/{t}/agent/{a}/alarm/report"""
     return "walle/{}/agent/{}/alarm/report".format(
@@ -2379,6 +2385,64 @@ class Agent:
             payload["detail"] = detail
         return self._publish_topic(agent_alarm_topic(), payload)
 
+    def _publish_task_event(self, task, stage, run_id=None, phase=None,
+                            progress=None, message=None, cause=None,
+                            result=None, device=None):
+        """任务事件上报（§4.27）：started/completed/failed/skipped。"""
+        task = task or {}
+        payload = {
+            "agent_id": agent_identity(),
+            "task_id": task.get("id"),
+            "stage": stage,
+            "timestamp": int(time.time()),
+            "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        if run_id:
+            payload["run_id"] = run_id
+        device = device or task.get("device")
+        if device:
+            payload["device"] = device
+        if phase:
+            payload["phase"] = phase
+        if progress is not None:
+            payload["progress"] = progress
+        if message:
+            payload["message"] = message
+        if cause:
+            payload["cause"] = cause
+        if result is not None:
+            payload["result"] = result
+        return self._publish_topic(agent_task_report_topic(), payload)
+
+    @staticmethod
+    def _task_outcome(out):
+        """把动作结果转换为事件 stage 与 cause。"""
+        if out.get("ok"):
+            return "completed", None
+        error = out.get("error") or "failed"
+        cause = out.get("cause") or error
+        if error in ("control_occupied", "control_denied"):
+            return "skipped", cause
+        return "failed", cause
+
+    @staticmethod
+    def _task_event_message(task, phase, out, stage, cause):
+        task = task or {}
+        name = task.get("name") or task.get("id") or "任务"
+        action = "开始录像" if phase == "start" else "停止录像"
+        if stage == "completed":
+            text = "任务「{}」{}成功".format(name, action)
+            if out.get("filename"):
+                text += "：{}".format(out["filename"])
+            elif out.get("already_recording"):
+                text += "（已在录制）"
+            elif out.get("already_stopped"):
+                text += "（当前未录制）"
+            return text
+        if stage == "skipped":
+            return "任务「{}」被跳过：{}".format(name, cause)
+        return "任务「{}」{}失败：{}".format(name, action, cause)
+
     def _dispatch_task(self, task, scheduled_at):
         threading.Thread(target=self._run_task, args=(task, scheduled_at),
                          daemon=True, name="agent-task-run").start()
@@ -2450,8 +2514,19 @@ class Agent:
             self._finish_task_run(store, run_id, result=None,
                                   cause="无法确定任务阶段",
                                   error="phase_unknown")
+            self._publish_task_event(
+                fresh, "skipped", run_id=run_id,
+                message="任务「{}」阶段无法识别，已跳过".format(
+                    fresh.get("name") or task_id),
+                cause="phase_unknown")
             self._advance_task(store, fresh)
             return
+
+        self._publish_task_event(
+            fresh, "started", run_id=run_id, phase=phase, progress=0,
+            message="任务「{}」开始执行：{}".format(
+                fresh.get("name") or task_id,
+                "开始录像" if phase == "start" else "停止录像"))
 
         out = self._task_action_with_retry(fresh["device"], phase)
         error = None if out.get("ok") else (out.get("error") or "failed")
@@ -2481,6 +2556,15 @@ class Agent:
         self._finish_task_run(store, run_id, request_id=out.get("request_id"),
                               result=out.get("result"), cause=cause,
                               error=error)
+        stage, event_cause = self._task_outcome(out)
+        if stage != "completed":
+            event_cause = cause  # 带上 holder 等补充信息
+        self._publish_task_event(
+            fresh, stage, run_id=run_id, phase=phase,
+            progress=100 if stage == "completed" else None,
+            message=self._task_event_message(
+                fresh, phase, out, stage, event_cause),
+            cause=event_cause, result=out.get("result"))
         self._advance_task(store, fresh)
 
     @staticmethod
@@ -2570,7 +2654,15 @@ class Agent:
                   and task_schedule.in_daily_window(task, current) is False):
                 reason = "录像窗口已结束"
             if reason:
-                self._record_missed_run(task, stored, phase, reason, now_text)
+                run = self._record_missed_run(
+                    task, stored, phase, reason, now_text)
+                if run is not None:
+                    self._publish_task_event(
+                        task, "skipped", run_id=run.get("run_id"),
+                        phase=phase,
+                        message="任务「{}」错过触发：{}".format(
+                            task.get("name") or task.get("id"), reason),
+                        cause=reason)
                 nxt = self._advance_task(store, task)
                 item.update({
                     "action": "missed", "reason": reason,
@@ -2604,33 +2696,48 @@ class Agent:
         store = self.task_db()
         phase = phase or "unknown"
         if store.get_run_by_slot(task["id"], phase, scheduled_at):
-            return
+            return None
         run = store.record_run(task["id"], phase, scheduled_at=scheduled_at,
                                started_at=now_text)
-        if not run:
-            return
+        if not run or run.get("started_at") != now_text:
+            return None
         store.update_run(run["run_id"], finished_at=now_text,
                          error="missed", cause=reason)
+        return run
 
-    def _record_reconcile_run(self, task, phase, out, base_now):
-        """记录一次启动对账触发的录像开始/停止。"""
+    def _begin_reconcile_run(self, task, phase, base_now):
+        """为启动对账创建 task_runs 记录，返回 (run_id, now_text)。"""
         if task is None:
-            return
+            return None, None
         store = self.task_db()
         now_text = task_schedule.now_in_timezone(
             task.get("timezone"), base_now).strftime(task_schedule.TIME_FORMAT)
         if store.get_run_by_slot(task["id"], phase, now_text):
-            return
+            return None, now_text
         run = store.record_run(task["id"], phase, scheduled_at=now_text,
                                started_at=now_text)
-        if not run:
+        return (run or {}).get("run_id"), now_text
+
+    def _finish_reconcile_run(self, run_id, out, now_text):
+        """补全启动对账的执行记录。"""
+        if not run_id:
             return
+        store = self.task_db()
         error = None if out.get("ok") else (out.get("error") or "failed")
         cause = out.get("cause") or ("ok" if out.get("ok") else error)
         store.update_run(
-            run["run_id"], finished_at=now_text,
+            run_id, finished_at=now_text,
             request_id=out.get("request_id"), result=out.get("result"),
             cause="启动对账：{}".format(cause), error=error)
+
+    def _publish_reconcile_result(self, task, phase, run_id, out):
+        stage, event_cause = self._task_outcome(out)
+        self._publish_task_event(
+            task, stage, run_id=run_id, phase=phase,
+            progress=100 if stage == "completed" else None,
+            message=self._task_event_message(
+                task, phase, out, stage, event_cause),
+            cause=event_cause, result=out.get("result"))
 
     def _reconcile_device_recording(self, device, base_now):
         """按 runState 对本设备做录像补启动/补停止。"""
@@ -2658,8 +2765,15 @@ class Agent:
         item = {"device": device, "desired": desired, "recording": actual,
                 "action": "none"}
         if desired and not actual:
+            run_id, now_text = self._begin_reconcile_run(
+                active, "start", base_now)
+            self._publish_task_event(
+                active, "started", run_id=run_id, phase="start", progress=0,
+                message="任务「{}」启动对账：开始录像".format(
+                    active.get("name") or active.get("id")))
             out = self._task_action_with_retry(device, "start")
-            self._record_reconcile_run(active, "start", out, base_now)
+            self._finish_reconcile_run(run_id, out, now_text)
+            self._publish_reconcile_result(active, "start", run_id, out)
             self._advance_task(store, active)
             item.update({"action": "start", "ok": bool(out.get("ok")),
                          "cause": out.get("cause") or out.get("error")})
@@ -2670,9 +2784,20 @@ class Agent:
                              "reason": "recording_not_owned"})
             else:
                 owner = store.get_task(latest.get("task_id"))
+                run_id = now_text = None
+                if owner is not None:
+                    run_id, now_text = self._begin_reconcile_run(
+                        owner, "stop", base_now)
+                    self._publish_task_event(
+                        owner, "started", run_id=run_id, phase="stop",
+                        progress=0,
+                        message="任务「{}」启动对账：停止录像".format(
+                            owner.get("name") or owner.get("id")))
                 out = self._task_action_with_retry(device, "stop")
                 if owner is not None:
-                    self._record_reconcile_run(owner, "stop", out, base_now)
+                    self._finish_reconcile_run(run_id, out, now_text)
+                    self._publish_reconcile_result(
+                        owner, "stop", run_id, out)
                     self._advance_task(store, owner)
                 item.update({"action": "stop",
                              "ok": bool(out.get("ok")),

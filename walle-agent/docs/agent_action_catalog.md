@@ -1,6 +1,6 @@
 # walle-agent 动作清单与调用示例
 
-> 适用版本：walle-agent 0.1.1，协议文档 v1.28。
+> 适用版本：walle-agent 0.1.1，协议文档 v1.29。
 > 实现入口：`walle-agent/src/car_agent.py` 的 `Agent` 类。
 > 协议契约以 `doc/MQTT_protocol_convention.md` 为准，本文只说明 agent 动作层怎么调用、返回什么。
 
@@ -290,6 +290,7 @@ agent/{a}/task/create/request|response
 agent/{a}/task/cancel/request|response
 agent/{a}/task/pause/request|response
 agent/{a}/task/resume/request|response
+agent/{a}/task/report
 ```
 
 执行：agent 启动时先做重启对账，再启动调度线程；到点按 `start`/`stop` 调用
@@ -299,6 +300,10 @@ agent/{a}/task/resume/request|response
 退避 `TASK_RETRY_BACKOFF_SEC`（默认 2s，线性）。
 shared 模式下控制权获取失败会发布 `agent/{a}/alarm/report`
 （`metric=control`、`alarm_type=control_occupied`），聊天请求失败只回 `chat/response`。
+
+任务事件：执行/对账时向 `agent/{a}/task/report` 上报
+`stage=started/completed/failed/skipped`，字段含 `task_id`、`run_id`、`phase`、
+`progress`、`message`、`cause`、`result`；失败、跳过与控制权占用均可在 Web 任务页签看到。
 
 ## 10. 进度上报（§4.25）
 

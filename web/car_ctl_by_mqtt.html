@@ -431,6 +431,21 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .agentTaskOps button:hover{color:var(--text);border-color:#3a475c}
 .agentTaskOps button[data-task-op="cancel"]{color:#ff9c9c;border-color:rgba(255,107,107,.35)}
 .agentTaskEmpty{padding:22px 0;text-align:center;color:var(--dim);font-size:12px}
+/* agent 任务动态（M3-09） */
+.agentTaskEvents{display:flex;flex-direction:column;gap:6px;padding-top:10px}
+.agentTaskEvent{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;
+  border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.02)}
+.agentTaskEvent .stage{flex:none;min-width:42px;text-align:center;font-size:11px;
+  padding:1px 8px;border-radius:999px;border:1px solid var(--line2);color:var(--muted)}
+.agentTaskEvent .body{flex:1 1 auto;min-width:0}
+.agentTaskEvent .title{font-size:12px;color:var(--text);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.agentTaskEvent .info{margin-top:2px;font-size:11px;color:var(--dim);
+  word-break:break-all;line-height:1.55}
+.agentTaskEvent.started .stage{color:#9fd0ff;border-color:rgba(110,170,255,.35);background:rgba(110,170,255,.08)}
+.agentTaskEvent.completed .stage{color:#bfffe0;border-color:rgba(61,220,151,.35);background:rgba(61,220,151,.10)}
+.agentTaskEvent.failed .stage{color:#ffb3b3;border-color:rgba(255,107,107,.35);background:rgba(255,107,107,.08)}
+.agentTaskEvent.skipped .stage{color:#ffd9a0;border-color:rgba(255,186,97,.35);background:rgba(255,186,97,.08)}
 @media(max-width:860px){
   .agentTaskItem{flex-wrap:wrap}
   .agentTaskSide{text-align:left;width:100%}
@@ -862,6 +877,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         </div>
       </div>
       <div id="agTaskMsg" class="videoMsg">选择 agent 后自动加载任务。</div>
+      <div id="agTaskEvents" class="agentTaskEvents"></div>
       <div id="agTaskList" class="agentTaskList">
         <div class="agentTaskEmpty">暂无任务</div>
       </div>
@@ -1242,6 +1258,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       agentPrefix + '+/alarm/report',
       agentPrefix + '+/baseState/query/response', agentPrefix + '+/config/modify/response',
       agentPrefix + '+/chat/stop/response',
+      agentPrefix + '+/task/report',
       agentPrefix + '+/task/+/response', agentPrefix + '+/task/+/+/response');
     mqtt.connect({
       url: wsUrlNow(), user: cfg.user, pass: cfg.pass, clientId: clientIdNow(), keepalive: cfg.keepalive,
@@ -1309,6 +1326,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       }
       if (/\/chat\/stop\/response$/.test(topic)) {
         document.dispatchEvent(new CustomEvent('walle-agent-stop',
+          { detail: { id: agentId, data: data } }));
+        return;
+      }
+      if (/\/task\/report$/.test(topic)) {
+        document.dispatchEvent(new CustomEvent('walle-agent-task-report',
           { detail: { id: agentId, data: data } }));
         return;
       }
@@ -3668,6 +3690,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     taskSelect: document.getElementById('agTaskSelect'),
     taskRefresh: document.getElementById('agTaskRefresh'),
     taskMsg: document.getElementById('agTaskMsg'),
+    taskEvents: document.getElementById('agTaskEvents'),
     taskList: document.getElementById('agTaskList')
   };
   var detailEls = {
@@ -3703,6 +3726,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   var busy = false;
   var stopPendingRid = '';
   var taskPending = { rid: '', op: '' };
+  var taskEventsByAgent = {};  // agent -> 最近任务事件（新在前）
+  var taskNamesByAgent = {};   // agent -> task_id -> name
+  var TASK_EVENT_MAX = 20;
+  var TASK_STAGE_LABEL = { started: '开始', completed: '成功', failed: '失败', skipped: '跳过' };
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) {
@@ -3837,6 +3864,56 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     if (els.taskMsg) els.taskMsg.textContent = text;
   }
 
+  function renderTaskEvents() {
+    var box = els.taskEvents;
+    if (!box) return;
+    box.innerHTML = '';
+    var events = taskEventsByAgent[selected] || [];
+    if (!events.length) {
+      var empty = document.createElement('div');
+      empty.className = 'agentTaskEmpty';
+      empty.textContent = '暂无任务动态';
+      box.appendChild(empty);
+      return;
+    }
+    var names = taskNamesByAgent[selected] || {};
+    events.forEach(function (item) {
+      var ev = item.data || {};
+      var row = document.createElement('div');
+      row.className = 'agentTaskEvent ' + (ev.stage || '');
+      var stage = document.createElement('span');
+      stage.className = 'stage';
+      stage.textContent = TASK_STAGE_LABEL[ev.stage] || ev.stage || '事件';
+      row.appendChild(stage);
+      var body = document.createElement('div');
+      body.className = 'body';
+      var title = document.createElement('div');
+      title.className = 'title';
+      title.textContent = names[ev.task_id] || ev.task_id || '任务';
+      body.appendChild(title);
+      var info = document.createElement('div');
+      info.className = 'info';
+      info.textContent = [ev.datetime, ev.message || ev.cause]
+        .filter(Boolean).join(' · ');
+      body.appendChild(info);
+      row.appendChild(body);
+      box.appendChild(row);
+    });
+  }
+
+  function pushTaskEvent(agentId, data) {
+    var list = taskEventsByAgent[agentId];
+    if (!list) list = taskEventsByAgent[agentId] = [];
+    var key = [data.task_id, data.run_id, data.stage].join('|');
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].key === key) return false;
+    }
+    list.unshift({ key: key, data: data });
+    if (list.length > TASK_EVENT_MAX) list.length = TASK_EVENT_MAX;
+    if (agentId === selected) renderTaskEvents();
+    return true;
+  }
+
   function taskScheduleText(task) {
     var schedule = task.schedule || {};
     if (schedule.type === 'daily_window') {
@@ -3869,11 +3946,18 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var list = els.taskList;
     if (!list) return;
     list.innerHTML = '';
+    var names = {};
+    (tasks || []).forEach(function (task) {
+      var tid = task.task_id || task.id;
+      if (tid) names[tid] = task.name || tid;
+    });
+    taskNamesByAgent[selected] = names;
     if (!tasks || !tasks.length) {
       var empty = document.createElement('div');
       empty.className = 'agentTaskEmpty';
       empty.textContent = '暂无任务';
       list.appendChild(empty);
+      renderTaskEvents();
       return;
     }
     tasks.forEach(function (task) {
@@ -3929,9 +4013,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 
       list.appendChild(row);
     });
+    renderTaskEvents();
   }
 
   function requestTasks() {
+    renderTaskEvents();
     if (!selected) {
       setTaskMsg('请先选择在线 agent。');
       renderTaskList([]);
@@ -4000,6 +4086,18 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var labels = { create: '创建', pause: '暂停', resume: '恢复', cancel: '取消' };
     setTaskMsg((labels[op] || op) + '成功 · ' + (d.datetime || ''));
     requestTasks();
+  });
+
+  // 任务事件（§4.27）：started / completed / failed / skipped
+  document.addEventListener('walle-agent-task-report', function (e) {
+    var id = e.detail.id, d = e.detail.data || {};
+    if (!d.stage || !pushTaskEvent(id, d)) return;
+    if (id !== selected) return;
+    if (d.stage === 'completed' || d.stage === 'failed' || d.stage === 'skipped') {
+      if (document.querySelector('.tabPanel[data-tab="agent-tasks"].active')) {
+        requestTasks();
+      }
+    }
   });
 
   // ---------------- agent 详情（baseState/query） ----------------
@@ -4357,6 +4455,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   if (els.taskRefresh) {
     els.taskRefresh.addEventListener('click', requestTasks);
   }
+  renderTaskEvents();
 
   // 停止会话：优雅停止 agent 当前会话（电机停车并释放控制权）
   els.estop.addEventListener('click', function () {
