@@ -27,6 +27,7 @@ import time
 import uuid
 from urllib import error as urlerror
 from urllib import request as urlrequest
+from datetime import datetime, timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(BASE_DIR)
@@ -37,6 +38,7 @@ if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
 from walle_protocol import (RESULT_CODES, RequestBus, decode_result,  # noqa: E402,F401
                             new_request_id)
 from task_store import TaskStore  # noqa: E402
+import task_schedule  # noqa: E402
 
 try:
     import paho.mqtt.client as mqtt
@@ -98,6 +100,10 @@ _RUN_GROUP_DEFAULTS = {
 
 # M1-07：可从 runState 缓存的能力分组
 CAPABILITY_FEATURES = tuple(_RUN_GROUP_DEFAULTS)
+
+# M3-04：任务动作（首期只支持录像开始/停止）
+TASK_PHASE_TOOLS = {"start": "record.start", "stop": "record.stop"}
+TASK_PHASE_REVERSE = {tool: phase for phase, tool in TASK_PHASE_TOOLS.items()}
 
 
 def _load_agent_version(path):
@@ -406,6 +412,12 @@ def agent_progress_topic():
     """agent 会话进度上报主题：walle/{t}/agent/{a}/chat/progress/report"""
     return "walle/{}/agent/{}/chat/progress/report".format(
         server_tenant(), agent_identity())
+
+
+def agent_task_topic(action, resource="request"):
+    """任务管理主题：walle/{t}/agent/{a}/task/{action}/{request|response}"""
+    return "walle/{}/agent/{}/task/{}/{}".format(
+        server_tenant(), agent_identity(), action, resource)
 
 
 # 统一错误码与 request_id 生成器已迁移到 walle_protocol.py（M1-01），
@@ -757,6 +769,139 @@ def _servo_error_text(result):
     return result.get("cause") or error or "未知错误"
 
 
+# ---------------- 任务意图（M3-04）----------------
+
+_TASK_TIME_RE = re.compile(
+    r"(?:(凌晨|早上|上午|中午|下午|傍晚|晚上)\s*)?"
+    r"([0-9]{1,2}|[零一二三四五六七八九十]{1,3})\s*(?:点|时|:|：)\s*"
+    r"(半|[0-9]{1,2})?")
+
+
+def _task_times(text):
+    """从自然语言中提取 (hour, minute)，支持“晚上9点”“8点半”。"""
+    times = []
+    for match in _TASK_TIME_RE.finditer(text):
+        period, hour_text, minute_text = match.groups()
+        hour = _cn_number(hour_text)
+        if hour is None:
+            continue
+        hour = int(hour)
+        if minute_text == "半":
+            minute = 30
+        elif minute_text:
+            try:
+                minute = int(minute_text)
+            except ValueError:
+                continue
+        else:
+            minute = 0
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            continue
+        if period in ("下午", "傍晚", "晚上") and hour < 12:
+            hour += 12
+        elif period == "中午" and hour < 11:
+            hour += 12
+        if hour > 23:
+            continue
+        times.append((hour, minute))
+    return times
+
+
+def _fmt_task_time(value):
+    return "{:02d}:{:02d}".format(value[0], value[1])
+
+
+def _parse_task_intent(text):
+    """识别任务管理/创建意图；不是任务语句时返回 (None, None)。"""
+    if any(word in text for word in (
+            "查看任务", "任务列表", "有哪些任务", "我的任务", "列出任务")):
+        return {"action": "task_list"}, None
+
+    for action, words in (
+            ("task_cancel", ("取消任务", "删除任务")),
+            ("task_pause", ("暂停任务",)),
+            ("task_resume", ("恢复任务", "继续任务"))):
+        for word in words:
+            if word not in text:
+                continue
+            target = text.replace(word, "", 1).strip(" :：,，.。")
+            intent = {"action": action}
+            if target:
+                if re.fullmatch(r"task-[0-9a-fA-F]{8}", target):
+                    intent["task_id"] = target
+                else:
+                    intent["task_name"] = target
+            return intent, None
+
+    if "录像" not in text:
+        return None, None
+
+    interval = re.search(
+        r"每隔\s*([0-9]+|[零一二两三四五六七八九十]+)\s*(小时|分钟|秒)", text)
+    if interval:
+        count = _cn_number(interval.group(1))
+        if count and count > 0:
+            unit = interval.group(2)
+            seconds = int(count * {"小时": 3600, "分钟": 60, "秒": 1}[unit])
+            return {
+                "action": "task_create",
+                "name": "每隔{}{}录像".format(int(count), unit),
+                "schedule": {"type": "interval", "seconds": seconds},
+                "actions": [{"phase": "start", "tool": "record.start"}],
+            }, None
+
+    times = _task_times(text)
+    if not times:
+        if any(word in text for word in ("每天", "每日", "明天", "工作日", "任务")):
+            return None, ("任务时间没识别出来。"
+                          "请说“每天8点开始录像，晚上9点停止”。")
+        return None, None
+
+    if len(times) >= 2:
+        start, stop = times[0], times[1]
+        if "工作日" in text:
+            schedule = {"type": "daily_window", "start": _fmt_task_time(start),
+                        "stop": _fmt_task_time(stop),
+                        "weekdays": [0, 1, 2, 3, 4]}
+            name = "工作日 {}–{} 录像".format(
+                _fmt_task_time(start), _fmt_task_time(stop))
+        elif "每天" in text or "每日" in text:
+            schedule = {"type": "daily_window", "start": _fmt_task_time(start),
+                        "stop": _fmt_task_time(stop)}
+            name = "每天 {}–{} 录像".format(
+                _fmt_task_time(start), _fmt_task_time(stop))
+        else:
+            return None, "一次任务暂只支持一个开始时间。"
+        return {
+            "action": "task_create", "name": name, "schedule": schedule,
+            "actions": [{"phase": "start", "tool": "record.start"},
+                        {"phase": "stop", "tool": "record.stop"}],
+        }, None
+
+    hour, minute = times[0]
+    if "明天" in text:
+        tomorrow = (task_schedule.now_in_timezone(
+            task_schedule.DEFAULT_TIMEZONE) + timedelta(days=1)).date()
+        schedule = {"type": "once",
+                    "at": "{} {:02d}:{:02d}:00".format(
+                        tomorrow.isoformat(), hour, minute)}
+        name = "明天 {:02d}:{:02d} 录像".format(hour, minute)
+    elif "工作日" in text:
+        schedule = {"type": "cron",
+                    "expr": "{} {} * * 1-5".format(minute, hour)}
+        name = "工作日 {:02d}:{:02d} 录像".format(hour, minute)
+    elif "每天" in text or "每日" in text:
+        schedule = {"type": "cron",
+                    "expr": "{} {} * * *".format(minute, hour)}
+        name = "每天 {:02d}:{:02d} 录像".format(hour, minute)
+    else:
+        return None, "请说明是每天、明天还是工作日执行。"
+    return {
+        "action": "task_create", "name": name, "schedule": schedule,
+        "actions": [{"phase": "start", "tool": "record.start"}],
+    }, None
+
+
 def parse_intent(text):
     """返回 (intent, error)。intent 为 None 时 error 给出可读原因。"""
     t = _normalize(text)
@@ -765,6 +910,12 @@ def parse_intent(text):
 
     if re.fullmatch(r"(停止|停|急停|刹车|别动|stop)", t) or "急停" in t:
         return {"action": "stop"}, None
+
+    task_intent, task_error = _parse_task_intent(t)
+    if task_intent is not None:
+        return task_intent, task_error
+    if task_error:
+        return None, task_error
 
     if any(w in t for w in DISCOVER_WORDS):
         return {"action": "device_discover"}, None
@@ -882,7 +1033,9 @@ def validate_intent(intent, cfg):
                             "agent_status", "service_health", "alarm_status",
                             "record_start", "record_stop", "record_list",
                             "stream_start", "stream_stop", "servo_status",
-                            "servo_set", "servo_center", "servo_relative"):
+                            "servo_set", "servo_center", "servo_relative",
+                            "task_list", "task_create", "task_cancel",
+                            "task_pause", "task_resume"):
         return intent, None
 
     max_distance = float(cfg["MAX_DISTANCE"])
@@ -1448,10 +1601,12 @@ class Agent:
         ]
         # agent 自身的请求按层级用通配符覆盖，新增同层功能无需改订阅：
         #   +/request      → chat/request
-        #   +/+/request    → baseState/query、config/modify、chat/stop
+        #   +/+/request    → baseState/query、config/modify、chat/stop、task/create
+        #   +/+/+/request  → task/list/query
         agent_prefix = "walle/{}/agent/{}".format(self.tenant, agent_identity())
         subs.append((agent_prefix + "/+/request", 1))
         subs.append((agent_prefix + "/+/+/request", 1))
+        subs.append((agent_prefix + "/+/+/+/request", 1))
         return subs
 
     @staticmethod
@@ -1508,6 +1663,8 @@ class Agent:
                 self._on_agent_config_request(msg)
             elif resource == "chat/stop/request":
                 self._on_agent_stop_request(msg)
+            elif resource.startswith("task/") and resource.endswith("/request"):
+                self._on_task_request(msg, resource)
             else:
                 log().debug("忽略未处理的 agent 主题: %s", msg.topic)
             return
@@ -1733,6 +1890,101 @@ class Agent:
             log().warning(log_line, *log_args)
         self._publish_topic(agent_stop_topic("response"), response)
 
+    # ---- 任务管理（M3-04）----
+    TASK_REQUEST_ACTIONS = {
+        "task/list/query/request": "list/query",
+        "task/create/request": "create",
+        "task/cancel/request": "cancel",
+        "task/pause/request": "pause",
+        "task/resume/request": "resume",
+    }
+    TASK_ERROR_RESULTS = {
+        "bad_param": -2,
+        "parameter_error": -2,
+        "no_future": -2,
+        "ambiguous": -2,
+        "unsupported": -3,
+        "capability_unsupported": -3,
+        "mqtt_not_connected": -3,
+        "not_found": -3,
+        "capability_unknown": -6,
+    }
+
+    def _on_task_request(self, msg, resource):
+        payload = self._decode_payload(msg)
+        if not isinstance(payload, dict):
+            payload = {}
+        # 创建任务可能要查 runState，放线程里避免阻塞 MQTT 收包
+        threading.Thread(target=self._serve_task_request,
+                         args=(resource, payload), daemon=True,
+                         name="agent-task").start()
+
+    @staticmethod
+    def _task_response(payload, result=0, cause="ok", **extra):
+        response = {
+            "result": result,
+            "cause": cause,
+            "request_id": str(payload.get("request_id") or "").strip(),
+            "agent_id": agent_identity(),
+            "tenant": server_tenant(),
+            "timestamp": int(time.time()),
+            "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        response.update(extra)
+        return response
+
+    def _publish_task_response(self, action, response):
+        self._publish_topic(agent_task_topic(action, "response"), response)
+
+    def _serve_task_request(self, resource, payload):
+        action = self.TASK_REQUEST_ACTIONS.get(resource)
+        if action is None:
+            return
+        if not str(payload.get("request_id") or "").strip():
+            self._publish_task_response(
+                action, self._task_response(payload, -1,
+                                            "请求里没有 request_id"))
+            return
+        if action == "list/query":
+            out = self.task_list(payload.get("device") or None)
+            self._publish_task_response(
+                action, self._task_response(
+                    payload, 0, "ok",
+                    device=out.get("device"),
+                    tasks=out.get("tasks") or [],
+                    count=out.get("count") or 0))
+            return
+        if action == "create":
+            out = self.task_create(
+                payload.get("name"), payload.get("device"),
+                payload.get("schedule"), payload.get("actions"),
+                payload.get("timezone"), enabled=payload.get("enabled", True))
+        elif action == "cancel":
+            out = self.task_cancel(payload.get("task_id"),
+                                   payload.get("task_name"))
+        elif action == "pause":
+            out = self.task_pause(payload.get("task_id"),
+                                  payload.get("task_name"))
+        else:
+            out = self.task_resume(payload.get("task_id"),
+                                   payload.get("task_name"))
+        if not out.get("ok"):
+            result = self.TASK_ERROR_RESULTS.get(out.get("error"), -6)
+            self._publish_task_response(
+                action, self._task_response(
+                    payload, result,
+                    out.get("cause") or out.get("error") or "任务操作失败",
+                    task_id=out.get("task_id"),
+                    task=out.get("task")))
+            return
+        extra = {}
+        for key in ("task", "task_id", "first_run_at", "first_phase",
+                    "next_run_at", "task_name"):
+            if out.get(key) is not None:
+                extra[key] = out[key]
+        self._publish_task_response(
+            action, self._task_response(payload, 0, "ok", **extra))
+
     # ---- 对话层（用户 ↔ agent）----
     @staticmethod
     def _decode_payload(msg):
@@ -1788,6 +2040,11 @@ class Agent:
                        for w in ("服务健康", "服务状态", "健康检查", "health"))
                 or any(w in normalized_text
                        for w in ("告警", "报警", "alarm"))
+                or any(w in normalized_text
+                       for w in ("查看任务", "任务列表", "列出任务",
+                                 "有哪些任务", "我的任务", "取消任务",
+                                 "删除任务", "暂停任务", "恢复任务",
+                                 "继续任务"))
             )
             if not client_id:
                 missing = "client_id"
@@ -1888,6 +2145,169 @@ class Agent:
                 if self.task_store is None:
                     self.task_store = TaskStore(self.cfg.get("TASK_DB_PATH"))
         return self.task_store
+
+    # ---- 任务管理（M3-04）----
+    @staticmethod
+    def _task_public(task):
+        """对外任务对象：只暴露 task_id（内部主键 id 不进入协议）。"""
+        item = dict(task)
+        item["task_id"] = item.pop("id", None)
+        return item
+
+    @staticmethod
+    def _task_default_name(schedule):
+        kind = schedule.get("type")
+        if kind == "daily_window":
+            prefix = ("工作日" if schedule.get("weekdays") == [0, 1, 2, 3, 4]
+                      else "每天")
+            return "{} {}–{} 录像".format(
+                prefix, schedule["start"], schedule["stop"])
+        if kind == "once":
+            return "{} 录像".format(schedule["at"])
+        if kind == "cron":
+            return "定时录像（{}）".format(schedule["expr"])
+        return "每隔 {} 秒录像".format(schedule.get("seconds"))
+
+    @staticmethod
+    def _validate_task_actions(schedule, actions):
+        if not isinstance(actions, (list, tuple)) or not actions:
+            raise ValueError("actions 不能为空")
+        clean = []
+        for item in actions:
+            if not isinstance(item, dict):
+                raise ValueError("actions 元素必须是对象")
+            phase = str(item.get("phase") or "").strip()
+            tool = str(item.get("tool") or "").strip()
+            if phase not in TASK_PHASE_TOOLS:
+                raise ValueError("phase 只能是 start/stop")
+            expected = TASK_PHASE_TOOLS[phase]
+            if tool != expected:
+                raise ValueError("{} 阶段的动作必须是 {}".format(phase, expected))
+            clean.append({"phase": phase, "tool": expected})
+        if schedule.get("type") == "daily_window":
+            if {item["phase"] for item in clean} != {"start", "stop"}:
+                raise ValueError("daily_window 需要 start 和 stop 两个动作")
+        elif len(clean) != 1:
+            raise ValueError("该任务类型只支持一个动作阶段")
+        return clean
+
+    def task_list(self, device=None, enabled=None):
+        store = self.task_db()
+        tasks = store.list_tasks(enabled=enabled)
+        if device:
+            tasks = [task for task in tasks if task.get("device") == device]
+        for task in tasks:
+            runs = store.list_runs(task["id"], limit=1)
+            task["last_run"] = runs[0] if runs else None
+        tasks = [self._task_public(task) for task in tasks]
+        return {"ok": True, "action": "task_list", "device": device or None,
+                "tasks": tasks, "count": len(tasks)}
+
+    def task_create(self, name, device, schedule, actions, timezone=None,
+                    enabled=True):
+        device = str(device or "").strip()
+        name = str(name or "").strip()
+        if not device:
+            return {"ok": False, "action": "task_create",
+                    "error": "bad_param", "cause": "缺少设备 device"}
+        try:
+            schedule = task_schedule.validate_schedule(schedule)
+            actions = self._validate_task_actions(schedule, actions)
+        except ValueError as exc:
+            return {"ok": False, "action": "task_create",
+                    "error": "bad_param", "cause": str(exc)}
+        preflight = self.preflight_recording_task(device)
+        if not preflight.get("ok"):
+            return {"ok": False, "action": "task_create",
+                    "error": preflight.get("error") or "capability_unknown",
+                    "cause": preflight.get("cause") or "无法确认设备录像能力",
+                    "capabilities": preflight.get("capabilities")}
+        timezone = str(timezone or self.cfg.get("TASK_TIMEZONE")
+                       or task_schedule.DEFAULT_TIMEZONE)
+        name = name or self._task_default_name(schedule)
+        draft = {"id": "pending", "name": name, "device": device,
+                 "timezone": timezone, "schedule": schedule,
+                 "actions": actions, "next_run_at": None}
+        nxt = task_schedule.next_occurrence(draft)
+        if nxt is None:
+            return {"ok": False, "action": "task_create",
+                    "error": "no_future", "cause": "该计划没有下一次执行时间"}
+        task = self.task_db().create_task(
+            name, device, schedule, actions, timezone=timezone,
+            enabled=enabled, next_run_at=nxt["at"])
+        return {"ok": True, "action": "task_create", "task": self._task_public(task),
+                "task_id": task["id"], "first_run_at": nxt["at"],
+                "first_phase": nxt["phase"], "next_run_at": nxt["at"]}
+
+    def _resolve_task(self, task_id=None, task_name=None):
+        store = self.task_db()
+        task_id = str(task_id or "").strip()
+        if task_id:
+            task = store.get_task(task_id)
+            if task is None:
+                return None, {"ok": False, "error": "not_found",
+                              "cause": "任务不存在：{}".format(task_id)}
+            return task, None
+        name = str(task_name or "").strip()
+        if not name:
+            return None, {"ok": False, "error": "bad_param",
+                          "cause": "请提供任务名称或 task_id"}
+        tasks = store.list_tasks()
+        matches = [task for task in tasks if task["name"] == name]
+        if not matches:
+            matches = [task for task in tasks if name in task["name"]]
+        if not matches:
+            return None, {"ok": False, "error": "not_found",
+                          "cause": "没有找到任务：{}".format(name)}
+        if len(matches) > 1:
+            return None, {"ok": False, "error": "ambiguous",
+                          "cause": "匹配到多个任务，请使用 task_id"}
+        return matches[0], None
+
+    def task_cancel(self, task_id=None, task_name=None):
+        task, error = self._resolve_task(task_id, task_name)
+        if error:
+            error.update({"action": "task_cancel"})
+            return error
+        deleted = self.task_db().delete_task(task["id"])
+        if not deleted:
+            return {"ok": False, "action": "task_cancel",
+                    "error": "not_found", "cause": "任务不存在"}
+        return {"ok": True, "action": "task_cancel", "task_id": task["id"],
+                "task_name": task["name"], "task": self._task_public(task)}
+
+    def task_pause(self, task_id=None, task_name=None):
+        task, error = self._resolve_task(task_id, task_name)
+        if error:
+            error.update({"action": "task_pause"})
+            return error
+        if task.get("enabled"):
+            task = self.task_db().update_task(task["id"], enabled=False)
+        return {"ok": True, "action": "task_pause",
+                "task": self._task_public(task),
+                "task_id": task["id"], "task_name": task["name"]}
+
+    def task_resume(self, task_id=None, task_name=None):
+        task, error = self._resolve_task(task_id, task_name)
+        if error:
+            error.update({"action": "task_resume"})
+            return error
+        if task.get("enabled"):
+            return {"ok": True, "action": "task_resume",
+                    "task": self._task_public(task),
+                    "task_id": task["id"], "task_name": task["name"],
+                    "next_run_at": task.get("next_run_at")}
+        nxt = task_schedule.next_occurrence(task)
+        if nxt is None:
+            return {"ok": False, "action": "task_resume",
+                    "error": "no_future", "cause": "该计划没有下一次执行时间",
+                    "task_id": task["id"]}
+        task = self.task_db().update_task(
+            task["id"], enabled=True, next_run_at=nxt["at"])
+        return {"ok": True, "action": "task_resume",
+                "task": self._task_public(task),
+                "task_id": task["id"], "task_name": task["name"],
+                "next_run_at": nxt["at"], "first_run_at": nxt["at"]}
 
     def chat_status(self):
         return {
@@ -2149,6 +2569,21 @@ class Agent:
             return self.discover_devices()
         if intent["action"] == "alarm_status":
             return self.recent_alarm(device or None)
+        if intent["action"] == "task_list":
+            return self.task_list(device or None)
+        if intent["action"] == "task_create":
+            return self.task_create(
+                intent.get("name"), device, intent.get("schedule"),
+                intent.get("actions"))
+        if intent["action"] == "task_cancel":
+            return self.task_cancel(intent.get("task_id"),
+                                    intent.get("task_name"))
+        if intent["action"] == "task_pause":
+            return self.task_pause(intent.get("task_id"),
+                                   intent.get("task_name"))
+        if intent["action"] == "task_resume":
+            return self.task_resume(intent.get("task_id"),
+                                    intent.get("task_name"))
         if intent["action"] == "record_start":
             return self.record_start(device, intent.get("segment_sec") or 0)
         if intent["action"] == "record_stop":
@@ -3696,6 +4131,49 @@ def _reply_text(intent, result):
             result.get("cause") or result.get("error") or "未知错误")
     elif action == "alarm_status":
         return result.get("reply") or "暂无告警。"
+    elif action == "task_list":
+        if not result.get("ok"):
+            return "查询任务失败：{}。".format(
+                result.get("cause") or result.get("error") or "未知错误")
+        tasks = result.get("tasks") or []
+        if not tasks:
+            return "暂无任务。"
+        parts = []
+        for task in tasks[:5]:
+            parts.append("{}（{}，下次 {}）".format(
+                task.get("name") or task.get("id"),
+                "启用" if task.get("enabled") else "已暂停",
+                task.get("next_run_at") or "无"))
+        suffix = " 等 {} 个".format(len(tasks)) if len(tasks) > 5 else ""
+        return "共 {} 个任务：{}{}。".format(
+            len(tasks), "；".join(parts), suffix)
+    elif action == "task_create":
+        if result.get("ok"):
+            task = result.get("task") or {}
+            return "已创建任务 {}（{}），首次执行 {}。".format(
+                task.get("name") or "录像任务", result.get("task_id"),
+                result.get("first_run_at"))
+        return "创建任务失败：{}。".format(
+            result.get("cause") or result.get("error") or "未知错误")
+    elif action == "task_cancel":
+        if result.get("ok"):
+            return "已取消任务 {}（{}）。".format(
+                result.get("task_name") or "", result.get("task_id"))
+        return "取消任务失败：{}。".format(
+            result.get("cause") or result.get("error") or "未知错误")
+    elif action == "task_pause":
+        if result.get("ok"):
+            return "已暂停任务 {}，恢复后重新计算下次执行时间。".format(
+                result.get("task_name") or result.get("task_id"))
+        return "暂停任务失败：{}。".format(
+            result.get("cause") or result.get("error") or "未知错误")
+    elif action == "task_resume":
+        if result.get("ok"):
+            return "已恢复任务 {}，下次执行 {}。".format(
+                result.get("task_name") or result.get("task_id"),
+                result.get("next_run_at") or "无")
+        return "恢复任务失败：{}。".format(
+            result.get("cause") or result.get("error") or "未知错误")
     elif action == "record_start":
         if result.get("ok"):
             if result.get("already_recording"):

@@ -1,6 +1,6 @@
 # walle-agent 动作清单与调用示例
 
-> 适用版本：walle-agent 0.1.1，协议文档 v1.26。
+> 适用版本：walle-agent 0.1.1，协议文档 v1.27。
 > 实现入口：`walle-agent/src/car_agent.py` 的 `Agent` 类。
 > 协议契约以 `doc/MQTT_protocol_convention.md` 为准，本文只说明 agent 动作层怎么调用、返回什么。
 
@@ -83,6 +83,9 @@ print(out["reply"])
 | `servo_set` | `servo_set()` | `car/servo/set/request` | acquire/release + servo 锁 | 否 |
 | `servo_center` | `servo_center()` | `car/servo/set/request` | acquire/release + servo 锁 | 否 |
 | `servo_relative` | `servo_relative()` | status → set | acquire/release + servo 锁 | 是（status 阶段） |
+| `task_list` | `task_list()` | 本地 SQLite | 否 | 否 |
+| `task_create` | `task_create()` | 本地 SQLite + `runState` 预检 | 否 | 否 |
+| `task_cancel` / `task_pause` / `task_resume` | 同名方法 | 本地 SQLite | 否 | 否 |
 
 > `record/delete`、`record/play/start|stop`、`phone/audio/*` 尚未实现（M5）。
 >
@@ -251,7 +254,45 @@ out = agent.servo_status("dev-1", ids=[1, 2], include_offset=False)
 - 先 `servo_status` 读当前位置，再 `servo_set` 绝对位置。
 - 返回 `previous_position/target/delta/servo_id/servo_name`。
 
-## 9. 进度上报（§4.25）
+## 9. 任务管理（M3-04）
+
+对应协议 §4.26，任务持久化在 `walle-agent/data/agent.db`。
+
+| action | intent | 说明 |
+|---|---|---|
+| `task_list` | `{"action":"task_list"}` | 查询任务；`device` 可选 |
+| `task_create` | `{"action":"task_create","name":"...","schedule":{...},"actions":[...]}` | 创建录像任务 |
+| `task_cancel` | `{"action":"task_cancel","task_id":"task-..."}` | 取消任务，执行记录级联删除 |
+| `task_pause` | `{"action":"task_pause","task_id":"task-..."}` | `enabled=false`，保留 `next_run_at` |
+| `task_resume` | `{"action":"task_resume","task_id":"task-..."}` | `enabled=true`，按当前时间重算 `next_run_at` |
+
+创建示例：
+
+```python
+out = agent.task_create(
+    "每天 8 点录像", "dev-1",
+    {"type": "daily_window", "start": "08:00", "stop": "21:00"},
+    [{"phase": "start", "tool": "record.start"},
+     {"phase": "stop", "tool": "record.stop"}])
+# {"ok":true,"task_id":"task-...","first_run_at":"2026-11-28 08:00:00",
+#  "first_phase":"start","next_run_at":"2026-11-28 08:00:00"}
+```
+
+计划类型：`daily_window` / `once` / `cron` / `interval`，详见 §4.26。
+首期动作只支持 `record.start` / `record.stop`；`daily_window` 必须 start+stop 成对。
+自然语言示例：「每天8点开始录像，晚上9点停止」「明天早上8点开始录像」「每隔2小时录像」。
+
+MQTT 主题：
+
+```
+agent/{a}/task/list/query/request|response
+agent/{a}/task/create/request|response
+agent/{a}/task/cancel/request|response
+agent/{a}/task/pause/request|response
+agent/{a}/task/resume/request|response
+```
+
+## 10. 进度上报（§4.25）
 
 长动作在对话线程内自动上报：
 
@@ -267,7 +308,7 @@ out = agent.servo_status("dev-1", ids=[1, 2], include_offset=False)
 - 无对话上下文（测试或直接调用动作方法）时不上报，避免假 request_id。
 - Web 收到进度后会重置 20 秒超时，推流/录像启动不再被误判超时。
 
-## 10. chat/response 的 data / result
+## 11. chat/response 的 data / result
 
 | data 字段 | 来源动作 | 内容 |
 |---|---|---|
@@ -285,7 +326,7 @@ out = agent.servo_status("dev-1", ids=[1, 2], include_offset=False)
  "summary":{"result":0,"cause":"ok","records_count":120}}
 ```
 
-## 11. 测试入口
+## 12. 测试入口
 
 ```bash
 python3 -m pytest -q walle-agent/test

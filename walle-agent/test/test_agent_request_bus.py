@@ -1536,3 +1536,176 @@ def test_chat_response_servo_status_carries_servos(agent, monkeypatch):
     payload = _chat_response(agent)
 
     assert payload["data"]["servos"] == servos
+
+
+# ---------------- M3-04 任务管理 ----------------
+
+def _use_task_store(agent, tmp_path):
+    store = car_agent.TaskStore(str(tmp_path / "agent.db"))
+    agent.task_store = store
+    agent.cfg["TASK_DB_PATH"] = str(tmp_path / "agent.db")
+    return store
+
+
+def _task_create_intent(at="2030-01-01 08:00:00"):
+    return {
+        "action": "task_create", "name": "测试任务",
+        "schedule": {"type": "once", "at": at},
+        "actions": [{"phase": "start", "tool": "record.start"}],
+    }
+
+
+def test_task_create_computes_next_run_and_persists(agent, tmp_path, monkeypatch):
+    _use_task_store(agent, tmp_path)
+    monkeypatch.setattr(agent, "preflight_recording_task",
+                        lambda device: {"ok": True})
+
+    intent = _task_create_intent()
+    out = agent.task_create(intent["name"], "dev-1", intent["schedule"],
+                            intent["actions"])
+
+    assert out["ok"] is True
+    assert out["first_run_at"] == "2030-01-01 08:00:00"
+    assert out["task"]["enabled"] is True
+    assert out["task"]["schedule"]["type"] == "once"
+    stored = agent.task_db().get_task(out["task_id"])
+    assert stored["next_run_at"] == "2030-01-01 08:00:00"
+
+
+def test_task_create_rejects_unsupported_recording(agent, tmp_path, monkeypatch):
+    _use_task_store(agent, tmp_path)
+    monkeypatch.setattr(agent, "preflight_recording_task", lambda device: {
+        "ok": False, "error": "capability_unsupported",
+        "cause": "设备不支持录像",
+    })
+
+    out = agent.task_create(
+        "测试任务", "dev-1", {"type": "once", "at": "2030-01-01 08:00:00"},
+        [{"phase": "start", "tool": "record.start"}])
+
+    assert out["ok"] is False
+    assert out["error"] == "capability_unsupported"
+    assert agent.task_db().list_tasks() == []
+
+
+def test_task_create_requires_start_stop_for_daily_window(agent, tmp_path,
+                                                         monkeypatch):
+    _use_task_store(agent, tmp_path)
+    monkeypatch.setattr(agent, "preflight_recording_task",
+                        lambda device: {"ok": True})
+
+    out = agent.task_create(
+        "窗口任务", "dev-1",
+        {"type": "daily_window", "start": "08:00", "stop": "21:00"},
+        [{"phase": "start", "tool": "record.start"}])
+
+    assert out["ok"] is False
+    assert out["error"] == "bad_param"
+    assert "start 和 stop" in out["cause"]
+
+
+def test_task_list_includes_last_run(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    monkeypatch.setattr(agent, "preflight_recording_task",
+                        lambda device: {"ok": True})
+    created = agent.task_create(
+        "测试任务", "dev-1", {"type": "once", "at": "2030-01-01 08:00:00"},
+        [{"phase": "start", "tool": "record.start"}])
+    store.record_run(created["task_id"], "start",
+                     scheduled_at="2030-01-01 08:00:00", result=0,
+                     finished_at="2030-01-01 08:00:01")
+
+    out = agent.task_list("dev-1")
+
+    assert out["count"] == 1
+    assert out["tasks"][0]["last_run"]["phase"] == "start"
+    assert out["tasks"][0]["last_run"]["result"] == 0
+
+
+def test_task_pause_resume_cancel(agent, tmp_path, monkeypatch):
+    _use_task_store(agent, tmp_path)
+    monkeypatch.setattr(agent, "preflight_recording_task",
+                        lambda device: {"ok": True})
+    created = agent.task_create(
+        "测试任务", "dev-1", {"type": "interval", "seconds": 3600},
+        [{"phase": "start", "tool": "record.start"}])
+    task_id = created["task_id"]
+
+    paused = agent.task_pause(task_id)
+    assert paused["ok"] is True
+    assert paused["task"]["enabled"] is False
+
+    resumed = agent.task_resume(task_id)
+    assert resumed["ok"] is True
+    assert resumed["task"]["enabled"] is True
+    assert resumed["next_run_at"]
+
+    cancelled = agent.task_cancel(task_id)
+    assert cancelled["ok"] is True
+    assert agent.task_db().get_task(task_id) is None
+
+
+def test_mqtt_task_create_and_list(agent, tmp_path, monkeypatch):
+    _use_task_store(agent, tmp_path)
+    monkeypatch.setattr(agent, "preflight_recording_task",
+                        lambda device: {"ok": True})
+    agent._on_message(None, None, _message(
+        "walle/test/agent/agent-test/task/create/request", {
+            "request_id": "web-task-1",
+            "device": "dev-1",
+            "name": "测试任务",
+            "schedule": {"type": "once", "at": "2030-01-01 08:00:00"},
+            "actions": [{"phase": "start", "tool": "record.start"}],
+        }))
+    assert _wait_for(lambda: bool(
+        _published(agent, "/task/create/response")))
+    created = _published(agent, "/task/create/response")[-1]["payload"]
+    assert created["result"] == 0
+    assert created["task_id"].startswith("task-")
+    assert created["next_run_at"] == "2030-01-01 08:00:00"
+
+    agent._on_message(None, None, _message(
+        "walle/test/agent/agent-test/task/list/query/request", {
+            "request_id": "web-task-2", "device": "dev-1"}))
+    assert _wait_for(lambda: bool(
+        _published(agent, "/task/list/query/response")))
+    listed = _published(agent, "/task/list/query/response")[-1]["payload"]
+    assert listed["result"] == 0
+    assert listed["count"] == 1
+    assert listed["tasks"][0]["task_id"] == created["task_id"]
+
+
+def test_mqtt_task_create_requires_request_id(agent, tmp_path):
+    _use_task_store(agent, tmp_path)
+    agent._on_message(None, None, _message(
+        "walle/test/agent/agent-test/task/create/request", {
+            "device": "dev-1",
+        }))
+    assert _wait_for(lambda: bool(
+        _published(agent, "/task/create/response")))
+    payload = _published(agent, "/task/create/response")[-1]["payload"]
+    assert payload["result"] == -1
+    assert "request_id" in payload["cause"]
+
+
+def test_parse_intent_routes_task_commands():
+    intent, _ = car_agent.parse_intent("查看任务")
+    assert intent == {"action": "task_list"}
+
+    intent, _ = car_agent.parse_intent("取消任务 task-1a2b3c4d")
+    assert intent == {"action": "task_cancel", "task_id": "task-1a2b3c4d"}
+
+    intent, _ = car_agent.parse_intent("每天8点开始录像，晚上9点停止")
+    assert intent["action"] == "task_create"
+    assert intent["schedule"] == {
+        "type": "daily_window", "start": "08:00", "stop": "21:00"}
+    assert intent["actions"] == [
+        {"phase": "start", "tool": "record.start"},
+        {"phase": "stop", "tool": "record.stop"},
+    ]
+
+    intent, _ = car_agent.parse_intent("明天早上8点开始录像")
+    assert intent["schedule"]["type"] == "once"
+
+    intent, _ = car_agent.parse_intent("每隔2小时录像")
+    assert intent["schedule"] == {"type": "interval", "seconds": 7200}

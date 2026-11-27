@@ -43,6 +43,15 @@ def test_daily_window_overnight():
             "at": "2026-11-28 06:00:00", "phase": "stop"}
 
 
+def test_daily_window_weekdays_skip_weekend():
+    task = _task({"type": "daily_window", "start": "08:00", "stop": "18:00",
+                  "weekdays": [0, 1, 2, 3, 4]})
+
+    assert task_schedule.next_occurrence(
+        task, datetime(2026, 11, 28, 7, 0)) == {
+            "at": "2026-11-30 08:00:00", "phase": "start"}
+
+
 def test_once_future_and_past():
     task = _task({"type": "once", "at": "2026-11-28 08:00:00"})
 

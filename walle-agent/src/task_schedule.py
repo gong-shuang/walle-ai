@@ -138,6 +138,14 @@ def validate_schedule(schedule):
             raise ValueError("daily_window 的 start 和 stop 不能相同")
         out["start"] = str(schedule.get("start")).strip()
         out["stop"] = str(schedule.get("stop")).strip()
+        weekdays = schedule.get("weekdays")
+        if weekdays is not None:
+            if not isinstance(weekdays, (list, tuple)) or not weekdays:
+                raise ValueError("daily_window.weekdays 必须是非空数组")
+            clean = sorted({int(day) for day in weekdays})
+            if any(day < 0 or day > 6 for day in clean):
+                raise ValueError("daily_window.weekdays 取值 0-6（周一=0）")
+            out["weekdays"] = clean
     elif kind == "once":
         _parse_at(schedule.get("at"), None)
         out["at"] = str(schedule.get("at")).strip()
@@ -163,6 +171,11 @@ def _to_zone(now, zone):
     return now.astimezone(zone)
 
 
+def now_in_timezone(timezone=None, now=None):
+    """返回指定时区的当前时间（测试可注入 now）。"""
+    return _to_zone(now, _zone(timezone))
+
+
 def _phase_for(task, schedule):
     phase = str(schedule.get("phase") or "").strip()
     if phase:
@@ -178,8 +191,12 @@ def _phase_for(task, schedule):
 def _next_daily_window(schedule, now, zone):
     start = _parse_clock(schedule["start"])
     stop = _parse_clock(schedule["stop"])
-    for offset in range(3):
+    weekdays = schedule.get("weekdays")
+    allowed = set(weekdays) if weekdays else None
+    for offset in range(8):
         day = (now + timedelta(days=offset)).date()
+        if allowed is not None and day.weekday() not in allowed:
+            continue
         start_at = datetime.combine(day, start, tzinfo=zone)
         stop_day = day if stop > start else day + timedelta(days=1)
         stop_at = datetime.combine(stop_day, stop, tzinfo=zone)

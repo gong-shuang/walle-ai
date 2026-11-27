@@ -1,4 +1,4 @@
-# MQTT 协议约定（文档版本 v1.26）
+# MQTT 协议约定（文档版本 v1.27）
 > - 每次修改mqtt的topic格式或者报文的json字段，都需要更新本文档。
 > - 本文档的内容可新增，可修改，但是不能删除，对于不需要的记录废弃即可。
 > - 如果只是修改bug，没有改变topic格式或者报文的json字段，则不要更新本文档。
@@ -79,6 +79,11 @@ agent功能：
 | 4 | 配置修改 | `walle/{t}/agent/{a}/config/modify/request` | `walle/{t}/agent/{a}/config/modify/response` | 请求-应答 | v1.21 | 当前仅支持修改 `agent_name`（§4.23） |
 | 5 | 会话停止 | `walle/{t}/agent/{a}/chat/stop/request` | `walle/{t}/agent/{a}/chat/stop/response` | 请求-应答 | v1.22 | 优雅停止当前会话并释放控制权（§4.24） |
 | 6 | 会话进度上报 | - | `walle/{t}/agent/{a}/chat/progress/report` | 主动上报 | v1.23 | 长会话关键进度节点（§4.25） |
+| 7 | 任务列表 | `walle/{t}/agent/{a}/task/list/query/request` | `walle/{t}/agent/{a}/task/list/query/response` | 请求-应答 | v1.27 | 查询 SQLite 中的任务（§4.26） |
+| 8 | 创建任务 | `walle/{t}/agent/{a}/task/create/request` | `walle/{t}/agent/{a}/task/create/response` | 请求-应答 | v1.27 | 创建定时录像任务（§4.26） |
+| 9 | 取消任务 | `walle/{t}/agent/{a}/task/cancel/request` | `walle/{t}/agent/{a}/task/cancel/response` | 请求-应答 | v1.27 | 删除任务及执行记录（§4.26） |
+| 10 | 暂停任务 | `walle/{t}/agent/{a}/task/pause/request` | `walle/{t}/agent/{a}/task/pause/response` | 请求-应答 | v1.27 | `enabled=false`（§4.26） |
+| 11 | 恢复任务 | `walle/{t}/agent/{a}/task/resume/request` | `walle/{t}/agent/{a}/task/resume/response` | 请求-应答 | v1.27 | `enabled=true` 并重算下次执行（§4.26） |
 
 `{a}` = agent clientid。
 
@@ -1452,7 +1457,7 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 | `intent` | object | 可选，解析结果 |
 | `warning` | string | 可选，参数被夹紧的提示 |
 | `error` | string | 可选，错误码 |
-| `action` | string | 可选，动作名：`move` / `rotate` / `stop` / `status` / `record_*` / `stream_*` / `servo_*` 等 |
+| `action` | string | 可选，动作名：`move` / `rotate` / `stop` / `status` / `record_*` / `stream_*` / `servo_*` / `task_*` 等 |
 | `duration_sec` | number | 可选，预计运动时长 |
 | `data` | object | 可选，结构化结果，见下方「data 字段」；仅动作产生时携带 |
 | `result` | object | 可选，设备原始 `response`；超过 4096 字节时返回 `{truncated,size_bytes,summary}` |
@@ -1465,7 +1470,7 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 | `data.records` | array | 录像列表；`record_list` 携带。元素含 `filename`、`size_bytes`、`created_at`、`duration_sec`、`play_url`，最多 50 条；超出时附 `data.records_total` |
 | `data.servos` | array / object | 舵机结果：`servo_status` 为数组（同设备 `servos`）；`servo_set` / `servo_center` / `servo_relative` 为 `{applied, skipped}` |
 | `data.recording` | object | 录像状态：`{recording, filename, started_at, play_url}`；`record_start` / `record_stop` 携带 |
-| `data.task` | object | 任务信息；M3 任务调度落地后携带 |
+| `data.task` | object | 任务信息；`task_create` 返回 |
 
 `data` 各键独立可选，没有对应结果时不出现。`result` 保留设备端原始应答，便于 Web 排障；
 agent 自身的 `mqtt` / `control` / `capabilities` 等字段不会进入 `result` 或 `data`。
@@ -1551,7 +1556,8 @@ agent 不发送「超时」响应；20 秒未收到响应：删除 pending、解
 agent 启动/重连后订阅：
 
 - `walle/{t}/agent/{agent}/+/request`（1 层，如 `chat/request`）
-- `walle/{t}/agent/{agent}/+/+/request`（2 层，如 `baseState/query/request`、`config/modify/request`、`chat/stop/request`）
+- `walle/{t}/agent/{agent}/+/+/request`（2 层，如 `baseState/query/request`、`config/modify/request`、`chat/stop/request`、`task/create/request`）
+- `walle/{t}/agent/{agent}/+/+/+/request`（3 层，如 `task/list/query/request`）
 - `walle/{t}/device/+/online`
 - `walle/{t}/device/+/alarm/report`（主动告警，如 `battery_low`、`obstacle_near`、`video_lost`）
 - `walle/{t}/device/+/+/+/response`（2 层资源，如 `baseState/query/response`、`stream/start/response`、`control/acquire/response`）
@@ -1861,6 +1867,149 @@ agent 忽略未识别的字段。
   收到未知 `request_id` 时忽略。
 - 该主题不 retained；客户端重连后只依赖 `chat/response` 的最终结果，不补发历史进度。
 
+### 4.26 agent 任务管理 agent/{agent}/task/...（v1.27）
+
+**作用**：Web/App 查看、创建、暂停、恢复、取消 agent 的定时录像任务。
+任务持久化在 agent 本地 SQLite，agent 重启后仍可查询；任务真正到点执行见 M3-05。
+
+- 5 组请求/应答，QoS1，不 retained。
+- 主题：
+  - `walle/{t}/agent/{a}/task/list/query/request|response`
+  - `walle/{t}/agent/{a}/task/create/request|response`
+  - `walle/{t}/agent/{a}/task/cancel/request|response`
+  - `walle/{t}/agent/{a}/task/pause/request|response`
+  - `walle/{t}/agent/{a}/task/resume/request|response`
+
+**请求公共字段**：
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `request_id` | 是 | 原样回显；缺失时 `result=-1` |
+| `client_id` / `client_name` | 否 | 发起端身份，用于日志审计 |
+| `task_id` | 条件 | `cancel` / `pause` / `resume` 必填（也可用 `task_name`） |
+| `task_name` | 条件 | 按名称匹配；重名时 `result=-2`，要求改用 `task_id` |
+
+**任务对象**：
+
+```json
+{
+  "task_id": "task-1a2b3c4d",
+  "name": "每天 08:00–21:00 录像",
+  "device": "0580a65014af4d0a",
+  "timezone": "Asia/Shanghai",
+  "schedule": {"type": "daily_window", "start": "08:00", "stop": "21:00"},
+  "actions": [
+    {"phase": "start", "tool": "record.start"},
+    {"phase": "stop", "tool": "record.stop"}
+  ],
+  "enabled": true,
+  "created_at": "2026-11-27 20:00:00",
+  "updated_at": "2026-11-27 20:00:00",
+  "next_run_at": "2026-11-28 08:00:00",
+  "last_run": {
+    "run_id": "run-1a2b3c4d5e6f", "phase": "start", "result": 0,
+    "cause": "ok", "error": null,
+    "scheduled_at": "2026-11-28 08:00:00",
+    "started_at": "2026-11-28 08:00:00",
+    "finished_at": "2026-11-28 08:00:01"
+  }
+}
+```
+
+`last_run` 可为 `null`（尚未执行）。
+
+**schedule 类型**：
+
+| 类型 | 示例 | 说明 |
+|---|---|---|
+| `daily_window` | `{"type":"daily_window","start":"08:00","stop":"21:00"}` | 每天 start/stop 两个边界；支持跨午夜和可选 `weekdays`（0=周一） |
+| `once` | `{"type":"once","at":"2026-11-28 08:00:00"}` | 一次性 |
+| `cron` | `{"type":"cron","expr":"0 8 * * 1-5"}` | 5 段 cron（分 时 日 月 周） |
+| `interval` | `{"type":"interval","seconds":7200}` | 固定间隔 |
+
+**actions 约束**：
+
+- 首期只支持 `record.start` / `record.stop`。
+- `daily_window` 必须同时包含 `start` 和 `stop` 两个阶段。
+- `once` / `cron` / `interval` 只支持一个动作阶段。
+
+**查询任务**：
+
+请求：
+
+```json
+{"request_id":"web-task-1","device":"0580a65014af4d0a"}
+```
+
+- `device` 可选；省略时返回 agent 上的全部任务。
+
+应答：
+
+```json
+{
+  "result": 0, "cause": "ok", "request_id": "web-task-1",
+  "agent_id": "agent-b851fdde", "tenant": "home",
+  "count": 1, "tasks": [{"task_id": "task-1a2b3c4d", "...": "..."}],
+  "timestamp": 1763000000, "datetime": "2026-11-27 20:00:00"
+}
+```
+
+**创建任务**：
+
+请求：
+
+```json
+{
+  "request_id": "web-task-2",
+  "device": "0580a65014af4d0a",
+  "name": "每天 8 点录像",
+  "timezone": "Asia/Shanghai",
+  "schedule": {"type": "daily_window", "start": "08:00", "stop": "21:00"},
+  "actions": [
+    {"phase": "start", "tool": "record.start"},
+    {"phase": "stop", "tool": "record.stop"}
+  ]
+}
+```
+
+应答额外字段：
+
+| 字段 | 说明 |
+|---|---|
+| `task` | 新任务对象 |
+| `task_id` | 任务 ID |
+| `first_run_at` | 首次执行时间 |
+| `first_phase` | 首次执行的阶段（`start` / `stop`） |
+| `next_run_at` | 下次执行时间（创建时等于 `first_run_at`） |
+
+创建前 agent 会查询设备 `runState.recording.is_supported`：明确不支持返回 `-3`，无法确认返回 `-6`。
+
+**取消 / 暂停 / 恢复**：
+
+请求：
+
+```json
+{"request_id":"web-task-3","task_id":"task-1a2b3c4d"}
+```
+
+- `cancel`：删除任务，`task_runs` 级联删除；应答带 `task_id`、`task_name`。
+- `pause`：`enabled=false`，保留 `next_run_at`；应答带更新后的 `task`。
+- `resume`：`enabled=true`，按当前时间重算 `next_run_at`；应答带 `task` 和 `next_run_at`。
+
+**错误码**：
+
+| `result` | 场景 |
+|---|---|
+| `-1` | 缺少 `request_id` |
+| `-2` | 参数/schedule/actions 非法、任务重名、没有未来触发点 |
+| `-3` | 任务不存在、设备不支持录像、MQTT 未连接 |
+| `-6` | 无法确认设备录像能力、agent 内部失败 |
+
+**订阅关系**：
+
+- agent：`walle/{t}/agent/{a}/+/+/+/request`（`task/list/query`）；`task/create|cancel|pause|resume` 由已有的 `+/+/request` 覆盖。
+- Web/App：`walle/{t}/agent/+/task/+/response`、`walle/{t}/agent/+/task/+/+/response`。
+
 ## 5. 修改协议的流程
 
 1. **先改本文档**，让文档成为讨论与评审的载体。
@@ -1889,6 +2038,26 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ## 6. 变更记录
 
 > 历史条目中的结果码以当时版本为准；当前统一错误码见 §2.8。
+
+### 2026-11-27：新增 agent 任务管理主题（文档 v1.27）
+
+**变更类型**：兼容性新增（新增 5 组 agent 任务请求/应答）。
+
+**变更内容**
+
+- 新增 `agent/{a}/task/list/query/request|response`、`task/create/request|response`、
+  `task/cancel/request|response`、`task/pause/request|response`、`task/resume/request|response`。
+- 任务对象包含 `task_id`、`name`、`device`、`timezone`、`schedule`、`actions`、`enabled`、
+  `next_run_at`、`last_run`。
+- 支持 `daily_window` / `once` / `cron` / `interval` 四种计划；首期动作只支持
+  `record.start` / `record.stop`。
+- agent 订阅新增 `agent/{a}/+/+/+/request`，覆盖 `task/list/query` 三层资源。
+- Web 任务页签读取任务列表并支持暂停/恢复/取消；创建仍通过对话完成。
+
+**影响与兼容性**：旧客户端忽略新主题即可；任务库与执行状态在 agent 本地，不改变设备协议。
+
+**验证方式**：对话创建任务后 Web 任务页签可见；暂停/恢复/取消返回更新后的任务；
+`pytest -q walle-agent/test` 全部通过。
 
 ### 2026-11-27：chat/response 增加结构化 data / result（文档 v1.26）
 
