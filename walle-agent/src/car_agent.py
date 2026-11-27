@@ -38,6 +38,7 @@ if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
 from walle_protocol import (RESULT_CODES, RequestBus, decode_result,  # noqa: E402,F401
                             new_request_id)
 from task_store import TaskStore  # noqa: E402
+import llm_router  # noqa: E402
 import task_schedule  # noqa: E402
 from task_scheduler import TaskScheduler  # noqa: E402
 
@@ -4477,16 +4478,8 @@ def _get_agent():
 
 # ---------------- 可选 LLM 兜底 ----------------
 
-_LLM_SYSTEM = (
-    "你是小车控制意图解析器。只输出 JSON，不要解释。"
-    "允许的动作：move(forward/backward/left/right, distance_m, speed_mps)、"
-    "rotate(left/right, angle_deg)、stop、status、agent_status、"
-    "service_health、alarm_status、record_start(segment_sec)、record_stop、"
-    "record_list、stream_start、stream_stop、servo_status、servo_set(servos, "
-    "duration)、servo_center、servo_relative(servo_id, delta)、"
-    "device_base_state、device_run_state、device_discover。"
-    "无法确定时输出 {\"action\":\"unknown\"}。"
-)
+# M4-02：提示词由工具 schema 生成，避免模型自造 topic/payload
+_LLM_SYSTEM = llm_router.system_prompt()
 
 
 def _llm_parse(text):
@@ -4511,17 +4504,11 @@ def _llm_parse(text):
         with urlrequest.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         content = data["choices"][0]["message"]["content"]
-        intent = json.loads(content)
-        if intent.get("action") in ("move", "rotate", "stop", "status",
-                                    "agent_status", "service_health",
-                                    "alarm_status", "record_start",
-                                    "record_stop", "record_list",
-                                    "stream_start", "stream_stop",
-                                    "servo_status", "servo_set",
-                                    "servo_center", "servo_relative",
-                                    "device_base_state", "device_run_state",
-                                    "device_discover"):
-            return intent
+        intent, error = llm_router.validate_intent(json.loads(content))
+        if intent is None:
+            log().warning("LLM 工具调用校验失败: %s", error)
+            return None
+        return intent
     except (urlerror.URLError, KeyError, ValueError, TimeoutError) as exc:
         log().warning("LLM 解析失败: %s", exc)
     return None

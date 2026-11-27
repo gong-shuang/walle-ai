@@ -15,6 +15,8 @@ Web/App --chat/request--> L1 规则/LLM 解析 --> L2 Agent.execute() --> L3 Req
 
 - 自然语言入口：`handle_chat(client_name, device, text)`，返回 `reply` 与动作结果。
 - 结构化入口：`Agent.execute(device, intent, client_name)`，`intent` 至少包含 `action`。
+- LLM 工具 schema：`walle-agent/src/llm_router.py` 定义全部工具、参数与校验；
+  模型只输出工具调用，禁止生成 topic/payload。
 - 动作方法（如 `agent.record_start(device)`）可单独调用，但不会产生 `chat/progress/report`
   （进度依赖对话线程上下文）。
 
