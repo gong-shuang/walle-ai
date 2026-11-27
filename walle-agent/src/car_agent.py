@@ -377,6 +377,38 @@ def agent_progress_topic():
         server_tenant(), agent_identity())
 
 
+# §2.8 统一错误码：result -> (error, 默认 cause)
+RESULT_CODES = {
+    0: (None, "ok"),
+    -1: ("invalid_request", "请求无效"),
+    -2: ("bad_param", "参数错误"),
+    -3: ("unavailable", "资源不可用"),
+    -4: ("conflict", "状态冲突"),
+    -5: ("control_denied", "控制权被其他客户端占用"),
+    -6: ("failed", "执行失败"),
+    -7: ("no_space", "存储空间不足"),
+    -8: ("safety", "前方有障碍物"),
+}
+
+
+def decode_result(payload):
+    """把设备 response 统一解码为 ok / error / cause / holder。
+
+    动作、任务、LLM 工具解释设备应答时统一走这里，避免各自判断 result。
+    """
+    data = payload if isinstance(payload, dict) else {}
+    try:
+        result = int(data.get("result"))
+    except (TypeError, ValueError):
+        return {"ok": False, "result": None, "error": "invalid_response",
+                "cause": "应答缺少合法 result", "holder": None}
+    error, default_cause = RESULT_CODES.get(result, ("unknown", "未知错误码"))
+    cause = str(data.get("cause") or "").strip() or default_cause
+    holder = data.get("control_holder") if result == -5 else None
+    return {"ok": result == 0, "result": result, "error": error,
+            "cause": cause, "holder": holder}
+
+
 def _read_first_line(path):
     try:
         with open(path, encoding="utf-8") as fh:
@@ -796,6 +828,7 @@ class Agent:
             if item is None:
                 item = {
                     "last_result": None,
+                    "last_decode": None,
                     "last_publish": None,
                     "online": None,
                     "online_ts": None,
@@ -994,6 +1027,8 @@ class Agent:
         record = {"topic": msg.topic, "payload": payload,
                   "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
         item["last_result"] = record
+        if msg.topic.endswith("/response"):
+            item["last_decode"] = decode_result(payload)
         if isinstance(payload, dict) and "online" in msg.topic:
             item["online"] = payload.get("online")
             item["online_ts"] = time.time()
@@ -1344,13 +1379,6 @@ class Agent:
         return {"ok": True, "request_id": request_id,
                 "response": item["result"]}
 
-    @staticmethod
-    def _control_result(data):
-        try:
-            return int((data or {}).get("result"))
-        except (TypeError, ValueError):
-            return -1
-
     def _acquire_control(self, device):
         with self.control_lock:
             if self.control_held and self.control_held.get("device") == device:
@@ -1367,10 +1395,10 @@ class Agent:
                 return res
             return {"ok": False, "error": "control_failed", "cause": error}
         data = res.get("response") or {}
-        result = self._control_result(data)
+        decoded = decode_result(data)
         action = data.get("action")
-        holder = data.get("control_holder")
-        if result == 0:
+        holder = decoded.get("holder") or data.get("control_holder")
+        if decoded["ok"]:
             with self.control_lock:
                 self.control_held = {"device": device,
                                      "client_id": agent_identity(),
@@ -1378,13 +1406,13 @@ class Agent:
             log().info("已获取设备控制权 device=%s action=%s holder=%s",
                        device, action, (holder or {}).get("client_id") or "-")
             return {"ok": True, "action": action, "control_holder": holder}
-        if result == -5 or action == "occupied":
+        if decoded["error"] == "control_denied" or action == "occupied":
             log().warning("设备控制权被占用 device=%s holder=%s", device,
                           (holder or {}).get("client_id") or "-")
             return {"ok": False, "error": "control_occupied", "action": action,
                     "control_holder": holder}
         return {"ok": False, "error": "control_failed", "action": action,
-                "cause": data.get("cause")}
+                "cause": decoded.get("cause")}
 
     def _release_control(self, device):
         with self.control_lock:
@@ -1400,14 +1428,16 @@ class Agent:
                           device, res.get("error"))
             return res
         data = res.get("response") or {}
-        result = self._control_result(data)
+        decoded = decode_result(data)
         action = data.get("action")
-        if result == 0:
+        if decoded["ok"]:
             log().info("已释放设备控制权 device=%s action=%s", device, action)
             return {"ok": True, "action": action}
-        log().warning("释放设备控制权未成功 device=%s action=%s", device, action)
+        log().warning("释放设备控制权未成功 device=%s action=%s cause=%s",
+                      device, action, decoded.get("cause"))
         return {"ok": False, "error": "control_failed", "action": action,
-                "control_holder": data.get("control_holder")}
+                "control_holder": decoded.get("holder"),
+                "cause": decoded.get("cause")}
 
     # ---- 指令执行 ----
     def _drive_payload(self, intent, request_id):
@@ -1593,6 +1623,8 @@ class Agent:
             "topic": res.get("topic"),
             "payload": res.get("payload"),
             "result": self.link_result,
+            "decoded": (decode_result((self.link_result or {}).get("payload"))
+                        if got else None),
             "mqtt": self.mqtt_status(),
         }
         if not got:
@@ -1655,6 +1687,7 @@ class Agent:
                 "device": device,
                 "last_publish": item.get("last_publish"),
                 "last_result": item.get("last_result"),
+                "last_decode": item.get("last_decode"),
             })
         return out
 
