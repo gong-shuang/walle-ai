@@ -2553,3 +2553,175 @@ def test_handle_chat_records_history_and_passes_context(agent, monkeypatch):
     last = store.last("web", "dev-1")
     assert last["text"] == "停下来"
     assert last["intent"]["action"] == "stop"
+
+
+# ---------------- M4-07 澄清与确认 ----------------
+
+def _setup_confirm_chat(agent, monkeypatch):
+    store = car_agent.chat_session.ConversationStore()
+    pending = car_agent.chat_session.PendingActionStore(ttl_sec=60)
+    monkeypatch.setattr(car_agent, "_CHAT_STORE", store)
+    monkeypatch.setattr(car_agent, "_PENDING_STORE", pending)
+    monkeypatch.setattr(car_agent, "_get_agent", lambda: agent)
+    monkeypatch.setattr(car_agent, "_llm_parse",
+                        lambda text, context=None: None)
+    return store, pending
+
+
+def _fake_execute(agent, monkeypatch):
+    calls = []
+
+    def fake(device, intent, client):
+        calls.append(intent)
+        return {"ok": True, "action": intent.get("action"), "cause": "ok"}
+
+    monkeypatch.setattr(agent, "execute", fake)
+    return calls
+
+
+def test_m407_delete_record_clarifies_then_confirms(agent, monkeypatch):
+    _store, pending = _setup_confirm_chat(agent, monkeypatch)
+    calls = _fake_execute(agent, monkeypatch)
+    client_id = "web-m407-confirm"
+
+    first = car_agent.handle_chat("web", "dev-1", "删除录像",
+                                  client_id=client_id)
+    assert first["ok"] is False
+    assert "哪个录像" in first["reply"]
+    assert calls == []
+    assert pending.peek(client_id, "dev-1")["kind"] == "clarify"
+
+    second = car_agent.handle_chat("web", "dev-1", "最新录像",
+                                   client_id=client_id)
+    assert second["ok"] is False
+    assert "确认" in second["reply"]
+    assert calls == []
+    assert pending.peek(client_id, "dev-1")["kind"] == "confirm"
+
+    third = car_agent.handle_chat("web", "dev-1", "确认", client_id=client_id)
+    assert calls == [{"action": "record_delete", "latest": True}]
+    assert third["ok"] is True
+    assert pending.peek(client_id, "dev-1") is None
+
+
+def test_m407_delete_record_cancel_does_not_execute(agent, monkeypatch):
+    _store, pending = _setup_confirm_chat(agent, monkeypatch)
+    calls = _fake_execute(agent, monkeypatch)
+    client_id = "web-m407-cancel"
+
+    first = car_agent.handle_chat(
+        "web", "dev-1", "删除录像 20261127_080000.fmp4",
+        client_id=client_id)
+    assert "确认" in first["reply"]
+    assert calls == []
+
+    out = car_agent.handle_chat("web", "dev-1", "取消", client_id=client_id)
+
+    assert out["ok"] is True
+    assert "已取消" in out["reply"]
+    assert calls == []
+    assert pending.peek(client_id, "dev-1") is None
+
+
+def test_m407_stop_skips_confirmation_and_clears_pending(agent, monkeypatch):
+    _store, pending = _setup_confirm_chat(agent, monkeypatch)
+    calls = _fake_execute(agent, monkeypatch)
+    client_id = "web-m407-stop"
+
+    car_agent.handle_chat("web", "dev-1", "删除最新录像", client_id=client_id)
+    assert pending.peek(client_id, "dev-1")["kind"] == "confirm"
+
+    out = car_agent.handle_chat("web", "dev-1", "停止", client_id=client_id)
+
+    assert calls == [{"action": "stop"}]
+    assert out["ok"] is True
+    assert pending.peek(client_id, "dev-1") is None
+
+
+def test_m407_large_servo_move_requires_confirmation(agent, monkeypatch):
+    _store, _pending = _setup_confirm_chat(agent, monkeypatch)
+    calls = _fake_execute(agent, monkeypatch)
+    client_id = "web-m407-servo"
+
+    car_agent.handle_chat("web", "dev-1", "舵机1到1600", client_id=client_id)
+    assert calls == [{"action": "servo_set", "duration": 1.0,
+                      "servos": [{"id": 1, "position": 1600}]}]
+
+    big = car_agent.handle_chat("web", "dev-1", "舵机1到900",
+                                client_id=client_id)
+    assert "大幅调整" in big["reply"]
+    assert len(calls) == 1
+
+    car_agent.handle_chat("web", "dev-1", "确认", client_id=client_id)
+    assert len(calls) == 2
+    assert calls[-1]["servos"] == [{"id": 1, "position": 900}]
+
+
+def test_m407_new_command_discards_pending_confirmation(agent, monkeypatch):
+    _store, pending = _setup_confirm_chat(agent, monkeypatch)
+    calls = _fake_execute(agent, monkeypatch)
+    client_id = "web-m407-replace"
+
+    car_agent.handle_chat("web", "dev-1", "删除最新录像", client_id=client_id)
+    assert pending.peek(client_id, "dev-1")["kind"] == "confirm"
+
+    car_agent.handle_chat("web", "dev-1", "前进1米", client_id=client_id)
+
+    assert calls[-1]["action"] == "move"
+    assert len(calls) == 1
+    assert pending.peek(client_id, "dev-1") is None
+
+
+def test_m407_task_without_time_asks_instead_of_executing(agent, monkeypatch):
+    _setup_confirm_chat(agent, monkeypatch)
+    calls = _fake_execute(agent, monkeypatch)
+
+    out = car_agent.handle_chat("web", "dev-1", "每天开始录像",
+                                client_id="web-m407-task")
+
+    assert out["ok"] is False
+    assert "时间" in out["reply"]
+    assert calls == []
+
+
+def test_m407_llm_task_create_without_schedule_asks(agent, monkeypatch):
+    _store, pending = _setup_confirm_chat(agent, monkeypatch)
+    calls = _fake_execute(agent, monkeypatch)
+    client_id = "web-m407-llm-task"
+    monkeypatch.setattr(
+        car_agent, "_llm_parse",
+        lambda text, context=None: {
+            "action": "task_create", "name": "录像计划",
+            "schedule": {"type": "daily_window"}})
+
+    out = car_agent.handle_chat("web", "dev-1", "帮我定个计划",
+                                client_id=client_id)
+
+    assert "任务时间" in out["reply"]
+    assert calls == []
+    assert pending.peek(client_id, "dev-1")["kind"] == "clarify"
+
+
+def test_m407_chat_request_without_device_asks(agent, monkeypatch):
+    called = []
+
+    def fake_handle_chat(*args, **kwargs):
+        called.append(args)
+        return {"ok": True, "reply": "不应执行"}
+
+    monkeypatch.setattr(car_agent, "handle_chat", fake_handle_chat)
+
+    agent._run_chat_request({
+        "request_id": "chat-m407", "client_id": "web-a",
+        "client_name": "Web A", "device": "", "text": "开始录像",
+    })
+
+    responses = [
+        item for item in agent.mqtt_client.published
+        if item["topic"].endswith("/chat/response")
+    ]
+    payload = responses[-1]["payload"]
+    assert payload["ok"] is False
+    assert payload["error"] == "invalid"
+    assert "选择设备" in payload["reply"]
+    assert called == []

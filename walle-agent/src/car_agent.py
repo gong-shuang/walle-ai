@@ -73,6 +73,8 @@ DEFAULTS = {
     # M4-06：多轮会话缓存（按 client_id + device）
     "CHAT_HISTORY_MAX_TURNS": "8",
     "CHAT_HISTORY_TTL_SEC": "1800",
+    # M4-07：待补参/待确认动作的存活时间（秒）
+    "CHAT_CONFIRM_TTL_SEC": "120",
     "LLM_BASE_URL": "",
     "LLM_API_KEY": "",
     "LLM_MODEL": "",
@@ -208,7 +210,11 @@ _AGENT_NAME_LOCK = threading.RLock()
 
 _CHAT_STORE = None
 _CHAT_STORE_LOCK = threading.RLock()
+_PENDING_STORE = None
+_PENDING_STORE_LOCK = threading.RLock()
 FOLLOWUP_STEP_M = 0.5
+# M4-07：舵机目标离中位超过该值视为大幅动作，需要二次确认
+SERVO_CONFIRM_MARGIN = 500
 
 
 def _machine_fingerprint():
@@ -2162,7 +2168,7 @@ class Agent:
                     "client_id": "请求里没有 client_id。",
                     "client_name": "请求里没有 client_name。",
                     "request_id": "请求里没有 request_id。",
-                    "device": "请求里没有指定设备（device 字段为空）。",
+                    "device": "请求里没有指定设备（device 字段为空），请先选择设备再试。",
                     "text": "请求里没有文本内容。",
                 }[missing]
                 result = {"ok": False, "error": "invalid", "reply": reply}
@@ -4989,6 +4995,20 @@ def _chat_store():
         return _CHAT_STORE
 
 
+def _pending_store():
+    """M4-07：进程内待补参/待确认动作缓存；首次访问时按配置创建。"""
+    global _PENDING_STORE
+    with _PENDING_STORE_LOCK:
+        if _PENDING_STORE is None:
+            cfg = load_config()
+            try:
+                ttl = float(cfg.get("CHAT_CONFIRM_TTL_SEC") or 120)
+            except (TypeError, ValueError):
+                ttl = 120
+            _PENDING_STORE = chat_session.PendingActionStore(ttl_sec=ttl)
+        return _PENDING_STORE
+
+
 def _choose_task_boundary(text, schedule, new_time):
     if any(word in text for word in ("停止", "结束", "关闭")):
         return "stop"
@@ -5079,40 +5099,112 @@ def _record_chat(store, identity, device, text, intent, result):
     return result
 
 
-def handle_chat(client_name, device, text, client_id=None):
-    agent = _get_agent()
-    store = _chat_store()
-    identity = client_id or client_name
-    intent = _resolve_followup(text, store, identity, device)
-    err = None
-    if intent is None:
-        intent, err = parse_intent(text)
-    log().info("chat client_id=%s client_name=%s device=%s text=%r "
-               "intent=%s err=%s", client_id, client_name, device, text,
-               intent, err)
-    if intent is None:
-        intent = _llm_parse(text, context=store.context(identity, device))
-        if intent is not None:
-            err = None
-    if intent is None:
-        return _record_chat(store, identity, device, text, None, {
-            "ok": False, "device": device,
-            "reply": err or "未识别该指令。",
-            "mqtt": agent.mqtt_status()})
-    if intent.get("action") == "unknown":
-        # 模型明确表示没有匹配的工具：给可操作的提示，不套用规则层旧文案
-        return _record_chat(store, identity, device, text, intent, {
-            "ok": False, "device": device,
-            "reply": ("我暂时没理解这句话。你可以说：前进3米、开始录像、"
-                      "查看任务、今天星期几。"),
-            "mqtt": agent.mqtt_status()})
+def _confirmation_kind(text):
+    """M4-07：识别「确认 / 取消」短回复；长句交给正常指令解析。"""
+    t = _normalize(text).strip(".!?,。！？")
+    if not t or len(t) > 8:
+        return None
+    if re.fullmatch(
+            r"(确认(删除|删掉|播放|执行)|确认|确定|是的?|好的|好|可以|"
+            r"执行|继续|删吧)", t):
+        return "confirm"
+    if re.fullmatch(
+            r"(取消|不用|不用了|算了|别删|别删了|不删|不删了|"
+            r"不执行|不要)", t):
+        return "cancel"
+    return None
 
-    intent, warning = validate_intent(intent, agent.cfg)
-    if intent is None:
-        return _record_chat(store, identity, device, text, None, {
-            "ok": False, "device": device,
-            "reply": warning, "mqtt": agent.mqtt_status()})
 
+def _record_target_ready(intent):
+    return bool(intent.get("filename") or intent.get("latest"))
+
+
+def _clarify_question(intent):
+    """M4-07：缺文件名/时间时返回反问文案；参数齐全返回 None。"""
+    action = intent.get("action")
+    if action == "record_delete" and not _record_target_ready(intent):
+        return ("要删除哪个录像？请说出文件名，或说“删除最新录像”。")
+    if action == "record_play_start" and not _record_target_ready(intent):
+        return ("要播放哪个录像？请说出文件名，或说“播放最新录像”。")
+    if action == "task_create":
+        schedule = intent.get("schedule") or {}
+        kind = schedule.get("type")
+        if kind == "daily_window" and not (
+                schedule.get("start") and schedule.get("stop")):
+            return ("请告诉我任务时间，例如“每天8点开始录像，晚上9点停止”。")
+        if kind == "once" and not schedule.get("at"):
+            return "请告诉我执行时间，例如“明天早上8点开始录像”。"
+        if kind == "cron" and not schedule.get("expr"):
+            return "请告诉我执行时间，例如“每天8点开始录像”。"
+        if kind == "interval" and not schedule.get("seconds"):
+            return "请告诉我间隔时间，例如“每隔2小时录像”。"
+    return None
+
+
+def _complete_clarification(intent, text):
+    """M4-07：把用户补充的文件名/最新标记合并回待补参动作。"""
+    if (intent or {}).get("action") not in (
+            "record_delete", "record_play_start"):
+        return None
+    target = dict(intent)
+    filename = _record_filename(text)
+    if filename:
+        target["filename"] = filename
+        target.pop("latest", None)
+        return target
+    t = _normalize(text)
+    if any(word in t for word in ("最新", "最后", "它", "这个", "这条")):
+        target["latest"] = True
+        target.pop("filename", None)
+        return target
+    return None
+
+
+def _servo_is_large(position):
+    try:
+        return abs(float(position) - SERVO_CENTER) >= SERVO_CONFIRM_MARGIN
+    except (TypeError, ValueError):
+        return False
+
+
+def _servo_delta_is_large(delta):
+    try:
+        return abs(float(delta)) >= SERVO_CONFIRM_MARGIN
+    except (TypeError, ValueError):
+        return False
+
+
+def _confirm_question(intent):
+    """M4-07：删除录像、舵机大幅动作返回二次确认文案；其余返回 None。"""
+    action = intent.get("action")
+    if action == "record_delete":
+        if intent.get("filename"):
+            target = "录像 {}".format(intent["filename"])
+        elif intent.get("latest"):
+            target = "最新录像"
+        else:
+            target = "该录像"
+        return ("即将删除{}，确认吗？回复“确认”执行，回复“取消”放弃。"
+                .format(target))
+    if action == "servo_set":
+        large = [item for item in intent.get("servos") or []
+                 if isinstance(item, dict)
+                 and _servo_is_large(item.get("position"))]
+        if large:
+            detail = "、".join(
+                "ID{}到{}".format(item.get("id"), item.get("position"))
+                for item in large)
+            return ("舵机将大幅调整：{}，确认吗？回复“确认”执行，"
+                    "回复“取消”放弃。".format(detail))
+    if action == "servo_relative" and _servo_delta_is_large(
+            intent.get("delta")):
+        return ("舵机将大幅调整（{}），确认吗？回复“确认”执行，"
+                "回复“取消”放弃。".format(intent.get("delta")))
+    return None
+
+
+def _execute_and_reply(agent, store, identity, device, text, client_name,
+                       intent, warning=None):
     result = agent.execute(device, intent, client_name)
     result["intent"] = intent
     result["device"] = device
@@ -5122,6 +5214,115 @@ def handle_chat(client_name, device, text, client_id=None):
     result["reply"] = _reply_text(intent, result)
     return _record_chat(store, identity, device, text,
                         result.get("intent") or intent, result)
+
+
+def _offer_intent(agent, store, pending_store, identity, device, text,
+                  client_name, intent, warning=None):
+    """M4-07：缺参数先反问，高风险动作先确认，其余直接执行。"""
+    question = _clarify_question(intent)
+    if question:
+        pending_store.set(identity, device, "clarify", intent, question)
+        return _record_chat(store, identity, device, text, intent, {
+            "ok": False, "device": device, "action": intent.get("action"),
+            "reply": question, "mqtt": agent.mqtt_status()})
+    question = _confirm_question(intent)
+    if question:
+        pending_store.set(identity, device, "confirm", intent, question)
+        return _record_chat(store, identity, device, text, intent, {
+            "ok": False, "device": device, "action": intent.get("action"),
+            "reply": question, "mqtt": agent.mqtt_status()})
+    return _execute_and_reply(agent, store, identity, device, text,
+                              client_name, intent, warning)
+
+
+def handle_chat(client_name, device, text, client_id=None):
+    agent = _get_agent()
+    store = _chat_store()
+    pending_store = _pending_store()
+    identity = client_id or client_name
+
+    # M4-07：先处理待确认动作的「确认 / 取消」短回复
+    pending = pending_store.peek(identity, device)
+    kind = _confirmation_kind(text)
+    if kind:
+        if not pending:
+            return _record_chat(store, identity, device, text, None, {
+                "ok": False, "device": device,
+                "reply": "当前没有需要确认的操作。",
+                "mqtt": agent.mqtt_status()})
+        if kind == "cancel":
+            pending_store.pop(identity, device)
+            return _record_chat(store, identity, device, text, None, {
+                "ok": True, "device": device,
+                "reply": "已取消，不会执行。",
+                "mqtt": agent.mqtt_status()})
+        if pending.get("kind") != "confirm":
+            return _record_chat(store, identity, device, text, None, {
+                "ok": False, "device": device,
+                "reply": pending.get("question") or "请先补充要执行的内容。",
+                "mqtt": agent.mqtt_status()})
+        pending_store.pop(identity, device)
+        log().info("chat confirm client_id=%s device=%s intent=%s",
+                   client_id, device, pending.get("intent"))
+        return _execute_and_reply(agent, store, identity, device, text,
+                                  client_name, pending["intent"])
+
+    intent = None
+    err = None
+    if pending and pending.get("kind") == "clarify":
+        intent = _complete_clarification(pending["intent"], text)
+        if intent is not None:
+            pending_store.pop(identity, device)
+            intent, warning = validate_intent(intent, agent.cfg)
+            if intent is None:
+                return _record_chat(store, identity, device, text, None, {
+                    "ok": False, "device": device, "reply": warning,
+                    "mqtt": agent.mqtt_status()})
+            return _offer_intent(agent, store, pending_store, identity,
+                                 device, text, client_name, intent)
+        # 不是参数回答：能解析成新指令就放弃追问，否则继续反问
+        parsed, _ = parse_intent(text)
+        if parsed is None:
+            return _record_chat(store, identity, device, text, None, {
+                "ok": False, "device": device,
+                "reply": pending.get("question") or "请补充要执行的内容。",
+                "mqtt": agent.mqtt_status()})
+        pending_store.pop(identity, device)
+
+    if intent is None:
+        intent = _resolve_followup(text, store, identity, device)
+        if intent is None:
+            intent, err = parse_intent(text)
+        log().info("chat client_id=%s client_name=%s device=%s text=%r "
+                   "intent=%s err=%s", client_id, client_name, device, text,
+                   intent, err)
+        if intent is None:
+            intent = _llm_parse(text, context=store.context(identity, device))
+            if intent is not None:
+                err = None
+        if intent is None:
+            return _record_chat(store, identity, device, text, None, {
+                "ok": False, "device": device,
+                "reply": err or "未识别该指令。",
+                "mqtt": agent.mqtt_status()})
+        if intent.get("action") == "unknown":
+            # 模型明确表示没有匹配的工具：给可操作的提示，不套用规则层旧文案
+            return _record_chat(store, identity, device, text, intent, {
+                "ok": False, "device": device,
+                "reply": ("我暂时没理解这句话。你可以说：前进3米、开始录像、"
+                          "查看任务、今天星期几。"),
+                "mqtt": agent.mqtt_status()})
+        # 新指令覆盖之前的待确认动作（例如“停止”直接执行）
+        pending_store.pop(identity, device)
+
+    intent, warning = validate_intent(intent, agent.cfg)
+    if intent is None:
+        return _record_chat(store, identity, device, text, None, {
+            "ok": False, "device": device,
+            "reply": warning, "mqtt": agent.mqtt_status()})
+
+    return _offer_intent(agent, store, pending_store, identity, device, text,
+                         client_name, intent, warning)
 
 
 def health(device=None):

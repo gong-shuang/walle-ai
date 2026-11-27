@@ -54,3 +54,33 @@ def test_last_can_filter_by_action():
     assert store.last("web", "dev-1", action="record_list")[
         "intent"]["action"] == "record_list"
     assert store.last("web", "dev-1", action="move") is None
+
+
+def test_pending_store_set_peek_pop_and_isolation():
+    store = chat_session.PendingActionStore(ttl_sec=60)
+    intent = {"action": "record_delete", "filename": "a.mp4"}
+    store.set("web", "dev-1", "confirm", intent, "确认吗？")
+
+    item = store.peek("web", "dev-1")
+    assert item["kind"] == "confirm"
+    assert item["intent"] == intent
+    assert item["question"] == "确认吗？"
+    assert store.peek("web", "dev-2") is None
+    assert store.peek("other", "dev-1") is None
+
+    assert store.pop("web", "dev-1")["intent"] == intent
+    assert store.peek("web", "dev-1") is None
+
+
+def test_pending_store_expires_and_overwrites():
+    now = [1000.0]
+    store = chat_session.PendingActionStore(ttl_sec=10, now=lambda: now[0])
+    store.set("web", "dev-1", "clarify",
+              {"action": "record_delete"}, "哪个文件？")
+    store.set("web", "dev-1", "confirm",
+              {"action": "record_delete", "latest": True}, "确认吗？")
+
+    assert store.peek("web", "dev-1")["kind"] == "confirm"
+
+    now[0] += 11
+    assert store.peek("web", "dev-1") is None

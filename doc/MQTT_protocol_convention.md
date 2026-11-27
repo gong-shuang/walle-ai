@@ -1485,7 +1485,7 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 | `client_id` | string | 是 | 发起对话的 Web 客户端 `client_id`；缺失时 `error:"invalid"`，回复「参数非法」 |
 | `client_name` | string | 是 | 发起对话的 Web 客户端 `client_name`；缺失时 `error:"invalid"`，回复「参数非法」 |
 | `request_id` | string | 是 | 格式见 §2.4；缺失时 `error:"invalid"`，回复「参数非法」 |
-| `device` | string | 是 | 缺失时 `error:"invalid"`，回复「请求里没有指定设备（device 字段为空）。」 |
+| `device` | string | 是 | 缺失时 `error:"invalid"`，回复「请求里没有指定设备（device 字段为空），请先选择设备再试。」 |
 | `text` | string | 是 | 缺失时 `error:"invalid"`，回复「请求里没有文本内容。」 |
 | `ts` | number | 否 | 毫秒时间戳，agent 不读取 |
 | `intent` | string | 否 | 停止通知用 `"abort"`，agent 不读取（靠 `text` 解析） |
@@ -1601,6 +1601,8 @@ agent 自身的 `mqtt` / `control` / `capabilities` 等字段不会进入 `resul
 | 场景 | `ok` | 关键字段 |
 |---|---|---|
 | 文本无法识别 | false | `reply`，无 `error` |
+| 指令缺必要参数（录像文件名、任务时间） | false | `reply` 反问，无 `error`，不执行 |
+| 高风险动作等待二次确认（删除录像、舵机大幅动作） | false | `reply` 请确认，无 `error`，不执行；下一条「确认」执行、「取消」放弃 |
 | 参数超上限（距离/角度） | false | `reply` 说明，无 `warning` |
 | 参数被夹紧（速度） | true | `warning`，`reply` 为已解析文案 |
 | 请求缺 client_id/client_name/request_id/device/text | false | `error:"invalid"`，`reply` 说明 |
@@ -1613,6 +1615,10 @@ agent 自身的 `mqtt` / `control` / `capabilities` 等字段不会进入 `resul
 
 `error` 取值集合：`invalid`、`mqtt_not_connected`、`busy`、`agent_exception`、`control_occupied`、`control_failed`。
 agent 不发送「超时」响应；20 秒未收到响应：删除 pending、解锁发送按钮、提示「agent 超时未响应（20s）」。
+
+澄清与确认：等待补参或确认的状态按 `client_id + device` 保存在 agent 内存，默认 120 秒过期；
+新指令会丢弃旧状态。删除录像与舵机大幅动作需用户下一条回复「确认」才执行，「取消」放弃；
+停止类指令（`stop` / `record_stop` / `stream_stop`）不进入确认流程。
 
 **agent 订阅关系**
 
@@ -2162,6 +2168,26 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ## 6. 变更记录
 
 > 历史条目中的结果码以当时版本为准；当前统一错误码见 §2.8。
+
+### 2026-11-27：agent 对话澄清与二次确认（文档 v1.29 行为补充）
+
+**变更类型**：行为补充（无新增主题/字段/错误码，协议版本不变）。
+
+**变更内容**
+
+- 指令缺少必要参数（录像文件名、任务时间）时，agent 返回 `ok:false` 并在 `reply`
+  中反问，不执行；用户下一条消息可作为参数回答。
+- 删除录像、舵机大幅动作（目标离中位 ≥500 或 `|delta| ≥500`）先返回确认提示；
+  用户回复「确认」执行、「取消」放弃，「停止」类指令不确认且直接执行。
+- 待补参/待确认状态按 `client_id + device` 保存在 agent 内存，默认 120 秒过期；
+  新指令会丢弃旧状态。
+- `chat/request` 缺 `device` 的回复文案改为反问「请先选择设备再试」。
+
+**影响与兼容性**：仅 agent 对话行为变化，主题与字段不变；Web/App 仍按
+`chat/response.ok` 与 `reply` 展示即可。
+
+**验证方式**：对话「删除录像」→ 反问文件名；「删除最新录像」→ 确认提示；
+回复「取消」后不执行；回复「确认」后执行；`pytest -q walle-agent/test` 全部通过。
 
 ### 2026-11-27：新增 agent 任务事件上报（文档 v1.29）
 

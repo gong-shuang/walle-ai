@@ -84,3 +84,59 @@ class ConversationStore:
     def clear(self):
         with self._lock:
             self._data.clear()
+
+
+class PendingActionStore:
+    """M4-07：按 client_id + device 保存一条待补参/待确认动作（内存 + TTL）。"""
+
+    def __init__(self, ttl_sec=120, now=None):
+        self.ttl_sec = max(1.0, float(ttl_sec))
+        self._now = now or time.time
+        self._lock = threading.RLock()
+        self._data = {}
+
+    @staticmethod
+    def key(client_id, device):
+        return ConversationStore.key(client_id, device)
+
+    def set(self, client_id, device, kind, intent, question):
+        key = self.key(client_id, device)
+        item = {
+            "kind": str(kind or ""),
+            "intent": dict(intent or {}),
+            "question": str(question or ""),
+            "ts": self._now(),
+        }
+        with self._lock:
+            self.clear_expired()
+            self._data[key] = item
+        return dict(item)
+
+    def peek(self, client_id, device):
+        key = self.key(client_id, device)
+        with self._lock:
+            item = self._data.get(key)
+            if not item:
+                return None
+            if self._now() - item["ts"] > self.ttl_sec:
+                self._data.pop(key, None)
+                return None
+            return dict(item)
+
+    def pop(self, client_id, device):
+        key = self.key(client_id, device)
+        with self._lock:
+            return self._data.pop(key, None)
+
+    def clear_expired(self):
+        now = self._now()
+        with self._lock:
+            expired = [key for key, item in self._data.items()
+                       if now - item["ts"] > self.ttl_sec]
+            for key in expired:
+                self._data.pop(key, None)
+        return len(expired)
+
+    def clear(self):
+        with self._lock:
+            self._data.clear()
