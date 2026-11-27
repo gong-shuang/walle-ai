@@ -993,6 +993,9 @@ agent：
     统一走 M4-02 的 schema 校验。
   - `LLM_TIMEOUT_SEC` 默认 8s，`LLM_RETRY_MAX` 默认 1，`LLM_RETRY_BACKOFF_SEC`
     默认 0.5s；重试与失败写入 `walle.llm_router` 日志。
+  - `LLM_LOCAL_THINKING_MODE`：1=开启思考（默认），0=关闭；关闭时请求体带
+    `enable_thinking=false`，可降低 Qwen3/3.6（OMLX/Ollama）的延迟。
+    不支持该参数的模型请保持 1，避免 400。
   - `car_agent._llm_parse()` 改为委托本地客户端，失败返回 None 由规则层兜底。
   - 模型输出 `unknown` 视为有效“未匹配”，不再记失败；`handle_chat` 返回可操作提示，
     避免把「你是谁/今天星期几」等非指令误报成规则层旧文案。
@@ -1016,10 +1019,12 @@ agent：
     `LLM_CIRCUIT_COOLDOWN_SEC`（默认 60s），期间直接返回
     `llm_online_circuit_open`；成功清零，冷却后半开重试。
   - API Key 只放 `Authorization` 请求头，日志不输出 Key。
+  - `_intent_from_response()` 对 `content` 容忍 Markdown 代码块（` ```json ... ``` `）
+    和前后解释文字，适配 OMLX 等只返回文本、不返回 `tool_calls` 的服务。
   - 失败返回 None + error，由 M4-05 的路由层回退本地/规则；本里程碑暂不接入对话主链路。
 - 文件：`walle-agent/src/llm_router.py`、`walle-agent/src/car_agent.py`、`walle-agent/etc/walle-agent.conf.example`、`walle-agent/test/test_llm_router.py`
 - 验收：复杂语句能走在线模型；失败时回退。
-- 完成：2026-11-27 / 本次改动 / 新增 4 个在线客户端用例（tools 成功、缺少 Key、熔断开合、Key 不落日志）；`pytest walle-agent/test` 204 passed
+- 完成：2026-11-27 / 本次改动 / 新增 5 个在线/兼容用例（tools 成功、缺少 Key、熔断开合、Key 不落日志、Markdown JSON）；`pytest walle-agent/test` 205 passed
 
 #### M4-05 混合路由
 

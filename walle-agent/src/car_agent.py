@@ -74,6 +74,7 @@ DEFAULTS = {
     "LLM_LOCAL_BASE_URL": "",
     "LLM_LOCAL_API_KEY": "",
     "LLM_LOCAL_MODEL": "",
+    "LLM_LOCAL_THINKING_MODE": "1",
     "LLM_TIMEOUT_SEC": "8",
     "LLM_RETRY_MAX": "1",
     "LLM_RETRY_BACKOFF_SEC": "0.5",

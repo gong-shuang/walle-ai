@@ -323,6 +323,42 @@ def test_parse_local_retries_network_error(monkeypatch):
     assert calls["count"] == 2
 
 
+def test_parse_local_thinking_mode_default_on(monkeypatch):
+    cfg = _llm_config()
+    cfg["LLM_LOCAL_THINKING_MODE"] = "1"
+    bodies = []
+
+    def fake(req, timeout=8):
+        bodies.append(json.loads(req.data.decode("utf-8")))
+        return _FakeResponse({"choices": [{"message": {
+            "content": json.dumps({"action": "stop"})}}]})
+
+    monkeypatch.setattr(llm_router.urlrequest, "urlopen", fake)
+
+    intent, error = llm_router.parse_local("停", cfg)
+
+    assert error is None
+    assert "enable_thinking" not in bodies[0]
+
+
+def test_parse_local_thinking_mode_off(monkeypatch):
+    cfg = _llm_config()
+    cfg["LLM_LOCAL_THINKING_MODE"] = "0"
+    bodies = []
+
+    def fake(req, timeout=8):
+        bodies.append(json.loads(req.data.decode("utf-8")))
+        return _FakeResponse({"choices": [{"message": {
+            "content": json.dumps({"action": "stop"})}}]})
+
+    monkeypatch.setattr(llm_router.urlrequest, "urlopen", fake)
+
+    intent, error = llm_router.parse_local("停", cfg)
+
+    assert error is None
+    assert bodies[0]["enable_thinking"] is False
+
+
 def test_parse_local_retries_json_without_response_format(monkeypatch):
     cfg = _llm_config()
 
@@ -338,6 +374,26 @@ def test_parse_local_retries_json_without_response_format(monkeypatch):
                 io.BytesIO(b'{"error":"response_format not supported"}'))
         return _FakeResponse({"choices": [{"message": {
             "content": json.dumps({"action": "stop"})}}]})
+
+    monkeypatch.setattr(llm_router.urlrequest, "urlopen", fake)
+
+    intent, error = llm_router.parse_local("停", cfg)
+
+    assert error is None
+    assert intent == {"action": "stop"}
+
+
+def test_parse_local_accepts_markdown_json(monkeypatch):
+    cfg = _llm_config()
+    content = (
+        "思考完成。\n```json\n"
+        '{"action":"stop"}\n'
+        "```\n")
+
+    def fake(req, timeout=8):
+        return _FakeResponse({"choices": [{"message": {
+            "role": "assistant", "content": content,
+            "reasoning_content": "..."}}]})
 
     monkeypatch.setattr(llm_router.urlrequest, "urlopen", fake)
 

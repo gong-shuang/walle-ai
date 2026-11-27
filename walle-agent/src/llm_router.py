@@ -454,6 +454,9 @@ def local_config(cfg):
                        or cfg.get("LLM_API_KEY") or "").strip(),
         "model": str(cfg.get("LLM_LOCAL_MODEL")
                      or cfg.get("LLM_MODEL") or "").strip(),
+        "thinking": str(
+            cfg.get("LLM_LOCAL_THINKING_MODE") or "1").lower() not in (
+                "0", "false", "no", "off"),
         "timeout": max(1.0, _number(cfg.get("LLM_TIMEOUT_SEC"), 8.0)),
         "retry_max": max(0, _number(cfg.get("LLM_RETRY_MAX"), 1, int)),
         "backoff": max(0.0, _number(cfg.get("LLM_RETRY_BACKOFF_SEC"), 0.5)),
@@ -540,6 +543,26 @@ def _loads_arguments(value):
     raise SchemaError("工具参数必须是对象")
 
 
+def _loads_json_content(content):
+    """容忍 Markdown 代码块和前后解释文字，提取 JSON。"""
+    text = str(content or "").strip()
+    if not text:
+        return None
+    candidates = [text]
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.S | re.I)
+    if fence:
+        candidates.insert(0, fence.group(1).strip())
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        candidates.append(text[start:end + 1])
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except ValueError:
+            continue
+    return None
+
+
 def _intent_from_response(data):
     """从 OpenAI 兼容应答中提取并校验工具调用。"""
     try:
@@ -567,10 +590,10 @@ def _intent_from_response(data):
     if isinstance(content, dict):
         return validate_intent(content)
     if isinstance(content, str):
-        try:
-            return validate_intent(json.loads(content))
-        except ValueError:
+        payload = _loads_json_content(content)
+        if payload is None:
             return None, "模型输出不是 JSON"
+        return validate_intent(payload)
     return None, "模型没有返回工具调用"
 
 
@@ -593,6 +616,8 @@ def _parse_with_tools(url, conf, messages):
         "tools": tool_schemas(),
         "tool_choice": "auto",
     }
+    if conf.get("thinking") is False:
+        body["enable_thinking"] = False
     try:
         data = _request_with_retry(body, conf, url)
     except _ToolsUnsupported as exc:
@@ -612,6 +637,8 @@ def _parse_with_json(url, conf, messages):
         "messages": messages,
         "response_format": {"type": "json_object"},
     }
+    if conf.get("thinking") is False:
+        body["enable_thinking"] = False
     try:
         data = _request_with_retry(body, conf, url)
     except _RequestError as exc:
