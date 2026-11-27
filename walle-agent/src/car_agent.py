@@ -1109,10 +1109,7 @@ class Agent:
                                     device or None)
             if not res.get("ok"):
                 error = res.get("error")
-                if error == "control_occupied":
-                    response.update({"result": -5,
-                                     "cause": "设备控制权限已被别人占用"})
-                elif error == "mqtt_not_connected":
+                if error == "mqtt_not_connected":
                     response.update({"result": -3, "cause": "MQTT 未连接"})
                 else:
                     response.update({"result": -6,
@@ -1131,7 +1128,7 @@ class Agent:
                         "device": res.get("device"),
                         "stopped": bool(res.get("stopped")),
                         "released": bool(res.get("released")),
-                        "cause": res.get("note") or "ok",
+                        "cause": res.get("cause") or res.get("note") or "ok",
                     })
         response["timestamp"] = int(time.time())
         response["datetime"] = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -1504,57 +1501,62 @@ class Agent:
                 "started": True}
 
     def stop(self, client_name=None, device=None):
+        """只停 agent 自己的会话：不申请、不抢占别人的控制权。
+
+        只有存在自己的运动线程，或已持有目标设备的租约时才下发零速；
+        没有自己的会话且未持有租约时幂等返回 no_session，不向设备发命令。
+        """
         with self.motion_lock:
             with self.state_lock:
-                target = device or self.active_device
                 worker = self.worker
+                active = self.active_device
                 should_abort = bool(worker is not None and worker.is_alive()
-                                    and (device is None or device == self.active_device))
+                                    and (device is None or device == active))
                 if should_abort:
                     self.abort.set()
+            with self.control_lock:
+                held_before = (self.control_held or {}).get("device")
             if should_abort and worker is not None:
                 worker.join(timeout=2.0)
-            if not target:
-                return {"ok": False, "action": "stop", "error": "no_device",
-                        "note": "没有正在运动或已选中的设备", "mqtt": self.mqtt_status()}
-            control = self._acquire_control(target)
-            if not control.get("ok"):
-                return {"ok": False, "action": "stop", "device": target,
-                        "error": control.get("error"),
-                        "control_holder": control.get("control_holder"),
-                        "cause": control.get("cause"), "mqtt": self.mqtt_status()}
+
+            target = device or (active if should_abort else None) or held_before
+            if not target or (not should_abort and held_before != target):
+                return {"ok": True, "action": "stop", "device": target,
+                        "stopped": False, "released": False,
+                        "cause": "no_session", "mqtt": self.mqtt_status()}
+
             zero = self._drive_payload({"action": "stop"},
                                        "agent-stop-{}".format(random.randint(1000, 9999)))
-            res = self._publish(target, "car/motor/set/request", zero)
+            res = None
+            for _ in range(3):
+                res = self._publish(target, "car/motor/set/request", zero)
+                time.sleep(0.05)
             release = self._release_control(target)
-            log().info("stop requested by %s device=%s result=%s release=%s",
-                       client_name, target, json.dumps(res, ensure_ascii=False),
-                       json.dumps(release, ensure_ascii=False))
+            if release.get("skipped"):
+                released = held_before == target
+            else:
+                released = bool(release.get("ok"))
+            log().info(
+                "stop requested by %s device=%s stopped=%s released=%s "
+                "result=%s release=%s",
+                client_name, target, should_abort, released,
+                json.dumps(res, ensure_ascii=False),
+                json.dumps(release, ensure_ascii=False))
             return {"ok": True, "action": "stop", "device": target,
+                    "stopped": should_abort, "released": released,
                     "result": res, "control": release, "mqtt": self.mqtt_status()}
 
     def stop_session(self, client_name=None, device=None):
-        """优雅停止当前会话：中止运动线程 → 零速 → 释放控制权。
+        """优雅停止 agent 自己的会话：中止运动线程 → 零速 → 释放控制权。
 
-        没有进行中的会话且未持有控制权时幂等返回成功（stopped=False）。
+        没有自己的会话且未持有控制权时幂等返回 no_session（stopped=False）。
         """
-        with self.state_lock:
-            active = self.active_device
-            worker = self.worker
-        had_session = bool(worker is not None and worker.is_alive())
-        with self.control_lock:
-            held = (self.control_held or {}).get("device")
-        target = device or active or held
-        if not target:
-            return {"ok": True, "stopped": False, "released": False,
-                    "device": None, "note": "no_active_session"}
-        res = self.stop(client_name, target)
-        control = res.get("control") or {}
+        res = self.stop(client_name, device)
         out = {
             "ok": bool(res.get("ok")),
-            "stopped": bool(had_session and (device is None or device == active)),
-            "released": bool(control.get("ok") and not control.get("skipped")),
-            "device": res.get("device") or target,
+            "stopped": bool(res.get("stopped")),
+            "released": bool(res.get("released")),
+            "device": res.get("device"),
         }
         for key in ("error", "cause", "control_holder", "result"):
             if res.get(key) is not None:
@@ -1712,14 +1714,8 @@ def _reply_text(intent, result):
             "左" if intent["direction"] == "left" else "右",
             float(intent["angle_deg"]), float(result.get("duration_sec") or 0))
     elif action == "stop":
-        if result.get("error") == "no_device":
-            return "没有可停止的设备，请先选择设备。"
-        if result.get("error") == "control_occupied":
-            holder = result.get("control_holder") or {}
-            who = holder.get("client_name") or holder.get("client_id") or "其他客户端"
-            return "设备控制权已被 {} 占用，停止未下发。".format(who)
-        if result.get("error") in ("control_failed", "control_timeout"):
-            return "获取设备控制权失败，停止未下发。"
+        if result.get("cause") == "no_session":
+            return "当前没有 agent 正在执行的会话，未下发停止。"
         inner = result.get("result") or {}
         if inner.get("published"):
             return "已下发停止（零速）。"

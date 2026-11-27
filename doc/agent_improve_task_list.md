@@ -383,12 +383,12 @@ agent：
 
 - **层级**：L2 动作编排层 + L3 设备通信层
 - **小白解释**：你正拿着“遥控器”（控制权）开小车时，别人——包括 agent——不应该把你的车停掉。agent 的“停止”只负责停它自己发起的运动；手上没有会话时就直接说“没有可停的会话”，而不是报一个看不懂的“控制权被占用”。
-- [ ] `stop()` 不再先 `_acquire_control`：只有存在自己的运动 worker，或 `control_held` 指向该设备时，才向设备发零速。
-- [ ] 没有自己的会话且未持有租约 → 返回 `ok=True, stopped=False, released=False, cause="no_session"`，不向设备发任何命令。
-- [ ] 有自己会话时顺序固定：`abort.set()` → `worker.join()` → 3 次零速（间隔 50ms）→ 尝试 `release`；`release` 失败不回滚已完成的停车。
-- [ ] `stopped` / `released` 按实际结果回报：worker 收尾时已释放租约也算 `released=true`。
-- [ ] `_serve_agent_stop` 删除 `control_occupied` 分支；`no_session` 返回 `result=0`、`cause=no_session`。
-- [ ] Web「停止会话」收到 `no_session` 时提示“当前没有 agent 会话”，不要显示成功或超时。
+- [x] `stop()` 不再先 `_acquire_control`：只有存在自己的运动 worker，或 `control_held` 指向该设备时，才向设备发零速。
+- [x] 没有自己的会话且未持有租约 → 返回 `ok=True, stopped=False, released=False, cause="no_session"`，不向设备发任何命令。
+- [x] 有自己会话时顺序固定：`abort.set()` → `worker.join()` → 3 次零速（间隔 50ms）→ 尝试 `release`；`release` 失败不回滚已完成的停车。
+- [x] `stopped` / `released` 按实际结果回报：worker 收尾时已释放租约也算 `released=true`。
+- [x] `_serve_agent_stop` 删除 `control_occupied` 分支；`no_session` 返回 `result=0`、`cause=no_session`。
+- [x] Web「停止会话」收到 `no_session` 时提示“当前没有 agent 会话”，不要显示成功或超时。
 - 文件：`walle-agent/src/car_agent.py`、`web/car_ctl_by_mqtt.html`、
   `doc/MQTT_protocol_convention.md`（§4.19 与 `chat/stop` 补充说明）
 - 验收：

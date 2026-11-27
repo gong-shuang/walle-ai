@@ -1,12 +1,13 @@
 # MQTT 协议约定（文档版本 v1.25）
+> - 每次修改mqtt的topic格式或者报文的json字段，都需要更新本文档。
+> - 本文档的内容可新增，可修改，但是不能删除，对于不需要的记录废弃即可。
+> - 如果只是修改bug，没有改变topic格式或者报文的json字段，则不要更新本文档。
 
 > 本文是 控制端（App/Web）、代理端（agent）、设备端（ros2设备和非ros2设备）之间 MQTT 报文协议的契约
 > **唯一权威文档**，所有 MQTT 主题定义统一收敛到本文。
 > 改主题、改字段、改配对逻辑之前先读完本文，并按文末「修改协议的流程」同步各端与测试。
 >
-> - 本文档的版本：v1.25 （记录每次文档变更，本文档的内容可新增，可修改，但是不能删除，对于不需要的笔记废弃即可）
 > - MQTT协议本身的版本：MQTT 3.1.1 （即，服务器部署的MQTT的协议版本）。
-> 
 
 ---
 
@@ -1392,6 +1393,9 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 - `car/motor/set/request` 与 `car/servo/set/request` 被拒绝时回执 `result=-5`；
   其它请求-应答被拒绝时同样返回 `-5`，统一见 §2.8；
   客户端应通过 `runState/query/response.control_holder` 或 acquire 失败提前判断。
+- 零速停车不是急停通道：`car/motor/set/request` 的全零命令同样受租约约束，非持有者会被拒绝；
+  agent 的 `chat/stop` 只停止 agent 自己发起的会话，不会为停车去 acquire 别人的租约，
+  也不会停别人正在控制的车（见 §4.24）。
 
 **客户端约定**
 
@@ -1694,12 +1698,15 @@ agent 忽略未识别的字段。
 
 ### 4.24 agent 会话停止 agent/{agent}/chat/stop/request → response（v1.22）
 
-**作用**：用户中止 agent 当前正在执行的会话。agent 会**优雅停止**：
+**作用**：用户中止 agent 自己正在执行的会话。agent 会**优雅停止**：
 
 1. 对当前运动线程置中止标记，线程退出时补发 3 次零速并释放控制权；
-2. agent 再向目标设备补发一次零速（兜底），随后释放设备控制权。
+2. agent 再向目标设备补发 3 次零速（兜底），随后释放设备控制权。
 
-没有进行中的会话且未持有控制权时幂等返回成功（`stopped:false`）。
+**只停自己的会话**：agent 不会为停车去 `control/acquire` 别人的租约，也不会停别人
+正在控制的车。没有自己的会话且未持有控制权时幂等返回成功
+（`result=0`、`cause="no_session"`、`stopped=false`、`released=false`），
+不向设备发送任何命令。
 
 - 请求：`walle/{t}/agent/{a}/chat/stop/request`
 - 应答：`walle/{t}/agent/{a}/chat/stop/response`
@@ -1741,7 +1748,7 @@ agent 忽略未识别的字段。
 
 | 字段 | 说明 |
 |---|---|
-| `result` / `cause` | 统一错误码（§2.8）：`0` 成功（含无会话的幂等成功，此时 `cause="no_active_session"`）；`-1` 缺 `request_id`；`-3` MQTT 未连接；`-5` 控制权被其他客户端占用；`-6` 停止执行失败 |
+| `result` / `cause` | 统一错误码（§2.8）：`0` 成功（含无会话的幂等成功，此时 `cause="no_session"`、`stopped=false`、`released=false`）；`-1` 缺 `request_id`；`-3` MQTT 未连接；`-6` 停止执行失败 |
 | `request_id` | 原样回显 |
 | `agent_id` / `tenant` | agent 身份与租户 |
 | `device` | 实际停止的设备；没有会话/目标时为 `null` |
@@ -1752,7 +1759,8 @@ agent 忽略未识别的字段。
 **约束**：
 
 - 只中止 agent 会话产生的电机运动；舵机是绝对位置控制，不存在持续转动，本命令不改变舵机位置。
-- 幂等：重复发送不会报错；第二次起 `stopped:false`。
+- 不抢占控制权：不为停车 acquire 别人的租约；别人持有控制权时，本命令不会停别人的车。
+- 幂等：重复发送不会报错；没有自己的会话时返回 `cause="no_session"`、`stopped:false`。
 - 停止过程复用 `chat` 的停止流程，结束后 agent 不再持有该设备控制权。
 
 ### 4.25 agent 会话进度上报 agent/{agent}/chat/progress/report（v1.23）
@@ -1839,6 +1847,25 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
 ## 6. 变更记录
 
 > 历史条目中的结果码以当时版本为准；当前统一错误码见 §2.8。
+
+### 2026-11-27：agent 停车只停自己的会话（文档 v1.25）
+
+**变更类型**：行为澄清（agent 实现变更，无新增主题/字段）。
+
+**变更内容**
+
+- `chat/stop` 明确只停止 agent 自己发起的会话：不再为停车 `control/acquire`，
+  不会停别人持有控制权时正在控制的车。
+- 无自己的会话且未持有租约时幂等返回 `result=0`、`cause="no_session"`、
+  `stopped=false`、`released=false`，不向设备发送零速。
+- `chat/stop` 不再返回 `-5 控制权被占用`。
+- §4.19 重申：零速停车仍受租约约束，不提供“任何客户端急停”通道。
+
+**影响与兼容性**：Web/App 收到 `cause="no_session"` 时提示“当前没有 agent 会话”；
+`no_active_session` 更名为 `no_session`。
+
+**验证方式**：Web 持有租约时向 agent 发 `chat/stop` → `result=0, cause="no_session"`，
+设备端收不到 `car/motor/set/request`；agent 自己运动时发 `chat/stop` → 零速并释放租约。
 
 ### 2026-11-26：runState 分组改名 stream 并新增 is_supported（文档 v1.25）
 
