@@ -3926,7 +3926,17 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       addMsg('sys', '停止会话失败：' + (d.cause || ('result=' + d.result)));
       return;
     }
-    addMsg('sys', d.stopped ? '会话已停止，控制权已释放。' : '当前没有进行中的会话。');
+    if (d.cause === 'no_session') {
+      addMsg('sys', '当前没有 agent 会话。');
+      return;
+    }
+    if (d.stopped) {
+      addMsg('sys', d.released ? '会话已停止，控制权已释放。' : '会话已停止，控制权释放失败。');
+    } else if (d.released) {
+      addMsg('sys', '控制权已释放。');
+    } else {
+      addMsg('sys', '当前没有进行中的会话。');
+    }
   });
 
   document.addEventListener('walle-agent-response', function (e) {
