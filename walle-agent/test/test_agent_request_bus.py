@@ -2911,3 +2911,48 @@ def test_m409_task_cancel_keeps_other_tasks(agent, tmp_path, monkeypatch):
     assert out["intent"]["action"] == "task_cancel"
     assert store.get_task(target["id"]) is None
     assert store.get_task(other["id"]) is not None
+
+
+# ---------------- M4-10 LLM 测试 ----------------
+
+def test_m410_task_time_phrases(monkeypatch):
+    monkeypatch.setattr(
+        car_agent.task_schedule, "now_in_timezone",
+        lambda timezone=None, now=None: datetime(2026, 11, 28, 10, 0, 0))
+
+    intent, error = car_agent.parse_intent("明天晚上9点开始录像")
+    assert error is None
+    assert intent["schedule"] == {
+        "type": "once", "at": "2026-11-29 21:00:00"}
+
+    intent, _ = car_agent.parse_intent("每天早上8点开始录像")
+    assert intent["schedule"] == {"type": "cron", "expr": "0 8 * * *"}
+
+    intent, _ = car_agent.parse_intent("工作日晚上9点开始录像")
+    assert intent["schedule"] == {"type": "cron", "expr": "0 21 * * 1-5"}
+
+    intent, _ = car_agent.parse_intent("每天8点开始录像，晚上9点停止")
+    assert intent["schedule"] == {
+        "type": "daily_window", "start": "08:00", "stop": "21:00"}
+
+
+def test_m410_llm_delete_requires_confirmation(agent, monkeypatch):
+    _store, pending = _setup_confirm_chat(agent, monkeypatch)
+    calls = _fake_execute(agent, monkeypatch)
+    monkeypatch.setattr(
+        car_agent, "_llm_parse",
+        lambda text, context=None: {"action": "record_delete",
+                                    "latest": True})
+    client_id = "web-m410-llm-delete"
+
+    first = car_agent.handle_chat("web", "dev-1", "把那段影像清理掉",
+                                  client_id=client_id)
+    assert first["ok"] is False
+    assert "确认" in first["reply"]
+    assert calls == []
+    assert pending.peek(client_id, "dev-1")["kind"] == "confirm"
+
+    out = car_agent.handle_chat("web", "dev-1", "确认", client_id=client_id)
+    assert calls == [{"action": "record_delete", "latest": True}]
+    assert out["ok"] is True
+    assert pending.peek(client_id, "dev-1") is None

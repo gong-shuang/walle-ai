@@ -729,3 +729,44 @@ def test_parse_local_puts_environment_context_in_system(monkeypatch):
     assert "当前时间：2026-11-27" in messages[0]["content"]
     assert messages[1]["role"] == "user"
     assert "<user_text>" in messages[1]["content"]
+
+
+# ---------------- M4-10 LLM 测试 ----------------
+
+def test_hybrid_local_schema_error_falls_back_online(monkeypatch):
+    cfg = _hybrid_config()
+    calls = []
+    monkeypatch.setattr(
+        llm_router, "parse_local",
+        lambda text, cfg, context=None: (
+            calls.append("local") or None, "不支持的工具"))
+    monkeypatch.setattr(
+        llm_router, "parse_online",
+        lambda text, cfg, context=None: (
+            calls.append("online") or {"action": "stop"}, None))
+
+    intent, error, source = llm_router.parse_hybrid("停", cfg)
+
+    assert intent == {"action": "stop"}
+    assert error is None
+    assert source == "online"
+    assert calls == ["local", "online"]
+
+
+def test_llm_parse_uses_hybrid_router(monkeypatch):
+    cfg = _hybrid_config()
+    monkeypatch.setattr(car_agent, "load_config", lambda: cfg)
+    monkeypatch.setattr(car_agent, "log", lambda: _SilentLogger())
+    calls = []
+    monkeypatch.setattr(
+        llm_router, "parse_local",
+        lambda text, cfg, context=None: (
+            calls.append("local") or {"action": "stop"}, None))
+    monkeypatch.setattr(
+        llm_router, "parse_online",
+        lambda text, cfg, context=None: (
+            calls.append("online") or {"action": "task_list"}, None))
+
+    assert car_agent._llm_parse("停") == {"action": "stop"}
+    assert car_agent._llm_parse("先录像再推流") == {"action": "task_list"}
+    assert calls == ["local", "online"]
