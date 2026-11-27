@@ -732,6 +732,12 @@ def parse_intent(text):
     if any(w in t for w in DISCOVER_WORDS):
         return {"action": "device_discover"}, None
 
+    if (("agent" in t and ("状态" in t or "status" in t or "状况" in t))
+            or any(w in t for w in ("你的状态", "你自己状态", "自身状态"))):
+        return {"action": "agent_status"}, None
+    if any(w in t for w in ("服务健康", "服务状态", "健康检查", "health")):
+        return {"action": "service_health"}, None
+
     motion_words = ("前进", "向前", "往前", "前行", "后退", "向后", "往后", "倒车",
                     "左移", "右移", "左转", "右转")
     if (any(w in t for w in ("设备状态", "设备信息", "设备情况", "cpu", "内存",
@@ -795,7 +801,8 @@ def parse_intent(text):
 def validate_intent(intent, cfg):
     """返回 (intent, warning)。校验失败时 intent=None，warning 为原因。"""
     if intent["action"] in ("stop", "status", "device_base_state",
-                            "device_run_state", "device_discover"):
+                            "device_run_state", "device_discover",
+                            "agent_status", "service_health"):
         return intent, None
 
     max_distance = float(cfg["MAX_DISTANCE"])
@@ -1514,14 +1521,25 @@ class Agent:
                     "device": device, "ts": int(time.time())}
         try:
             missing = None
+            is_discover = any(w in _normalize(text) for w in DISCOVER_WORDS)
+            normalized_text = _normalize(text)
+            no_device_ok = (
+                is_discover
+                or ("agent" in normalized_text
+                    and any(w in normalized_text
+                            for w in ("状态", "status", "状况")))
+                or any(w in normalized_text
+                       for w in ("你的状态", "你自己状态", "自身状态"))
+                or any(w in normalized_text
+                       for w in ("服务健康", "服务状态", "健康检查", "health"))
+            )
             if not client_id:
                 missing = "client_id"
             elif not client_name:
                 missing = "client_name"
             elif not request_id:
                 missing = "request_id"
-            elif not device and not any(
-                    w in _normalize(text) for w in DISCOVER_WORDS):
+            elif not device and not no_device_ok:
                 missing = "device"
             elif not text:
                 missing = "text"
@@ -1815,8 +1833,11 @@ class Agent:
         if intent["action"] == "stop":
             return self.stop(client_name, device)
         if intent["action"] == "status":
-            return {"ok": True, "action": "status", "device": device,
-                    "status": self.health(device)}
+            return self.device_status(device)
+        if intent["action"] == "agent_status":
+            return self.agent_status()
+        if intent["action"] == "service_health":
+            return self.service_health(device)
         if intent["action"] == "device_base_state":
             return self.device_base_state(device)
         if intent["action"] == "device_run_state":
@@ -2144,6 +2165,98 @@ class Agent:
             return None
         return group.get("is_supported")
 
+    def device_status(self, device):
+        """「状态」默认查设备 baseState + runState（M1-06）。"""
+        base = self.device_base_state(device)
+        run = self.device_run_state(device)
+        parts = []
+        if base.get("ok"):
+            if base.get("reply"):
+                parts.append(base["reply"])
+        else:
+            parts.append("设备状态查询失败：{}".format(
+                base.get("cause") or base.get("error") or "未知错误"))
+        if run.get("ok"):
+            if run.get("reply"):
+                parts.append(run["reply"])
+        else:
+            parts.append("运行状态查询失败：{}".format(
+                run.get("cause") or run.get("error") or "未知错误"))
+        return {
+            "ok": bool(base.get("ok") or run.get("ok")),
+            "action": "status",
+            "device": device,
+            "baseState": base,
+            "runState": run,
+            "summary": {
+                "base": base.get("summary"),
+                "run": run.get("summary"),
+            },
+            "reply": "；".join(parts),
+        }
+
+    def agent_status(self):
+        """「agent 状态」：返回 agent 所在机器的状态（M1-06）。"""
+        try:
+            state = machine_state()
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "action": "agent_status",
+                    "error": "state_failed",
+                    "cause": "采集机器状态失败: {}".format(exc)}
+        cpu = state.get("cpu") or {}
+        memory = state.get("memory") or {}
+        disk = state.get("disk") or {}
+        network = state.get("network") or {}
+        summary = {
+            "hostname": state.get("hostname"),
+            "ip": state.get("ip"),
+            "os": state.get("os"),
+            "cpu_percent": cpu.get("usage_percent"),
+            "cpu_count": cpu.get("cores"),
+            "cpu_temperature_c": cpu.get("temperature_c"),
+            "memory_percent": memory.get("usage_percent"),
+            "memory_used_bytes": memory.get("used_bytes"),
+            "memory_total_bytes": memory.get("total_bytes"),
+            "disk_percent": disk.get("usage_percent"),
+            "disk_free_bytes": disk.get("free_bytes"),
+            "disk_total_bytes": disk.get("total_bytes"),
+            "network_rx_bps": network.get("rx_bytes_per_sec"),
+            "network_tx_bps": network.get("tx_bytes_per_sec"),
+            "uptime_seconds": state.get("uptime_sec"),
+        }
+        return {
+            "ok": True,
+            "action": "agent_status",
+            "agent_id": agent_identity(),
+            "agent_name": agent_name(),
+            "state": state,
+            "summary": summary,
+            "reply": "agent 机器状态：" + self._base_state_reply(summary),
+        }
+
+    def service_health(self, device=None):
+        """「服务健康」：返回 agent 自身健康与 MQTT/设备概况（M1-06）。"""
+        health = self.health(device)
+        mqtt = health.get("mqtt") or {}
+        devices = health.get("devices") or []
+        online = sum(1 for item in devices if item.get("online"))
+        chat = health.get("chat") or {}
+        parts = [
+            "MQTT " + ("已连接" if mqtt.get("connected") else "未连接"),
+            "在线设备 {}/{}".format(online, len(devices)),
+            "运动 " + ("是" if health.get("moving") else "否"),
+            "chat 请求 {}/错误 {}".format(
+                chat.get("requests", 0), chat.get("errors", 0)),
+            "LLM " + ("开启" if health.get("llm_enabled") else "关闭"),
+        ]
+        return {
+            "ok": bool(health.get("ok", True)),
+            "action": "service_health",
+            "device": device,
+            "health": health,
+            "reply": "服务健康：" + "；".join(parts),
+        }
+
     def discover_devices(self, timeout=3.0):
         """租户级 discovery：retained online 为主，3s 内 discovery 应答为辅。"""
         if not (self.mqtt_client and self.mqtt_connected):
@@ -2372,8 +2485,8 @@ def _get_agent():
 _LLM_SYSTEM = (
     "你是小车控制意图解析器。只输出 JSON，不要解释。"
     "允许的动作：move(forward/backward/left/right, distance_m, speed_mps)、"
-    "rotate(left/right, angle_deg)、stop、status、device_base_state、"
-    "device_run_state、device_discover。"
+    "rotate(left/right, angle_deg)、stop、status、agent_status、"
+    "service_health、device_base_state、device_run_state、device_discover。"
     "无法确定时输出 {\"action\":\"unknown\"}。"
 )
 
@@ -2402,6 +2515,7 @@ def _llm_parse(text):
         content = data["choices"][0]["message"]["content"]
         intent = json.loads(content)
         if intent.get("action") in ("move", "rotate", "stop", "status",
+                                    "agent_status", "service_health",
                                     "device_base_state", "device_run_state",
                                     "device_discover"):
             return intent
@@ -2467,7 +2581,17 @@ def _reply_text(intent, result):
         return "设备状态查询失败：{}。".format(
             result.get("cause") or error or "未知错误")
     elif action == "status":
-        return "状态查询完成。"
+        return result.get("reply") or "设备状态查询完成。"
+    elif action == "agent_status":
+        if result.get("ok"):
+            return result.get("reply") or "agent 状态查询完成。"
+        return "agent 状态查询失败：{}。".format(
+            result.get("cause") or result.get("error") or "未知错误")
+    elif action == "service_health":
+        if result.get("ok"):
+            return result.get("reply") or "服务健康查询完成。"
+        return "服务健康查询失败：{}。".format(
+            result.get("cause") or result.get("error") or "未知错误")
     else:
         return "已解析。"
 

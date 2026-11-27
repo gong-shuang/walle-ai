@@ -7,7 +7,7 @@
 > 使用方式：每完成一项，把 `[ ]` 改成 `[x]`，补上完成日期、提交或证据，并更新「进度总览」和「更新记录」。
 >
 > 最后更新：2026-11-27
-> 当前阶段：M1 进行中（5/8）
+> 当前阶段：M1 进行中（6/8）
 
 ---
 
@@ -237,7 +237,7 @@ agent：
 | 里程碑 | 状态 | 完成项 | 说明 |
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
-| M1 请求总线与设备状态 | 进行中 | 5/8 | RequestBus、DeviceRegistry、baseState/runState/discover 已落地；状态对话与告警待做 |
+| M1 请求总线与设备状态 | 进行中 | 6/8 | RequestBus、DeviceRegistry、状态工具、状态区分已落地；能力缓存与告警待做 |
 | M2 核心设备动作 | 未开始 | 0/10 | 录像、推流、舵机、电机回执、结构化返回 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
@@ -519,13 +519,23 @@ agent：
 
 - **层级**：L1 对话理解层 + L3 设备通信与状态层
 - **小白解释**：现在说“状态”，agent 回答的是自己的健康，不是车的状态。要分清“车状态”“agent 状态”“服务健康”，用户问什么就答什么。
-- [ ] 对话「状态」默认查设备 `baseState` + `runState`。
-- [ ] 「agent 状态」查 `agent/baseState`。
-- [ ] 「服务健康」查 agent health。
-- [ ] 删除 `execute(status)` 返回 agent health 的旧行为。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] 对话「状态」默认查设备 `baseState` + `runState`。
+- [x] 「agent 状态」查 `agent/baseState`。
+- [x] 「服务健康」查 agent health。
+- [x] 删除 `execute(status)` 返回 agent health 的旧行为。
+- 实现：
+  - `execute(status)` 改为 `device_status()`：同时查 baseState + runState，任一成功即返回部分结果，失败侧在回复中注明。
+  - `agent_status()` 返回本机 `machine_state()`（与 `agent/baseState/query/response` 同源），包含 CPU/内存/磁盘/IP/运行时长。
+  - `service_health()` 返回 agent health 摘要：MQTT 状态、在线设备数、运动状态、chat 请求/错误、LLM 开关。
+  - 意图路由：
+    - “状态” → `status`（设备 base+run）；
+    - “agent 状态/你的状态” → `agent_status`；
+    - “服务健康/服务状态/健康检查” → `service_health`；
+    - “设备状态”仍走 `device_base_state`，“运行状态”仍走 `device_run_state`。
+  - “agent 状态/服务健康”不要求已选设备；`execute` / `_reply_text` / LLM 动作白名单同步支持。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/test/test_agent_request_bus.py`
 - 验收：用户说「状态」得到设备状态；说「agent 状态」得到机器状态。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次提交 / 新增 6 个状态区分与聚合测试；`pytest walle-agent/test` 47 passed；未修改 MQTT 协议
 
 #### M1-07 能力缓存与 is_supported
 
@@ -1126,6 +1136,7 @@ agent：
 | 2026-11-27 | M1-03 | device_base_state 工具落地：baseState 查询、摘要与对话路由；M1 进度 3/8 | 本次提交 |
 | 2026-11-27 | M1-04 | device_run_state 工具落地：录像/推流/电量/声呐/控制权解析、is_supported/available 处理；M1 进度 4/8 | 本次提交 |
 | 2026-11-27 | M1-05 | device_discover 工具落地：租户级扫描、3s 收集、online 优先合并、无设备容错；M1 进度 5/8 | 本次提交 |
+| 2026-11-27 | M1-06 | 状态区分落地：状态=设备 base+run、agent 状态=本机 machine_state、服务健康=health；M1 进度 6/8 | 本次提交 |
 
 ---
 
