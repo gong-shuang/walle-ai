@@ -6,6 +6,7 @@ import json
 import threading
 import time
 import types
+from datetime import datetime
 
 import pytest
 
@@ -1886,3 +1887,202 @@ def test_start_task_scheduler_starts_and_stops(agent, tmp_path):
     agent.shutdown()
     assert agent.task_scheduler is None
     assert scheduler.running is False
+
+
+# ---------------- M3-07 重启对账 ----------------
+
+def _recording_state(recording):
+    return {"ok": True, "summary": {"recording": {"recording": recording}}}
+
+
+def test_start_task_scheduler_reconciles_before_start(agent, tmp_path,
+                                                      monkeypatch):
+    _use_task_store(agent, tmp_path)
+    called = []
+    monkeypatch.setattr(agent, "reconcile_tasks",
+                        lambda: called.append(True) or {})
+
+    scheduler = agent.start_task_scheduler()
+
+    assert called == [True]
+    assert scheduler.running is True
+    agent.shutdown()
+
+
+def test_reconcile_recomputes_future_next_run(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store, next_run_at="2026-11-27 09:00:00")
+    monkeypatch.setattr(agent, "device_run_state",
+                        lambda device: _recording_state(False))
+
+    out = agent.reconcile_tasks(now=datetime(2026, 11, 27, 7, 0))
+
+    assert store.get_task(task["id"])["next_run_at"] == (
+        "2026-11-27 08:00:00")
+    assert out["tasks"][0]["action"] == "rescheduled"
+    assert out["devices"][0]["action"] == "none"
+
+
+def test_reconcile_runs_missed_slot_within_grace(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+    calls = []
+    monkeypatch.setattr(agent, "record_start", lambda device: calls.append(
+        device) or {"ok": True, "action": "record_start", "result": 0,
+                    "request_id": "agent-record-1", "cause": "ok"})
+    advanced = []
+    monkeypatch.setattr(agent, "_advance_task",
+                        lambda store, fresh: advanced.append(fresh["id"]))
+    monkeypatch.setattr(agent, "device_run_state",
+                        lambda device: _recording_state(True))
+
+    out = agent.reconcile_tasks(now=datetime(2026, 11, 27, 8, 2, 0))
+
+    assert calls == ["dev-1"]
+    runs = store.list_runs(task["id"])
+    assert len(runs) == 1
+    assert runs[0]["phase"] == "start"
+    assert runs[0]["scheduled_at"] == "2026-11-27 08:00:00"
+    assert out["tasks"][0]["action"] == "catch_up"
+    assert advanced == [task["id"]]
+
+
+def test_reconcile_advances_already_completed_slot(agent, tmp_path,
+                                                   monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+    store.record_run(task["id"], "start",
+                     scheduled_at="2026-11-27 08:00:00",
+                     started_at="2026-11-27 08:00:00",
+                     finished_at="2026-11-27 08:00:01",
+                     result=0, cause="ok")
+    calls = []
+    monkeypatch.setattr(agent, "record_start",
+                        lambda device: calls.append(device) or {"ok": True})
+    advanced = []
+    monkeypatch.setattr(agent, "_advance_task",
+                        lambda store, fresh: advanced.append(fresh["id"]))
+    monkeypatch.setattr(agent, "device_run_state",
+                        lambda device: _recording_state(True))
+
+    out = agent.reconcile_tasks(now=datetime(2026, 11, 27, 8, 2, 0))
+
+    assert calls == []
+    assert advanced == [task["id"]]
+    assert out["tasks"][0]["action"] == "catch_up"
+
+
+def test_reconcile_skips_slot_beyond_grace(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+    calls = []
+    monkeypatch.setattr(agent, "record_start", lambda device: calls.append(
+        device) or {"ok": True})
+    advanced = []
+    monkeypatch.setattr(agent, "_advance_task",
+                        lambda store, fresh: advanced.append(fresh["id"]))
+    monkeypatch.setattr(agent, "device_run_state",
+                        lambda device: _recording_state(True))
+
+    out = agent.reconcile_tasks(now=datetime(2026, 11, 27, 9, 0, 0))
+
+    assert calls == []
+    run = store.list_runs(task["id"])[0]
+    assert run["error"] == "missed"
+    assert "超过宽限" in run["cause"]
+    assert out["tasks"][0]["action"] == "missed"
+    assert advanced == [task["id"]]
+
+
+def test_reconcile_does_not_start_after_window_closed(agent, tmp_path,
+                                                       monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = store.create_task(
+        "短窗口", "dev-1",
+        {"type": "daily_window", "start": "08:00", "stop": "08:03"},
+        [{"phase": "start", "tool": "record.start"},
+         {"phase": "stop", "tool": "record.stop"}],
+        next_run_at="2026-11-27 08:00:00")
+    calls = []
+    monkeypatch.setattr(agent, "record_start", lambda device: calls.append(
+        device) or {"ok": True})
+    monkeypatch.setattr(agent, "_advance_task",
+                        lambda store, fresh: None)
+    monkeypatch.setattr(agent, "device_run_state",
+                        lambda device: _recording_state(False))
+
+    out = agent.reconcile_tasks(now=datetime(2026, 11, 27, 8, 4, 0))
+
+    assert calls == []
+    assert out["tasks"][0]["action"] == "missed"
+    assert "窗口已结束" in out["tasks"][0]["reason"]
+    assert store.list_runs(task["id"])[0]["error"] == "missed"
+
+
+def test_reconcile_starts_recording_inside_window(agent, tmp_path,
+                                                  monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store, next_run_at="2026-11-27 21:00:00")
+    calls = []
+    monkeypatch.setattr(agent, "record_start", lambda device: calls.append(
+        device) or {"ok": True, "action": "record_start", "result": 0,
+                    "request_id": "agent-record-2", "cause": "ok"})
+    advanced = []
+    monkeypatch.setattr(agent, "_advance_task",
+                        lambda store, fresh: advanced.append(fresh["id"]))
+    monkeypatch.setattr(agent, "device_run_state",
+                        lambda device: _recording_state(False))
+
+    out = agent.reconcile_tasks(now=datetime(2026, 11, 27, 10, 0, 0))
+
+    assert calls == ["dev-1"]
+    assert out["devices"][0]["action"] == "start"
+    run = store.list_runs(task["id"])[0]
+    assert run["phase"] == "start"
+    assert run["request_id"] == "agent-record-2"
+    assert "启动对账" in run["cause"]
+    assert advanced == [task["id"]]
+
+
+def test_reconcile_stops_owned_recording_outside_window(agent, tmp_path,
+                                                        monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store, next_run_at="2026-11-28 08:00:00")
+    store.record_run(task["id"], "start",
+                     scheduled_at="2026-11-27 08:00:00",
+                     started_at="2026-11-27 08:00:00",
+                     finished_at="2026-11-27 08:00:01",
+                     result=0, cause="ok")
+    stops = []
+    monkeypatch.setattr(agent, "record_stop", lambda device: stops.append(
+        device) or {"ok": True, "action": "record_stop", "result": 0,
+                    "request_id": "agent-stop-1", "cause": "ok"})
+    monkeypatch.setattr(agent, "_advance_task",
+                        lambda store, fresh: None)
+    monkeypatch.setattr(agent, "device_run_state",
+                        lambda device: _recording_state(True))
+
+    out = agent.reconcile_tasks(now=datetime(2026, 11, 27, 22, 0, 0))
+
+    assert stops == ["dev-1"]
+    assert out["devices"][0]["action"] == "stop"
+    runs = store.list_runs(task["id"])
+    assert runs[0]["phase"] == "stop"
+    assert "启动对账" in runs[0]["cause"]
+
+
+def test_reconcile_keeps_manual_recording_outside_window(agent, tmp_path,
+                                                         monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    _window_task(store, next_run_at="2026-11-28 08:00:00")
+    stops = []
+    monkeypatch.setattr(agent, "record_stop",
+                        lambda device: stops.append(device) or {"ok": True})
+    monkeypatch.setattr(agent, "device_run_state",
+                        lambda device: _recording_state(True))
+
+    out = agent.reconcile_tasks(now=datetime(2026, 11, 27, 22, 0, 0))
+
+    assert stops == []
+    assert out["devices"][0]["action"] == "keep"
+    assert out["devices"][0]["reason"] == "recording_not_owned"

@@ -80,6 +80,8 @@ DEFAULTS = {
     "TASK_RETRY_BACKOFF_SEC": "2",
     # M3-06：任务控制权策略；当前实现 shared
     "TASK_CONTROL_MODE": "shared",
+    # M3-07：启动对账时，错过触发点在宽限内补执行，超过则跳过
+    "TASK_MISSED_GRACE_SEC": "300",
 }
 
 AGENT_VERSION_FILE = os.path.join(REPO_ROOT, "VERSION")
@@ -2347,6 +2349,10 @@ class Agent:
                 if mode != "shared":
                     log().warning(
                         "TASK_CONTROL_MODE=%s 暂未实现，按 shared 执行", mode)
+                try:
+                    self.reconcile_tasks()
+                except Exception as exc:  # noqa: BLE001 - 对账失败不阻止调度
+                    log().exception("任务启动对账失败: %s", exc)
                 self.task_scheduler = TaskScheduler(
                     self.task_db(), self._dispatch_task, tick_sec=1.0,
                     timezone=self.cfg.get("TASK_TIMEZONE"))
@@ -2478,6 +2484,207 @@ class Agent:
         nxt = task_schedule.advance_task(store, task)
         if nxt is None:
             store.update_task(task["id"], enabled=False)
+        return nxt
+
+    # ---- 重启对账（M3-07）----
+
+    def _task_missed_grace(self):
+        try:
+            return max(0, int(self.cfg.get("TASK_MISSED_GRACE_SEC", "300")))
+        except (TypeError, ValueError):
+            return 300
+
+    def reconcile_tasks(self, now=None):
+        """启动时重算 next_run_at，并按 runState 补录像开始/停止（M3-07）。
+
+        - `next_run_at` 已错过且在 `TASK_MISSED_GRACE_SEC` 内：立即补执行；
+        - 超过宽限、或 daily_window 的开始窗口已结束：记 `missed` 并跳过；
+        - 其余启用任务重算 `next_run_at`；
+        - 按设备对账：窗口内未录补启动；窗口外仍在录且由任务启动时补停止。
+        """
+        store = self.task_db()
+        base_now = task_schedule.now_in_timezone(
+            self.cfg.get("TASK_TIMEZONE"), now)
+        grace = self._task_missed_grace()
+        summary = {"grace_sec": grace, "tasks": [], "devices": []}
+        devices = []
+        for task in store.list_tasks(enabled=True):
+            if task["device"] not in devices:
+                devices.append(task["device"])
+            try:
+                summary["tasks"].append(
+                    self._reconcile_task(task, base_now, grace))
+            except Exception as exc:  # noqa: BLE001 - 单个任务异常不能中断对账
+                log().exception("任务对账失败 task_id=%s", task.get("id"))
+                summary["tasks"].append({
+                    "task_id": task.get("id"), "action": "error",
+                    "reason": str(exc)})
+        for device in devices:
+            try:
+                summary["devices"].append(
+                    self._reconcile_device_recording(device, base_now))
+            except Exception as exc:  # noqa: BLE001
+                log().exception("设备录像对账失败 device=%s", device)
+                summary["devices"].append({
+                    "device": device, "action": "error", "reason": str(exc)})
+        log().info("任务启动对账完成 %s",
+                   json.dumps(summary, ensure_ascii=False))
+        return summary
+
+    def _reconcile_task(self, task, base_now, grace):
+        """重算单个任务的 next_run_at，必要时补执行错过的触发点。"""
+        store = self.task_db()
+        current = task_schedule.now_in_timezone(task.get("timezone"), base_now)
+        now_text = current.strftime(task_schedule.TIME_FORMAT)
+        stored = str(task.get("next_run_at") or "").strip()
+        item = {"task_id": task["id"], "device": task["device"],
+                "previous": stored or None, "action": "keep",
+                "next_run_at": stored or None}
+        scheduled = None
+        if stored:
+            try:
+                scheduled = task_schedule.parse_time(
+                    stored, task.get("timezone"))
+            except ValueError:
+                scheduled = None
+        if scheduled is not None and scheduled <= current:
+            late = int((current - scheduled).total_seconds())
+            phase = task_schedule.phase_for_slot(task, stored)
+            reason = None
+            if late > grace:
+                reason = "错过触发点 {} 秒，超过宽限 {} 秒".format(late, grace)
+            elif phase not in ("start", "stop"):
+                reason = "无法识别触发阶段"
+            elif (phase == "start"
+                  and task_schedule.in_daily_window(task, current) is False):
+                reason = "录像窗口已结束"
+            if reason:
+                self._record_missed_run(task, stored, phase, reason, now_text)
+                nxt = self._advance_task(store, task)
+                item.update({
+                    "action": "missed", "reason": reason,
+                    "next_run_at": nxt["at"] if nxt else None,
+                })
+                log().warning("任务错过触发 task_id=%s slot=%s：%s",
+                              task.get("id"), stored, reason)
+                return item
+            if store.get_run_by_slot(task["id"], phase, stored):
+                # 该 slot 已执行过但 next_run_at 未推进（进程在执行中退出），补推进
+                self._advance_task(store, task)
+            else:
+                self._run_task(task, stored)
+            fresh = store.get_task(task["id"])
+            item.update({
+                "action": "catch_up", "late_sec": late, "phase": phase,
+                "next_run_at": fresh.get("next_run_at") if fresh else None,
+            })
+            return item
+        nxt = task_schedule.next_occurrence(task, current)
+        if nxt is None:
+            store.update_task(task["id"], enabled=False)
+            item.update({"action": "disabled", "next_run_at": None})
+        elif nxt["at"] != stored:
+            store.update_task(task["id"], next_run_at=nxt["at"])
+            item.update({"action": "rescheduled", "next_run_at": nxt["at"]})
+        return item
+
+    def _record_missed_run(self, task, scheduled_at, phase, reason, now_text):
+        """记录错过的触发点；同一 slot 已执行过时保留原结果。"""
+        store = self.task_db()
+        phase = phase or "unknown"
+        if store.get_run_by_slot(task["id"], phase, scheduled_at):
+            return
+        run = store.record_run(task["id"], phase, scheduled_at=scheduled_at,
+                               started_at=now_text)
+        if not run:
+            return
+        store.update_run(run["run_id"], finished_at=now_text,
+                         error="missed", cause=reason)
+
+    def _record_reconcile_run(self, task, phase, out, base_now):
+        """记录一次启动对账触发的录像开始/停止。"""
+        if task is None:
+            return
+        store = self.task_db()
+        now_text = task_schedule.now_in_timezone(
+            task.get("timezone"), base_now).strftime(task_schedule.TIME_FORMAT)
+        if store.get_run_by_slot(task["id"], phase, now_text):
+            return
+        run = store.record_run(task["id"], phase, scheduled_at=now_text,
+                               started_at=now_text)
+        if not run:
+            return
+        error = None if out.get("ok") else (out.get("error") or "failed")
+        cause = out.get("cause") or ("ok" if out.get("ok") else error)
+        store.update_run(
+            run["run_id"], finished_at=now_text,
+            request_id=out.get("request_id"), result=out.get("result"),
+            cause="启动对账：{}".format(cause), error=error)
+
+    def _reconcile_device_recording(self, device, base_now):
+        """按 runState 对本设备做录像补启动/补停止。"""
+        store = self.task_db()
+        tasks = [
+            task for task in store.list_tasks(enabled=True)
+            if task.get("device") == device
+            and (task.get("schedule") or {}).get("type") == "daily_window"
+        ]
+        if not tasks:
+            return {"device": device, "action": "skip",
+                    "reason": "no_window_task"}
+        active = None
+        for task in tasks:
+            if task_schedule.in_daily_window(task, base_now):
+                active = task
+                break
+        desired = active is not None
+        state = self.device_run_state(device)
+        if not state.get("ok"):
+            return {"device": device, "desired": desired, "action": "skip",
+                    "reason": state.get("error") or "run_state_unavailable"}
+        group = (state.get("summary") or {}).get("recording") or {}
+        actual = bool(group.get("recording"))
+        item = {"device": device, "desired": desired, "recording": actual,
+                "action": "none"}
+        if desired and not actual:
+            out = self.record_start(device)
+            self._record_reconcile_run(active, "start", out, base_now)
+            self._advance_task(store, active)
+            item.update({"action": "start", "ok": bool(out.get("ok")),
+                         "cause": out.get("cause") or out.get("error")})
+        elif not desired and actual:
+            latest = self._latest_successful_run(store, device)
+            if not latest or latest.get("phase") != "start":
+                item.update({"action": "keep",
+                             "reason": "recording_not_owned"})
+            else:
+                owner = store.get_task(latest.get("task_id"))
+                out = self.record_stop(device)
+                if owner is not None:
+                    self._record_reconcile_run(owner, "stop", out, base_now)
+                    self._advance_task(store, owner)
+                item.update({"action": "stop",
+                             "ok": bool(out.get("ok")),
+                             "cause": out.get("cause") or out.get("error")})
+        return item
+
+    @staticmethod
+    def _latest_successful_run(store, device):
+        """设备最近一次成功的任务执行（error 为空且 result 为 0/-4）。"""
+        latest = None
+        latest_stamp = ""
+        for task in store.list_tasks():
+            if task.get("device") != device:
+                continue
+            for run in store.list_runs(task["id"], limit=20):
+                if run.get("error") or run.get("result") not in (0, -4):
+                    continue
+                stamp = (run.get("finished_at") or run.get("started_at")
+                         or run.get("scheduled_at") or "")
+                if latest is None or stamp > latest_stamp:
+                    latest, latest_stamp = run, stamp
+                break
+        return latest
 
     def chat_status(self):
         return {

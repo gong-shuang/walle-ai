@@ -132,6 +132,43 @@ def test_invalid_schedule_is_rejected(schedule):
         task_schedule.validate_schedule(schedule)
 
 
+def test_in_daily_window_boundaries():
+    task = _task({"type": "daily_window", "start": "08:00", "stop": "21:00"})
+
+    assert task_schedule.in_daily_window(
+        task, datetime(2026, 11, 27, 7, 59)) is False
+    assert task_schedule.in_daily_window(
+        task, datetime(2026, 11, 27, 8, 0)) is True
+    assert task_schedule.in_daily_window(
+        task, datetime(2026, 11, 27, 20, 59)) is True
+    assert task_schedule.in_daily_window(
+        task, datetime(2026, 11, 27, 21, 0)) is False
+
+
+def test_in_daily_window_overnight_and_weekdays():
+    overnight = _task({"type": "daily_window", "start": "22:00",
+                       "stop": "06:00"})
+    assert task_schedule.in_daily_window(
+        overnight, datetime(2026, 11, 27, 23, 0)) is True
+    assert task_schedule.in_daily_window(
+        overnight, datetime(2026, 11, 28, 5, 59)) is True
+    assert task_schedule.in_daily_window(
+        overnight, datetime(2026, 11, 28, 6, 0)) is False
+
+    weekdays = _task({"type": "daily_window", "start": "08:00",
+                      "stop": "18:00", "weekdays": [0, 1, 2, 3, 4]})
+    assert task_schedule.in_daily_window(
+        weekdays, datetime(2026, 11, 27, 12, 0)) is True   # 周五
+    assert task_schedule.in_daily_window(
+        weekdays, datetime(2026, 11, 28, 12, 0)) is False  # 周六
+
+
+def test_in_daily_window_ignores_other_types():
+    task = _task({"type": "interval", "seconds": 60})
+    assert task_schedule.in_daily_window(
+        task, datetime(2026, 11, 27, 12, 0)) is None
+
+
 def test_advance_task_persists_next_run_at(tmp_path):
     store = task_store.TaskStore(str(tmp_path / "agent.db"))
     try:

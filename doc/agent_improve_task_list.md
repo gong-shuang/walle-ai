@@ -239,7 +239,7 @@ agent：
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
-| M3 调度与任务 | 进行中 | 5/10 | SQLite、调度线程、四种类型、任务工具/Web 页签、录像执行已落地；M3-06 shared 已落地、exclusive 待定 |
+| M3 调度与任务 | 进行中 | 6/10 | SQLite、调度线程、四种类型、任务工具/Web 页签、录像执行、shared 控制权、重启对账已落地；exclusive 待定 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
 
@@ -860,12 +860,19 @@ agent：
 
 - **层级**：L4 任务调度层
 - **小白解释**：agent 重启/断网后，不知道录像是不是还在跑。对账就是“醒来后先看一眼”，避免漏录或一直录。
-- [ ] 启动时加载任务，重算 `next_run_at`。
-- [ ] 查 `runState.recording`：窗口内未录补启动；窗口外仍在录补停止。
-- [ ] 错过触发点按 `TASK_MISSED_GRACE_SEC` 处理。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] 启动时加载任务，重算 `next_run_at`。
+- [x] 查 `runState.recording`：窗口内未录补启动；窗口外仍在录补停止。
+- [x] 错过触发点按 `TASK_MISSED_GRACE_SEC` 处理。
+- 实现：
+  - `start_task_scheduler()` 启动调度线程前先调用 `reconcile_tasks()`，逐个启用任务重算 `next_run_at`。
+  - 错过的触发点在 `TASK_MISSED_GRACE_SEC`（默认 300s）内立即补执行；超过宽限记 `missed` 并跳过；
+    `daily_window` 的 start 若窗口已结束则不再补启动。
+  - 按设备查询 `runState.recording`：窗口内未录补启动；窗口外仍在录时，仅当最近一次成功的任务执行是
+    start（录像由任务启动）才补停止，避免误停 Web/对话手动开始的录像。
+  - 对账动作写入 `task_runs`（`cause=启动对账：...`）并推进 `next_run_at`，重启后不会重复触发。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/src/task_schedule.py`、`walle-agent/test/`
 - 验收：录像中重启 agent，任务恢复且不会重复/遗漏。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 12 个用例（窗口判断、重算、宽限内补执行、槽位已执行补推进、超宽限/窗口结束跳过、窗口内补启动、窗口外补停止、手动录像不误停、启动钩子）；`pytest walle-agent/test` 157 passed；未修改 MQTT 协议
 
 #### M3-08 重试与幂等
 

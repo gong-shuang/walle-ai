@@ -176,6 +176,11 @@ def now_in_timezone(timezone=None, now=None):
     return _to_zone(now, _zone(timezone))
 
 
+def parse_time(text, timezone=None):
+    """把 `YYYY-MM-DD HH:MM:SS` 解析为任务时区下的 aware datetime。"""
+    return _parse_at(text, _zone(timezone))
+
+
 def _phase_for(task, schedule):
     phase = str(schedule.get("phase") or "").strip()
     if phase:
@@ -262,6 +267,32 @@ def next_occurrence(task, now=None):
     if candidate is None:
         return None
     return {"at": candidate.strftime(TIME_FORMAT), "phase": phase}
+
+
+def in_daily_window(task, now=None):
+    """daily_window 任务当前是否处于录像窗口内。
+
+    返回 True（窗口内）/ False（窗口外）；非 daily_window 类型返回 None。
+    跨午夜窗口按开始日判断，`weekdays` 只限制窗口开始的那一天。
+    """
+    schedule = validate_schedule(task.get("schedule"))
+    if schedule["type"] != "daily_window":
+        return None
+    zone = _zone(task.get("timezone"))
+    current = _to_zone(now, zone)
+    start = _parse_clock(schedule["start"])
+    stop = _parse_clock(schedule["stop"])
+    allowed = set(schedule.get("weekdays") or [])
+    for offset in (0, -1):
+        day = (current + timedelta(days=offset)).date()
+        if allowed and day.weekday() not in allowed:
+            continue
+        start_at = datetime.combine(day, start, tzinfo=zone)
+        stop_day = day if stop > start else day + timedelta(days=1)
+        stop_at = datetime.combine(stop_day, stop, tzinfo=zone)
+        if start_at <= current < stop_at:
+            return True
+    return False
 
 
 def phase_for_slot(task, scheduled_at):
