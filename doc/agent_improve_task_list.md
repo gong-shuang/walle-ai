@@ -238,7 +238,7 @@ agent：
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
-| M2 核心设备动作 | 进行中 | 8/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试已落地 |
+| M2 核心设备动作 | 进行中 | 9/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试与文档已落地 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
@@ -719,11 +719,14 @@ agent：
 
 - **层级**：跨层（文档）
 - **小白解释**：以后别人接手，或者你自己过几个月再看，能知道每个动作怎么调用、返回什么。
-- [ ] 在 `walle-agent/docs/` 增加动作清单/示例。
-- [ ] 更新本清单的协议覆盖矩阵。
+- [x] 在 `walle-agent/docs/` 增加动作清单/示例。
+- [x] 更新本清单的协议覆盖矩阵。
+- 实现：
+  - 新增 `walle-agent/docs/agent_action_catalog.md`：动作速查表、intent 示例、返回字段、控制权/进度/data 映射、错误码与测试入口。
+  - 覆盖矩阵按当前实现更新：设备 request/response 13/18 已覆盖；缺手机音频、录像删除/播放（M5）。
 - 文件：`walle-agent/docs/`、本文件
 - 验收：新成员能按文档调用每个动作。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增动作清单文档并刷新覆盖矩阵；`pytest walle-agent/test` 101 passed；未修改代码与 MQTT 协议
 
 #### M2-10 资源互斥与冲突提示
 
@@ -1089,36 +1092,37 @@ agent：
 ## 4. 全量协议覆盖矩阵
 
 > 目标：18 组设备 request/response 全部由 agent 覆盖；`online`、`alarm/report` 为订阅上报。
+> 当前覆盖：13/18 组；缺手机音频（2 组）、录像删除/播放（3 组），见 M5。
 
 | # | 协议 | 主题 | 里程碑 | 所属层 | 当前状态 |
 |---|---|---|---|---|---|
-| 1 | 设备发现 | `discovery/query/request` → `device/{d}/discovery/query/response` | M1-05 | L3 | 未实现 |
-| 2 | 基础状态 | `baseState/query/request` → `.../response` | M1-03 | L3 | 仅 link_test |
-| 3 | 运行状态 | `runState/query/request` → `.../response` | M1-04 | L3 | 未实现 |
-| 4 | 获取控制权 | `control/acquire/request` → `.../response` | M2-05 | L2/L3 | 部分（仅运动） |
-| 5 | 释放控制权 | `control/release/request` → `.../response` | M2-05 | L2/L3 | 部分（仅运动） |
-| 6 | 开始推流 | `stream/start/request` → `.../response` | M2-02 | L2 | 未实现 |
-| 7 | 停止推流 | `stream/stop/request` → `.../response` | M2-02 | L2 | 未实现 |
+| 1 | 设备发现 | `discovery/query/request` → `device/{d}/discovery/query/response` | M1-05 | L3 | 已完成（retained online + 3s discovery） |
+| 2 | 基础状态 | `baseState/query/request` → `.../response` | M1-03 | L3 | 已完成 |
+| 3 | 运行状态 | `runState/query/request` → `.../response` | M1-04 | L3 | 已完成 |
+| 4 | 获取控制权 | `control/acquire/request` → `.../response` | M2-05 | L2/L3 | 已完成（运动/录像/推流/舵机设置） |
+| 5 | 释放控制权 | `control/release/request` → `.../response` | M2-05 | L2/L3 | 已完成 |
+| 6 | 开始推流 | `stream/start/request` → `.../response` | M2-02 | L2 | 已完成（含 already_streaming 复用） |
+| 7 | 停止推流 | `stream/stop/request` → `.../response` | M2-02 | L2 | 已完成（含房间号校验） |
 | 8 | 手机音频开 | `phone/audio/send/request` → `.../response` | M5-03 | L2 | 未实现 |
 | 9 | 手机音频关 | `phone/audio/stop/request` → `.../response` | M5-03 | L2 | 未实现 |
-| 10 | 开始录像 | `record/start/request` → `.../response` | M2-01 | L2 | 未实现 |
-| 11 | 停止录像 | `record/stop/request` → `.../response` | M2-01 | L2 | 未实现 |
-| 12 | 录像列表 | `record/list/query/request` → `.../response` | M2-01 | L2/L3 | 未实现 |
+| 10 | 开始录像 | `record/start/request` → `.../response` | M2-01 | L2 | 已完成（-4 幂等 / -7 空间不足） |
+| 11 | 停止录像 | `record/stop/request` → `.../response` | M2-01 | L2 | 已完成（-4 幂等） |
+| 12 | 录像列表 | `record/list/query/request` → `.../response` | M2-01 | L2/L3 | 已完成 |
 | 13 | 删除录像 | `record/delete/request` → `.../response` | M5-01 | L2 | 未实现 |
 | 14 | 播放录像 | `record/play/start/request` → `.../response` | M5-02 | L2 | 未实现 |
 | 15 | 停止播放 | `record/play/stop/request` → `.../response` | M5-02 | L2 | 未实现 |
-| 16 | 电机控制 | `car/motor/set/request` → `.../response` | M2-04 | L2/L3 | 部分（5Hz/回执未处理） |
-| 17 | 舵机状态 | `car/servo/status/query/request` → `.../response` | M2-03 | L2/L3 | 未实现 |
-| 18 | 舵机设置 | `car/servo/set/request` → `.../response` | M2-03 | L2 | 未实现 |
-| 19 | 设备在线 | `device/{d}/online` | M0-02 | L3 | 已订阅但有 bug |
-| 20 | 告警上报 | `device/{d}/alarm/report` | M1-08 | L3 | 未订阅 |
-| 21 | agent 对话 | `agent/{a}/chat/request|response` | M4 | L1 | 部分（4 action） |
+| 16 | 电机控制 | `car/motor/set/request` → `.../response` | M2-04 | L2/L3 | 已完成（5Hz + -5/-8/-3 回执） |
+| 17 | 舵机状态 | `car/servo/status/query/request` → `.../response` | M2-03 | L2/L3 | 已完成 |
+| 18 | 舵机设置 | `car/servo/set/request` → `.../response` | M2-03 | L2 | 已完成（applied/skipped） |
+| 19 | 设备在线 | `device/{d}/online` | M0-02 | L3 | 已完成（订阅 + retained/LWT） |
+| 20 | 告警上报 | `device/{d}/alarm/report` | M1-08 | L3 | 已完成（低电/障碍联锁） |
+| 21 | agent 对话 | `agent/{a}/chat/request|response` | M4 | L1 | 已完成规则动作；LLM 工具调用待 M4 |
 | 22 | agent 在线 | `agent/{a}/online` | — | L3 | 已完成 |
 | 23 | agent 基本状态 | `agent/{a}/baseState/query/request|response` | — | L3 | 已完成 |
 | 24 | agent 配置修改 | `agent/{a}/config/modify/request|response` | — | L3 | 已完成 |
-| 25 | agent 会话停止 | `agent/{a}/chat/stop/request|response` | M3 | L2/L3 | 部分（仅运动） |
-| 26 | agent 进度 | `agent/{a}/chat/progress/report` | M2-07/M3-09 | L2/L4 | record/stream/servo 已接入 |
-| 27 | 客户端在线 | `client/{client_id}/online` | 可选 | L3 | 未订阅 |
+| 25 | agent 会话停止 | `agent/{a}/chat/stop/request|response` | M3 | L2/L3 | 部分（仅 agent 自己的运动会话） |
+| 26 | agent 进度 | `agent/{a}/chat/progress/report` | M2-07/M3-09 | L2/L4 | 已完成（record/stream/servo 已接入） |
+| 27 | 客户端在线 | `client/{client_id}/online` | 可选 | L3 | 未订阅（可选） |
 
 ---
 
