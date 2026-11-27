@@ -136,6 +136,20 @@ class TaskStore:
             rows = self._conn.execute(sql, params).fetchall()
         return [self._task_row(row) for row in rows]
 
+    def list_due(self, now, limit=100):
+        """到期任务：enabled=1 且 next_run_at <= now（字符串比较，格式统一）。"""
+        try:
+            limit = max(1, int(limit))
+        except (TypeError, ValueError):
+            limit = 100
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM tasks WHERE enabled = 1"
+                " AND next_run_at IS NOT NULL AND next_run_at <= ?"
+                " ORDER BY next_run_at, id LIMIT ?",
+                (str(now), limit)).fetchall()
+        return [self._task_row(row) for row in rows]
+
     def update_task(self, task_id, **fields):
         allowed = {"name", "device", "timezone", "schedule", "actions",
                    "enabled", "next_run_at"}

@@ -70,6 +70,8 @@ DEFAULTS = {
     "LLM_MODEL": "",
     # M3-01：任务库路径；相对路径按 walle-agent/ 解析，默认 data/agent.db
     "TASK_DB_PATH": "data/agent.db",
+    # M3-02：任务调度时区
+    "TASK_TIMEZONE": "Asia/Shanghai",
 }
 
 AGENT_VERSION_FILE = os.path.join(REPO_ROOT, "VERSION")

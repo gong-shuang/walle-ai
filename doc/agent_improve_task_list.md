@@ -239,7 +239,7 @@ agent：
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
-| M3 调度与任务 | 进行中 | 1/10 | SQLite 任务库已落地；调度线程、任务类型、恢复待后续 |
+| M3 调度与任务 | 进行中 | 2/10 | SQLite 任务库、1s 调度线程已落地；任务类型、执行器、对账待后续 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
 
@@ -768,12 +768,18 @@ agent：
 
 - **层级**：L4 任务调度层
 - **小白解释**：每天 8 点要有个“闹钟”去触发任务。调度线程就是 agent 内部的闹钟。
-- [ ] 独立线程，1s tick。
-- [ ] 时区 `Asia/Shanghai`，可配置 `TASK_TIMEZONE`。
-- [ ] 到期任务分发到 worker；`(task_id, phase, scheduled_at)` 唯一防重。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] 独立线程，1s tick。
+- [x] 时区 `Asia/Shanghai`，可配置 `TASK_TIMEZONE`。
+- [x] 到期任务分发到 worker；`(task_id, phase, scheduled_at)` 唯一防重。
+- 实现：
+  - 新增 `walle-agent/src/task_scheduler.py`：`TaskScheduler(store, dispatch, tick_sec=1.0, timezone, now)`，daemon 线程 + stop_event，时钟可注入便于测试。
+  - `TaskStore.list_due(now)` 取 `enabled=1 AND next_run_at <= now`；字符串按 `YYYY-MM-DD HH:MM:SS` 统一格式比较。
+  - 同一任务的同一 `next_run_at` 在进程内只分发一次；持久化防重由 `task_runs(task_id, phase, scheduled_at)` 唯一索引兜底。
+  - dispatch 抛异常只记录日志，不拖垮调度线程；`TASK_TIMEZONE` 默认 `Asia/Shanghai`。
+  - Agent 启动调度器与真实任务执行器在 M3-05 接入（当前 dispatch 为注入式 worker）。
+- 文件：`walle-agent/src/task_scheduler.py`、`walle-agent/src/task_store.py`、`walle-agent/src/car_agent.py`、`walle-agent/test/test_task_scheduler.py`
 - 验收：到点触发一次，不重复。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 6 个调度用例（tick 去重、未来/禁用跳过、换槽重触发、时区、线程启停、异常隔离）；`pytest walle-agent/test` 113 passed；未修改 MQTT 协议
 
 #### M3-03 任务类型
 
