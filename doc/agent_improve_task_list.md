@@ -322,13 +322,14 @@ agent：
 
 - **层级**：L2 动作编排层 + L3 设备通信层
 - **小白解释**：车需要每 0.2 秒收到一次“继续走”的命令，否则会以为你松手了而停下。如果每次都等网络确认，就会卡顿；这个改动让发送不被网络拖慢。
-- [ ] 新增 `publish_motor()`：只 publish，不等待 PUBACK。
-- [ ] 运动 response 异步处理：
+- [x] 新增 `publish_motor()`：只 publish，不等待 PUBACK。
+- [x] 运动 response 异步处理：
   - `result=0` 不提示；
   - `result=-5` 立即停止并提示 holder；
   - `result=-8` 立即停止并提示前方障碍；
   - `result=-3` 立即停止并提示底盘链路不可用。
-- [ ] 运动 response 不按 5Hz 写 INFO 日志，只记录异常或采样。
+- [x] 中止原因记录在 `health().last_motion_error`（含 result / cause / holder），日志告警一次。
+- [x] 运动 response 不按 5Hz 写 INFO 日志，只记录异常或采样。
 - 文件：`walle-agent/src/car_agent.py`
 - 验收：5Hz 发送稳定；Broker 延迟不会触发 500ms 死区停车。
 - 完成：<!-- 日期 / commit / 证据 -->

@@ -807,6 +807,8 @@ class Agent:
         self.link_event = threading.Event()
         self.worker = None
         self.active_device = None
+        self.motion_rid = None
+        self.last_motion_error = None
         self.abort = threading.Event()
         self.state_lock = threading.Lock()
         # 串行化“检查 busy + acquire + 启动 worker”，避免多客户端同时下发
@@ -1017,18 +1019,24 @@ class Agent:
             self._on_control_response(payload)
             return
         if isinstance(payload, dict) and payload.get("error_code") == "control_denied":
-            log().warning("设备拒绝控制 device=%s request_id=%s holder=%s",
-                          device, payload.get("request_id"),
-                          (payload.get("control_holder") or {}).get("client_id") or "-")
             with self.control_lock:
                 if self.control_held and self.control_held.get("device") == device:
                     self.control_held = None
+            # 运动帧的 -5 由 _on_motor_response 统一处理，避免 5Hz 重复告警
+            if not msg.topic.endswith("/car/motor/set/response"):
+                log().warning("设备拒绝控制 device=%s request_id=%s holder=%s",
+                              device, payload.get("request_id"),
+                              (payload.get("control_holder") or {}).get("client_id") or "-")
         item = self._dev(device)
         record = {"topic": msg.topic, "payload": payload,
                   "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
         item["last_result"] = record
+        decoded = None
         if msg.topic.endswith("/response"):
-            item["last_decode"] = decode_result(payload)
+            decoded = decode_result(payload)
+            item["last_decode"] = decoded
+        if msg.topic.endswith("/car/motor/set/response"):
+            self._on_motor_response(device, payload, decoded)
         if isinstance(payload, dict) and "online" in msg.topic:
             item["online"] = payload.get("online")
             item["online_ts"] = time.time()
@@ -1040,8 +1048,45 @@ class Agent:
                 and (self.link_dev is None or self.link_dev == device)):
             self.link_result = record
             self.link_event.set()
-        log().info("MQTT 收到 %s %s", msg.topic,
-                   json.dumps(payload, ensure_ascii=False)[:500])
+        if msg.topic.endswith("/car/motor/set/response"):
+            log().debug("MQTT 收到 %s %s", msg.topic,
+                        json.dumps(payload, ensure_ascii=False)[:500])
+        else:
+            log().info("MQTT 收到 %s %s", msg.topic,
+                       json.dumps(payload, ensure_ascii=False)[:500])
+
+    def _on_motor_response(self, device, payload, decoded):
+        """运动帧应答：0 忽略；-3/-5/-8 立即中止本次运动。
+
+        只处理当前运动会话的 request_id，避免迟到的旧应答影响下一次运动。
+        """
+        if not decoded or decoded.get("error") not in (
+                "control_denied", "safety", "unavailable"):
+            return
+        rid = (str(payload.get("request_id") or "")
+               if isinstance(payload, dict) else "")
+        with self.state_lock:
+            if self.active_device != device:
+                return
+            if not self.motion_rid or (rid and rid != self.motion_rid):
+                return
+            if self.abort.is_set():
+                return
+            self.abort.set()
+            self.last_motion_error = {
+                "device": device,
+                "request_id": rid,
+                "result": decoded.get("result"),
+                "error": decoded.get("error"),
+                "cause": decoded.get("cause"),
+                "holder": decoded.get("holder"),
+                "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        holder = decoded.get("holder") or {}
+        log().warning(
+            "运动被设备拒绝，停止发送 device=%s result=%s cause=%s holder=%s",
+            device, decoded.get("result"), decoded.get("cause"),
+            holder.get("client_name") or holder.get("client_id") or "-")
 
     # ---- agent 基本状态 ----
     def _on_agent_state_request(self, msg):
@@ -1307,6 +1352,35 @@ class Agent:
             "last": self.chat_last,
         }
 
+    def publish_motor(self, device, payload):
+        """运动帧专用：只 publish，不等 PUBACK，避免阻塞 5Hz 发送循环。
+
+        发送结果以设备 response 为准；成功不写 INFO 日志（5Hz 会刷屏）。
+        """
+        topic = topic_for(device, "car/motor/set/request")
+        body = dict(payload)
+        body["client_id"] = agent_identity()
+        body["client_name"] = agent_name()
+        item = self._dev(device)
+        record = {
+            "topic": topic,
+            "payload": body,
+            "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        if not (self.mqtt_client and self.mqtt_connected):
+            item["last_publish"] = dict(record, published=False,
+                                        error="mqtt_not_connected")
+            log().warning("MQTT 未连接，丢弃 %s", topic)
+            return {"published": False, "error": "mqtt_not_connected",
+                    "topic": topic, "payload": body}
+        _trace("OUT", topic, body, 1, False)
+        info = self.mqtt_client.publish(topic, json.dumps(body, ensure_ascii=False),
+                                        qos=1)
+        item["last_publish"] = dict(record, published=info.rc == 0, rc=info.rc)
+        log().debug("publish_motor %s rc=%s", topic, info.rc)
+        return {"published": info.rc == 0, "topic": topic,
+                "payload": body, "rc": info.rc}
+
     def _publish(self, device, resource, payload):
         topic = topic_for(device, resource)
         body = payload
@@ -1476,11 +1550,14 @@ class Agent:
         t0 = time.monotonic()
         log().info("motion start client_name=%s device=%s intent=%s duration=%.2fs",
                    client_name, device, json.dumps(intent, ensure_ascii=False), duration)
+        with self.state_lock:
+            self.motion_rid = request_id
+            self.last_motion_error = None
         try:
             while not self.abort.is_set():
                 if time.monotonic() - t0 >= duration:
                     break
-                self._publish(device, "car/motor/set/request", payload)
+                self.publish_motor(device, payload)
                 time.sleep(period)
         finally:
             zero = self._drive_payload({"action": "stop"}, request_id)
@@ -1493,6 +1570,8 @@ class Agent:
                 log().info("motion release control device=%s result=%s",
                            device, json.dumps(release, ensure_ascii=False))
             with self.state_lock:
+                if self.motion_rid == request_id:
+                    self.motion_rid = None
                 if self.active_device == device:
                     self.active_device = None
             log().info("motion end client_name=%s device=%s intent=%s elapsed=%.2fs",
@@ -1652,6 +1731,7 @@ class Agent:
         with self.state_lock:
             moving = self.worker is not None and self.worker.is_alive()
             active = self.active_device
+            last_motion_error = self.last_motion_error
         with self.dev_lock:
             devices = [{
                 "device": key,
@@ -1671,6 +1751,7 @@ class Agent:
             "devices": devices,
             "moving": moving,
             "active_device": active,
+            "last_motion_error": last_motion_error,
             "limits": {
                 "min_speed_mps": float(self.cfg.get("MIN_SPEED", "0.5")),
                 "max_speed_mps": float(self.cfg["MAX_SPEED"]),
