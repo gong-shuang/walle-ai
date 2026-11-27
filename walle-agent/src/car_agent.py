@@ -684,6 +684,38 @@ def _speed(text):
     return _cn_number(m.group(1))
 
 
+def _human_bytes(value):
+    """字节数转可读文本；非法/缺失返回 None。"""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(number) < 1024.0 or unit == "TB":
+            return "{:.1f}{}".format(number, unit)
+        number /= 1024.0
+    return None
+
+
+def _human_duration(seconds):
+    """秒数转“1天2小时3分”；非法/缺失返回 None。"""
+    try:
+        total = int(seconds)
+    except (TypeError, ValueError):
+        return None
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes = rem // 60
+    parts = []
+    if days:
+        parts.append("{}天".format(days))
+    if hours:
+        parts.append("{}小时".format(hours))
+    if minutes or not parts:
+        parts.append("{}分".format(minutes))
+    return "".join(parts)
+
+
 def parse_intent(text):
     """返回 (intent, error)。intent 为 None 时 error 给出可读原因。"""
     t = _normalize(text)
@@ -695,6 +727,10 @@ def parse_intent(text):
 
     motion_words = ("前进", "向前", "往前", "前行", "后退", "向后", "往后", "倒车",
                     "左移", "右移", "左转", "右转")
+    if (any(w in t for w in ("设备状态", "设备信息", "设备情况", "cpu", "内存",
+                             "磁盘", "运行多久", "运行时间"))
+            and not any(w in t for w in motion_words)):
+        return {"action": "device_base_state"}, None
     if re.search(r"(状态|电量|battery|status)", t) and not any(w in t for w in motion_words):
         return {"action": "status"}, None
 
@@ -745,7 +781,7 @@ def parse_intent(text):
 
 def validate_intent(intent, cfg):
     """返回 (intent, warning)。校验失败时 intent=None，warning 为原因。"""
-    if intent["action"] in ("stop", "status"):
+    if intent["action"] in ("stop", "status", "device_base_state"):
         return intent, None
 
     max_distance = float(cfg["MAX_DISTANCE"])
@@ -1739,6 +1775,8 @@ class Agent:
         if intent["action"] == "status":
             return {"ok": True, "action": "status", "device": device,
                     "status": self.health(device)}
+        if intent["action"] == "device_base_state":
+            return self.device_base_state(device)
 
         duration = self._duration(intent)
         if not (self.mqtt_client and self.mqtt_connected):
@@ -1886,6 +1924,113 @@ class Agent:
                    device, received, json.dumps(result, ensure_ascii=False))
         return out
 
+    def device_base_state(self, device, timeout=6.0):
+        """查询设备 baseState 并解析 CPU/内存/磁盘/网络/USB 摘要（M1-03）。"""
+        if not (self.mqtt_client and self.mqtt_connected):
+            return {"ok": False, "action": "device_base_state",
+                    "device": device, "error": "mqtt_not_connected",
+                    "cause": "MQTT 未连接"}
+        res = self.request_bus.request(
+            device, "baseState/query/request", {}, timeout=timeout)
+        if not res.get("received"):
+            return {"ok": False, "action": "device_base_state",
+                    "device": device, "request_id": res.get("request_id"),
+                    "error": res.get("error"), "cause": res.get("cause")}
+        payload = res.get("payload")
+        if not isinstance(payload, dict):
+            return {"ok": False, "action": "device_base_state",
+                    "device": device, "request_id": res.get("request_id"),
+                    "error": "invalid_response",
+                    "cause": "设备状态应答不是 JSON 对象"}
+        summary = self._base_state_summary(payload)
+        return {
+            "ok": True,
+            "action": "device_base_state",
+            "device": device,
+            "request_id": res.get("request_id"),
+            "baseState": payload,
+            "summary": summary,
+            "reply": self._base_state_reply(summary),
+        }
+
+    @staticmethod
+    def _base_state_summary(payload):
+        system = payload.get("system")
+        system = system if isinstance(system, dict) else {}
+        cpu = payload.get("cpu")
+        cpu = cpu if isinstance(cpu, dict) else {}
+        memory = payload.get("memory")
+        memory = memory if isinstance(memory, dict) else {}
+        disk = payload.get("disk")
+        disk = disk if isinstance(disk, dict) else {}
+        network = payload.get("network")
+        network = network if isinstance(network, dict) else {}
+        usb = payload.get("usb")
+        usb = usb if isinstance(usb, dict) else {}
+        usb_count = usb.get("count")
+        if usb_count is None and isinstance(usb.get("devices"), list):
+            usb_count = len(usb["devices"])
+        return {
+            "device_id": payload.get("device_id"),
+            "hostname": payload.get("hostname"),
+            "ip": payload.get("ip"),
+            "uptime_seconds": payload.get("uptime_seconds"),
+            "os": system.get("os") or system.get("os_version"),
+            "kernel": system.get("kernel"),
+            "cpu_percent": cpu.get("percent"),
+            "cpu_count": cpu.get("count_logical") or cpu.get("count_physical"),
+            "cpu_temperature_c": cpu.get("temperature_c"),
+            "memory_percent": memory.get("percent"),
+            "memory_used_bytes": memory.get("used_bytes"),
+            "memory_total_bytes": memory.get("total_bytes"),
+            "disk_percent": disk.get("percent"),
+            "disk_free_bytes": disk.get("free_bytes"),
+            "disk_total_bytes": disk.get("total_bytes"),
+            "network_rx_bps": network.get("total_rx_bytes_per_sec"),
+            "network_tx_bps": network.get("total_tx_bytes_per_sec"),
+            "usb_count": usb_count,
+        }
+
+    @staticmethod
+    def _base_state_reply(summary):
+        parts = []
+        if summary.get("ip"):
+            parts.append("IP {}".format(summary["ip"]))
+        if summary.get("cpu_percent") is not None:
+            text = "CPU {:.1f}%".format(float(summary["cpu_percent"]))
+            extra = []
+            if summary.get("cpu_count"):
+                extra.append("{} 核".format(summary["cpu_count"]))
+            if summary.get("cpu_temperature_c") is not None:
+                extra.append("{:.1f}℃".format(
+                    float(summary["cpu_temperature_c"])))
+            if extra:
+                text += "（{}）".format("，".join(extra))
+            parts.append(text)
+        if summary.get("memory_percent") is not None:
+            used = _human_bytes(summary.get("memory_used_bytes"))
+            total = _human_bytes(summary.get("memory_total_bytes"))
+            text = "内存 {:.1f}%".format(float(summary["memory_percent"]))
+            if used and total:
+                text += "（{}/{}）".format(used, total)
+            parts.append(text)
+        if summary.get("disk_percent") is not None:
+            free = _human_bytes(summary.get("disk_free_bytes"))
+            text = "磁盘 {:.1f}%".format(float(summary["disk_percent"]))
+            if free:
+                text += "（剩余 {}）".format(free)
+            parts.append(text)
+        rx = _human_bytes(summary.get("network_rx_bps"))
+        tx = _human_bytes(summary.get("network_tx_bps"))
+        if rx or tx:
+            parts.append("网络 ↓{}/s ↑{}/s".format(rx or "-", tx or "-"))
+        if summary.get("usb_count") is not None:
+            parts.append("USB {} 个".format(summary["usb_count"]))
+        uptime = _human_duration(summary.get("uptime_seconds"))
+        if uptime:
+            parts.append("运行 {}".format(uptime))
+        return "；".join(parts) or "设备状态已返回，但缺少可展示字段。"
+
     def mqtt_status(self):
         return {
             "configured": self.mqtt_configured,
@@ -1959,7 +2104,7 @@ def _get_agent():
 _LLM_SYSTEM = (
     "你是小车控制意图解析器。只输出 JSON，不要解释。"
     "允许的动作：move(forward/backward/left/right, distance_m, speed_mps)、"
-    "rotate(left/right, angle_deg)、stop、status。"
+    "rotate(left/right, angle_deg)、stop、status、device_base_state。"
     "无法确定时输出 {\"action\":\"unknown\"}。"
 )
 
@@ -1987,7 +2132,8 @@ def _llm_parse(text):
             data = json.loads(resp.read().decode("utf-8"))
         content = data["choices"][0]["message"]["content"]
         intent = json.loads(content)
-        if intent.get("action") in ("move", "rotate", "stop", "status"):
+        if intent.get("action") in ("move", "rotate", "stop", "status",
+                                    "device_base_state"):
             return intent
     except (urlerror.URLError, KeyError, ValueError, TimeoutError) as exc:
         log().warning("LLM 解析失败: %s", exc)
@@ -2018,6 +2164,18 @@ def _reply_text(intent, result):
         if inner.get("error") == "mqtt_not_connected":
             return "停止未下发：MQTT 未连接。"
         return "停止未下发。"
+    elif action == "device_base_state":
+        if result.get("ok"):
+            return result.get("reply") or "设备状态查询完成。"
+        error = result.get("error")
+        if error == "timeout":
+            return "设备状态查询超时（6 秒无应答）。"
+        if error == "mqtt_not_connected":
+            return "设备状态查询失败：MQTT 未连接。"
+        if error == "device_offline":
+            return "设备状态查询失败：设备离线。"
+        return "设备状态查询失败：{}。".format(
+            result.get("cause") or error or "未知错误")
     elif action == "status":
         return "状态查询完成。"
     else:

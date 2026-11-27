@@ -171,3 +171,95 @@ def test_on_message_updates_device_cache(agent):
     assert state["battery"]["voltage_v"] == 8.0
     assert state["sonar"]["distance_cm"] == 80.0
     assert state["control_holder"]["client_id"] == "web-a"
+
+
+def test_device_base_state_summary(agent):
+    results = []
+
+    def worker():
+        results.append(agent.device_base_state("dev-1"))
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    assert _wait_for(lambda: any(
+        item["topic"].endswith("/baseState/query/request")
+        for item in agent.mqtt_client.published))
+    request = [
+        item for item in agent.mqtt_client.published
+        if item["topic"].endswith("/baseState/query/request")
+    ][-1]["payload"]
+
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/baseState/query/response", {
+            "request_id": request["request_id"],
+            "device_id": "dev-id-1", "hostname": "walle-pc",
+            "ip": "192.168.1.10", "uptime_seconds": 3661,
+            "system": {"os": "Ubuntu 22.04", "kernel": "6.8.0"},
+            "cpu": {"percent": 12.5, "count_logical": 4,
+                    "temperature_c": 45.0},
+            "memory": {"percent": 30.0, "used_bytes": 3 * 1024 ** 3,
+                       "total_bytes": 8 * 1024 ** 3},
+            "disk": {"percent": 20.0, "free_bytes": 80 * 1024 ** 3,
+                     "total_bytes": 100 * 1024 ** 3},
+            "network": {"total_rx_bytes_per_sec": 1024,
+                        "total_tx_bytes_per_sec": 512},
+            "usb": {"count": 2, "devices": [{}, {}]},
+        }))
+    thread.join(timeout=2)
+
+    assert len(results) == 1
+    out = results[0]
+    assert out["ok"] is True
+    assert out["baseState"]["device_id"] == "dev-id-1"
+    summary = out["summary"]
+    assert summary["cpu_percent"] == 12.5
+    assert summary["cpu_count"] == 4
+    assert summary["memory_percent"] == 30.0
+    assert summary["disk_percent"] == 20.0
+    assert summary["ip"] == "192.168.1.10"
+    assert summary["uptime_seconds"] == 3661
+    assert summary["usb_count"] == 2
+    assert "CPU" in out["reply"]
+    assert "内存" in out["reply"]
+    assert "磁盘" in out["reply"]
+    assert "192.168.1.10" in out["reply"]
+    assert "运行" in out["reply"]
+
+
+def test_device_base_state_partial_payload_is_ok(agent):
+    results = []
+
+    def worker():
+        results.append(agent.device_base_state("dev-1"))
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    assert _wait_for(lambda: any(
+        item["topic"].endswith("/baseState/query/request")
+        for item in agent.mqtt_client.published))
+    request = [
+        item for item in agent.mqtt_client.published
+        if item["topic"].endswith("/baseState/query/request")
+    ][-1]["payload"]
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/baseState/query/response",
+        {"request_id": request["request_id"],
+         "device_id": "dev-id-1", "hostname": "walle-pc"}))
+    thread.join(timeout=2)
+
+    assert results[0]["ok"] is True
+    assert results[0]["summary"]["cpu_percent"] is None
+    assert results[0]["summary"]["memory_percent"] is None
+    assert results[0]["reply"]
+
+
+def test_parse_intent_routes_device_status():
+    intent, error = car_agent.parse_intent("设备状态")
+    assert error is None
+    assert intent == {"action": "device_base_state"}
+
+    intent, _ = car_agent.parse_intent("CPU 多少")
+    assert intent == {"action": "device_base_state"}
+
+    intent, _ = car_agent.parse_intent("状态")
+    assert intent == {"action": "status"}

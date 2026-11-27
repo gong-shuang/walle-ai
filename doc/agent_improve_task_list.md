@@ -7,7 +7,7 @@
 > 使用方式：每完成一项，把 `[ ]` 改成 `[x]`，补上完成日期、提交或证据，并更新「进度总览」和「更新记录」。
 >
 > 最后更新：2026-11-27
-> 当前阶段：M1 进行中（2/8）
+> 当前阶段：M1 进行中（3/8）
 
 ---
 
@@ -237,7 +237,7 @@ agent：
 | 里程碑 | 状态 | 完成项 | 说明 |
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
-| M1 请求总线与设备状态 | 进行中 | 2/8 | RequestBus、DeviceRegistry 已落地；baseState/runState 工具与状态对话待做 |
+| M1 请求总线与设备状态 | 进行中 | 3/8 | RequestBus、DeviceRegistry、baseState 工具已落地；runState 与状态对话待做 |
 | M2 核心设备动作 | 未开始 | 0/10 | 录像、推流、舵机、电机回执、结构化返回 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
@@ -469,12 +469,17 @@ agent：
 
 - **层级**：L3 设备通信与状态层
 - **小白解释**：回答“CPU 多少、内存够不够、磁盘满没满、网络快不快”这些设备的“身体状况”。
-- [ ] 发 `baseState/query/request`，解析 `system/cpu/memory/disk/network/usb`。
-- [ ] 超时 6s；部分字段缺失不报错。
-- [ ] 对话「设备状态」返回摘要。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] 发 `baseState/query/request`，解析 `system/cpu/memory/disk/network/usb`。
+- [x] 超时 6s；部分字段缺失不报错。
+- [x] 对话「设备状态」返回摘要。
+- 实现：
+  - 新增 `Agent.device_base_state(device)`：走 RequestBus 发 `baseState/query/request`，超时 6s，不申请控制权。
+  - 解析摘要：IP、CPU%（核数/温度）、内存%（已用/总量）、磁盘%（剩余）、网络上下行、USB 数量、运行时长、系统/内核。
+  - 新增 `parse_intent` 路由：包含“设备状态/设备信息/CPU/内存/磁盘/运行多久”等词时走 `device_base_state`；单独的“状态”仍保持原语义，留给 M1-06。
+  - `execute` / `_reply_text` / LLM 动作白名单同步支持 `device_base_state`。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/test/test_agent_request_bus.py`
 - 验收：能回答 CPU/内存/磁盘/IP/运行时长。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次提交 / 新增 3 个 baseState 工具与意图测试；`pytest walle-agent/test` 33 passed；未修改 MQTT 协议
 
 #### M1-04 device.run_state 工具
 
@@ -1106,6 +1111,7 @@ agent：
 | 2026-11-27 | M0-08 | 新增控制权与安全停止回归：agent 6 例 + device 3 例；chat/stop 收尾去重（零速帧 6→3） | 本次提交 |
 | 2026-11-27 | M1-01 | RequestBus 落地：pending/超时/重复/离线失败，control 与 link_test 接入；M1 进度 1/8 | 本次提交 |
 | 2026-11-27 | M1-02 | DeviceRegistry 落地：online/baseState/runState/告警/控制权缓存，TTL 与 is_supported/available 处理；M1 进度 2/8 | 本次提交 |
+| 2026-11-27 | M1-03 | device_base_state 工具落地：baseState 查询、摘要与对话路由；M1 进度 3/8 | 本次提交 |
 
 ---
 
