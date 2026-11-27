@@ -7,7 +7,7 @@
 > 使用方式：每完成一项，把 `[ ]` 改成 `[x]`，补上完成日期、提交或证据，并更新「进度总览」和「更新记录」。
 >
 > 最后更新：2026-11-27
-> 当前阶段：M2 进行中（1/10）
+> 当前阶段：M2 进行中（2/10）
 
 ---
 
@@ -238,7 +238,7 @@ agent：
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
-| M2 核心设备动作 | 进行中 | 1/10 | record.start/stop/list 已落地；推流、舵机、回执等待做 |
+| M2 核心设备动作 | 进行中 | 2/10 | record、stream 已落地；舵机、回执等待做 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
@@ -599,13 +599,22 @@ agent：
 
 - **层级**：L2 动作编排层
 - **小白解释**：远程看画面需要设备把摄像头画面“推”到流媒体服务器。这个功能让 agent 能开始/停止推流，并拿到房间号给 Web 播放。
-- [ ] `stream/start/request`：无参数；返回 `room_number`、`camera_device`、`action`。
-- [ ] `action=already_streaming` 时复用当前房间号，不重启。
-- [ ] `stream/stop/request`：可带 `room_number`；`0/-4`。
-- [ ] `is_supported=false` 或 `-3` 时提示设备无推流能力/摄像头。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] `stream/start/request`：无参数；返回 `room_number`、`camera_device`、`action`。
+- [x] `action=already_streaming` 时复用当前房间号，不重启。
+- [x] `stream/stop/request`：可带 `room_number`；`0/-4`。
+- [x] `is_supported=false` 或 `-3` 时提示设备无推流能力/摄像头。
+- 实现：
+  - 新增 `Agent.stream_start(device)`：能力预检 → acquire → `stream/start/request`（20s）→ release。
+    - 返回 `room_number/camera_device/action/pid/started_at`；
+    - `action=already_streaming` 时 `already_streaming=true`，复用当前房间号，不重启。
+  - 新增 `Agent.stream_stop(device, room_number=None)`：能力预检 → acquire → `stream/stop/request` → release。
+    - `0` 已停止；`-4` 无推流时幂等成功；带房间号且不一致时返回 `room_mismatch`，不误停；
+    - `-3` 提示无推流能力/摄像头。
+  - 对话路由：「开始推流/开始直播」「停止推流/停止直播」；「在推流吗」仍走运行状态。
+  - `execute` / `_reply_text` / LLM 动作白名单同步支持。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/test/test_agent_request_bus.py`
 - 验收：对话「开始推流」返回房间号；「停止推流」可用；重复开始不重启。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次提交 / 新增 8 个推流启动、复用、停止、房间号校验、能力拦截与意图测试；`pytest walle-agent/test` 71 passed；未修改 MQTT 协议
 
 #### M2-03 servo.status / servo.set
 
@@ -1159,6 +1168,7 @@ agent：
 | 2026-11-27 | M1-07 | 能力缓存与预检落地：capabilities、preflight_features、录像任务预检、motor 控制前拦截；M1 进度 7/8 | 本次提交 |
 | 2026-11-27 | M1-08 | alarm/report 接入：告警缓存、障碍/低压联锁停车、recent_alarm 对话；M1 完成 8/8 | 本次提交 |
 | 2026-11-27 | M2-01 | record.start/stop/list 落地：能力预检、控制权 acquire/release、-4 幂等、列表查询；M2 进度 1/10 | 本次提交 |
+| 2026-11-27 | M2-02 | stream.start/stop 落地：房间号复用、房间号一致性校验、-3 无摄像头提示；M2 进度 2/10 | 本次提交 |
 
 ---
 

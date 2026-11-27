@@ -756,6 +756,11 @@ def parse_intent(text):
     if any(w in t for w in ("查看录像", "录像列表", "有哪些录像",
                              "录像文件", "录像记录", "查录像")):
         return {"action": "record_list"}, None
+    if any(w in t for w in ("开始推流", "开始直播", "开启推流", "打开推流")):
+        return {"action": "stream_start"}, None
+    if any(w in t for w in ("停止推流", "停止直播", "结束推流",
+                             "关闭推流", "关播")):
+        return {"action": "stream_stop"}, None
 
     if (("agent" in t and ("状态" in t or "status" in t or "状况" in t))
             or any(w in t for w in ("你的状态", "你自己状态", "自身状态"))):
@@ -828,7 +833,8 @@ def validate_intent(intent, cfg):
     if intent["action"] in ("stop", "status", "device_base_state",
                             "device_run_state", "device_discover",
                             "agent_status", "service_health", "alarm_status",
-                            "record_start", "record_stop", "record_list"):
+                            "record_start", "record_stop", "record_list",
+                            "stream_start", "stream_stop"):
         return intent, None
 
     max_distance = float(cfg["MAX_DISTANCE"])
@@ -2026,6 +2032,10 @@ class Agent:
             return self.record_stop(device)
         if intent["action"] == "record_list":
             return self.record_list(device)
+        if intent["action"] == "stream_start":
+            return self.stream_start(device)
+        if intent["action"] == "stream_stop":
+            return self.stream_stop(device)
 
         if intent["action"] in ("move", "rotate"):
             preflight = self.preflight_features(device, ("motor",))
@@ -2583,6 +2593,150 @@ class Agent:
             out["cause"] = decoded.get("cause") or "查询录像列表失败"
         return out
 
+    def stream_start(self, device):
+        """开始推流：设备无参数，返回 room_number/camera_device/action（M2-02）。"""
+        preflight = self.preflight_features(device, ("stream",))
+        if not preflight.get("ok"):
+            return {"ok": False, "action": "stream_start", "device": device,
+                    "error": preflight.get("error"),
+                    "cause": preflight.get("cause"),
+                    "capabilities": preflight.get("capabilities")}
+        if not (self.mqtt_client and self.mqtt_connected):
+            return {"ok": False, "action": "stream_start", "device": device,
+                    "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
+        control = self._acquire_control(device)
+        if not control.get("ok"):
+            return {"ok": False, "action": "stream_start", "device": device,
+                    "error": control.get("error"),
+                    "cause": control.get("cause"),
+                    "control_holder": control.get("control_holder")}
+        try:
+            res = self.request_bus.request(
+                device, "stream/start/request", {}, timeout=20.0)
+        finally:
+            release = self._release_control(device)
+
+        if not res.get("received"):
+            return {"ok": False, "action": "stream_start", "device": device,
+                    "request_id": res.get("request_id"),
+                    "error": res.get("error") or "timeout",
+                    "cause": res.get("cause") or "等待推流应答超时",
+                    "control": release}
+        payload = res.get("payload") or {}
+        decoded = res.get("decoded") or decode_result(payload)
+        result = decoded.get("result")
+        device_action = payload.get("action")
+        base = {
+            "action": "stream_start",
+            "device": device,
+            "request_id": res.get("request_id"),
+            "result": result,
+            "payload": payload,
+            "control": release,
+        }
+        if result == 0:
+            base.update({
+                "ok": True,
+                "streaming": True,
+                "already_streaming": device_action == "already_streaming",
+                "device_action": device_action or "started",
+                "room_number": payload.get("room_number"),
+                "camera_device": payload.get("camera_device"),
+                "started_at": payload.get("started_at"),
+                "pid": payload.get("pid"),
+                "cause": decoded.get("cause") or "ok",
+            })
+        elif result == -3:
+            base.update({
+                "ok": False, "streaming": False, "error": "unavailable",
+                "cause": payload.get("cause") or decoded.get("cause")
+                         or "设备没有推流能力或摄像头",
+            })
+        else:
+            base.update({
+                "ok": False, "streaming": False,
+                "error": decoded.get("error") or "failed",
+                "cause": payload.get("cause") or decoded.get("cause")
+                         or "推流启动失败",
+            })
+        return base
+
+    def stream_stop(self, device, room_number=None):
+        """停止推流：可带 room_number；-4 区分“本来没推流”和房间号不一致。"""
+        preflight = self.preflight_features(device, ("stream",))
+        if not preflight.get("ok"):
+            return {"ok": False, "action": "stream_stop", "device": device,
+                    "error": preflight.get("error"),
+                    "cause": preflight.get("cause"),
+                    "capabilities": preflight.get("capabilities")}
+        if not (self.mqtt_client and self.mqtt_connected):
+            return {"ok": False, "action": "stream_stop", "device": device,
+                    "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
+        room = str(room_number or "").strip()
+        control = self._acquire_control(device)
+        if not control.get("ok"):
+            return {"ok": False, "action": "stream_stop", "device": device,
+                    "error": control.get("error"),
+                    "cause": control.get("cause"),
+                    "control_holder": control.get("control_holder")}
+        body = {"room_number": room} if room else {}
+        try:
+            res = self.request_bus.request(
+                device, "stream/stop/request", body, timeout=12.0)
+        finally:
+            release = self._release_control(device)
+
+        if not res.get("received"):
+            return {"ok": False, "action": "stream_stop", "device": device,
+                    "request_id": res.get("request_id"),
+                    "error": res.get("error") or "timeout",
+                    "cause": res.get("cause") or "等待停止推流应答超时",
+                    "control": release}
+        payload = res.get("payload") or {}
+        decoded = res.get("decoded") or decode_result(payload)
+        result = decoded.get("result")
+        current_room = payload.get("room_number")
+        base = {
+            "action": "stream_stop",
+            "device": device,
+            "request_id": res.get("request_id"),
+            "result": result,
+            "payload": payload,
+            "control": release,
+        }
+        if result == 0:
+            base.update({
+                "ok": True, "streaming": False,
+                "stopped": bool(payload.get("stopped", True)),
+                "already_stopped": False,
+                "room_number": current_room or room or None,
+                "cause": decoded.get("cause") or "ok",
+            })
+        elif result == -4:
+            if room and current_room and current_room != room:
+                base.update({
+                    "ok": False, "streaming": True, "stopped": False,
+                    "error": "room_mismatch",
+                    "room_number": current_room,
+                    "cause": "当前推流房间号为 {}，与请求的 {} 不一致".format(
+                        current_room, room),
+                })
+            else:
+                base.update({
+                    "ok": True, "streaming": False, "stopped": False,
+                    "already_stopped": True,
+                    "room_number": current_room or room or None,
+                    "cause": decoded.get("cause") or "当前没有推流",
+                })
+        else:
+            base.update({
+                "ok": False,
+                "error": decoded.get("error") or "failed",
+                "cause": payload.get("cause") or decoded.get("cause")
+                         or "停止推流失败",
+            })
+        return base
+
     def device_status(self, device):
         """「状态」默认查设备 baseState + runState（M1-06）。"""
         base = self.device_base_state(device)
@@ -2906,7 +3060,8 @@ _LLM_SYSTEM = (
     "允许的动作：move(forward/backward/left/right, distance_m, speed_mps)、"
     "rotate(left/right, angle_deg)、stop、status、agent_status、"
     "service_health、alarm_status、record_start(segment_sec)、record_stop、"
-    "record_list、device_base_state、device_run_state、device_discover。"
+    "record_list、stream_start、stream_stop、device_base_state、"
+    "device_run_state、device_discover。"
     "无法确定时输出 {\"action\":\"unknown\"}。"
 )
 
@@ -2938,6 +3093,7 @@ def _llm_parse(text):
                                     "agent_status", "service_health",
                                     "alarm_status", "record_start",
                                     "record_stop", "record_list",
+                                    "stream_start", "stream_stop",
                                     "device_base_state", "device_run_state",
                                     "device_discover"):
             return intent
@@ -2990,6 +3146,40 @@ def _reply_text(intent, result):
             return "设备运行状态查询失败：设备离线。"
         return "设备运行状态查询失败：{}。".format(
             result.get("cause") or error or "未知错误")
+    elif action == "stream_start":
+        if result.get("ok"):
+            room = result.get("room_number") or "未知"
+            if result.get("already_streaming"):
+                return "已在推流，房间号：{}（未重启推流）。".format(room)
+            return "已开始推流，房间号：{}。".format(room)
+        if result.get("error") == "unavailable":
+            return "开始推流失败：设备没有推流能力或摄像头（{}）。".format(
+                result.get("cause") or "")
+        if result.get("error") == "mqtt_not_connected":
+            return "开始推流失败：MQTT 未连接。"
+        if result.get("error") == "control_occupied":
+            holder = result.get("control_holder") or {}
+            who = holder.get("client_name") or holder.get("client_id") or "其他客户端"
+            return "开始推流失败：设备控制权已被 {} 占用。".format(who)
+        return "开始推流失败：{}。".format(
+            result.get("cause") or result.get("error") or "未知错误")
+    elif action == "stream_stop":
+        if result.get("ok"):
+            if result.get("already_stopped"):
+                return "当前没有在推流（已视为停止）。"
+            room = result.get("room_number")
+            return "已停止推流{}。".format(
+                "（房间 {}）".format(room) if room else "")
+        if result.get("error") == "room_mismatch":
+            return "停止推流失败：{}。".format(result.get("cause") or "房间号不一致")
+        if result.get("error") == "mqtt_not_connected":
+            return "停止推流失败：MQTT 未连接。"
+        if result.get("error") == "control_occupied":
+            holder = result.get("control_holder") or {}
+            who = holder.get("client_name") or holder.get("client_id") or "其他客户端"
+            return "停止推流失败：设备控制权已被 {} 占用。".format(who)
+        return "停止推流失败：{}。".format(
+            result.get("cause") or result.get("error") or "未知错误")
     elif action == "device_base_state":
         if result.get("ok"):
             return result.get("reply") or "设备状态查询完成。"

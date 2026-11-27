@@ -920,3 +920,130 @@ def test_parse_intent_routes_record_commands():
 
     intent, _ = car_agent.parse_intent("在录像吗")
     assert intent == {"action": "device_run_state"}
+
+
+def test_stream_start_success_returns_room(agent):
+    out = _call_with_response(
+        agent, lambda: agent.stream_start("dev-1"),
+        "/stream/start/request",
+        "walle/test/device/dev-1/stream/start/response", {
+            "result": 0, "cause": "ok", "action": "started",
+            "room_number": "ab12cd34", "camera_device": "/dev/video0",
+            "pid": 123, "started_at": "2026-11-27 14:00:00",
+        })
+
+    assert out["ok"] is True
+    assert out["streaming"] is True
+    assert out["already_streaming"] is False
+    assert out["room_number"] == "ab12cd34"
+    assert out["camera_device"] == "/dev/video0"
+    assert out["control"]["ok"] is True
+    assert agent.control_held is None
+    assert len(_published(agent, "/control/acquire/request")) == 1
+    assert len(_published(agent, "/control/release/request")) == 1
+
+
+def test_stream_start_already_streaming_reuses_room(agent):
+    out = _call_with_response(
+        agent, lambda: agent.stream_start("dev-1"),
+        "/stream/start/request",
+        "walle/test/device/dev-1/stream/start/response", {
+            "result": 0, "cause": "ok", "action": "already_streaming",
+            "room_number": "ab12cd34", "camera_device": "/dev/video0",
+        })
+
+    assert out["ok"] is True
+    assert out["already_streaming"] is True
+    assert out["room_number"] == "ab12cd34"
+    assert out["device_action"] == "already_streaming"
+    assert agent.control_held is None
+
+
+def test_stream_start_without_camera_reports_unavailable(agent):
+    out = _call_with_response(
+        agent, lambda: agent.stream_start("dev-1"),
+        "/stream/start/request",
+        "walle/test/device/dev-1/stream/start/response", {
+            "result": -3, "cause": "此设备没有摄像头",
+            "action": "failed", "camera_device": None,
+        })
+
+    assert out["ok"] is False
+    assert out["error"] == "unavailable"
+    assert "没有摄像头" in out["cause"]
+    assert agent.control_held is None
+
+
+def test_stream_start_unsupported_blocks_before_control(agent):
+    payload = _run_state_payload()
+    payload["stream"]["is_supported"] = False
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/runState/query/response", payload))
+
+    out = agent.stream_start("dev-1")
+
+    assert out["ok"] is False
+    assert out["error"] == "unsupported"
+    assert agent.control_held is None
+    assert _published(agent, "/stream/start/request") == []
+    assert _published(agent, "/control/acquire/request") == []
+
+
+def test_stream_stop_success(agent):
+    out = _call_with_response(
+        agent, lambda: agent.stream_stop("dev-1"),
+        "/stream/stop/request",
+        "walle/test/device/dev-1/stream/stop/response", {
+            "result": 0, "cause": "ok", "stopped": True,
+            "room_number": "ab12cd34", "camera_device": "/dev/video0",
+        })
+
+    assert out["ok"] is True
+    assert out["stopped"] is True
+    assert out["room_number"] == "ab12cd34"
+    assert out["control"]["ok"] is True
+    assert agent.control_held is None
+
+
+def test_stream_stop_already_stopped(agent):
+    out = _call_with_response(
+        agent, lambda: agent.stream_stop("dev-1"),
+        "/stream/stop/request",
+        "walle/test/device/dev-1/stream/stop/response", {
+            "result": -4, "cause": "当前没有推流", "room_number": None,
+        })
+
+    assert out["ok"] is True
+    assert out["already_stopped"] is True
+    assert out["stopped"] is False
+    assert agent.control_held is None
+
+
+def test_stream_stop_room_mismatch_is_error(agent):
+    out = _call_with_response(
+        agent, lambda: agent.stream_stop("dev-1", "room-a"),
+        "/stream/stop/request",
+        "walle/test/device/dev-1/stream/stop/response", {
+            "result": -4, "cause": "当前推流房间号为 room-b",
+            "room_number": "room-b",
+        })
+
+    assert out["ok"] is False
+    assert out["error"] == "room_mismatch"
+    assert "room-b" in out["cause"]
+    assert agent.control_held is None
+
+
+def test_parse_intent_routes_stream_commands():
+    intent, error = car_agent.parse_intent("开始推流")
+    assert error is None
+    assert intent == {"action": "stream_start"}
+
+    intent, _ = car_agent.parse_intent("停止推流")
+    assert intent == {"action": "stream_stop"}
+
+    intent, _ = car_agent.parse_intent("开始直播")
+    assert intent == {"action": "stream_start"}
+
+    intent, _ = car_agent.parse_intent("在推流吗")
+    assert intent == {"action": "device_run_state"}
