@@ -279,9 +279,9 @@ agent：
 
 - **层级**：L3 设备通信与状态层
 - **小白解释**：现在设备已经离线了，agent 可能还觉得它在线，把命令发给“空气”。修好后它知道设备到底在不在。
-- [ ] `_on_message` 存 `item["online"] = payload.get("online")`，不要存整个 payload。
-- [ ] 同时记录 `device_id` / `hostname` / `timestamp`。
-- [ ] `health()` 和 LLM 设备列表使用布尔值判断在线。
+- [x] `_on_message` 存 `item["online"] = payload.get("online")`，不要存整个 payload。
+- [x] 同时记录 `device_id` / `hostname` / `timestamp`，`health()` 的设备列表一并返回。
+- [x] `health()` 使用布尔值判断在线；当前代码没有独立的 LLM 设备列表，后续新增时直接复用 `health()["devices"]`。
 - 文件：`walle-agent/src/car_agent.py`
 - 验收：设备发 `online:false` 后，agent 设备列表显示离线。
 - 完成：<!-- 日期 / commit / 证据 -->

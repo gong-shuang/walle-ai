@@ -799,6 +799,9 @@ class Agent:
                     "last_publish": None,
                     "online": None,
                     "online_ts": None,
+                    "device_id": None,
+                    "hostname": None,
+                    "timestamp": None,
                 }
                 self.devices[device] = item
             return item
@@ -992,8 +995,11 @@ class Agent:
                   "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
         item["last_result"] = record
         if isinstance(payload, dict) and "online" in msg.topic:
-            item["online"] = payload
+            item["online"] = payload.get("online")
             item["online_ts"] = time.time()
+            item["device_id"] = payload.get("device_id") or device
+            item["hostname"] = payload.get("hostname")
+            item["timestamp"] = payload.get("timestamp")
         if (isinstance(payload, dict) and self.link_rid
                 and payload.get("request_id") == self.link_rid
                 and (self.link_dev is None or self.link_dev == device)):
@@ -1619,6 +1625,9 @@ class Agent:
                 "device": key,
                 "online": bool(item.get("online")),
                 "online_ts": item.get("online_ts"),
+                "device_id": item.get("device_id"),
+                "hostname": item.get("hostname"),
+                "timestamp": item.get("timestamp"),
             } for key, item in self.devices.items()]
         out = {
             "ok": True,
