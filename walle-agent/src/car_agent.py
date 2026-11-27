@@ -723,6 +723,17 @@ DISCOVER_WORDS = ("刷新设备", "发现设备", "扫描设备", "设备列表"
                   "有哪些设备", "查找设备", "搜设备")
 
 
+def _record_segment(text):
+    """从“开始录像30分钟/60秒”中解析 segment_sec；默认 0（用设备默认值）。"""
+    m = re.search(r"(\d+)\s*(分钟|分|秒)", text or "")
+    if not m:
+        return 0
+    value = int(m.group(1))
+    if m.group(2) in ("分钟", "分"):
+        value *= 60
+    return max(0, min(value, 86400))
+
+
 def parse_intent(text):
     """返回 (intent, error)。intent 为 None 时 error 给出可读原因。"""
     t = _normalize(text)
@@ -736,6 +747,15 @@ def parse_intent(text):
         return {"action": "device_discover"}, None
     if any(w in t for w in ("告警", "报警", "最新告警", "有没有告警", "alarm")):
         return {"action": "alarm_status"}, None
+    if any(w in t for w in ("开始录像", "开始录制", "开启录像", "打开录像")):
+        return {"action": "record_start",
+                "segment_sec": _record_segment(t)}, None
+    if any(w in t for w in ("停止录像", "停止录制", "结束录像",
+                             "关闭录像", "关闭录制")):
+        return {"action": "record_stop"}, None
+    if any(w in t for w in ("查看录像", "录像列表", "有哪些录像",
+                             "录像文件", "录像记录", "查录像")):
+        return {"action": "record_list"}, None
 
     if (("agent" in t and ("状态" in t or "status" in t or "状况" in t))
             or any(w in t for w in ("你的状态", "你自己状态", "自身状态"))):
@@ -807,7 +827,8 @@ def validate_intent(intent, cfg):
     """返回 (intent, warning)。校验失败时 intent=None，warning 为原因。"""
     if intent["action"] in ("stop", "status", "device_base_state",
                             "device_run_state", "device_discover",
-                            "agent_status", "service_health", "alarm_status"):
+                            "agent_status", "service_health", "alarm_status",
+                            "record_start", "record_stop", "record_list"):
         return intent, None
 
     max_distance = float(cfg["MAX_DISTANCE"])
@@ -1999,6 +2020,12 @@ class Agent:
             return self.discover_devices()
         if intent["action"] == "alarm_status":
             return self.recent_alarm(device or None)
+        if intent["action"] == "record_start":
+            return self.record_start(device, intent.get("segment_sec") or 0)
+        if intent["action"] == "record_stop":
+            return self.record_stop(device)
+        if intent["action"] == "record_list":
+            return self.record_list(device)
 
         if intent["action"] in ("move", "rotate"):
             preflight = self.preflight_features(device, ("motor",))
@@ -2389,6 +2416,173 @@ class Agent:
             }
         return {"ok": True, "capabilities": caps}
 
+    def record_start(self, device, segment_sec=0):
+        """开始录像：控制类请求，acquire → record/start → release（M2-01）。"""
+        preflight = self.preflight_features(device, ("recording",))
+        if not preflight.get("ok"):
+            return {"ok": False, "action": "record_start", "device": device,
+                    "error": preflight.get("error"),
+                    "cause": preflight.get("cause"),
+                    "capabilities": preflight.get("capabilities")}
+        if not (self.mqtt_client and self.mqtt_connected):
+            return {"ok": False, "action": "record_start", "device": device,
+                    "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
+        try:
+            segment = max(0, min(int(segment_sec or 0), 86400))
+        except (TypeError, ValueError):
+            segment = 0
+        control = self._acquire_control(device)
+        if not control.get("ok"):
+            return {"ok": False, "action": "record_start", "device": device,
+                    "error": control.get("error"),
+                    "cause": control.get("cause"),
+                    "control_holder": control.get("control_holder")}
+        try:
+            res = self.request_bus.request(
+                device, "record/start/request",
+                {"segment_sec": segment}, timeout=12.0)
+        finally:
+            release = self._release_control(device)
+
+        if not res.get("received"):
+            return {"ok": False, "action": "record_start", "device": device,
+                    "request_id": res.get("request_id"),
+                    "error": res.get("error") or "timeout",
+                    "cause": res.get("cause") or "等待录像应答超时",
+                    "control": release}
+        payload = res.get("payload") or {}
+        decoded = res.get("decoded") or decode_result(payload)
+        result = decoded.get("result")
+        base = {
+            "action": "record_start",
+            "device": device,
+            "request_id": res.get("request_id"),
+            "result": result,
+            "payload": payload,
+            "control": release,
+        }
+        if result == 0:
+            base.update({
+                "ok": True, "recording": True, "already_recording": False,
+                "filename": payload.get("filename"),
+                "started_at": payload.get("started_at"),
+                "play_url": payload.get("play_url"),
+                "cause": decoded.get("cause") or "ok",
+            })
+        elif result == -4:
+            base.update({
+                "ok": True, "recording": True, "already_recording": True,
+                "filename": payload.get("filename"),
+                "play_url": payload.get("play_url"),
+                "cause": decoded.get("cause") or "已在录制",
+            })
+        elif result == -7:
+            base.update({
+                "ok": False, "recording": False, "error": "no_space",
+                "cause": decoded.get("cause") or "磁盘空间不足",
+            })
+        else:
+            base.update({
+                "ok": False, "recording": False,
+                "error": decoded.get("error") or "failed",
+                "cause": decoded.get("cause") or "录像启动失败",
+            })
+        return base
+
+    def record_stop(self, device):
+        """停止录像：-4（当前未录制）视为已停止，幂等成功（M2-01）。"""
+        preflight = self.preflight_features(device, ("recording",))
+        if not preflight.get("ok"):
+            return {"ok": False, "action": "record_stop", "device": device,
+                    "error": preflight.get("error"),
+                    "cause": preflight.get("cause"),
+                    "capabilities": preflight.get("capabilities")}
+        if not (self.mqtt_client and self.mqtt_connected):
+            return {"ok": False, "action": "record_stop", "device": device,
+                    "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
+        control = self._acquire_control(device)
+        if not control.get("ok"):
+            return {"ok": False, "action": "record_stop", "device": device,
+                    "error": control.get("error"),
+                    "cause": control.get("cause"),
+                    "control_holder": control.get("control_holder")}
+        try:
+            res = self.request_bus.request(
+                device, "record/stop/request", {}, timeout=12.0)
+        finally:
+            release = self._release_control(device)
+
+        if not res.get("received"):
+            return {"ok": False, "action": "record_stop", "device": device,
+                    "request_id": res.get("request_id"),
+                    "error": res.get("error") or "timeout",
+                    "cause": res.get("cause") or "等待录像应答超时",
+                    "control": release}
+        payload = res.get("payload") or {}
+        decoded = res.get("decoded") or decode_result(payload)
+        result = decoded.get("result")
+        base = {
+            "action": "record_stop",
+            "device": device,
+            "request_id": res.get("request_id"),
+            "result": result,
+            "payload": payload,
+            "control": release,
+        }
+        if result == 0:
+            base.update({
+                "ok": True, "recording": False, "already_stopped": False,
+                "filename": payload.get("filename"),
+                "cause": decoded.get("cause") or "ok",
+            })
+        elif result == -4:
+            base.update({
+                "ok": True, "recording": False, "already_stopped": True,
+                "cause": decoded.get("cause") or "当前未录制",
+            })
+        else:
+            base.update({
+                "ok": False,
+                "error": decoded.get("error") or "failed",
+                "cause": decoded.get("cause") or "停止录像失败",
+            })
+        return base
+
+    def record_list(self, device):
+        """查询录像列表：只读查询，不申请控制权（M2-01）。"""
+        if not (self.mqtt_client and self.mqtt_connected):
+            return {"ok": False, "action": "record_list", "device": device,
+                    "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
+        res = self.request_bus.request(
+            device, "record/list/query/request", {}, timeout=12.0)
+        if not res.get("received"):
+            return {"ok": False, "action": "record_list", "device": device,
+                    "request_id": res.get("request_id"),
+                    "error": res.get("error") or "timeout",
+                    "cause": res.get("cause") or "等待录像列表超时"}
+        payload = res.get("payload") or {}
+        decoded = res.get("decoded") or decode_result(payload)
+        result = decoded.get("result")
+        records = payload.get("records")
+        if not isinstance(records, list):
+            records = []
+        out = {
+            "ok": result == 0,
+            "action": "record_list",
+            "device": device,
+            "request_id": res.get("request_id"),
+            "result": result,
+            "records": records,
+            "count": len(records),
+            "used_bytes": payload.get("used_bytes"),
+            "limit_bytes": payload.get("limit_bytes"),
+            "cause": decoded.get("cause"),
+        }
+        if result != 0:
+            out["error"] = decoded.get("error") or "failed"
+            out["cause"] = decoded.get("cause") or "查询录像列表失败"
+        return out
+
     def device_status(self, device):
         """「状态」默认查设备 baseState + runState（M1-06）。"""
         base = self.device_base_state(device)
@@ -2711,8 +2905,8 @@ _LLM_SYSTEM = (
     "你是小车控制意图解析器。只输出 JSON，不要解释。"
     "允许的动作：move(forward/backward/left/right, distance_m, speed_mps)、"
     "rotate(left/right, angle_deg)、stop、status、agent_status、"
-    "service_health、alarm_status、device_base_state、device_run_state、"
-    "device_discover。"
+    "service_health、alarm_status、record_start(segment_sec)、record_stop、"
+    "record_list、device_base_state、device_run_state、device_discover。"
     "无法确定时输出 {\"action\":\"unknown\"}。"
 )
 
@@ -2742,8 +2936,10 @@ def _llm_parse(text):
         intent = json.loads(content)
         if intent.get("action") in ("move", "rotate", "stop", "status",
                                     "agent_status", "service_health",
-                                    "alarm_status", "device_base_state",
-                                    "device_run_state", "device_discover"):
+                                    "alarm_status", "record_start",
+                                    "record_stop", "record_list",
+                                    "device_base_state", "device_run_state",
+                                    "device_discover"):
             return intent
     except (urlerror.URLError, KeyError, ValueError, TimeoutError) as exc:
         log().warning("LLM 解析失败: %s", exc)
@@ -2820,6 +3016,51 @@ def _reply_text(intent, result):
             result.get("cause") or result.get("error") or "未知错误")
     elif action == "alarm_status":
         return result.get("reply") or "暂无告警。"
+    elif action == "record_start":
+        if result.get("ok"):
+            if result.get("already_recording"):
+                return "已经在录像：{}".format(
+                    result.get("filename") or "当前文件")
+            return "已开始录像：{}".format(result.get("filename") or "")
+        if result.get("error") == "no_space":
+            return "开始录像失败：磁盘空间不足（{}）。".format(
+                result.get("cause") or "")
+        if result.get("error") == "mqtt_not_connected":
+            return "开始录像失败：MQTT 未连接。"
+        if result.get("error") == "control_occupied":
+            holder = result.get("control_holder") or {}
+            who = holder.get("client_name") or holder.get("client_id") or "其他客户端"
+            return "开始录像失败：设备控制权已被 {} 占用。".format(who)
+        return "开始录像失败：{}。".format(
+            result.get("cause") or result.get("error") or "未知错误")
+    elif action == "record_stop":
+        if result.get("ok"):
+            if result.get("already_stopped"):
+                return "当前未在录像（已视为停止）。"
+            return "已停止录像：{}".format(result.get("filename") or "")
+        if result.get("error") == "mqtt_not_connected":
+            return "停止录像失败：MQTT 未连接。"
+        if result.get("error") == "control_occupied":
+            holder = result.get("control_holder") or {}
+            who = holder.get("client_name") or holder.get("client_id") or "其他客户端"
+            return "停止录像失败：设备控制权已被 {} 占用。".format(who)
+        return "停止录像失败：{}。".format(
+            result.get("cause") or result.get("error") or "未知错误")
+    elif action == "record_list":
+        if result.get("ok"):
+            records = result.get("records") or []
+            if not records:
+                return "暂无录像。"
+            names = "、".join(
+                str(item.get("filename")) for item in records[:5])
+            suffix = (" 等 {} 个".format(len(records))
+                      if len(records) > 5 else "")
+            return "共 {} 个录像：{}{}；已用 {} / 上限 {}。".format(
+                len(records), names, suffix,
+                _human_bytes(result.get("used_bytes")) or "?",
+                _human_bytes(result.get("limit_bytes")) or "?")
+        return "查询录像列表失败：{}。".format(
+            result.get("cause") or result.get("error") or "未知错误")
     else:
         return "已解析。"
 

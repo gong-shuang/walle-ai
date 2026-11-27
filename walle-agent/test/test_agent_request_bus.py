@@ -37,12 +37,32 @@ class _PublishInfo:
 
 
 class FakeMqttClient:
-    def __init__(self):
+    def __init__(self, agent=None):
+        self.agent = agent
         self.published = []
+
+    def _respond(self, topic, body, response):
+        response = dict(response)
+        response["request_id"] = body.get("request_id")
+        response_topic = topic.rsplit("/", 1)[0] + "/response"
+        device = topic.split("/")[3]
+        self.agent.request_bus.on_message(device, response_topic, response)
 
     def publish(self, topic, payload, qos=0, retain=False):
         body = json.loads(payload) if isinstance(payload, str) else payload
         self.published.append({"topic": topic, "payload": body})
+        if self.agent is not None:
+            if topic.endswith("/control/acquire/request"):
+                self._respond(topic, body, {
+                    "result": 0, "action": "granted",
+                    "control_holder": {"client_id": "agent-test",
+                                       "client_name": "Test Agent"},
+                })
+            elif topic.endswith("/control/release/request"):
+                self._respond(topic, body, {
+                    "result": 0, "action": "released",
+                    "control_holder": None,
+                })
         return _PublishInfo()
 
 
@@ -71,7 +91,7 @@ def agent(monkeypatch):
     cfg = dict(car_agent.DEFAULTS)
     cfg.update({"MQTT_USER": "", "MQTT_PASSWORD": "", "TENANT": "test"})
     instance = car_agent.Agent(cfg)
-    instance.mqtt_client = FakeMqttClient()
+    instance.mqtt_client = FakeMqttClient(instance)
     instance.mqtt_connected = True
     instance.mqtt_configured = True
     return instance
@@ -783,3 +803,120 @@ def test_recent_alarm_and_intent(agent):
     intent, error = car_agent.parse_intent("最新告警")
     assert error is None
     assert intent == {"action": "alarm_status"}
+
+
+def _published(agent, suffix):
+    return [
+        item for item in agent.mqtt_client.published
+        if item["topic"].endswith(suffix)
+    ]
+
+
+def test_record_start_success_acquires_and_releases(agent):
+    out = _call_with_response(
+        agent, lambda: agent.record_start("dev-1", 1800),
+        "/record/start/request",
+        "walle/test/device/dev-1/record/start/response", {
+            "result": 0, "cause": "ok",
+            "filename": "rec_test.fmp4",
+            "started_at": "2026-11-27 14:00:00",
+            "play_url": "http://192.168.1.10:8088/recordings/rec_test.fmp4",
+        })
+
+    assert out["ok"] is True
+    assert out["recording"] is True
+    assert out["filename"] == "rec_test.fmp4"
+    assert out["control"]["ok"] is True
+    assert agent.control_held is None
+    request = _published(agent, "/record/start/request")[-1]["payload"]
+    assert request["segment_sec"] == 1800
+    assert len(_published(agent, "/control/acquire/request")) == 1
+    assert len(_published(agent, "/control/release/request")) == 1
+
+
+def test_record_start_disk_full_releases_control(agent):
+    out = _call_with_response(
+        agent, lambda: agent.record_start("dev-1"),
+        "/record/start/request",
+        "walle/test/device/dev-1/record/start/response", {
+            "result": -7, "cause": "磁盘空间不足",
+        })
+
+    assert out["ok"] is False
+    assert out["error"] == "no_space"
+    assert "磁盘空间不足" in out["cause"]
+    assert agent.control_held is None
+    assert len(_published(agent, "/control/release/request")) == 1
+
+
+def test_record_stop_already_stopped_is_idempotent(agent):
+    out = _call_with_response(
+        agent, lambda: agent.record_stop("dev-1"),
+        "/record/stop/request",
+        "walle/test/device/dev-1/record/stop/response", {
+            "result": -4, "cause": "当前未录制",
+        })
+
+    assert out["ok"] is True
+    assert out["already_stopped"] is True
+    assert out["recording"] is False
+    assert agent.control_held is None
+
+
+def test_record_list_is_query_without_lease(agent):
+    out = _call_with_response(
+        agent, lambda: agent.record_list("dev-1"),
+        "/record/list/query/request",
+        "walle/test/device/dev-1/record/list/query/response", {
+            "result": 0, "cause": "ok",
+            "records": [
+                {"filename": "a.fmp4", "size_bytes": 100,
+                 "created_at": "2026-11-27 10:00:00",
+                 "duration_sec": 10, "play_url": "http://x/a.fmp4"},
+                {"filename": "b.fmp4", "size_bytes": 200,
+                 "created_at": "2026-11-27 11:00:00",
+                 "duration_sec": 20, "play_url": "http://x/b.fmp4"},
+            ],
+            "used_bytes": 300, "limit_bytes": 1000,
+        })
+
+    assert out["ok"] is True
+    assert out["count"] == 2
+    assert out["records"][0]["filename"] == "a.fmp4"
+    assert out["used_bytes"] == 300
+    assert out["limit_bytes"] == 1000
+    assert _published(agent, "/control/acquire/request") == []
+    assert _published(agent, "/control/release/request") == []
+
+
+def test_record_start_unsupported_blocks_before_control(agent):
+    payload = _run_state_payload()
+    payload["recording"]["is_supported"] = False
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/runState/query/response", payload))
+
+    out = agent.record_start("dev-1")
+
+    assert out["ok"] is False
+    assert out["error"] == "unsupported"
+    assert agent.control_held is None
+    assert _published(agent, "/record/start/request") == []
+    assert _published(agent, "/control/acquire/request") == []
+
+
+def test_parse_intent_routes_record_commands():
+    intent, error = car_agent.parse_intent("开始录像")
+    assert error is None
+    assert intent == {"action": "record_start", "segment_sec": 0}
+
+    intent, _ = car_agent.parse_intent("开始录像30分钟")
+    assert intent == {"action": "record_start", "segment_sec": 1800}
+
+    intent, _ = car_agent.parse_intent("停止录像")
+    assert intent == {"action": "record_stop"}
+
+    intent, _ = car_agent.parse_intent("查看录像")
+    assert intent == {"action": "record_list"}
+
+    intent, _ = car_agent.parse_intent("在录像吗")
+    assert intent == {"action": "device_run_state"}

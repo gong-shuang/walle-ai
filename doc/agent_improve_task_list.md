@@ -7,7 +7,7 @@
 > 使用方式：每完成一项，把 `[ ]` 改成 `[x]`，补上完成日期、提交或证据，并更新「进度总览」和「更新记录」。
 >
 > 最后更新：2026-11-27
-> 当前阶段：M1 已完成（8/8），下一步 M2
+> 当前阶段：M2 进行中（1/10）
 
 ---
 
@@ -238,7 +238,7 @@ agent：
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
-| M2 核心设备动作 | 未开始 | 0/10 | 录像、推流、舵机、电机回执、结构化返回 |
+| M2 核心设备动作 | 进行中 | 1/10 | record.start/stop/list 已落地；推流、舵机、回执等待做 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
@@ -580,13 +580,20 @@ agent：
 
 - **层级**：L2 动作编排层（底层由 L3 发请求）
 - **小白解释**：这是你最想要的“定时录像”的核心：开始录、停止录、查看录了哪些文件。
-- [ ] `record/start/request`：支持 `segment_sec`；`0/-4/-6/-7` 统一解码。
-- [ ] `record/stop/request`：`0/-4/-6`；`-4` 视为已停止（幂等）。
-- [ ] `record/list/query/request`：返回 `records[]`、`used_bytes`、`limit_bytes`。
-- [ ] 控制类请求前 acquire，结束后 release。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] `record/start/request`：支持 `segment_sec`；`0/-4/-6/-7` 统一解码。
+- [x] `record/stop/request`：`0/-4/-6`；`-4` 视为已停止（幂等）。
+- [x] `record/list/query/request`：返回 `records[]`、`used_bytes`、`limit_bytes`。
+- [x] 控制类请求前 acquire，结束后 release。
+- 实现：
+  - 新增 `Agent.record_start(device, segment_sec=0)`：能力预检 → acquire → `record/start/request`（12s）→ release。
+    - `0` 成功；`-4` 已在录制（幂等成功，`already_recording=true`）；`-7` 磁盘不足（`no_space`）；其余按统一错误码解码。
+  - 新增 `Agent.record_stop(device)`：能力预检 → acquire → `record/stop/request` → release；`-4` 视为已停止（`already_stopped=true`）。
+  - 新增 `Agent.record_list(device)`：只读查询，不申请控制权，返回 `records/count/used_bytes/limit_bytes`。
+  - 对话路由：「开始录像[30分钟]」「停止录像」「查看录像/录像列表」；`segment_sec` 支持“分钟/分/秒”。
+  - `execute` / `_reply_text` / LLM 动作白名单同步支持。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/test/test_agent_request_bus.py`
 - 验收：对话「开始录像/停止录像/查看录像」可用；磁盘不足提示明确。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次提交 / 新增 6 个录像动作、幂等、查询与控制权测试；`pytest walle-agent/test` 63 passed；未修改 MQTT 协议
 
 #### M2-02 stream.start / stop
 
@@ -1151,6 +1158,7 @@ agent：
 | 2026-11-27 | M1-06 | 状态区分落地：状态=设备 base+run、agent 状态=本机 machine_state、服务健康=health；M1 进度 6/8 | 本次提交 |
 | 2026-11-27 | M1-07 | 能力缓存与预检落地：capabilities、preflight_features、录像任务预检、motor 控制前拦截；M1 进度 7/8 | 本次提交 |
 | 2026-11-27 | M1-08 | alarm/report 接入：告警缓存、障碍/低压联锁停车、recent_alarm 对话；M1 完成 8/8 | 本次提交 |
+| 2026-11-27 | M2-01 | record.start/stop/list 落地：能力预检、控制权 acquire/release、-4 幂等、列表查询；M2 进度 1/10 | 本次提交 |
 
 ---
 
