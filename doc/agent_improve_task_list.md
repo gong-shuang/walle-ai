@@ -239,7 +239,7 @@ agent：
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
-| M3 调度与任务 | 进行中 | 8/10 | SQLite、调度线程、四种类型、任务工具/Web 页签、录像执行、shared 控制权、重启对账、重试/幂等、任务事件已落地；exclusive 待定 |
+| M3 调度与任务 | 已完成 | 10/10 | SQLite、调度线程、四种类型、任务工具/Web 页签、录像执行、shared 控制权、重启对账、重试/幂等、任务事件、调度测试全部落地；exclusive 延后（配置后按 shared 执行） |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
 
@@ -916,11 +916,17 @@ agent：
 
 - **层级**：跨层（测试工程）
 - **小白解释**：用“假时钟”测试，不用真的等到明天 8 点；保证任务逻辑正确。
-- [ ] 用可注入时钟测试 daily_window、once、cron、interval。
-- [ ] 测试重启恢复、错过触发、磁盘不足、控制权被占。
+- [x] 用可注入时钟测试 daily_window、once、cron、interval。
+- [x] 测试重启恢复、错过触发、磁盘不足、控制权被占。
+- 实现：
+  - 新增 `walle-agent/test/test_task_scenarios.py`：组合真实 `TaskScheduler`、真实
+    `Agent._run_task` 与可拨动的假时钟，不等待真实时间。
+  - 覆盖 daily_window 的 start/stop、once 执行后自动禁用、interval 按锚点推进、
+    cron 跨天触发、重启后错过触发对账并恢复、`-7` 不重试、控制权被占告警 + `skipped`。
+  - 原有 `test_task_schedule.py` / `test_task_scheduler.py` 继续覆盖四类时间计算与 tick 去重。
 - 文件：`walle-agent/test/`
 - 验收：`pytest -q walle-agent/test` 全部通过。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 7 个端到端场景用例；`pytest walle-agent/test` 174 passed
 
 ---
 
