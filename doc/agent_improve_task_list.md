@@ -203,7 +203,7 @@ agent：
 - [x] agent 版本：读取 `walle-agent/VERSION`
 - [x] agent 作为独立控制端：设备请求注入 `client_id=agent_id`、`client_name=agent_name`
 - [x] 运动控制：`car/motor/set/request` 5Hz 发送、停止零速、释放控制权
-- [x] 控制权：`control/acquire|release`（目前仅运动/停止）
+- [x] 控制权：`control/acquire|release`（目前仅运动；停止不 acquire）
 - [x] agent 基本状态：`agent/{a}/baseState/query/request|response`
 - [x] agent 配置修改：`agent/{a}/config/modify/request|response`（仅 `agent_name`）
 - [x] agent 会话停止：`agent/{a}/chat/stop/request|response`（目前仅电机运动）
@@ -216,16 +216,16 @@ agent：
 
 ### 1.2 已知问题（必须在 M0/M1 修掉）
 
-- [ ] `online` 布尔值 bug：`_on_message` 存的是整个 payload dict，`health()` 用 `bool(dict)` 恒为 true。
-- [ ] 5Hz 运动循环同步 `wait_for_publish(timeout=2)`，Broker 慢时会触发 500ms 死区停车。
+- [x] `online` 布尔值 bug：`_on_message` 存的是整个 payload dict，`health()` 用 `bool(dict)` 恒为 true。（M0-02）
+- [x] 5Hz 运动循环同步 `wait_for_publish(timeout=2)`，Broker 慢时会触发 500ms 死区停车。（M0-05）
 - [ ] `self.worker`、`self.control_held` 都是单值，只能同时控制一台设备。
-- [ ] 订阅里有无效的 `+/response` 层；没有订阅 `device/+/alarm/report`。
+- [x] 订阅里有无效的 `+/response` 层；没有订阅 `device/+/alarm/report`。（M0-03）
 - [ ] 对话「状态」仍返回 agent health，不是设备 `baseState` / `runState`。
 - [ ] `capabilities.actions` 仍只有 `move/rotate/stop/status`。
 - [ ] `chat/response` 没有 `data` / `result`，无法返回房间号、录像列表、舵机位置、任务 ID。
 - [ ] `report_progress()` 已定义但业务未调用。
 - [ ] `chat/stop` 只停运动，不能停止录像/推流/任务。
-- [ ] `chat/stop` 在没有自己会话时会去 acquire 别人的租约，失败后返回 `-5`，无法区分“本来就没在动”。
+- [x] `chat/stop` 在没有自己会话时会去 acquire 别人的租约，失败后返回 `-5`，无法区分“本来就没在动”。（M0-10）
 - [ ] 没有调度器、任务表、任务恢复。
 - [ ] `_llm_parse` 仍只接受 4 个 action，没有工具调用。
 - [ ] 没有 agent 契约测试和 fake device 测试。
@@ -236,7 +236,7 @@ agent：
 
 | 里程碑 | 状态 | 完成项 | 说明 |
 |---|---|---|---|
-| M0 安全、Bug 与契约 | 进行中 | 1/10 | 停车语义、online、订阅、错误码、5Hz、测试骨架 |
+| M0 安全、Bug 与契约 | 进行中 | 8/10 | 停车语义、online、订阅、错误码、5Hz、PC 模拟（暂缓） |
 | M1 请求总线与设备状态 | 未开始 | 0/8 | RequestBus、DeviceRegistry、baseState/runState、状态对话 |
 | M2 核心设备动作 | 未开始 | 0/10 | 录像、推流、舵机、电机回执、结构化返回 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
@@ -284,7 +284,7 @@ agent：
 - [x] `health()` 使用布尔值判断在线；当前代码没有独立的 LLM 设备列表，后续新增时直接复用 `health()["devices"]`。
 - 文件：`walle-agent/src/car_agent.py`
 - 验收：设备发 `online:false` 后，agent 设备列表显示离线。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / e9e23ec / 模拟 online:true→false 后 `health().devices` 显示离线
 
 #### M0-03 修订阅清单
 
@@ -296,7 +296,7 @@ agent：
 - [ ] 可选：订阅 `walle/{t}/client/+/online`，用于展示控制权竞争者（暂不做）。
 - 文件：`walle-agent/src/car_agent.py`、`doc/MQTT_protocol_convention.md`（§4.20）
 - 验收：`WALLE_AGENT_DEBUG=1` 打印的订阅清单与协议文档一致。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / b8fdeba / 订阅清单与 §4.20 一致，含 `alarm/report`
 
 #### M0-04 统一错误码解码器
 
@@ -316,7 +316,7 @@ agent：
 - [x] 控制权路径与设备 `/response` 已接入；任务/LLM 工具当前不存在，后续新增时直接复用该解码器。
 - 文件：`walle-agent/src/car_agent.py`（后续可拆到 `walle_protocol.py`）
 - 验收：任意 response 都能输出 `ok/error/cause/holder`。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / fca5b4c / 8 个错误码、holder、障碍、缺失 result、未知码断言通过
 
 #### M0-05 运动发布路径拆分
 
@@ -332,7 +332,7 @@ agent：
 - [x] 运动 response 不按 5Hz 写 INFO 日志，只记录异常或采样。
 - 文件：`walle-agent/src/car_agent.py`
 - 验收：5Hz 发送稳定；Broker 延迟不会触发 500ms 死区停车。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 27d583a / `publish_motor` 不等待 PUBACK；-5/-8 触发 abort
 
 #### M0-06 统一 request_id 生成器
 
@@ -343,7 +343,7 @@ agent：
 - [x] 所有 device request/cmd 注入 `client_id` / `client_name`（`_publish` / `publish_motor` 已覆盖）；客户端请求仍原样回显客户端自己的 request_id。
 - 文件：`walle-agent/src/car_agent.py`
 - 验收：抓包可见 `client_id` / `client_name`；request_id 不重复。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / c1ecc39 / 格式与 2000 次唯一性断言通过；三类请求均带身份字段
 
 #### M0-07 PC 节点模拟小车环境（方案已定，暂不实现）
 
@@ -383,11 +383,11 @@ agent：
 
 - **层级**：跨层（文档）
 - **小白解释**：代码改了、协议没改，后面的人会按旧文档调用，必然出错。文档和代码要一起更新。
-- [ ] 更新 `doc/MQTT_protocol_convention.md`：`chat/stop` 的 `no_session` 语义、租约不承担急停职责的说明、订阅修正。
-- [ ] 更新 `doc/agent_protocol_tasks.md` 或本清单的关联说明。
+- [x] 更新 `doc/MQTT_protocol_convention.md`：`chat/stop` 的 `no_session` 语义、租约不承担急停职责的说明、订阅修正。
+- [x] 更新 `doc/agent_protocol_tasks.md` 或本清单的关联说明。
 - 文件：`doc/`
 - 验收：协议、实现、测试三者一致。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次提交 / §2.4、§4.20、§4.24 与 agent_protocol_tasks、已知问题清单已同步
 
 #### M0-10 agent 的停车只停自己的会话
 
@@ -405,7 +405,7 @@ agent：
   1. Web 持有租约行驶时，agent 收到 `chat/stop` → 返回 `result=0, cause=no_session`，设备端收不到任何 `car/motor/set/request`，车继续按 Web 操作。
   2. agent 自己发起的运动进行中 → `chat/stop` → 车立即停住，租约已释放。
   3. 日志不再出现 `agent stop ... result=-5`。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / c27ba79 / 无会话返回 no_session；有会话零速 + 释放租约
 
 ---
 

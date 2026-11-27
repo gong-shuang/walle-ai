@@ -19,8 +19,9 @@
 - [x] chat/request 必填校验、`client_name` 替换 `user`
 - [x] chat/response `agent_id` 与 online 新字段
 - [x] agent 独立控制端：`control/acquire|release` + presence 复用
-- [x] agent 订阅改用 response 通配符，debug 启动打印订阅主题
+- [x] agent 订阅改用分层通配符（含 `device/+/alarm/report`），debug 启动打印订阅主题
 - [x] agent 启动读取 `walle-agent/VERSION`，打印版本名与时间，online 使用该版本
+- [x] 停车语义：`chat/stop` 只停 agent 自己的会话；无会话返回 `no_session`；租约不承担急停职责
 
 ## P0 字段与校验对齐（不改主题）
 
@@ -48,10 +49,11 @@
   - 验收：逐项缺失测试，响应与 §4.20 失败表一致。
 
 - [x] 4. 用 `client_name` 替代 `user`
-  - 日志与运动 `request_id` 前缀改用 `client_name`（清洗后；为空回落 `agent_id`）
+  - 日志使用 `client_name`（清洗后；为空回落 `agent_id`）
+  - 运动 `request_id` 统一为 `agent-{tool}-{8hex}`，不再使用 `client_name`（M0-06）
   - 文件：`walle-agent/src/car_agent.py` `_run_chat_request` / `_run_motion`
   - Web 可继续发送 `user`，agent 不再读取
-  - 验收：日志出现 `client_name`；运动 `request_id` 前缀符合预期。
+  - 验收：日志出现 `client_name`；运动 `request_id` 符合 `agent-{tool}-{8hex}`。
 
 - [x] 5. 修正 busy / warning 的回复行为
   - busy：`reply` 明确提示“正在执行上一条”
@@ -98,8 +100,8 @@
 ## P2 订阅、全功能与文档
 
 - [x] 12. agent 订阅清单
-  - response 使用分层通配符：`device/+/+/response`、`device/+/+/+/response`、`device/+/+/+/+/response`、`device/+/+/+/+/+/response`
-  - 保留 `device/+/online`
+  - response 使用分层通配符：`device/+/+/+/response`（2 层资源）、`device/+/+/+/+/response`（3 层）、`device/+/+/+/+/+/response`（4 层）
+  - 保留 `device/+/online`、`device/+/alarm/report`
 - agent 请求订阅：`agent/{self}/+/request`（`chat/request`）、`agent/{self}/+/+/request`（`baseState/query`、`config/modify`、`chat/stop`）
   - `WALLE_AGENT_DEBUG=1` 时启动打印实际订阅主题
   - 已写入协议文档「agent 订阅关系」
@@ -122,5 +124,5 @@
   - 设备订阅 `agent/+/online` 的 ACL 已完成；presence 复用 agent online，无需额外 client presence ACL；其他新增主题再按需补规则
 
 - [ ] 18. 文档补全
-  - 订阅关系、ACL、配置（`TENANT` / `CLIENT_ID_PREFIX` / `DEVICE_ID_FILE`（默认 `etc/.run/agent-id`）/ `etc/.run/agent-name`）、急停两条消息、debug 开关
+  - 订阅关系、ACL、配置（`TENANT` / `CLIENT_ID_PREFIX` / `DEVICE_ID_FILE`（默认 `etc/.run/agent-id`）/ `etc/.run/agent-name`）、停车语义（`chat/stop` 只停自己的会话、`no_session`）、debug 开关
   - `walle-agent/docs/mqtt-protocol.md` 已删除，保持本文为唯一来源

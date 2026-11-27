@@ -163,8 +163,9 @@ App 里同一台设备出现两张卡片、旧主题上的 retained `online:fals
 
 - `request_id`：客户端生成的请求标识，每次请求都不同。
   - App：8 位十六进制随机串（`UUID.randomUUID()` 前 8 位）。
-  - Web：以 `web-` 为前缀；对话用 `web-` + 8 位十六进制，急停/中止用 `web-estop-` / `web-abort-` 前缀。
-  - agent 不兜底生成；`chat/request` 缺失 `request_id` 时按 §4.20 返回 `invalid`。
+  - Web：以 `web-` 为前缀；对话用 `web-` + 8 位十六进制，停止会话用 `web-stop-` 前缀（长度不固定）。
+  - agent 主动发给设备的请求：`agent-{tool}-{8hex}`（`tool` 如 `move` / `stop` / `acquire` / `release` / `link`）；同一运动会话复用同一个 `request_id`。
+  - agent 不为 `chat/request` 兜底生成；缺失 `request_id` 时按 §4.20 返回 `invalid`。
   - 消费方按字符串原样匹配，不要假设固定长度或纯十六进制。
   设备端/agent 在应答里**原样回显**，App/Web 用它把结果和「哪一次请求」对上；迟到的旧结果直接丢弃。
 
@@ -1419,10 +1420,10 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 | `device` | string | 是 | 缺失时 `error:"invalid"`，回复「请求里没有指定设备（device 字段为空）。」 |
 | `text` | string | 是 | 缺失时 `error:"invalid"`，回复「请求里没有文本内容。」 |
 | `ts` | number | 否 | 毫秒时间戳，agent 不读取 |
-| `intent` | string | 否 | 急停通知用 `"abort"`，agent 不读取（靠 `text` 解析） |
+| `intent` | string | 否 | 停止通知用 `"abort"`，agent 不读取（靠 `text` 解析） |
 
 - `client_id` / `client_name` 标识**发起对话的 Web 客户端**，用于日志与审计；agent 作为独立控制端向设备下发请求时使用自己的 `agent_id` / `agent_name`（见 §4.21）。
-- `client_name` 同时用于 agent 日志与运动 request_id 前缀；`user` 字段已废弃，客户端不再需要发送。
+- `client_name` 只用于 agent 日志与审计；agent 主动请求的 `request_id` 统一为 `agent-{tool}-{8hex}`（§2.4）。`user` 字段已废弃，客户端不再需要发送。
 - 未列出的字段（如旧客户端的 `user`）由 agent 忽略。
 
 ```json
@@ -1483,7 +1484,7 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 
 控制权约定：
 
-- 控制动作（运动/停止）前先 `control/acquire`，结束后 `control/release`；状态查询不 acquire；
+- 运动前 `control/acquire`，结束后 `control/release`；停止不 acquire，只停 agent 自己的会话；状态查询不 acquire；
 - acquire 返回 `occupied` 时不自动抢占，直接拒绝本次请求，并在 `reply` 中提示当前 holder。
 - 会话执行中用户可发送 `agent/{a}/chat/stop/request`（§4.24）优雅停止：中止当前运动、补发零速并释放控制权，无需等待本次 `chat/response`。
 
@@ -1499,10 +1500,10 @@ holder 掉线自动释放的依据。该主题是**租户级**的，不挂在 `d
 | 正在执行上一条 | false | `error:"busy"`，`reply` 提示正在执行 |
 | 设备控制权被占用 | false | `error:"control_occupied"`，`reply` 提示当前 holder |
 | 控制权获取失败/超时 | false | `error:"control_failed"`，`reply` 说明 |
-| 停止但无目标设备 | false | `error:"no_device"`，`reply` 说明 |
+| 停止但没有自己的会话 | true | `reply` 说明未下发，无 `error`；不会返回 `-5` |
 | agent 内部异常 | false | `error:"agent_exception"`，`reply` 含异常文本 |
 
-`error` 取值集合：`invalid`、`mqtt_not_connected`、`busy`、`no_device`、`agent_exception`、`control_occupied`、`control_failed`。
+`error` 取值集合：`invalid`、`mqtt_not_connected`、`busy`、`agent_exception`、`control_occupied`、`control_failed`。
 agent 不发送「超时」响应；20 秒未收到响应：删除 pending、解锁发送按钮、提示「agent 超时未响应（20s）」。
 
 **agent 订阅关系**
@@ -1860,6 +1861,8 @@ python3 -m pytest -q walle-device/ros2_ws/src/net/net_mqtt_bridge/test   # 设�
   `stopped=false`、`released=false`，不向设备发送零速。
 - `chat/stop` 不再返回 `-5 控制权被占用`。
 - §4.19 重申：零速停车仍受租约约束，不提供“任何客户端急停”通道。
+- §2.4 / §4.20 同步：agent 主动请求编号统一为 `agent-{tool}-{8hex}`；停止不再 acquire，
+  无自己的会话时 `chat/response` 返回 `ok:true` 并说明未下发，不再产生 `no_device`。
 
 **影响与兼容性**：Web/App 收到 `cause="no_session"` 时提示“当前没有 agent 会话”；
 `no_active_session` 更名为 `no_session`。
