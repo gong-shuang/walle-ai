@@ -22,6 +22,8 @@ SEND_HZ=5
 
 # 复杂语句走 LLM（默认关闭）
 LLM_ENABLED=0
+# 路由：off/local/online/hybrid；hybrid=简单先本地、复杂先在线，失败互相回退
+LLM_MODE=local
 # 通用 OpenAI 兼容配置（本地未单独配置时复用）
 LLM_BASE_URL=
 LLM_API_KEY=

@@ -240,7 +240,7 @@ agent：
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
 | M3 调度与任务 | 已完成 | 10/10 | SQLite、调度线程、四种类型、任务工具/Web 页签、录像执行、shared 控制权、重启对账、重试/幂等、任务事件、调度测试全部落地；exclusive 延后（配置后按 shared 执行） |
-| M4 混合 LLM | 进行中 | 4/10 | 规则层、工具 Schema、本地/在线模型客户端已落地；混合路由与回退待实现 |
+| M4 混合 LLM | 进行中 | 5/10 | 规则层、工具 Schema、本地/在线模型、混合路由已落地；多轮与确认待实现 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
 
 > 状态取值：未开始 / 进行中 / 已完成 / 阻塞。完成一项就更新对应里程碑的计数。
@@ -1030,14 +1030,25 @@ agent：
 
 - **层级**：L1 对话理解层
 - **小白解释**：简单的本地做，复杂的在线做，兼顾成本、隐私和效果。
-- [ ] 规则命中 → 直接执行。
-- [ ] 规则未命中 → 本地。
-- [ ] 本地低置信度/schema 非法/复杂多步 → 在线。
-- [ ] 在线失败 → 本地/规则/反问。
-- [ ] `LLM_MODE=hybrid`。
-- 文件：`walle-agent/src/llm_router.py`
+- [x] 规则命中 → 直接执行。
+- [x] 规则未命中 → 本地。
+- [x] 本地低置信度/schema 非法/复杂多步 → 在线。
+- [x] 在线失败 → 本地/规则/反问。
+- [x] `LLM_MODE=hybrid`。
+- 实现：
+  - 新增 `LLM_MODE`：`off` / `local` / `online` / `hybrid`，默认 `local`；实际配置切到 `hybrid`。
+  - `parse_hybrid()`：简单语句先本地，`unknown` / schema 非法 / 失败再在线；
+    复杂语句先在线，在线失败或 `unknown` 再回退本地。
+  - 复杂判定（`is_complex`）：长度 ≥24、含「然后/接着/并且/同时/之后/顺便/再帮/
+    再开/再停/先」等多步词，或出现 ≥2 个动作词。
+  - 规则命中由 `handle_chat` 直接执行，不调用 LLM；两侧都失败返回 `unknown`/错误，
+    由 `handle_chat` 反问。
+  - `_llm_parse` 记录来源 `local` / `online` / `none`。
+  - hybrid 下建议 `LLM_TIMEOUT_SEC≤8`、`LLM_RETRY_MAX=0`，避免本地超时 + 在线回退
+    超过 Web 20s；实测 OMLX 冷启动超时后能自动切 DeepSeek 成功。
+- 文件：`walle-agent/src/llm_router.py`、`walle-agent/src/car_agent.py`、`walle-agent/test/`
 - 验收：断网时仍可用；复杂语句成功率达标。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 8 个路由用例（规则命中跳过 LLM、简单走本地、local unknown→online、复杂先在线、在线失败→本地、双失败、模式切换、复杂度判定）；`pytest walle-agent/test` 215 passed
 
 #### M4-06 多轮会话
 

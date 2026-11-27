@@ -541,3 +541,138 @@ def test_parse_online_does_not_log_api_key(monkeypatch):
 
     assert messages
     assert "secret-key" not in "\n".join(messages)
+
+
+# ---------------- M4-05 混合路由 ----------------
+
+def _hybrid_config():
+    cfg = _llm_config()
+    cfg["LLM_MODE"] = "hybrid"
+    return cfg
+
+
+def test_is_complex_heuristics():
+    assert llm_router.is_complex("前进三米然后左转90度") is True
+    assert llm_router.is_complex("先录像再推流") is True
+    assert llm_router.is_complex("帮我把录像和推流都打开") is True
+    assert llm_router.is_complex("停") is False
+
+
+def test_hybrid_simple_uses_local_only(monkeypatch):
+    cfg = _hybrid_config()
+    calls = []
+    monkeypatch.setattr(
+        llm_router, "parse_local",
+        lambda text, cfg, context=None: (calls.append("local")
+                                         or {"action": "stop"}, None))
+    monkeypatch.setattr(
+        llm_router, "parse_online",
+        lambda text, cfg, context=None: (calls.append("online")
+                                         or {"action": "task_list"}, None))
+
+    intent, error, source = llm_router.parse_hybrid("停", cfg)
+
+    assert intent == {"action": "stop"}
+    assert error is None
+    assert source == "local"
+    assert calls == ["local"]
+
+
+def test_hybrid_local_unknown_falls_back_online(monkeypatch):
+    cfg = _hybrid_config()
+    calls = []
+    monkeypatch.setattr(
+        llm_router, "parse_local",
+        lambda text, cfg, context=None: (calls.append("local")
+                                         or {"action": "unknown"}, None))
+    monkeypatch.setattr(
+        llm_router, "parse_online",
+        lambda text, cfg, context=None: (calls.append("online")
+                                         or {"action": "task_list"}, None))
+
+    intent, error, source = llm_router.parse_hybrid("看看任务吧", cfg)
+
+    assert intent == {"action": "task_list"}
+    assert error is None
+    assert source == "online"
+    assert calls == ["local", "online"]
+
+
+def test_hybrid_complex_uses_online_first(monkeypatch):
+    cfg = _hybrid_config()
+    calls = []
+    monkeypatch.setattr(
+        llm_router, "parse_local",
+        lambda text, cfg, context=None: (calls.append("local")
+                                         or {"action": "stop"}, None))
+    monkeypatch.setattr(
+        llm_router, "parse_online",
+        lambda text, cfg, context=None: (calls.append("online")
+                                         or {"action": "task_list"}, None))
+
+    intent, error, source = llm_router.parse_hybrid(
+        "前进三米然后左转90度", cfg)
+
+    assert intent == {"action": "task_list"}
+    assert error is None
+    assert source == "online"
+    assert calls == ["online"]
+
+
+def test_hybrid_complex_online_failure_falls_back_local(monkeypatch):
+    cfg = _hybrid_config()
+    calls = []
+    monkeypatch.setattr(
+        llm_router, "parse_local",
+        lambda text, cfg, context=None: (calls.append("local")
+                                         or {"action": "stop"}, None))
+    monkeypatch.setattr(
+        llm_router, "parse_online",
+        lambda text, cfg, context=None: (calls.append("online")
+                                         or None, "offline"))
+
+    intent, error, source = llm_router.parse_hybrid(
+        "先录像再推流", cfg)
+
+    assert intent == {"action": "stop"}
+    assert error is None
+    assert source == "local"
+    assert calls == ["online", "local"]
+
+
+def test_hybrid_both_fail_returns_error(monkeypatch):
+    cfg = _hybrid_config()
+    monkeypatch.setattr(
+        llm_router, "parse_local",
+        lambda text, cfg, context=None: (None, "schema_broken"))
+    monkeypatch.setattr(
+        llm_router, "parse_online",
+        lambda text, cfg, context=None: (None, "offline"))
+
+    intent, error, source = llm_router.parse_hybrid("无所谓的话", cfg)
+
+    assert intent is None
+    assert error
+    assert source == "none"
+
+
+def test_parse_hybrid_modes(monkeypatch):
+    cfg = _hybrid_config()
+    monkeypatch.setattr(
+        llm_router, "parse_local",
+        lambda text, cfg, context=None: ({"action": "stop"}, None))
+    monkeypatch.setattr(
+        llm_router, "parse_online",
+        lambda text, cfg, context=None: ({"action": "task_list"}, None))
+
+    cfg["LLM_MODE"] = "local"
+    intent, error, source = llm_router.parse_hybrid("停", cfg)
+    assert (intent["action"], error, source) == ("stop", None, "local")
+
+    cfg["LLM_MODE"] = "online"
+    intent, error, source = llm_router.parse_hybrid("停", cfg)
+    assert (intent["action"], error, source) == ("task_list", None, "online")
+
+    cfg["LLM_MODE"] = "off"
+    intent, error, source = llm_router.parse_hybrid("停", cfg)
+    assert (intent, error, source) == (None, "llm_disabled", "none")

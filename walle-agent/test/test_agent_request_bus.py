@@ -1163,6 +1163,22 @@ def test_handle_chat_unknown_from_llm_replies_hint(agent, monkeypatch):
     assert "没理解" in out["reply"]
 
 
+def test_handle_chat_rule_hit_skips_llm(agent, monkeypatch):
+    monkeypatch.setattr(car_agent, "_get_agent", lambda: agent)
+    monkeypatch.setattr(
+        car_agent, "parse_intent",
+        lambda text: ({"action": "agent_intro"}, None))
+    called = []
+    monkeypatch.setattr(car_agent, "_llm_parse",
+                        lambda text: called.append(text))
+
+    out = car_agent.handle_chat("web", "dev-1", "你是谁")
+
+    assert called == []
+    assert out["ok"] is True
+    assert out["action"] == "agent_intro"
+
+
 def test_parse_intent_common_commands_do_not_need_llm():
     cases = [
         ("开始录像", "record_start"),

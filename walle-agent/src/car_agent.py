@@ -67,6 +67,8 @@ DEFAULTS = {
     "MAX_ANGLE": "360",
     "SEND_HZ": "5",
     "LLM_ENABLED": "0",
+    # M4-05：off/local/online/hybrid；hybrid=简单先本地、复杂先在线，失败互相回退
+    "LLM_MODE": "local",
     "LLM_BASE_URL": "",
     "LLM_API_KEY": "",
     "LLM_MODEL": "",
@@ -4526,15 +4528,19 @@ def _get_agent():
 # ---------------- 可选 LLM 兜底 ----------------
 
 def _llm_parse(text):
-    """M4-03：本地 OpenAI 兼容模型解析；失败时返回 None 交给规则层。"""
+    """M4-05：按 LLM_MODE 路由（本地/在线/混合）；失败返回 None 交给规则层。"""
     try:
-        intent, error = llm_router.parse_local(text, load_config())
+        intent, error, source = llm_router.parse_hybrid(
+            text, load_config())
     except Exception as exc:  # noqa: BLE001 - LLM 失败不能拖垮对话
         log().warning("LLM 解析异常: %s", exc)
         return None
     if intent is None and error not in ("llm_disabled", "llm_not_configured",
+                                        "llm_online_not_configured",
                                         "empty_text"):
-        log().warning("LLM 本地解析失败: %s", error)
+        log().warning("LLM 解析失败（%s）: %s", source, error)
+    elif intent is not None:
+        log().info("LLM 解析来源=%s intent=%s", source, intent)
     return intent
 
 

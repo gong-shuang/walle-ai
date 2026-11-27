@@ -766,3 +766,67 @@ def parse_online(text, cfg, context=None):
     if failed:
         _circuit_failure(key, conf)
     return None, error
+
+
+# ---------------- M4-05 混合路由 ----------------
+
+_COMPLEX_MARKERS = ("然后", "接着", "并且", "同时", "之后", "顺便",
+                    "再帮", "再开", "再停", "先")
+_ACTION_WORDS = ("前进", "后退", "左转", "右转", "左移", "右移",
+                 "录像", "推流", "舵机", "任务", "停止", "播放")
+
+
+def is_complex(text):
+    """粗粒度判断是否需要在线模型：多步/长句/多个动作。"""
+    text = str(text or "").strip()
+    if len(text) >= 24:
+        return True
+    if any(marker in text for marker in _COMPLEX_MARKERS):
+        return True
+    hits = sum(1 for word in _ACTION_WORDS if word in text)
+    return hits >= 2
+
+
+def _usable(intent):
+    return bool(intent and intent.get("action") not in (None, "unknown"))
+
+
+def parse_hybrid(text, cfg, context=None):
+    """按 `LLM_MODE` 路由，返回 (intent, error, source)。
+
+    - `off`：不调用模型；
+    - `local`：只走本地；
+    - `online`：只走在线；
+    - `hybrid`：简单语句先本地，`unknown`/schema 非法/失败再走在线；
+      复杂多步语句先在线，在线失败或 `unknown` 再回退本地。
+    """
+    cfg = cfg or {}
+    mode = str(cfg.get("LLM_MODE") or "local").strip().lower()
+    if mode not in ("off", "local", "online", "hybrid"):
+        LOG.warning("LLM_MODE=%s 非法，按 local 执行", mode)
+        mode = "local"
+    if str(cfg.get("LLM_ENABLED") or "0") != "1" or mode == "off":
+        return None, "llm_disabled", "none"
+    if mode == "local":
+        intent, error = parse_local(text, cfg, context)
+        return intent, error, "local"
+    if mode == "online":
+        intent, error = parse_online(text, cfg, context)
+        return intent, error, "online"
+
+    if is_complex(text):
+        intent, online_error = parse_online(text, cfg, context)
+        if _usable(intent):
+            return intent, None, "online"
+        intent, error = parse_local(text, cfg, context)
+        if _usable(intent):
+            return intent, None, "local"
+        return intent, error or online_error, "none"
+
+    intent, local_error = parse_local(text, cfg, context)
+    if _usable(intent):
+        return intent, None, "local"
+    intent, error = parse_online(text, cfg, context)
+    if _usable(intent):
+        return intent, None, "online"
+    return intent, error or local_error, "none"
