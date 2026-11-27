@@ -3788,8 +3788,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     } else {
       ids.forEach(function (id) {
         els.agents.appendChild(makeAgentOption(id, true));
-        if (detailEls.select) detailEls.select.appendChild(makeAgentOption(id, false));
-        if (els.taskSelect) els.taskSelect.appendChild(makeAgentOption(id, false));
+        if (detailEls.select) detailEls.select.appendChild(makeAgentOption(id, true));
+        if (els.taskSelect) els.taskSelect.appendChild(makeAgentOption(id, true));
       });
       selected = ids.indexOf(saved) >= 0 ? saved : ids[0];
       els.agents.value = selected;
