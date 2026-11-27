@@ -7,7 +7,7 @@
 > 使用方式：每完成一项，把 `[ ]` 改成 `[x]`，补上完成日期、提交或证据，并更新「进度总览」和「更新记录」。
 >
 > 最后更新：2026-11-27
-> 当前阶段：M2 进行中（4/10）
+> 当前阶段：M2 进行中（5/10）
 
 ---
 
@@ -238,7 +238,7 @@ agent：
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
-| M2 核心设备动作 | 进行中 | 4/10 | record、stream、servo、电机回执已落地；控制权 per-device 等待做 |
+| M2 核心设备动作 | 进行中 | 5/10 | record、stream、servo、电机回执、控制权/会话 per-device 已落地 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
@@ -658,13 +658,20 @@ agent：
 
 - **层级**：L2 动作编排层 + L3 设备通信与状态层
 - **小白解释**：如果有两台车，不能一台在动另一台就不能动。每台设备要有自己的“遥控器”和“工作线程”。
-- [ ] `control_held` 改为 `{device: lease}`。
-- [ ] `worker` 改为 `{device: MotionSession}`。
-- [ ] 每设备资源锁：`motion`、`camera`、`servo`、`playback`。
-- [ ] `chat/stop` 支持按 device 停止。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] `control_held` 改为 `{device: lease}`。
+- [x] `worker` 改为 `{device: MotionSession}`。
+- [x] 每设备资源锁：`motion`、`camera`、`servo`、`playback`。
+- [x] `chat/stop` 支持按 device 停止。
+- 实现：
+  - `control_held` 从单个 lease 改为 `{device: lease}`；`_acquire_control/_release_control/_on_message` 按设备读写，`control_denied` 只清理对应设备，两台设备可同时持有租约。
+  - 新增 `MotionSession`（`device/intent/client_name/request_id/abort/thread/stop_owns_cleanup/resource_lock`）；`self.sessions` 改为 `{device: MotionSession}`，运动线程、abort、回执匹配全部按设备隔离。
+  - 新增 `self.resource_locks` 与 `_resource_lock_for/_acquire_resource/_release_resource`，按设备维护 `motion/camera/servo/playback` 四类锁；统一非阻塞 `acquire(False)`，冲突返回 `resource_busy`，不申请控制权、不影响其它设备。
+  - 锁位置：`motion` 在 `execute` 起步；`camera` 在 `record_start/record_stop/stream_start/stream_stop`；`servo` 在 `servo_set`；`playback` 预留给 M5-02 录像播放。
+  - `stop(client_name, device=None)`：指定 `device` 只停该设备的会话与租约；不传则遍历 `sessions` 与 `control_held` 全部停止，返回 `devices` 汇总。
+  - `health()` 增加 `active_devices`、`control_devices`；`active/moving` 在多设备时不再误报单设备。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/test/test_safety_regression.py`、`walle-agent/test/test_agent_request_bus.py`
 - 验收：两台设备可分别运动/录像；一台被占用不影响另一台。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次提交 / 新增两台设备并行运动、按设备停止、摄像头资源隔离用例；`pytest walle-agent/test` 84 passed；未修改 MQTT 协议
 
 #### M2-06 chat/response 结构化返回
 
@@ -1185,6 +1192,7 @@ agent：
 | 2026-11-27 | M2-02 | stream.start/stop 落地：房间号复用、房间号一致性校验、-3 无摄像头提示；M2 进度 2/10 | 本次提交 |
 | 2026-11-27 | M2-03 | servo.status/set 落地：6s/10s 查询、applied/skipped、回中、先查后设相对调整；M2 进度 3/10 | 本次提交 |
 | 2026-11-27 | M2-04 | 电机运动回执补齐：-5/-8/-3 中止、零速+release、成功帧静默；新增 -5/-3 用例；M2 进度 4/10 | 本次提交 |
+| 2026-11-27 | M2-05 | 控制权与运动会话 per-device：`control_held`/`sessions` 按设备、四类资源锁、chat/stop 按设备；M2 进度 5/10 | 本次提交 |
 
 ---
 

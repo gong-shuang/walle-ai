@@ -917,6 +917,20 @@ def validate_intent(intent, cfg):
 
 # ---------------- Agent ----------------
 
+class MotionSession:
+    """单台设备的一次运动会话；不同设备各自独立。"""
+
+    def __init__(self, device, intent, client_name):
+        self.device = device
+        self.intent = dict(intent)
+        self.client_name = client_name
+        self.request_id = None
+        self.abort = threading.Event()
+        self.thread = None
+        self.stop_owns_cleanup = False
+        self.resource_lock = None
+
+
 class Agent:
     def __init__(self, cfg):
         self.cfg = cfg
@@ -928,17 +942,15 @@ class Agent:
         # device_id -> {last_result, last_publish, online, online_ts}
         self.devices = {}
         self.dev_lock = threading.Lock()
-        self.worker = None
-        self.active_device = None
-        self.motion_rid = None
+        # device_id -> MotionSession；每台设备独立工作线程
+        self.sessions = {}
         self.last_motion_error = None
-        self.abort = threading.Event()
         self.state_lock = threading.Lock()
-        # chat/stop 触发时由 stop() 统一收尾；_run_motion.finally 不再重复零速/释放
-        self._stop_owns_cleanup = False
-        # 串行化“检查 busy + acquire + 启动 worker”，避免多客户端同时下发
-        self.motion_lock = threading.Lock()
-        self.control_held = None
+        # device_id -> {resource_name: Lock}，资源名：motion/camera/servo/playback
+        self.resource_locks = {}
+        self.resource_lock = threading.Lock()
+        # device_id -> lease；每台设备独立持有控制权
+        self.control_held = {}
         self.control_lock = threading.Lock()
         # 通用请求-应答总线：control/record/stream/state 等一对一请求统一走这里
         self.request_bus = RequestBus(
@@ -1147,11 +1159,13 @@ class Agent:
 
     def _agent_moving(self, device, forward_only=False):
         with self.state_lock:
-            worker = self.worker
-            active = self.active_device
-            intent = self.motion_intent
-            moving = bool(worker is not None and worker.is_alive()
-                          and active == device and not self.abort.is_set())
+            session = self.sessions.get(device)
+            if session is None:
+                return False
+            moving = bool(session.thread is not None
+                          and session.thread.is_alive()
+                          and not session.abort.is_set())
+            intent = session.intent
         if not moving:
             return False
         if forward_only:
@@ -1489,8 +1503,7 @@ class Agent:
             return
         if isinstance(payload, dict) and payload.get("error_code") == "control_denied":
             with self.control_lock:
-                if self.control_held and self.control_held.get("device") == device:
-                    self.control_held = None
+                self.control_held.pop(device, None)
             # 运动帧的 -5 由 _on_motor_response 统一处理，避免 5Hz 重复告警
             if not msg.topic.endswith("/car/motor/set/response"):
                 log().warning("设备拒绝控制 device=%s request_id=%s holder=%s",
@@ -1537,13 +1550,15 @@ class Agent:
         rid = (str(payload.get("request_id") or "")
                if isinstance(payload, dict) else "")
         with self.state_lock:
-            if self.active_device != device:
+            session = self.sessions.get(device)
+            if session is None:
                 return
-            if not self.motion_rid or (rid and rid != self.motion_rid):
+            if not session.request_id or (
+                    rid and rid != session.request_id):
                 return
-            if self.abort.is_set():
+            if session.abort.is_set():
                 return
-            self.abort.set()
+            session.abort.set()
             self.last_motion_error = {
                 "device": device,
                 "request_id": rid,
@@ -1922,13 +1937,10 @@ class Agent:
 
     def _acquire_control(self, device):
         with self.control_lock:
-            if self.control_held and self.control_held.get("device") == device:
+            held = self.control_held.get(device)
+            if held:
                 return {"ok": True, "action": "already_held",
-                        "control_holder": self.control_held.get("control_holder")}
-            if self.control_held:
-                # 单 agent 同时只持有一台设备的租约，避免覆盖另一台设备
-                return {"ok": False, "error": "control_failed",
-                        "cause": "agent_holds_other_device"}
+                        "control_holder": held.get("control_holder")}
         res = self._control_request(device, "acquire")
         if not res.get("ok"):
             error = res.get("error")
@@ -1941,9 +1953,11 @@ class Agent:
         holder = decoded.get("holder") or data.get("control_holder")
         if decoded["ok"]:
             with self.control_lock:
-                self.control_held = {"device": device,
-                                     "client_id": agent_identity(),
-                                     "control_holder": holder}
+                self.control_held[device] = {
+                    "device": device,
+                    "client_id": agent_identity(),
+                    "control_holder": holder,
+                }
             log().info("已获取设备控制权 device=%s action=%s holder=%s",
                        device, action, (holder or {}).get("client_id") or "-")
             return {"ok": True, "action": action, "control_holder": holder}
@@ -1957,13 +1971,12 @@ class Agent:
 
     def _release_control(self, device):
         with self.control_lock:
-            held = self.control_held
-            if not held or held.get("device") != device:
+            held = self.control_held.get(device)
+            if not held:
                 return {"ok": True, "skipped": True}
         res = self._control_request(device, "release")
         with self.control_lock:
-            if self.control_held and self.control_held.get("device") == device:
-                self.control_held = None
+            self.control_held.pop(device, None)
         if not res.get("ok"):
             log().warning("释放设备控制权失败 device=%s error=%s",
                           device, res.get("error"))
@@ -1979,6 +1992,25 @@ class Agent:
         return {"ok": False, "error": "control_failed", "action": action,
                 "control_holder": decoded.get("holder"),
                 "cause": decoded.get("cause")}
+
+    # ---- 每设备资源锁 ----
+    def _resource_lock_for(self, device, name):
+        with self.resource_lock:
+            locks = self.resource_locks.setdefault(device, {})
+            return locks.setdefault(name, threading.Lock())
+
+    def _acquire_resource(self, device, name):
+        lock = self._resource_lock_for(device, name)
+        return lock if lock.acquire(False) else None
+
+    @staticmethod
+    def _release_resource(lock):
+        if lock is None:
+            return
+        try:
+            lock.release()
+        except RuntimeError:
+            pass
 
     # ---- 指令执行 ----
     def _drive_payload(self, intent, request_id):
@@ -2007,10 +2039,12 @@ class Agent:
             return math.radians(float(intent["angle_deg"])) / float(self.cfg["DEFAULT_ANGULAR"])
         return 0.0
 
-    def _run_motion(self, device, intent, client_name):
+    def _run_motion(self, session):
+        device = session.device
+        intent = session.intent
+        client_name = session.client_name
+        request_id = session.request_id
         duration = self._duration(intent)
-        request_id = new_request_id(
-            "rotate" if intent["action"] == "rotate" else "move")
         payload = self._drive_payload(intent, request_id)
         hz = max(1.0, float(self.cfg["SEND_HZ"]))
         period = 1.0 / hz
@@ -2018,17 +2052,16 @@ class Agent:
         log().info("motion start client_name=%s device=%s intent=%s duration=%.2fs",
                    client_name, device, json.dumps(intent, ensure_ascii=False), duration)
         with self.state_lock:
-            self.motion_rid = request_id
             self.last_motion_error = None
         try:
-            while not self.abort.is_set():
+            while not session.abort.is_set():
                 if time.monotonic() - t0 >= duration:
                     break
                 self.publish_motor(device, payload)
                 time.sleep(period)
         finally:
             with self.state_lock:
-                stop_owns_cleanup = self._stop_owns_cleanup
+                stop_owns_cleanup = session.stop_owns_cleanup
             if stop_owns_cleanup:
                 # stop() 会统一发送零速并释放租约，这里只清理本地状态
                 log().info("motion cleanup delegated to stop() device=%s", device)
@@ -2043,11 +2076,9 @@ class Agent:
                     log().info("motion release control device=%s result=%s",
                                device, json.dumps(release, ensure_ascii=False))
             with self.state_lock:
-                if self.motion_rid == request_id:
-                    self.motion_rid = None
-                    self.motion_intent = None
-                if self.active_device == device:
-                    self.active_device = None
+                if self.sessions.get(device) is session:
+                    self.sessions.pop(device, None)
+            self._release_resource(session.resource_lock)
             log().info("motion end client_name=%s device=%s intent=%s elapsed=%.2fs",
                        client_name, device, json.dumps(intent, ensure_ascii=False),
                        time.monotonic() - t0)
@@ -2109,89 +2140,119 @@ class Agent:
                     "error": "mqtt_not_connected",
                     "note": "MQTT 未连接，未下发指令"}
 
-        with self.motion_lock:
+        motion_lock = self._acquire_resource(device, "motion")
+        if motion_lock is None:
+            return {"ok": False, "accepted": False, "action": intent["action"],
+                    "duration_sec": round(duration, 2),
+                    "error": "resource_busy", "device": device,
+                    "note": "该设备正在执行上一条运动指令"}
+        try:
             with self.state_lock:
-                if self.worker is not None and self.worker.is_alive():
-                    return {"ok": False, "accepted": False, "action": intent["action"],
-                            "duration_sec": round(duration, 2), "error": "busy",
-                            "active_device": self.active_device,
-                            "note": "小车正在执行上一条指令"}
+                existing = self.sessions.get(device)
+                if (existing is not None and existing.thread is not None
+                        and existing.thread.is_alive()):
+                    return {"ok": False, "accepted": False,
+                            "action": intent["action"],
+                            "duration_sec": round(duration, 2),
+                            "error": "busy", "active_device": device,
+                            "note": "该设备正在执行上一条指令"}
             control = self._acquire_control(device)
             if not control.get("ok"):
                 return {"ok": False, "accepted": False, "action": intent["action"],
                         "error": control.get("error"),
                         "control_holder": control.get("control_holder"),
                         "cause": control.get("cause")}
+            session = MotionSession(device, intent, client_name)
+            session.request_id = new_request_id(
+                "rotate" if intent["action"] == "rotate" else "move")
+            session.resource_lock = motion_lock
             with self.state_lock:
-                self._stop_owns_cleanup = False
-                self.abort.clear()
-                self.active_device = device
-                self.motion_intent = dict(intent)
-                self.worker = threading.Thread(target=self._run_motion,
-                                               args=(device, intent, client_name),
-                                               daemon=True)
-                self.worker.start()
+                self.sessions[device] = session
+                session.thread = threading.Thread(
+                    target=self._run_motion, args=(session,), daemon=True)
+                session.thread.start()
+            motion_lock = None  # 所有权移交给 _run_motion.finally
+        finally:
+            self._release_resource(motion_lock)
         return {"ok": True, "accepted": True, "action": intent["action"],
                 "device": device, "duration_sec": round(duration, 2),
                 "started": True}
 
-    def stop(self, client_name=None, device=None):
-        """只停 agent 自己的会话：不申请、不抢占别人的控制权。
-
-        只有存在自己的运动线程，或已持有目标设备的租约时才下发零速；
-        没有自己的会话且未持有租约时幂等返回 no_session，不向设备发命令。
-        """
-        with self.motion_lock:
+    def _stop_device(self, device, client_name=None):
+        with self.state_lock:
+            session = self.sessions.get(device)
+            thread = session.thread if session is not None else None
+            should_abort = bool(thread is not None and thread.is_alive())
+        with self.control_lock:
+            held_before = device in self.control_held
+        if not should_abort and not held_before:
+            return {"ok": True, "action": "stop", "device": device,
+                    "stopped": False, "released": False,
+                    "cause": "no_session", "mqtt": self.mqtt_status()}
+        if should_abort:
+            # 先标记由 stop() 收尾，再 abort；_run_motion.finally 会跳过零速/释放
             with self.state_lock:
-                worker = self.worker
-                active = self.active_device
-                should_abort = bool(worker is not None and worker.is_alive()
-                                    and (device is None or device == active))
-            with self.control_lock:
-                held_before = (self.control_held or {}).get("device")
-
-            target = device or (active if should_abort else None) or held_before
-            if not target or (not should_abort and held_before != target):
-                return {"ok": True, "action": "stop", "device": target,
-                        "stopped": False, "released": False,
-                        "cause": "no_session", "mqtt": self.mqtt_status()}
-
-            if should_abort:
-                # 先标记由 stop() 收尾，再 abort；_run_motion.finally 会跳过零速/释放
+                session.stop_owns_cleanup = True
+            session.abort.set()
+            if thread is not None:
+                thread.join(timeout=2.0)
+        try:
+            zero = self._drive_payload({"action": "stop"},
+                                       new_request_id("stop"))
+            res = None
+            for _ in range(3):
+                res = self._publish(device, "car/motor/set/request", zero)
+                time.sleep(0.05)
+            release = self._release_control(device)
+            if release.get("skipped"):
+                released = held_before
+            else:
+                released = bool(release.get("ok"))
+            log().info(
+                "stop requested by %s device=%s stopped=%s released=%s "
+                "result=%s release=%s",
+                client_name, device, should_abort, released,
+                json.dumps(res, ensure_ascii=False),
+                json.dumps(release, ensure_ascii=False))
+            return {"ok": True, "action": "stop", "device": device,
+                    "stopped": should_abort, "released": released,
+                    "result": res, "control": release,
+                    "mqtt": self.mqtt_status()}
+        finally:
+            if should_abort and session is not None and (
+                    thread is None or not thread.is_alive()):
                 with self.state_lock:
-                    self._stop_owns_cleanup = True
-                self.abort.set()
-                if worker is not None:
-                    worker.join(timeout=2.0)
+                    # 正常情况下 worker 已 join 完成；极端超时则保留标记，
+                    # 让它退出时不要再补发一组零速。
+                    session.stop_owns_cleanup = False
 
-            try:
-                zero = self._drive_payload({"action": "stop"},
-                                           new_request_id("stop"))
-                res = None
-                for _ in range(3):
-                    res = self._publish(target, "car/motor/set/request", zero)
-                    time.sleep(0.05)
-                release = self._release_control(target)
-                if release.get("skipped"):
-                    released = held_before == target
-                else:
-                    released = bool(release.get("ok"))
-                log().info(
-                    "stop requested by %s device=%s stopped=%s released=%s "
-                    "result=%s release=%s",
-                    client_name, target, should_abort, released,
-                    json.dumps(res, ensure_ascii=False),
-                    json.dumps(release, ensure_ascii=False))
-                return {"ok": True, "action": "stop", "device": target,
-                        "stopped": should_abort, "released": released,
-                        "result": res, "control": release, "mqtt": self.mqtt_status()}
-            finally:
-                if should_abort:
-                    with self.state_lock:
-                        # 正常情况下 worker 已 join 完成；极端超时则保留标记，
-                        # 让它退出时不要再补发一组零速。
-                        if worker is None or not worker.is_alive():
-                            self._stop_owns_cleanup = False
+    def stop(self, client_name=None, device=None):
+        """停止 agent 自己的会话：指定 device 只停该设备，不传则停全部。
+
+        只停自己的运动线程/租约；没有会话时幂等返回 no_session。
+        """
+        if device:
+            return self._stop_device(device, client_name)
+        with self.state_lock:
+            devices = list(self.sessions.keys())
+        with self.control_lock:
+            for held_device in self.control_held:
+                if held_device not in devices:
+                    devices.append(held_device)
+        if not devices:
+            return {"ok": True, "action": "stop", "device": None,
+                    "stopped": False, "released": False,
+                    "cause": "no_session", "mqtt": self.mqtt_status()}
+        results = [self._stop_device(target, client_name) for target in devices]
+        out = dict(results[0])
+        if len(results) > 1:
+            out["device"] = None
+            out["devices"] = results
+            out["stopped"] = any(item.get("stopped") for item in results)
+            out["released"] = any(item.get("released") for item in results)
+            out["cause"] = ("ok" if (out["stopped"] or out["released"])
+                            else "no_session")
+        return out
 
     def stop_session(self, client_name=None, device=None):
         """优雅停止 agent 自己的会话：中止运动线程 → 零速 → 释放控制权。
@@ -2495,8 +2556,14 @@ class Agent:
             segment = max(0, min(int(segment_sec or 0), 86400))
         except (TypeError, ValueError):
             segment = 0
+        camera_lock = self._acquire_resource(device, "camera")
+        if camera_lock is None:
+            return {"ok": False, "action": "record_start", "device": device,
+                    "error": "resource_busy",
+                    "cause": "设备摄像头正被执行其他操作（推流/录像）"}
         control = self._acquire_control(device)
         if not control.get("ok"):
+            self._release_resource(camera_lock)
             return {"ok": False, "action": "record_start", "device": device,
                     "error": control.get("error"),
                     "cause": control.get("cause"),
@@ -2507,6 +2574,7 @@ class Agent:
                 {"segment_sec": segment}, timeout=12.0)
         finally:
             release = self._release_control(device)
+            self._release_resource(camera_lock)
 
         if not res.get("received"):
             return {"ok": False, "action": "record_start", "device": device,
@@ -2564,8 +2632,14 @@ class Agent:
         if not (self.mqtt_client and self.mqtt_connected):
             return {"ok": False, "action": "record_stop", "device": device,
                     "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
+        camera_lock = self._acquire_resource(device, "camera")
+        if camera_lock is None:
+            return {"ok": False, "action": "record_stop", "device": device,
+                    "error": "resource_busy",
+                    "cause": "设备摄像头正被执行其他操作（推流/录像）"}
         control = self._acquire_control(device)
         if not control.get("ok"):
+            self._release_resource(camera_lock)
             return {"ok": False, "action": "record_stop", "device": device,
                     "error": control.get("error"),
                     "cause": control.get("cause"),
@@ -2575,6 +2649,7 @@ class Agent:
                 device, "record/stop/request", {}, timeout=12.0)
         finally:
             release = self._release_control(device)
+            self._release_resource(camera_lock)
 
         if not res.get("received"):
             return {"ok": False, "action": "record_stop", "device": device,
@@ -2742,8 +2817,14 @@ class Agent:
             return {"ok": False, "action": "servo_set", "device": device,
                     "error": "parameter_error",
                     "cause": "duration 必须在 0.1-5.0 秒"}
+        servo_lock = self._acquire_resource(device, "servo")
+        if servo_lock is None:
+            return {"ok": False, "action": "servo_set", "device": device,
+                    "error": "resource_busy",
+                    "cause": "该设备正在执行其他舵机操作"}
         control = self._acquire_control(device)
         if not control.get("ok"):
+            self._release_resource(servo_lock)
             return {"ok": False, "action": "servo_set", "device": device,
                     "error": control.get("error"),
                     "cause": control.get("cause"),
@@ -2754,6 +2835,7 @@ class Agent:
                 {"servos": clean, "duration": duration}, timeout=10.0)
         finally:
             release = self._release_control(device)
+            self._release_resource(servo_lock)
 
         if not res.get("received"):
             return {"ok": False, "action": "servo_set", "device": device,
@@ -2847,8 +2929,14 @@ class Agent:
         if not (self.mqtt_client and self.mqtt_connected):
             return {"ok": False, "action": "stream_start", "device": device,
                     "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
+        camera_lock = self._acquire_resource(device, "camera")
+        if camera_lock is None:
+            return {"ok": False, "action": "stream_start", "device": device,
+                    "error": "resource_busy",
+                    "cause": "设备摄像头正被执行其他操作（推流/录像）"}
         control = self._acquire_control(device)
         if not control.get("ok"):
+            self._release_resource(camera_lock)
             return {"ok": False, "action": "stream_start", "device": device,
                     "error": control.get("error"),
                     "cause": control.get("cause"),
@@ -2858,6 +2946,7 @@ class Agent:
                 device, "stream/start/request", {}, timeout=20.0)
         finally:
             release = self._release_control(device)
+            self._release_resource(camera_lock)
 
         if not res.get("received"):
             return {"ok": False, "action": "stream_start", "device": device,
@@ -2916,8 +3005,14 @@ class Agent:
             return {"ok": False, "action": "stream_stop", "device": device,
                     "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
         room = str(room_number or "").strip()
+        camera_lock = self._acquire_resource(device, "camera")
+        if camera_lock is None:
+            return {"ok": False, "action": "stream_stop", "device": device,
+                    "error": "resource_busy",
+                    "cause": "设备摄像头正被执行其他操作（推流/录像）"}
         control = self._acquire_control(device)
         if not control.get("ok"):
+            self._release_resource(camera_lock)
             return {"ok": False, "action": "stream_stop", "device": device,
                     "error": control.get("error"),
                     "cause": control.get("cause"),
@@ -2928,6 +3023,7 @@ class Agent:
                 device, "stream/stop/request", body, timeout=12.0)
         finally:
             release = self._release_control(device)
+            self._release_resource(camera_lock)
 
         if not res.get("received"):
             return {"ok": False, "action": "stream_stop", "device": device,
@@ -3242,9 +3338,16 @@ class Agent:
 
     def health(self, device=None):
         with self.state_lock:
-            moving = self.worker is not None and self.worker.is_alive()
-            active = self.active_device
+            active_sessions = [
+                session for session in self.sessions.values()
+                if session.thread is not None and session.thread.is_alive()
+            ]
+            moving = bool(active_sessions)
+            active_devices = [session.device for session in active_sessions]
+            active = active_devices[0] if len(active_devices) == 1 else None
             last_motion_error = self.last_motion_error
+        with self.control_lock:
+            control_devices = list(self.control_held.keys())
         with self.dev_lock:
             devices = [{
                 "device": key,
@@ -3264,6 +3367,8 @@ class Agent:
             "devices": devices,
             "moving": moving,
             "active_device": active,
+            "active_devices": active_devices,
+            "control_devices": control_devices,
             "last_motion_error": last_motion_error,
             "last_alarm": self.last_alarm_notice,
             "limits": {

@@ -11,6 +11,7 @@
 import json
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -84,6 +85,13 @@ def _motor_requests(client):
     return [
         item for item in client.published
         if item["topic"].endswith("/car/motor/set/request")
+    ]
+
+
+def _motor_requests_for(agent, device):
+    return [
+        item for item in _motor_requests(agent.mqtt_client)
+        if "/device/{}/".format(device) in item["topic"]
     ]
 
 
@@ -211,22 +219,27 @@ def test_agent_own_motion_chat_stop_sends_zero_and_releases(agent):
     """agent 自己的运动被 chat/stop 中止：3 次零速 + 释放租约。"""
     device = "dev-1"
     agent.control_held = {
-        "device": device,
-        "client_id": "agent-test",
-        "control_holder": {"client_id": "agent-test"},
+        device: {
+            "device": device,
+            "client_id": "agent-test",
+            "control_holder": {"client_id": "agent-test"},
+        }
     }
     started = threading.Event()
+    session = car_agent.MotionSession(
+        device, {"action": "move", "direction": "forward"}, "agent-test")
+    session.request_id = "agent-move-test"
 
     def fake_worker():
         started.set()
-        agent.abort.wait(5)
+        session.abort.wait(5)
 
     worker = threading.Thread(target=fake_worker, daemon=True)
+    session.thread = worker
     worker.start()
     assert started.wait(1)
     with agent.state_lock:
-        agent.worker = worker
-        agent.active_device = device
+        agent.sessions[device] = session
 
     agent._serve_agent_stop({
         "request_id": "stop-2",
@@ -246,7 +259,7 @@ def test_agent_own_motion_chat_stop_sends_zero_and_releases(agent):
         if item["topic"].endswith("/control/release/request")
     ]
     assert len(release_requests) == 1
-    assert agent.control_held is None
+    assert agent.control_held == {}
 
     responses = [
         item for item in agent.mqtt_client.published
@@ -282,7 +295,7 @@ def test_real_motion_chat_stop_sends_only_one_zero_burst(agent):
         if str(item["payload"].get("request_id", "")).startswith("agent-move-")
     ]
     assert len(_release_requests(agent)) == 1
-    assert agent.control_held is None
+    assert agent.control_held == {}
 
     responses = [
         item for item in agent.mqtt_client.published
@@ -295,7 +308,9 @@ def test_real_motion_chat_stop_sends_only_one_zero_burst(agent):
 def test_real_motion_normal_completion_still_zeroes_and_releases(agent):
     """正常跑完（非 chat/stop）仍由 _run_motion.finally 发零速并释放租约。"""
     device = _start_real_motion(agent, distance_m=0.01)
-    worker = agent.worker
+    session = agent.sessions.get(device)
+    assert session is not None
+    worker = session.thread
     assert worker is not None
     worker.join(timeout=3.0)
     assert not worker.is_alive()
@@ -307,14 +322,15 @@ def test_real_motion_normal_completion_still_zeroes_and_releases(agent):
         for item in zero_requests
     )
     assert len(_release_requests(agent)) == 1
-    assert agent.control_held is None
+    assert agent.control_held == {}
 
 
 def test_real_motion_motor_error_still_worker_cleanup(agent):
     """-8 等设备拒绝导致的中止不走 stop()，仍由运动线程发零速并释放租约。"""
     device = _start_real_motion(agent)
-    with agent.state_lock:
-        request_id = agent.motion_rid
+    session = agent.sessions.get(device)
+    assert session is not None
+    request_id = session.request_id
     assert request_id
 
     agent._on_motor_response(
@@ -322,7 +338,7 @@ def test_real_motion_motor_error_still_worker_cleanup(agent):
         {"request_id": request_id, "result": -8, "cause": "前方有障碍物"},
         {"error": "safety", "result": -8, "cause": "前方有障碍物"})
 
-    worker = agent.worker
+    worker = session.thread
     assert worker is not None
     worker.join(timeout=3.0)
     assert not worker.is_alive()
@@ -333,7 +349,7 @@ def test_real_motion_motor_error_still_worker_cleanup(agent):
     assert all(item["payload"].get("request_id") == request_id
                for item in zero_requests)
     assert len(_release_requests(agent)) == 1
-    assert agent.control_held is None
+    assert agent.control_held == {}
 
 
 @pytest.mark.parametrize("result,error,cause,holder", [
@@ -345,8 +361,9 @@ def test_real_motion_motor_denied_or_unavailable_still_cleanup(
         agent, result, error, cause, holder):
     """-5/-3 与 -8 同一分支：中止运动、补 3 次零速、释放租约。"""
     device = _start_real_motion(agent)
-    with agent.state_lock:
-        request_id = agent.motion_rid
+    session = agent.sessions.get(device)
+    assert session is not None
+    request_id = session.request_id
     assert request_id
 
     payload = {"request_id": request_id, "result": result, "cause": cause}
@@ -356,7 +373,7 @@ def test_real_motion_motor_denied_or_unavailable_still_cleanup(
         decoded["holder"] = holder
     agent._on_motor_response(device, payload, decoded)
 
-    worker = agent.worker
+    worker = session.thread
     assert worker is not None
     worker.join(timeout=3.0)
     assert not worker.is_alive()
@@ -368,4 +385,106 @@ def test_real_motion_motor_denied_or_unavailable_still_cleanup(
     assert all(item["payload"].get("request_id") == request_id
                for item in zero_requests)
     assert len(_release_requests(agent)) == 1
-    assert agent.control_held is None
+    assert agent.control_held == {}
+
+
+def _start_two_motions(agent):
+    for device, client_name in (("dev-1", "Web A"), ("dev-2", "Web B")):
+        result = agent.execute(
+            device,
+            {"action": "move", "direction": "forward",
+             "speed_mps": 0.5, "distance_m": 20.0},
+            client_name)
+        assert result["ok"] is True, result
+
+
+def test_two_devices_move_and_stop_independently(agent):
+    _start_two_motions(agent)
+
+    assert set(agent.sessions) == {"dev-1", "dev-2"}
+    assert set(agent.control_held) == {"dev-1", "dev-2"}
+    assert _wait_for(
+        lambda: _motor_requests_for(agent, "dev-1")
+        and _motor_requests_for(agent, "dev-2"))
+    health = agent.health()
+    assert set(health["active_devices"]) == {"dev-1", "dev-2"}
+    assert set(health["control_devices"]) == {"dev-1", "dev-2"}
+
+    stop1 = agent.stop("Web A", "dev-1")
+    assert stop1["stopped"] is True
+    assert "dev-1" not in agent.sessions
+    assert "dev-2" in agent.sessions
+    assert set(agent.control_held) == {"dev-2"}
+
+    stop2 = agent.stop("Web B", "dev-2")
+    assert stop2["stopped"] is True
+    assert agent.sessions == {}
+    assert agent.control_held == {}
+
+
+def test_chat_stop_by_device_keeps_other_motion(agent):
+    _start_two_motions(agent)
+
+    agent._serve_agent_stop({
+        "request_id": "stop-dev-1",
+        "client_id": "web-a",
+        "client_name": "Web A",
+        "device": "dev-1",
+    })
+
+    assert "dev-1" not in agent.sessions
+    assert "dev-2" in agent.sessions
+    assert set(agent.control_held) == {"dev-2"}
+    responses = [
+        item for item in agent.mqtt_client.published
+        if item["topic"].endswith("/chat/stop/response")
+    ]
+    payload = responses[-1]["payload"]
+    assert payload["result"] == 0
+    assert payload["device"] == "dev-1"
+    assert payload["stopped"] is True
+    assert payload["released"] is True
+
+    agent._serve_agent_stop({
+        "request_id": "stop-all",
+        "client_id": "web-a",
+        "client_name": "Web A",
+    })
+    assert agent.sessions == {}
+    assert agent.control_held == {}
+
+
+def test_camera_resource_lock_is_per_device(agent):
+    lock1 = agent._acquire_resource("dev-1", "camera")
+    assert lock1 is not None
+    try:
+        blocked = agent.record_start("dev-1")
+        assert blocked["ok"] is False
+        assert blocked["error"] == "resource_busy"
+        assert "dev-1" not in agent.control_held
+
+        results = []
+        worker = threading.Thread(
+            target=lambda: results.append(agent.record_start("dev-2")),
+            daemon=True)
+        worker.start()
+        assert _wait_for(lambda: any(
+            "/device/dev-2/record/start/request" in item["topic"]
+            for item in agent.mqtt_client.published))
+        request = [
+            item for item in agent.mqtt_client.published
+            if "/device/dev-2/record/start/request" in item["topic"]
+        ][-1]["payload"]
+        agent._on_message(None, None, SimpleNamespace(
+            topic="walle/test/device/dev-2/record/start/response",
+            qos=1, retain=False,
+            payload=json.dumps({
+                "request_id": request["request_id"],
+                "result": 0, "cause": "ok", "filename": "dev2.fmp4",
+            }).encode("utf-8")))
+        worker.join(timeout=2)
+        assert results[0]["ok"] is True
+        assert results[0]["filename"] == "dev2.fmp4"
+        assert "dev-2" not in agent.control_held
+    finally:
+        agent._release_resource(lock1)

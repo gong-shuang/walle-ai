@@ -718,21 +718,22 @@ def test_alarm_updates_registry_and_notice(agent):
 
 
 def _start_fake_motion(agent, direction="forward"):
-    worker = threading.Thread(target=agent.abort.wait, args=(5,), daemon=True)
+    session = car_agent.MotionSession(
+        "dev-1", {"action": "move", "direction": direction}, "test")
+    session.request_id = "agent-move-fake"
+    worker = threading.Thread(target=session.abort.wait, args=(5,), daemon=True)
+    session.thread = worker
     worker.start()
     with agent.state_lock:
-        agent.worker = worker
-        agent.active_device = "dev-1"
-        agent.motion_intent = {"action": "move", "direction": direction}
-        agent.abort.clear()
-    return worker
+        agent.sessions["dev-1"] = session
+    return session
 
 
 def test_obstacle_alarm_stops_forward_motion(agent, monkeypatch):
     calls = []
     monkeypatch.setattr(agent, "stop", lambda client_name=None, device=None: (
         calls.append((client_name, device)) or {"ok": True, "stopped": True}))
-    worker = _start_fake_motion(agent, "forward")
+    session = _start_fake_motion(agent, "forward")
 
     agent._on_message(None, None, _message(
         "walle/test/device/dev-1/alarm/report", {
@@ -745,15 +746,15 @@ def test_obstacle_alarm_stops_forward_motion(agent, monkeypatch):
                      and agent.last_alarm_notice.get("action") == "stopped")
     assert calls[0] == ("device_alarm", "dev-1")
     assert agent.last_alarm_notice["action"] == "stopped"
-    agent.abort.set()
-    worker.join(timeout=2)
+    session.abort.set()
+    session.thread.join(timeout=2)
 
 
 def test_obstacle_alarm_does_not_stop_reverse_motion(agent, monkeypatch):
     calls = []
     monkeypatch.setattr(agent, "stop", lambda client_name=None, device=None: (
         calls.append((client_name, device)) or {"ok": True}))
-    worker = _start_fake_motion(agent, "backward")
+    session = _start_fake_motion(agent, "backward")
 
     agent._on_message(None, None, _message(
         "walle/test/device/dev-1/alarm/report", {
@@ -765,15 +766,15 @@ def test_obstacle_alarm_does_not_stop_reverse_motion(agent, monkeypatch):
     assert not _wait_for(lambda: bool(calls), timeout=0.2)
     assert calls == []
     assert agent.last_alarm_notice["alarm_type"] == "obstacle_near"
-    agent.abort.set()
-    worker.join(timeout=2)
+    session.abort.set()
+    session.thread.join(timeout=2)
 
 
 def test_battery_critical_alarm_stops_motion(agent, monkeypatch):
     calls = []
     monkeypatch.setattr(agent, "stop", lambda client_name=None, device=None: (
         calls.append((client_name, device)) or {"ok": True, "stopped": True}))
-    worker = _start_fake_motion(agent, "backward")
+    session = _start_fake_motion(agent, "backward")
 
     agent._on_message(None, None, _message(
         "walle/test/device/dev-1/alarm/report", {
@@ -784,8 +785,8 @@ def test_battery_critical_alarm_stops_motion(agent, monkeypatch):
 
     assert _wait_for(lambda: bool(calls))
     assert calls[0] == ("device_alarm", "dev-1")
-    agent.abort.set()
-    worker.join(timeout=2)
+    session.abort.set()
+    session.thread.join(timeout=2)
 
 
 def test_recent_alarm_and_intent(agent):
@@ -827,7 +828,7 @@ def test_record_start_success_acquires_and_releases(agent):
     assert out["recording"] is True
     assert out["filename"] == "rec_test.fmp4"
     assert out["control"]["ok"] is True
-    assert agent.control_held is None
+    assert agent.control_held == {}
     request = _published(agent, "/record/start/request")[-1]["payload"]
     assert request["segment_sec"] == 1800
     assert len(_published(agent, "/control/acquire/request")) == 1
@@ -845,7 +846,7 @@ def test_record_start_disk_full_releases_control(agent):
     assert out["ok"] is False
     assert out["error"] == "no_space"
     assert "磁盘空间不足" in out["cause"]
-    assert agent.control_held is None
+    assert agent.control_held == {}
     assert len(_published(agent, "/control/release/request")) == 1
 
 
@@ -860,7 +861,7 @@ def test_record_stop_already_stopped_is_idempotent(agent):
     assert out["ok"] is True
     assert out["already_stopped"] is True
     assert out["recording"] is False
-    assert agent.control_held is None
+    assert agent.control_held == {}
 
 
 def test_record_list_is_query_without_lease(agent):
@@ -899,7 +900,7 @@ def test_record_start_unsupported_blocks_before_control(agent):
 
     assert out["ok"] is False
     assert out["error"] == "unsupported"
-    assert agent.control_held is None
+    assert agent.control_held == {}
     assert _published(agent, "/record/start/request") == []
     assert _published(agent, "/control/acquire/request") == []
 
@@ -938,7 +939,7 @@ def test_stream_start_success_returns_room(agent):
     assert out["room_number"] == "ab12cd34"
     assert out["camera_device"] == "/dev/video0"
     assert out["control"]["ok"] is True
-    assert agent.control_held is None
+    assert agent.control_held == {}
     assert len(_published(agent, "/control/acquire/request")) == 1
     assert len(_published(agent, "/control/release/request")) == 1
 
@@ -956,7 +957,7 @@ def test_stream_start_already_streaming_reuses_room(agent):
     assert out["already_streaming"] is True
     assert out["room_number"] == "ab12cd34"
     assert out["device_action"] == "already_streaming"
-    assert agent.control_held is None
+    assert agent.control_held == {}
 
 
 def test_stream_start_without_camera_reports_unavailable(agent):
@@ -971,7 +972,7 @@ def test_stream_start_without_camera_reports_unavailable(agent):
     assert out["ok"] is False
     assert out["error"] == "unavailable"
     assert "没有摄像头" in out["cause"]
-    assert agent.control_held is None
+    assert agent.control_held == {}
 
 
 def test_stream_start_unsupported_blocks_before_control(agent):
@@ -984,7 +985,7 @@ def test_stream_start_unsupported_blocks_before_control(agent):
 
     assert out["ok"] is False
     assert out["error"] == "unsupported"
-    assert agent.control_held is None
+    assert agent.control_held == {}
     assert _published(agent, "/stream/start/request") == []
     assert _published(agent, "/control/acquire/request") == []
 
@@ -1002,7 +1003,7 @@ def test_stream_stop_success(agent):
     assert out["stopped"] is True
     assert out["room_number"] == "ab12cd34"
     assert out["control"]["ok"] is True
-    assert agent.control_held is None
+    assert agent.control_held == {}
 
 
 def test_stream_stop_already_stopped(agent):
@@ -1016,7 +1017,7 @@ def test_stream_stop_already_stopped(agent):
     assert out["ok"] is True
     assert out["already_stopped"] is True
     assert out["stopped"] is False
-    assert agent.control_held is None
+    assert agent.control_held == {}
 
 
 def test_stream_stop_room_mismatch_is_error(agent):
@@ -1031,7 +1032,7 @@ def test_stream_stop_room_mismatch_is_error(agent):
     assert out["ok"] is False
     assert out["error"] == "room_mismatch"
     assert "room-b" in out["cause"]
-    assert agent.control_held is None
+    assert agent.control_held == {}
 
 
 def test_parse_intent_routes_stream_commands():
@@ -1108,7 +1109,7 @@ def test_servo_set_success_acquires_and_releases(agent):
     assert out["applied"][0] == {"id": 1, "position": 1400}
     assert out["skipped"] == []
     assert out["control"]["ok"] is True
-    assert agent.control_held is None
+    assert agent.control_held == {}
     request = _published(agent, "/car/servo/set/request")[-1]["payload"]
     assert request["servos"] == [{"id": 1, "position": 1400},
                                  {"id": 2, "position": 1600}]
@@ -1190,7 +1191,7 @@ def test_servo_raise_queries_then_sets(agent):
     assert out["target"] == 1600
     assert out["delta"] == 100
     assert set_request["servos"] == [{"id": 1, "position": 1600}]
-    assert agent.control_held is None
+    assert agent.control_held == {}
 
 
 def test_servo_set_unsupported_blocks_before_control(agent):
@@ -1203,7 +1204,7 @@ def test_servo_set_unsupported_blocks_before_control(agent):
 
     assert out["ok"] is False
     assert out["error"] == "unsupported"
-    assert agent.control_held is None
+    assert agent.control_held == {}
     assert _published(agent, "/car/servo/set/request") == []
     assert _published(agent, "/control/acquire/request") == []
 
