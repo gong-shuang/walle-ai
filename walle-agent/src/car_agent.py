@@ -25,8 +25,6 @@ import sys
 import threading
 import time
 import uuid
-from urllib import error as urlerror
-from urllib import request as urlrequest
 from datetime import datetime, timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -72,6 +70,13 @@ DEFAULTS = {
     "LLM_BASE_URL": "",
     "LLM_API_KEY": "",
     "LLM_MODEL": "",
+    # M4-03：本地模型（Ollama/vLLM OpenAI 兼容）；LLM_LOCAL_* 留空回落到 LLM_*
+    "LLM_LOCAL_BASE_URL": "",
+    "LLM_LOCAL_API_KEY": "",
+    "LLM_LOCAL_MODEL": "",
+    "LLM_TIMEOUT_SEC": "8",
+    "LLM_RETRY_MAX": "1",
+    "LLM_RETRY_BACKOFF_SEC": "0.5",
     # M3-01：任务库路径；相对路径按 walle-agent/ 解析，默认 data/agent.db
     "TASK_DB_PATH": "data/agent.db",
     # M3-02：任务调度时区
@@ -4478,40 +4483,17 @@ def _get_agent():
 
 # ---------------- 可选 LLM 兜底 ----------------
 
-# M4-02：提示词由工具 schema 生成，避免模型自造 topic/payload
-_LLM_SYSTEM = llm_router.system_prompt()
-
-
 def _llm_parse(text):
-    cfg = load_config()
-    if cfg["LLM_ENABLED"] != "1" or not cfg["LLM_BASE_URL"] or not cfg["LLM_API_KEY"]:
-        return None
-    url = cfg["LLM_BASE_URL"].rstrip("/") + "/chat/completions"
-    body = {
-        "model": cfg["LLM_MODEL"],
-        "temperature": 0,
-        "response_format": {"type": "json_object"},
-        "messages": [
-            {"role": "system", "content": _LLM_SYSTEM},
-            {"role": "user", "content": text},
-        ],
-    }
-    req = urlrequest.Request(
-        url, data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json",
-                 "Authorization": "Bearer " + cfg["LLM_API_KEY"]})
+    """M4-03：本地 OpenAI 兼容模型解析；失败时返回 None 交给规则层。"""
     try:
-        with urlrequest.urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        content = data["choices"][0]["message"]["content"]
-        intent, error = llm_router.validate_intent(json.loads(content))
-        if intent is None:
-            log().warning("LLM 工具调用校验失败: %s", error)
-            return None
-        return intent
-    except (urlerror.URLError, KeyError, ValueError, TimeoutError) as exc:
-        log().warning("LLM 解析失败: %s", exc)
-    return None
+        intent, error = llm_router.parse_local(text, load_config())
+    except Exception as exc:  # noqa: BLE001 - LLM 失败不能拖垮对话
+        log().warning("LLM 解析异常: %s", exc)
+        return None
+    if intent is None and error not in ("llm_disabled", "llm_not_configured",
+                                        "empty_text"):
+        log().warning("LLM 本地解析失败: %s", error)
+    return intent
 
 
 # ---------------- 对外接口 ----------------

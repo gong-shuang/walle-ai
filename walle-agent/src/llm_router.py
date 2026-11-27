@@ -13,7 +13,13 @@ topic / payload / device；设备由 chat 请求上下文提供。
 """
 
 import json
+import logging
 import re
+import time
+from urllib import error as urlerror
+from urllib import request as urlrequest
+
+LOG = logging.getLogger("walle.llm_router")
 
 
 class SchemaError(ValueError):
@@ -414,3 +420,211 @@ def validate_intent(payload):
         return validate_tool_call(name, args), None
     except SchemaError as exc:
         return None, str(exc)
+
+
+# ---------------- M4-03 本地模型客户端 ----------------
+
+class _RequestError(Exception):
+    """一次模型请求失败。"""
+
+
+class _ToolsUnsupported(_RequestError):
+    """服务端不支持 tools，需要退回 JSON 模式。"""
+
+
+def _number(value, default, cast=float):
+    try:
+        return cast(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def local_config(cfg):
+    """本地模型配置；LLM_LOCAL_* 留空时回落到旧 LLM_* 配置。"""
+    cfg = cfg or {}
+    return {
+        "base_url": str(cfg.get("LLM_LOCAL_BASE_URL")
+                        or cfg.get("LLM_BASE_URL") or "").strip(),
+        "api_key": str(cfg.get("LLM_LOCAL_API_KEY")
+                       or cfg.get("LLM_API_KEY") or "").strip(),
+        "model": str(cfg.get("LLM_LOCAL_MODEL")
+                     or cfg.get("LLM_MODEL") or "").strip(),
+        "timeout": max(1.0, _number(cfg.get("LLM_TIMEOUT_SEC"), 8.0)),
+        "retry_max": max(0, _number(cfg.get("LLM_RETRY_MAX"), 1, int)),
+        "backoff": max(0.0, _number(cfg.get("LLM_RETRY_BACKOFF_SEC"), 0.5)),
+    }
+
+
+def _read_http_error(exc):
+    try:
+        raw = exc.read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - 错误体不是必须的
+        raw = ""
+    return raw.strip()[:300] or str(exc)
+
+
+def _post_json(url, api_key, body, timeout):
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = "Bearer " + api_key
+    req = urlrequest.Request(
+        url, data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers=headers)
+    with urlrequest.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _request(body, conf, url):
+    try:
+        return _post_json(url, conf["api_key"], body, conf["timeout"])
+    except urlerror.HTTPError as exc:
+        detail = _read_http_error(exc)
+        if exc.code == 400 and "tools" in body:
+            raise _ToolsUnsupported(detail) from exc
+        raise _RequestError("HTTP {}: {}".format(exc.code, detail)) from exc
+    except (urlerror.URLError, TimeoutError, ValueError) as exc:
+        raise _RequestError(str(exc)) from exc
+
+
+def _request_with_retry(body, conf, url):
+    attempts = 0
+    while True:
+        try:
+            return _request(body, conf, url)
+        except _ToolsUnsupported:
+            raise
+        except _RequestError as exc:
+            if attempts >= conf["retry_max"]:
+                raise
+            attempts += 1
+            LOG.warning("本地 LLM 请求失败，第 %s 次重试: %s", attempts, exc)
+            time.sleep(conf["backoff"] * attempts)
+
+
+def _loads_arguments(value):
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            loaded = json.loads(value or "{}")
+        except ValueError as exc:
+            raise SchemaError("工具参数不是合法 JSON") from exc
+        if isinstance(loaded, dict):
+            return loaded
+    raise SchemaError("工具参数必须是对象")
+
+
+def _intent_from_response(data):
+    """从 OpenAI 兼容应答中提取并校验工具调用。"""
+    try:
+        message = data["choices"][0].get("message") or {}
+    except (KeyError, IndexError, TypeError):
+        return None, "模型响应缺少 choices"
+    calls = message.get("tool_calls") or []
+    if calls:
+        function = (calls[0] or {}).get("function") or {}
+        try:
+            return validate_tool_call(
+                function.get("name"),
+                _loads_arguments(function.get("arguments"))), None
+        except SchemaError as exc:
+            return None, str(exc)
+    function_call = message.get("function_call")
+    if isinstance(function_call, dict):
+        try:
+            return validate_tool_call(
+                function_call.get("name"),
+                _loads_arguments(function_call.get("arguments"))), None
+        except SchemaError as exc:
+            return None, str(exc)
+    content = message.get("content")
+    if isinstance(content, dict):
+        return validate_intent(content)
+    if isinstance(content, str):
+        try:
+            return validate_intent(json.loads(content))
+        except ValueError:
+            return None, "模型输出不是 JSON"
+    return None, "模型没有返回工具调用"
+
+
+def _messages(text, context=None):
+    system = system_prompt()
+    if context:
+        system += "\n" + str(context)
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": str(text)},
+    ]
+
+
+def _parse_with_tools(url, conf, messages):
+    body = {
+        "model": conf["model"],
+        "temperature": 0,
+        "messages": messages,
+        "tools": tool_schemas(),
+        "tool_choice": "auto",
+    }
+    try:
+        data = _request_with_retry(body, conf, url)
+    except _ToolsUnsupported as exc:
+        LOG.info("本地模型不支持 tools，改用 JSON 模式: %s", exc)
+        return None, "tools_unsupported"
+    except _RequestError as exc:
+        return None, str(exc)
+    return _intent_from_response(data)
+
+
+def _parse_with_json(url, conf, messages):
+    body = {
+        "model": conf["model"],
+        "temperature": 0,
+        "messages": messages,
+        "response_format": {"type": "json_object"},
+    }
+    try:
+        data = _request_with_retry(body, conf, url)
+    except _RequestError as exc:
+        LOG.info("JSON 模式请求失败，尝试不带 response_format: %s", exc)
+        body = dict(body)
+        body.pop("response_format", None)
+        try:
+            data = _request_with_retry(body, conf, url)
+        except (_RequestError, _ToolsUnsupported) as retry_exc:
+            return None, str(retry_exc)
+    return _intent_from_response(data)
+
+
+def parse_local(text, cfg, context=None):
+    """调用本地 OpenAI 兼容模型解析指令，返回 (intent, error)。
+
+    先尝试 tools/function calling；服务端不支持时退回
+    `response_format=json_object`，再退回纯 JSON 提示。
+    `LLM_ENABLED != 1` 或本地地址/模型未配置时不发请求。
+    """
+    cfg = cfg or {}
+    if str(cfg.get("LLM_ENABLED") or "0") != "1":
+        return None, "llm_disabled"
+    conf = local_config(cfg)
+    if not conf["base_url"] or not conf["model"]:
+        return None, "llm_not_configured"
+    text = str(text or "").strip()
+    if not text:
+        return None, "empty_text"
+    url = conf["base_url"].rstrip("/") + "/chat/completions"
+    messages = _messages(text, context)
+    errors = []
+
+    intent, error = _parse_with_tools(url, conf, messages)
+    if intent is not None:
+        return intent, None
+    errors.append(error)
+
+    intent, error = _parse_with_json(url, conf, messages)
+    if intent is not None:
+        return intent, None
+    errors.append(error)
+    return None, errors[-1] if errors else "llm_failed"

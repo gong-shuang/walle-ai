@@ -240,7 +240,7 @@ agent：
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
 | M3 调度与任务 | 已完成 | 10/10 | SQLite、调度线程、四种类型、任务工具/Web 页签、录像执行、shared 控制权、重启对账、重试/幂等、任务事件、调度测试全部落地；exclusive 延后（配置后按 shared 执行） |
-| M4 混合 LLM | 进行中 | 2/10 | 规则层与工具 JSON Schema 已落地；本地/在线模型与混合路由待实现 |
+| M4 混合 LLM | 进行中 | 3/10 | 规则层、工具 JSON Schema、本地模型客户端已落地；在线模型与混合路由待实现 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
 
 > 状态取值：未开始 / 进行中 / 已完成 / 阻塞。完成一项就更新对应里程碑的计数。
@@ -979,12 +979,22 @@ agent：
 
 - **层级**：L1 对话理解层
 - **小白解释**：本地模型在自己电脑上跑，隐私好、不花钱、断网也能用。
-- [ ] Ollama/vLLM，OpenAI 兼容。
-- [ ] 支持 `tools` 或 `response_format=json_object`。
-- [ ] 超时、重试、错误日志。
-- 文件：`walle-agent/src/llm_router.py`
+- [x] Ollama/vLLM，OpenAI 兼容。
+- [x] 支持 `tools` 或 `response_format=json_object`。
+- [x] 超时、重试、错误日志。
+- 实现：
+  - `llm_router.parse_local(text, cfg)`：调用 OpenAI 兼容的 `/chat/completions`；
+    `LLM_LOCAL_*` 留空时回落到旧 `LLM_*` 配置，API Key 可为空（Ollama 默认无鉴权）。
+  - 先尝试 `tools` + `tool_choice=auto`；服务端返回 400 时退回
+    `response_format=json_object`，再失败则去掉 `response_format` 用纯提示词。
+  - 应答支持 `tool_calls`、旧版 `function_call` 与 `content` JSON 三种形状，
+    统一走 M4-02 的 schema 校验。
+  - `LLM_TIMEOUT_SEC` 默认 8s，`LLM_RETRY_MAX` 默认 1，`LLM_RETRY_BACKOFF_SEC`
+    默认 0.5s；重试与失败写入 `walle.llm_router` 日志。
+  - `car_agent._llm_parse()` 改为委托本地客户端，失败返回 None 由规则层兜底。
+- 文件：`walle-agent/src/llm_router.py`、`walle-agent/src/car_agent.py`、`walle-agent/etc/walle-agent.conf.example`
 - 验收：本地 Qwen2.5-7B/14B 能解析常用命令。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 7 个客户端用例；`pytest walle-agent/test` 195 passed；本机 Ollama `qwen3.5:9b` 实测可解析前进/录像/推流/舵机/查看任务等常用命令（复杂任务创建走规则层或 schema 单测）
 
 #### M4-04 在线模型客户端
 

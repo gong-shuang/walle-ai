@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""M4-02：工具 schema 与模型输出校验测试。"""
+"""M4-02/M4-03：工具 schema、校验与本地模型客户端测试。"""
 
+import io
 import json
+from urllib import error as urlerror
 
 import pytest
 
@@ -182,8 +184,11 @@ def test_validate_intent_rejects_topic_payload_and_unknown():
 def _llm_config():
     cfg = dict(car_agent.DEFAULTS)
     cfg.update({
-        "LLM_ENABLED": "1", "LLM_BASE_URL": "http://llm",
-        "LLM_API_KEY": "key", "LLM_MODEL": "model",
+        "LLM_ENABLED": "1",
+        "LLM_LOCAL_BASE_URL": "http://llm/v1",
+        "LLM_LOCAL_MODEL": "qwen",
+        "LLM_TIMEOUT_SEC": "1",
+        "LLM_RETRY_BACKOFF_SEC": "0",
     })
     return cfg
 
@@ -192,7 +197,7 @@ def _mock_llm(monkeypatch, content):
     monkeypatch.setattr(car_agent, "log", lambda: _SilentLogger())
     monkeypatch.setattr(car_agent, "load_config", _llm_config)
     monkeypatch.setattr(
-        car_agent.urlrequest, "urlopen",
+        llm_router.urlrequest, "urlopen",
         lambda req, timeout=8: _FakeResponse({
             "choices": [{"message": {"content": json.dumps(content)}}]}))
 
@@ -212,3 +217,149 @@ def test_llm_parse_rejects_invalid_schema(monkeypatch):
     _mock_llm(monkeypatch, {"action": "move", "direction": "up",
                             "distance_m": 3})
     assert car_agent._llm_parse("往上走三米") is None
+
+
+# ---------------- M4-03 本地模型客户端 ----------------
+
+def test_local_config_falls_back_and_has_no_key(monkeypatch):
+    cfg = _llm_config()
+    cfg["LLM_LOCAL_BASE_URL"] = ""
+    cfg["LLM_BASE_URL"] = "http://ollama:11434/v1"
+    cfg["LLM_LOCAL_MODEL"] = ""
+    cfg["LLM_MODEL"] = "qwen2.5"
+    cfg["LLM_LOCAL_API_KEY"] = ""
+    cfg["LLM_API_KEY"] = ""
+
+    conf = llm_router.local_config(cfg)
+    assert conf["base_url"] == "http://ollama:11434/v1"
+    assert conf["model"] == "qwen2.5"
+    assert conf["api_key"] == ""
+    assert conf["timeout"] == 1.0
+
+
+def test_parse_local_accepts_tool_calls(monkeypatch):
+    cfg = _llm_config()
+    calls = []
+
+    def fake(req, timeout=8):
+        body = json.loads(req.data.decode("utf-8"))
+        calls.append(body)
+        assert "Authorization" not in req.headers
+        return _FakeResponse({"choices": [{"message": {"tool_calls": [{
+            "function": {
+                "name": "record_start",
+                "arguments": json.dumps({"segment_sec": 0}),
+            }
+        }]}}]})
+
+    monkeypatch.setattr(llm_router.urlrequest, "urlopen", fake)
+
+    intent, error = llm_router.parse_local("开始录像", cfg)
+
+    assert error is None
+    assert intent == {"action": "record_start", "segment_sec": 0}
+    assert "tools" in calls[0]
+
+
+def test_parse_local_falls_back_to_json_on_tools_400(monkeypatch):
+    cfg = _llm_config()
+    calls = []
+
+    def fake(req, timeout=8):
+        body = json.loads(req.data.decode("utf-8"))
+        calls.append(body)
+        if "tools" in body:
+            raise urlerror.HTTPError(
+                req.full_url, 400, "Bad Request", {},
+                io.BytesIO(b'{"error":"tools not supported"}'))
+        return _FakeResponse({"choices": [{"message": {
+            "content": json.dumps({"action": "stop"})}}]})
+
+    monkeypatch.setattr(llm_router.urlrequest, "urlopen", fake)
+
+    intent, error = llm_router.parse_local("停", cfg)
+
+    assert error is None
+    assert intent == {"action": "stop"}
+    assert "tools" in calls[0]
+    assert "response_format" in calls[1]
+
+
+def test_parse_local_retries_network_error(monkeypatch):
+    cfg = _llm_config()
+    calls = {"count": 0}
+
+    def fake(req, timeout=8):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise urlerror.URLError("boom")
+        return _FakeResponse({"choices": [{"message": {
+            "content": json.dumps({"action": "stop"})}}]})
+
+    monkeypatch.setattr(llm_router.urlrequest, "urlopen", fake)
+
+    intent, error = llm_router.parse_local("停", cfg)
+
+    assert error is None
+    assert intent == {"action": "stop"}
+    assert calls["count"] == 2
+
+
+def test_parse_local_retries_json_without_response_format(monkeypatch):
+    cfg = _llm_config()
+
+    def fake(req, timeout=8):
+        body = json.loads(req.data.decode("utf-8"))
+        if "tools" in body:
+            raise urlerror.HTTPError(
+                req.full_url, 400, "Bad Request", {},
+                io.BytesIO(b'{"error":"tools not supported"}'))
+        if "response_format" in body:
+            raise urlerror.HTTPError(
+                req.full_url, 400, "Bad Request", {},
+                io.BytesIO(b'{"error":"response_format not supported"}'))
+        return _FakeResponse({"choices": [{"message": {
+            "content": json.dumps({"action": "stop"})}}]})
+
+    monkeypatch.setattr(llm_router.urlrequest, "urlopen", fake)
+
+    intent, error = llm_router.parse_local("停", cfg)
+
+    assert error is None
+    assert intent == {"action": "stop"}
+
+
+def test_parse_local_rejects_invalid_tool_call(monkeypatch):
+    cfg = _llm_config()
+
+    def fake(req, timeout=8):
+        return _FakeResponse({"choices": [{"message": {"tool_calls": [{
+            "function": {
+                "name": "move",
+                "arguments": json.dumps({"direction": "up",
+                                         "distance_m": 3}),
+            }
+        }]}}]})
+
+    monkeypatch.setattr(llm_router.urlrequest, "urlopen", fake)
+
+    intent, error = llm_router.parse_local("往上走", cfg)
+
+    assert intent is None
+    assert "direction" in error
+
+
+def test_parse_local_disabled_or_unconfigured():
+    cfg = _llm_config()
+    cfg["LLM_ENABLED"] = "0"
+    assert llm_router.parse_local("停", cfg) == (None, "llm_disabled")
+
+    cfg = _llm_config()
+    cfg["LLM_LOCAL_BASE_URL"] = ""
+    cfg["LLM_BASE_URL"] = ""
+    assert llm_router.parse_local("停", cfg) == (None, "llm_not_configured")
+
+    cfg = _llm_config()
+    cfg["LLM_LOCAL_MODEL"] = ""
+    cfg["LLM_MODEL"] = ""
+    assert llm_router.parse_local("停", cfg) == (None, "llm_not_configured")
