@@ -338,9 +338,9 @@ agent：
 
 - **层级**：L3 设备通信与状态层
 - **小白解释**：每条命令都要有唯一编号，设备回复时才能对上号；否则会把“A 的结果”当成“B 的结果”。
-- [ ] 新增 `new_request_id(tool)`：`agent-{tool}-{8hex}`。
-- [ ] 所有 device request 使用新生成器；同一运动会话可带 session id + 序号。
-- [ ] 所有 device request/cmd 注入 `client_id` / `client_name`。
+- [x] 新增 `new_request_id(tool)`：`agent-{tool}-{8hex}`（`secrets.token_hex(4)`）。
+- [x] 所有 agent 主动发起的 device request 使用新生成器；同一运动会话保持单个 session id（方案 A，不逐帧加序号）。
+- [x] 所有 device request/cmd 注入 `client_id` / `client_name`（`_publish` / `publish_motor` 已覆盖）；客户端请求仍原样回显客户端自己的 request_id。
 - 文件：`walle-agent/src/car_agent.py`
 - 验收：抓包可见 `client_id` / `client_name`；request_id 不重复。
 - 完成：<!-- 日期 / commit / 证据 -->

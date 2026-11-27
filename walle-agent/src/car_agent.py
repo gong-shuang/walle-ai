@@ -15,7 +15,6 @@ import json
 import logging
 import os
 import platform
-import random
 import re
 import secrets
 import shutil
@@ -407,6 +406,11 @@ def decode_result(payload):
     holder = data.get("control_holder") if result == -5 else None
     return {"ok": result == 0, "result": result, "error": error,
             "cause": cause, "holder": holder}
+
+
+def new_request_id(tool):
+    """agent 主动请求的统一编号：agent-{tool}-{8hex}。"""
+    return "agent-{}-{}".format(tool, secrets.token_hex(4))
 
 
 def _read_first_line(path):
@@ -1432,7 +1436,7 @@ class Agent:
 
     def _control_request(self, device, action, timeout=5.0):
         """向设备发 control/{acquire|release}/request 并等待对应 response。"""
-        request_id = "agent-{}-{}".format(action, random.randint(100000, 999999))
+        request_id = new_request_id(action)
         event = threading.Event()
         with self.control_pending_lock:
             self.control_pending[request_id] = {"event": event, "result": None}
@@ -1542,8 +1546,8 @@ class Agent:
 
     def _run_motion(self, device, intent, client_name):
         duration = self._duration(intent)
-        who = sanitize_segment(client_name or agent_identity())[:20] or "agent"
-        request_id = "agent-{}-{}".format(who, random.randint(100000, 999999))
+        request_id = new_request_id(
+            "rotate" if intent["action"] == "rotate" else "move")
         payload = self._drive_payload(intent, request_id)
         hz = max(1.0, float(self.cfg["SEND_HZ"]))
         period = 1.0 / hz
@@ -1641,7 +1645,7 @@ class Agent:
                         "cause": "no_session", "mqtt": self.mqtt_status()}
 
             zero = self._drive_payload({"action": "stop"},
-                                       "agent-stop-{}".format(random.randint(1000, 9999)))
+                                       new_request_id("stop"))
             res = None
             for _ in range(3):
                 res = self._publish(target, "car/motor/set/request", zero)
@@ -1686,7 +1690,7 @@ class Agent:
         if not device:
             return {"ok": False, "error": "device_missing",
                     "message": "请先在页面选择设备"}
-        rid = "agent-link-{}".format(random.randint(100000, 999999))
+        rid = new_request_id("link")
         self.link_rid = rid
         self.link_dev = device
         self.link_result = None
