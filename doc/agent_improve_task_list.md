@@ -7,7 +7,7 @@
 > 使用方式：每完成一项，把 `[ ]` 改成 `[x]`，补上完成日期、提交或证据，并更新「进度总览」和「更新记录」。
 >
 > 最后更新：2026-11-27
-> 当前阶段：M0 进行中（9/10，仅剩 M0-08）
+> 当前阶段：M0 已完成（10/10），下一步 M1
 
 ---
 
@@ -236,7 +236,7 @@ agent：
 
 | 里程碑 | 状态 | 完成项 | 说明 |
 |---|---|---|---|
-| M0 安全、Bug 与契约 | 进行中 | 9/10 | 停车语义、online、订阅、错误码、5Hz、PC 模拟已落地；仅剩 M0-08 回归测试 |
+| M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 未开始 | 0/8 | RequestBus、DeviceRegistry、baseState/runState、状态对话 |
 | M2 核心设备动作 | 未开始 | 0/10 | 录像、推流、舵机、电机回执、结构化返回 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
@@ -376,14 +376,24 @@ agent：
 - **层级**：跨层（测试工程）
 - **小白解释**：保证“别人控制时不能抢”“agent 只停自己的车”“断线会自己停”这些规则不会被后续改动破坏。
 - **依赖**：M0-07 的 PC 模拟环境已落地（`platform:=pc`），端到端用例可直接在此基础上编写。
-- [ ] 用例：Web holder 时 agent 运动请求 → `-5`。
-- [ ] 用例：Web holder 时 agent `chat/stop` → `no_session`，设备端收不到零速。
-- [ ] 用例：agent 自己运动中 `chat/stop` → 零速 + 释放租约。
-- [ ] 用例：agent 运动中断线 → 设备 500ms 死区停车。
-- [ ] 用例：obstacle `-8` → 立即停车。
-- 文件：`walle-agent/test/`、`walle-device/.../test/`
-- 验收：上述 5 个用例全部通过。
-- 完成：<!-- 日期 / commit / 证据 -->
+- [x] 用例：Web holder 时 agent 运动请求 → `-5`。
+  - `walle-device/.../test_control_lease.py::test_car_motor_control_denied_uses_minus_five`
+  - `walle-agent/test/test_safety_regression.py::test_web_holder_agent_move_is_control_occupied`
+- [x] 用例：Web holder 时 agent `chat/stop` → `no_session`，设备端收不到零速。
+  - `walle-agent/test/test_safety_regression.py::test_web_holder_agent_chat_stop_is_no_session_without_zero`
+- [x] 用例：agent 自己运动中 `chat/stop` → 零速 + 释放租约。
+  - `walle-agent/test/test_safety_regression.py::test_agent_own_motion_chat_stop_sends_zero_and_releases`
+- [x] 用例：agent 运动中断线 → 设备 500ms 死区停车。
+  - `walle-device/.../test_safety_stop.py::test_deadman_stops_after_500ms_without_command`
+  - `walle-device/.../test_safety_stop.py::test_deadman_republishes_before_timeout`
+- [x] 用例：obstacle `-8` → 立即停车。
+  - `walle-device/.../test_safety_stop.py::test_obstacle_minus_8_stops_car_immediately`
+- [x] chat/stop 收尾去重：`stop()` 统一发送 3 次零速并释放租约；`_run_motion.finally` 通过 `_stop_owns_cleanup` 跳过重复收尾（零速帧 6 → 3）。
+  - `walle-agent/test/test_safety_regression.py::test_real_motion_chat_stop_sends_only_one_zero_burst`
+  - 正常跑完与 `-8` 中止仍由运动线程收尾，见 `test_real_motion_normal_completion_still_zeroes_and_releases`、`test_real_motion_motor_error_still_worker_cleanup`
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/test/conftest.py`、`walle-agent/test/test_safety_regression.py`、`walle-device/ros2_ws/src/net/net_mqtt_bridge/test/test_safety_stop.py`
+- 验收：上述 5 个用例全部通过（agent 6 个 + device 3 个，共 9 个测试函数）。
+- 完成：2026-11-27 / 本次提交 / `pytest walle-agent/test` 6 passed；`pytest .../test_safety_stop.py` 3 passed；chat/stop 零速帧由 6 降为 3
 
 #### M0-09 文档同步
 
@@ -1080,6 +1090,7 @@ agent：
 | 2026-11-26 | 初始版本 | 建立 M0-M5 任务清单 | 本文件 |
 | 2026-11-26 | 文档增强 | 增加最终架构、四层模型、每项任务的层级与小白解释 | 本文件 |
 | 2026-11-27 | M0-07 | PC 模拟环境落地：pc_robot、bringup platform 分支、startup_check 平台化、env_walle 平台判定与 22.04/Humble 兼容 | 0b87a50 |
+| 2026-11-27 | M0-08 | 新增控制权与安全停止回归：agent 6 例 + device 3 例；chat/stop 收尾去重（零速帧 6→3） | 本次提交 |
 
 ---
 

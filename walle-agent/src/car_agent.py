@@ -815,6 +815,8 @@ class Agent:
         self.last_motion_error = None
         self.abort = threading.Event()
         self.state_lock = threading.Lock()
+        # chat/stop 触发时由 stop() 统一收尾；_run_motion.finally 不再重复零速/释放
+        self._stop_owns_cleanup = False
         # 串行化“检查 busy + acquire + 启动 worker”，避免多客户端同时下发
         self.motion_lock = threading.Lock()
         # 设备控制权：pending request_id -> {event, result}；control_held 记录当前持有的设备
@@ -1564,15 +1566,21 @@ class Agent:
                 self.publish_motor(device, payload)
                 time.sleep(period)
         finally:
-            zero = self._drive_payload({"action": "stop"}, request_id)
-            try:
-                for _ in range(3):
-                    self._publish(device, "car/motor/set/request", zero)
-                    time.sleep(0.05)
-            finally:
-                release = self._release_control(device)
-                log().info("motion release control device=%s result=%s",
-                           device, json.dumps(release, ensure_ascii=False))
+            with self.state_lock:
+                stop_owns_cleanup = self._stop_owns_cleanup
+            if stop_owns_cleanup:
+                # stop() 会统一发送零速并释放租约，这里只清理本地状态
+                log().info("motion cleanup delegated to stop() device=%s", device)
+            else:
+                zero = self._drive_payload({"action": "stop"}, request_id)
+                try:
+                    for _ in range(3):
+                        self._publish(device, "car/motor/set/request", zero)
+                        time.sleep(0.05)
+                finally:
+                    release = self._release_control(device)
+                    log().info("motion release control device=%s result=%s",
+                               device, json.dumps(release, ensure_ascii=False))
             with self.state_lock:
                 if self.motion_rid == request_id:
                     self.motion_rid = None
@@ -1609,6 +1617,7 @@ class Agent:
                         "control_holder": control.get("control_holder"),
                         "cause": control.get("cause")}
             with self.state_lock:
+                self._stop_owns_cleanup = False
                 self.abort.clear()
                 self.active_device = device
                 self.worker = threading.Thread(target=self._run_motion,
@@ -1631,12 +1640,8 @@ class Agent:
                 active = self.active_device
                 should_abort = bool(worker is not None and worker.is_alive()
                                     and (device is None or device == active))
-                if should_abort:
-                    self.abort.set()
             with self.control_lock:
                 held_before = (self.control_held or {}).get("device")
-            if should_abort and worker is not None:
-                worker.join(timeout=2.0)
 
             target = device or (active if should_abort else None) or held_before
             if not target or (not should_abort and held_before != target):
@@ -1644,26 +1649,42 @@ class Agent:
                         "stopped": False, "released": False,
                         "cause": "no_session", "mqtt": self.mqtt_status()}
 
-            zero = self._drive_payload({"action": "stop"},
-                                       new_request_id("stop"))
-            res = None
-            for _ in range(3):
-                res = self._publish(target, "car/motor/set/request", zero)
-                time.sleep(0.05)
-            release = self._release_control(target)
-            if release.get("skipped"):
-                released = held_before == target
-            else:
-                released = bool(release.get("ok"))
-            log().info(
-                "stop requested by %s device=%s stopped=%s released=%s "
-                "result=%s release=%s",
-                client_name, target, should_abort, released,
-                json.dumps(res, ensure_ascii=False),
-                json.dumps(release, ensure_ascii=False))
-            return {"ok": True, "action": "stop", "device": target,
-                    "stopped": should_abort, "released": released,
-                    "result": res, "control": release, "mqtt": self.mqtt_status()}
+            if should_abort:
+                # 先标记由 stop() 收尾，再 abort；_run_motion.finally 会跳过零速/释放
+                with self.state_lock:
+                    self._stop_owns_cleanup = True
+                self.abort.set()
+                if worker is not None:
+                    worker.join(timeout=2.0)
+
+            try:
+                zero = self._drive_payload({"action": "stop"},
+                                           new_request_id("stop"))
+                res = None
+                for _ in range(3):
+                    res = self._publish(target, "car/motor/set/request", zero)
+                    time.sleep(0.05)
+                release = self._release_control(target)
+                if release.get("skipped"):
+                    released = held_before == target
+                else:
+                    released = bool(release.get("ok"))
+                log().info(
+                    "stop requested by %s device=%s stopped=%s released=%s "
+                    "result=%s release=%s",
+                    client_name, target, should_abort, released,
+                    json.dumps(res, ensure_ascii=False),
+                    json.dumps(release, ensure_ascii=False))
+                return {"ok": True, "action": "stop", "device": target,
+                        "stopped": should_abort, "released": released,
+                        "result": res, "control": release, "mqtt": self.mqtt_status()}
+            finally:
+                if should_abort:
+                    with self.state_lock:
+                        # 正常情况下 worker 已 join 完成；极端超时则保留标记，
+                        # 让它退出时不要再补发一组零速。
+                        if worker is None or not worker.is_alive():
+                            self._stop_owns_cleanup = False
 
     def stop_session(self, client_name=None, device=None):
         """优雅停止 agent 自己的会话：中止运动线程 → 零速 → 释放控制权。
