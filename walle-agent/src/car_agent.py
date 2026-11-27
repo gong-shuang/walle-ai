@@ -957,6 +957,13 @@ def parse_intent(text):
     if re.fullmatch(r"(停止|停|急停|刹车|别动|stop)", t) or "急停" in t:
         return {"action": "stop"}, None
 
+    if any(w in t for w in ("你是谁", "你叫什么", "你能做什么", "你会什么",
+                             "介绍自己", "自我介绍")) or t in ("帮助", "help"):
+        return {"action": "agent_intro"}, None
+    if any(w in t for w in ("今天星期几", "今天周几", "星期几", "今天几号",
+                             "今天日期", "现在几点", "当前时间", "现在时间")):
+        return {"action": "current_time"}, None
+
     task_intent, task_error = _parse_task_intent(t)
     if task_intent is not None:
         return task_intent, task_error
@@ -1086,7 +1093,8 @@ def parse_intent(text):
         if any(w in t for w in words):
             return None, "请告诉我要{}多少米。".format(words[0])
 
-    return None, "我暂时只支持：前进N米、后退N米、左移/右移N米、左转/右转N度、停止、状态。"
+    return None, ("我暂时没理解这句话。你可以说：前进3米、开始录像、"
+                  "查看任务、今天星期几。")
 
 
 def validate_intent(intent, cfg):
@@ -1094,6 +1102,7 @@ def validate_intent(intent, cfg):
     if intent["action"] in ("stop", "status", "device_base_state",
                             "device_run_state", "device_discover",
                             "agent_status", "service_health", "alarm_status",
+                            "agent_intro", "current_time",
                             "record_start", "record_stop", "record_list",
                             "record_delete", "record_play_start",
                             "record_play_stop",
@@ -3117,6 +3126,10 @@ class Agent:
             return self.device_status(device)
         if intent["action"] == "agent_status":
             return self.agent_status()
+        if intent["action"] == "agent_intro":
+            return self.agent_intro()
+        if intent["action"] == "current_time":
+            return self.current_time()
         if intent["action"] == "service_health":
             return self.service_health(device)
         if intent["action"] == "device_base_state":
@@ -4225,6 +4238,28 @@ class Agent:
             "reply": "agent 机器状态：" + self._base_state_reply(summary),
         }
 
+    @staticmethod
+    def agent_intro():
+        """「你是谁/你会什么」：不依赖设备与 LLM 的自我介绍。"""
+        return {
+            "ok": True, "action": "agent_intro",
+            "reply": ("我是 Walle 小车助手：可以控制小车、开始/停止录像与推流、"
+                      "调整舵机、查看状态和创建定时任务。"
+                      "你可以说：前进3米、开始录像、查看任务、今天星期几。"),
+        }
+
+    @staticmethod
+    def current_time():
+        """「今天星期几/现在几点」：按调度时区返回当前日期时间。"""
+        now = task_schedule.now_in_timezone(task_schedule.DEFAULT_TIMEZONE)
+        weekday = "一二三四五六日"[now.weekday()]
+        return {
+            "ok": True, "action": "current_time",
+            "reply": "现在是 {}，星期{}。".format(
+                now.strftime("%Y-%m-%d %H:%M:%S"), weekday),
+            "timestamp": int(now.timestamp()),
+        }
+
     def service_health(self, device=None):
         """「服务健康」：返回 agent 自身健康与 MQTT/设备概况（M1-06）。"""
         health = self.health(device)
@@ -4654,6 +4689,8 @@ def _reply_text(intent, result):
             return result.get("reply") or "agent 状态查询完成。"
         return "agent 状态查询失败：{}。".format(
             result.get("cause") or result.get("error") or "未知错误")
+    elif action in ("agent_intro", "current_time"):
+        return result.get("reply") or "已解析。"
     elif action == "service_health":
         if result.get("ok"):
             return result.get("reply") or "服务健康查询完成。"
@@ -4846,6 +4883,12 @@ def handle_chat(client_name, device, text):
     if intent is None:
         return {"ok": False, "device": device,
                 "reply": err or "未识别该指令。",
+                "mqtt": agent.mqtt_status()}
+    if intent.get("action") == "unknown":
+        # 模型明确表示没有匹配的工具：给可操作的提示，不套用规则层旧文案
+        return {"ok": False, "device": device,
+                "reply": ("我暂时没理解这句话。你可以说：前进3米、开始录像、"
+                          "查看任务、今天星期几。"),
                 "mqtt": agent.mqtt_status()}
 
     intent, warning = validate_intent(intent, agent.cfg)

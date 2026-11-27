@@ -415,8 +415,12 @@ def validate_intent(payload):
         return None, "模型输出必须是 JSON 对象"
     if "topic" in payload or "payload" in payload:
         return None, "模型只能输出工具调用，不能生成 topic/payload"
+    if payload.get("action") == "unknown":
+        return {"action": "unknown"}, None
     try:
         name, args = _unwrap(payload)
+        if str(name or "").strip() == "unknown":
+            return {"action": "unknown"}, None
         return validate_tool_call(name, args), None
     except SchemaError as exc:
         return None, str(exc)

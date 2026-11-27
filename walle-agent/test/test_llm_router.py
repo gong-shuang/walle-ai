@@ -181,6 +181,12 @@ def test_validate_intent_rejects_topic_payload_and_unknown():
     assert "direction" in error
 
 
+def test_validate_intent_accepts_explicit_unknown():
+    intent, error = llm_router.validate_intent({"action": "unknown"})
+    assert error is None
+    assert intent == {"action": "unknown"}
+
+
 def _llm_config():
     cfg = dict(car_agent.DEFAULTS)
     cfg.update({
@@ -208,6 +214,11 @@ def test_llm_parse_returns_validated_intent(monkeypatch):
 
     assert car_agent._llm_parse("往前走三米") == {
         "action": "move", "direction": "forward", "distance_m": 3}
+
+
+def test_llm_parse_returns_unknown(monkeypatch):
+    _mock_llm(monkeypatch, {"action": "unknown"})
+    assert car_agent._llm_parse("讲个笑话") == {"action": "unknown"}
 
 
 def test_llm_parse_rejects_invalid_schema(monkeypatch):

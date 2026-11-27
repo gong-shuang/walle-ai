@@ -948,6 +948,8 @@ agent：
     不再误落到 `device_run_state`。
   - 舵机补充「云台」上下文：回中、抬高/降低、往左/往右一点、往上/往下一点。
   - 状态与任务沿用已有规则（设备/agent/服务健康、每天/明天/工作日/一次性/取消/查看）。
+  - 小聊天/时间：新增 `agent_intro`（你是谁/你会什么）与 `current_time`
+    （今天星期几/现在几点），不依赖 LLM，避免模型编造。
   - 新增 `test_parse_intent_common_commands_do_not_need_llm` 锁定常见说法不依赖 LLM。
 - 文件：`walle-agent/src/car_agent.py`、`walle-agent/test/test_agent_request_bus.py`
 - 验收：常见命令不依赖 LLM 即可执行。
@@ -992,9 +994,11 @@ agent：
   - `LLM_TIMEOUT_SEC` 默认 8s，`LLM_RETRY_MAX` 默认 1，`LLM_RETRY_BACKOFF_SEC`
     默认 0.5s；重试与失败写入 `walle.llm_router` 日志。
   - `car_agent._llm_parse()` 改为委托本地客户端，失败返回 None 由规则层兜底。
+  - 模型输出 `unknown` 视为有效“未匹配”，不再记失败；`handle_chat` 返回可操作提示，
+    避免把「你是谁/今天星期几」等非指令误报成规则层旧文案。
 - 文件：`walle-agent/src/llm_router.py`、`walle-agent/src/car_agent.py`、`walle-agent/etc/walle-agent.conf.example`
 - 验收：本地 Qwen2.5-7B/14B 能解析常用命令。
-- 完成：2026-11-27 / 本次改动 / 新增 7 个客户端用例；`pytest walle-agent/test` 195 passed；本机 Ollama `qwen3.5:9b` 实测可解析前进/录像/推流/舵机/查看任务等常用命令（复杂任务创建走规则层或 schema 单测）
+- 完成：2026-11-27 / 本次改动 / 新增 12 个客户端与兜底用例；`pytest walle-agent/test` 200 passed；本机 Ollama `qwen3.5:9b` 实测可解析前进/录像/推流/舵机/查看任务等常用命令（复杂任务创建走规则层或 schema 单测）
 
 #### M4-04 在线模型客户端
 

@@ -1127,6 +1127,42 @@ def test_record_delete_and_play_are_recognized_but_not_implemented(agent):
         assert car_agent._reply_text(validated, out) == out["cause"]
 
 
+def test_parse_intent_routes_smalltalk_and_time():
+    intent, error = car_agent.parse_intent("你是谁")
+    assert error is None
+    assert intent == {"action": "agent_intro"}
+
+    intent, _ = car_agent.parse_intent("今天星期几")
+    assert intent == {"action": "current_time"}
+
+    intent, _ = car_agent.parse_intent("现在几点")
+    assert intent == {"action": "current_time"}
+
+
+def test_agent_intro_and_time_replies(agent):
+    for text, action in (("你是谁", "agent_intro"),
+                         ("今天星期几", "current_time")):
+        intent, error = car_agent.parse_intent(text)
+        assert error is None
+        out = agent.execute("dev-1", intent, "web")
+        assert out["ok"] is True
+        assert out["action"] == action
+        assert out["reply"]
+        assert car_agent._reply_text(intent, out) == out["reply"]
+
+
+def test_handle_chat_unknown_from_llm_replies_hint(agent, monkeypatch):
+    monkeypatch.setattr(car_agent, "_get_agent", lambda: agent)
+    monkeypatch.setattr(car_agent, "parse_intent", lambda text: (None, "old"))
+    monkeypatch.setattr(car_agent, "_llm_parse",
+                        lambda text: {"action": "unknown"})
+
+    out = car_agent.handle_chat("web", "dev-1", "讲个笑话")
+
+    assert out["ok"] is False
+    assert "没理解" in out["reply"]
+
+
 def test_parse_intent_common_commands_do_not_need_llm():
     cases = [
         ("开始录像", "record_start"),
@@ -1148,6 +1184,9 @@ def test_parse_intent_common_commands_do_not_need_llm():
         ("设备状态", "device_base_state"),
         ("agent 状态", "agent_status"),
         ("服务健康", "service_health"),
+        ("你是谁", "agent_intro"),
+        ("今天星期几", "current_time"),
+        ("现在几点", "current_time"),
         ("查看任务", "task_list"),
         ("取消任务 task-1a2b3c4d", "task_cancel"),
         ("每天8点开始录像，晚上9点停止", "task_create"),
