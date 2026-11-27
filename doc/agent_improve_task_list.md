@@ -223,7 +223,7 @@ agent：
 - [ ] 对话「状态」仍返回 agent health，不是设备 `baseState` / `runState`。
 - [ ] `capabilities.actions` 仍只有 `move/rotate/stop/status`。
 - [x] `chat/response` 没有 `data` / `result`，无法返回房间号、录像列表、舵机位置、任务 ID。（M2-06）
-- [ ] `report_progress()` 已定义但业务未调用。
+- [x] `report_progress()` 已定义并在 record/stream/servo 长动作中调用。（M2-07）
 - [ ] `chat/stop` 只停运动，不能停止录像/推流/任务。
 - [x] `chat/stop` 在没有自己会话时会去 acquire 别人的租约，失败后返回 `-5`，无法区分“本来就没在动”。（M0-10）
 - [ ] 没有调度器、任务表、任务恢复。
@@ -238,7 +238,7 @@ agent：
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
-| M2 核心设备动作 | 进行中 | 6/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化已落地 |
+| M2 核心设备动作 | 进行中 | 7/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度已落地 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
@@ -689,12 +689,17 @@ agent：
 
 - **层级**：L2 动作编排层 + L4 任务调度层
 - **小白解释**：推流/录像启动可能要几秒；没有进度，前端 20 秒就以为超时了。进度上报让用户知道“还在做，不是卡死”。
-- [ ] `record.start`、`stream.start`、`record.play.start`、servo.status 调用 `report_progress()`。
-- [ ] stage：`accepted` / `started` / `waiting` / `completed` / `failed`。
-- [ ] 进度带 `request_id`、`device`、`message`。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] `record.start`、`stream.start`、servo.status 调用 `report_progress()`；`record.play.start` 待 M5-02 实现后按同一模式接入。
+- [x] stage：`accepted` / `started` / `waiting` / `completed` / `failed`（当前使用 accepted/waiting/completed/failed）。
+- [x] 进度带 `request_id`、`device`、`message`。
+- 实现：
+  - `_run_chat_request` 把 chat `request_id` 写入线程本地 `progress_local`，处理结束清理，避免跨请求串号。
+  - 新增 `_report_action_progress()`：无对话上下文（测试/直调）时静默跳过；有上下文时复用 `report_progress()`。
+  - `record_start` / `stream_start` / `servo_status` 上报 `accepted` → `waiting` → `completed` / `failed`；失败带 `cause`。
+  - Web 订阅 `agent/+/chat/progress/report`，按 `request_id` 归并；收到进度后重置 20s 超时并展示阶段与 message。
+- 文件：`walle-agent/src/car_agent.py`、`web/car_ctl_by_mqtt.html`、`walle-agent/test/`
 - 验收：Web 能在 20s 内看到进度，不误判超时。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 4 个进度上下文与阶段用例；`pytest walle-agent/test` 92 passed；未新增 MQTT 字段
 
 #### M2-08 动作层单元测试
 
@@ -1109,7 +1114,7 @@ agent：
 | 23 | agent 基本状态 | `agent/{a}/baseState/query/request|response` | — | L3 | 已完成 |
 | 24 | agent 配置修改 | `agent/{a}/config/modify/request|response` | — | L3 | 已完成 |
 | 25 | agent 会话停止 | `agent/{a}/chat/stop/request|response` | M3 | L2/L3 | 部分（仅运动） |
-| 26 | agent 进度 | `agent/{a}/chat/progress/report` | M2-07/M3-09 | L2/L4 | 方法有，未使用 |
+| 26 | agent 进度 | `agent/{a}/chat/progress/report` | M2-07/M3-09 | L2/L4 | record/stream/servo 已接入 |
 | 27 | 客户端在线 | `client/{client_id}/online` | 可选 | L3 | 未订阅 |
 
 ---

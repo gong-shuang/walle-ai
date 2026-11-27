@@ -974,6 +974,8 @@ class Agent:
         self.chat_requests = 0
         self.chat_errors = 0
         self.chat_last = None
+        # 当前线程正在处理的 chat request_id，长动作据此主动上报进度（§4.25）
+        self.progress_local = threading.local()
         self._connect_mqtt()
 
     def _dev(self, device):
@@ -1754,6 +1756,7 @@ class Agent:
         text = str(payload.get("text") or "").strip()
         response = {"request_id": request_id, "agent_id": agent_identity(),
                     "device": device, "ts": int(time.time())}
+        self.progress_local.request_id = request_id or None
         try:
             missing = None
             is_discover = any(w in _normalize(text) for w in DISCOVER_WORDS)
@@ -1807,13 +1810,15 @@ class Agent:
             response.update({"ok": False, "reply": "agent 内部错误：{}".format(exc),
                              "error": "agent_exception"})
             log().error("chat request %s 处理失败: %s", request_id, exc)
+        finally:
+            self.progress_local.request_id = None
         self.chat_last = {"request_id": request_id, "client_id": client_id,
                           "client_name": client_name, "device": device,
                           "text": text, "ok": response["ok"],
                           "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
         self._publish_topic(chat_topic("response"), response)
 
-    # ---- 会话进度上报（供长会话/LLM 任务使用，当前短会话不调用）----
+    # ---- 会话进度上报（长动作/任务使用，§4.25）----
     PROGRESS_STAGES = ("accepted", "started", "progress", "waiting",
                        "completed", "failed", "stopped")
 
@@ -1845,6 +1850,20 @@ class Agent:
         if cause:
             payload["cause"] = str(cause)
         return self._publish_topic(agent_progress_topic(), payload)
+
+    def _chat_request_id(self):
+        """当前线程处理的 chat request_id；非对话线程返回 None。"""
+        return getattr(self.progress_local, "request_id", None)
+
+    def _report_action_progress(self, stage, device=None, message=None,
+                                progress=None, cause=None):
+        """长动作上报进度；没有对话上下文（如测试/直调）时静默跳过。"""
+        request_id = self._chat_request_id()
+        if not request_id:
+            return None
+        return self.report_progress(request_id, stage, device=device,
+                                    progress=progress, message=message,
+                                    cause=cause)
 
     def chat_status(self):
         return {
@@ -2549,13 +2568,18 @@ class Agent:
 
     def record_start(self, device, segment_sec=0):
         """开始录像：控制类请求，acquire → record/start → release（M2-01）。"""
+        self._report_action_progress("accepted", device, "开始录像请求已接受")
         preflight = self.preflight_features(device, ("recording",))
         if not preflight.get("ok"):
+            self._report_action_progress("failed", device, preflight.get("cause"),
+                                         cause=preflight.get("error"))
             return {"ok": False, "action": "record_start", "device": device,
                     "error": preflight.get("error"),
                     "cause": preflight.get("cause"),
                     "capabilities": preflight.get("capabilities")}
         if not (self.mqtt_client and self.mqtt_connected):
+            self._report_action_progress("failed", device, "MQTT 未连接",
+                                         cause="mqtt_not_connected")
             return {"ok": False, "action": "record_start", "device": device,
                     "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
         try:
@@ -2564,16 +2588,22 @@ class Agent:
             segment = 0
         camera_lock = self._acquire_resource(device, "camera")
         if camera_lock is None:
+            self._report_action_progress(
+                "failed", device, "设备摄像头正被执行其他操作（推流/录像）",
+                cause="resource_busy")
             return {"ok": False, "action": "record_start", "device": device,
                     "error": "resource_busy",
                     "cause": "设备摄像头正被执行其他操作（推流/录像）"}
         control = self._acquire_control(device)
         if not control.get("ok"):
             self._release_resource(camera_lock)
+            self._report_action_progress("failed", device, control.get("cause"),
+                                         cause=control.get("error"))
             return {"ok": False, "action": "record_start", "device": device,
                     "error": control.get("error"),
                     "cause": control.get("cause"),
                     "control_holder": control.get("control_holder")}
+        self._report_action_progress("waiting", device, "等待设备录像应答")
         try:
             res = self.request_bus.request(
                 device, "record/start/request",
@@ -2583,11 +2613,14 @@ class Agent:
             self._release_resource(camera_lock)
 
         if not res.get("received"):
-            return {"ok": False, "action": "record_start", "device": device,
-                    "request_id": res.get("request_id"),
-                    "error": res.get("error") or "timeout",
-                    "cause": res.get("cause") or "等待录像应答超时",
-                    "control": release}
+            out = {"ok": False, "action": "record_start", "device": device,
+                   "request_id": res.get("request_id"),
+                   "error": res.get("error") or "timeout",
+                   "cause": res.get("cause") or "等待录像应答超时",
+                   "control": release}
+            self._report_action_progress("failed", device, out["cause"],
+                                         cause=out["error"])
+            return out
         payload = res.get("payload") or {}
         decoded = res.get("decoded") or decode_result(payload)
         result = decoded.get("result")
@@ -2625,6 +2658,14 @@ class Agent:
                 "error": decoded.get("error") or "failed",
                 "cause": decoded.get("cause") or "录像启动失败",
             })
+        if base.get("ok"):
+            self._report_action_progress(
+                "completed", device,
+                "录像已开始：{}".format(base.get("filename") or "-"),
+                progress=100)
+        else:
+            self._report_action_progress("failed", device, base.get("cause"),
+                                         cause=base.get("error"))
         return base
 
     def record_stop(self, device):
@@ -2749,26 +2790,33 @@ class Agent:
                         "device": device, "error": "parameter_error",
                         "cause": "ids 不能重复"}
             clean_ids.append(servo_id)
+        self._report_action_progress("accepted", device, "查询舵机状态请求已接受")
         if not (self.mqtt_client and self.mqtt_connected):
+            self._report_action_progress("failed", device, "MQTT 未连接",
+                                         cause="mqtt_not_connected")
             return {"ok": False, "action": "servo_status", "device": device,
                     "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
         timeout = 10.0 if include_offset else 6.0
+        self._report_action_progress("waiting", device, "等待设备舵机状态")
         res = self.request_bus.request(
             device, "car/servo/status/query/request",
             {"ids": clean_ids, "include_offset": bool(include_offset)},
             timeout=timeout)
         if not res.get("received"):
-            return {"ok": False, "action": "servo_status", "device": device,
-                    "request_id": res.get("request_id"),
-                    "error": res.get("error") or "timeout",
-                    "cause": res.get("cause") or "等待舵机状态超时"}
+            out = {"ok": False, "action": "servo_status", "device": device,
+                   "request_id": res.get("request_id"),
+                   "error": res.get("error") or "timeout",
+                   "cause": res.get("cause") or "等待舵机状态超时"}
+            self._report_action_progress("failed", device, out["cause"],
+                                         cause=out["error"])
+            return out
         payload = res.get("payload") or {}
         decoded = res.get("decoded") or decode_result(payload)
         result = decoded.get("result")
         servos = payload.get("servos")
         if not isinstance(servos, list):
             servos = []
-        return {
+        out = {
             "ok": result == 0,
             "partial": result == -3 and any(
                 item.get("available") for item in servos
@@ -2784,6 +2832,15 @@ class Agent:
                       if result not in (0, -3) else None),
             "payload": payload,
         }
+        if out["ok"] or out["partial"]:
+            self._report_action_progress(
+                "completed", device,
+                "舵机状态查询完成" if out["ok"] else "部分舵机读取失败",
+                progress=100)
+        else:
+            self._report_action_progress("failed", device, out.get("cause"),
+                                         cause=out.get("error"))
+        return out
 
     def servo_set(self, device, servos, duration=1.0):
         """按绝对位置设置舵机；越界项由设备放入 skipped（M2-03）。"""
@@ -2929,27 +2986,38 @@ class Agent:
 
     def stream_start(self, device):
         """开始推流：设备无参数，返回 room_number/camera_device/action（M2-02）。"""
+        self._report_action_progress("accepted", device, "开始推流请求已接受")
         preflight = self.preflight_features(device, ("stream",))
         if not preflight.get("ok"):
+            self._report_action_progress("failed", device, preflight.get("cause"),
+                                         cause=preflight.get("error"))
             return {"ok": False, "action": "stream_start", "device": device,
                     "error": preflight.get("error"),
                     "cause": preflight.get("cause"),
                     "capabilities": preflight.get("capabilities")}
         if not (self.mqtt_client and self.mqtt_connected):
+            self._report_action_progress("failed", device, "MQTT 未连接",
+                                         cause="mqtt_not_connected")
             return {"ok": False, "action": "stream_start", "device": device,
                     "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
         camera_lock = self._acquire_resource(device, "camera")
         if camera_lock is None:
+            self._report_action_progress(
+                "failed", device, "设备摄像头正被执行其他操作（推流/录像）",
+                cause="resource_busy")
             return {"ok": False, "action": "stream_start", "device": device,
                     "error": "resource_busy",
                     "cause": "设备摄像头正被执行其他操作（推流/录像）"}
         control = self._acquire_control(device)
         if not control.get("ok"):
             self._release_resource(camera_lock)
+            self._report_action_progress("failed", device, control.get("cause"),
+                                         cause=control.get("error"))
             return {"ok": False, "action": "stream_start", "device": device,
                     "error": control.get("error"),
                     "cause": control.get("cause"),
                     "control_holder": control.get("control_holder")}
+        self._report_action_progress("waiting", device, "等待设备推流应答")
         try:
             res = self.request_bus.request(
                 device, "stream/start/request", {}, timeout=20.0)
@@ -2958,11 +3026,14 @@ class Agent:
             self._release_resource(camera_lock)
 
         if not res.get("received"):
-            return {"ok": False, "action": "stream_start", "device": device,
-                    "request_id": res.get("request_id"),
-                    "error": res.get("error") or "timeout",
-                    "cause": res.get("cause") or "等待推流应答超时",
-                    "control": release}
+            out = {"ok": False, "action": "stream_start", "device": device,
+                   "request_id": res.get("request_id"),
+                   "error": res.get("error") or "timeout",
+                   "cause": res.get("cause") or "等待推流应答超时",
+                   "control": release}
+            self._report_action_progress("failed", device, out["cause"],
+                                         cause=out["error"])
+            return out
         payload = res.get("payload") or {}
         decoded = res.get("decoded") or decode_result(payload)
         result = decoded.get("result")
@@ -3000,6 +3071,14 @@ class Agent:
                 "cause": payload.get("cause") or decoded.get("cause")
                          or "推流启动失败",
             })
+        if base.get("ok"):
+            self._report_action_progress(
+                "completed", device,
+                "推流已开始，房间号：{}".format(base.get("room_number") or "-"),
+                progress=100)
+        else:
+            self._report_action_progress("failed", device, base.get("cause"),
+                                         cause=base.get("error"))
         return base
 
     def stream_stop(self, device, room_number=None):

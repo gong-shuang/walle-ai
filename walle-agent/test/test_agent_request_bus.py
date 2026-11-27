@@ -692,6 +692,93 @@ def test_chat_response_truncates_large_device_result(agent, monkeypatch):
     assert payload["result"]["summary"]["records_count"] == 0
 
 
+def _progress_messages(agent):
+    return [item["payload"] for item in agent.mqtt_client.published
+            if item["topic"].endswith("/chat/progress/report")]
+
+
+def _fake_bus(monkeypatch, agent, by_resource):
+    def fake(device, resource, payload=None, **kwargs):
+        data = by_resource.get(resource, {"result": 0})
+        return {"received": True, "request_id": "agent-progress-test",
+                "payload": data, "decoded": car_agent.decode_result(data)}
+    monkeypatch.setattr(agent.request_bus, "request", fake)
+
+
+def test_stream_start_reports_chat_progress(agent, monkeypatch):
+    monkeypatch.setattr(agent, "preflight_features", lambda *args: {"ok": True})
+    _fake_bus(monkeypatch, agent, {
+        "stream/start/request": {"result": 0, "room_number": "room-42"},
+    })
+    agent.progress_local.request_id = "web-progress-1"
+    try:
+        out = agent.stream_start("dev-1")
+    finally:
+        agent.progress_local.request_id = None
+
+    assert out["ok"] is True
+    progress = _progress_messages(agent)
+    assert [item["stage"] for item in progress] == [
+        "accepted", "waiting", "completed"]
+    assert all(item["request_id"] == "web-progress-1" for item in progress)
+    assert all(item["device"] == "dev-1" for item in progress)
+    assert "room-42" in progress[-1]["message"]
+
+
+def test_record_start_reports_chat_progress(agent, monkeypatch):
+    monkeypatch.setattr(agent, "preflight_features", lambda *args: {"ok": True})
+    _fake_bus(monkeypatch, agent, {
+        "record/start/request": {
+            "result": 0, "filename": "rec_20261127_080000.fmp4"},
+    })
+    agent.progress_local.request_id = "web-progress-2"
+    try:
+        out = agent.record_start("dev-1")
+    finally:
+        agent.progress_local.request_id = None
+
+    assert out["ok"] is True
+    progress = _progress_messages(agent)
+    assert [item["stage"] for item in progress] == [
+        "accepted", "waiting", "completed"]
+    assert "rec_20261127_080000.fmp4" in progress[-1]["message"]
+
+
+def test_servo_status_reports_failed_progress(agent, monkeypatch):
+    _fake_bus(monkeypatch, agent, {
+        "car/servo/status/query/request": {
+            "result": -3, "cause": "服务不可用"},
+    })
+    agent.progress_local.request_id = "web-progress-3"
+    try:
+        out = agent.servo_status("dev-1")
+    finally:
+        agent.progress_local.request_id = None
+
+    assert out["ok"] is False
+    progress = _progress_messages(agent)
+    assert [item["stage"] for item in progress] == [
+        "accepted", "waiting", "failed"]
+    assert progress[-1]["message"] == "服务不可用"
+
+
+def test_chat_request_sets_and_clears_progress_context(agent, monkeypatch):
+    seen = {}
+
+    def fake_handle_chat(client_name, device, text):
+        seen["request_id"] = agent._chat_request_id()
+        return {"ok": True, "reply": "ok", "action": "status"}
+
+    monkeypatch.setattr(car_agent, "handle_chat", fake_handle_chat)
+    agent._run_chat_request({
+        "request_id": "web-ctx-1", "client_id": "web-a",
+        "client_name": "Web A", "device": "dev-1", "text": "状态",
+    })
+
+    assert seen["request_id"] == "web-ctx-1"
+    assert agent._chat_request_id() is None
+
+
 def test_capabilities_cached_from_run_state(agent):
     payload = _run_state_payload()
     payload["recording"]["is_supported"] = False

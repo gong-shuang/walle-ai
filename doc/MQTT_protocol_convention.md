@@ -1807,8 +1807,7 @@ agent 忽略未识别的字段。
 ### 4.25 agent 会话进度上报 agent/{agent}/chat/progress/report（v1.23）
 
 **作用**：长会话执行期间，agent 主动上报关键进度节点，供 Web/App 展示进度、
-避免把长任务误判为超时。当前会话较短，agent 暂不产生该上报；协议先行定义，
-供后续 LLM/多步任务使用。
+避免把长任务误判为超时。当前已在推流、录像启动与舵机状态查询上使用，后续 LLM/多步任务复用。
 
 - 主题：`walle/{t}/agent/{a}/chat/progress/report`
 - 方向：agent → Web/App（主动上报，无请求、无应答）
@@ -1855,6 +1854,8 @@ agent 忽略未识别的字段。
 **约束**：
 
 - 只在关键节点上报，不做高频轮询；带 `progress` 的上报建议不超过 1 次/秒。
+- 当前实现：`record/start`、`stream/start`、`car/servo/status/query` 在对话请求内上报
+  `accepted` → `waiting` → `completed` / `failed`；`record/play/start` 待其动作实现后接入。
 - 进度是**通知**，不改变 `chat/response` 的请求-应答语义；客户端不能以进度报文替代最终应答。
 - Web/App 订阅 `walle/{t}/agent/+/chat/progress/report`，按 `request_id` 归并；
   收到未知 `request_id` 时忽略。

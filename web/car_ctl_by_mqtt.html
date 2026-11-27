@@ -1203,6 +1203,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     mqtt.topics = SUBS.map(function (r) { return subBase() + r; });
     var agentPrefix = cfg.prefix.replace(/\/+$/, '') + '/' + tenant() + '/agent/';
     mqtt.topics.push(agentPrefix + '+/online', agentPrefix + '+/chat/response',
+      agentPrefix + '+/chat/progress/report',
       agentPrefix + '+/baseState/query/response', agentPrefix + '+/config/modify/response',
       agentPrefix + '+/chat/stop/response');
     mqtt.connect({
@@ -1247,6 +1248,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       }
       if (/\/chat\/response$/.test(topic)) {
         document.dispatchEvent(new CustomEvent('walle-agent-response',
+          { detail: { id: agentId, data: data } }));
+        return;
+      }
+      if (/\/chat\/progress\/report$/.test(topic)) {
+        document.dispatchEvent(new CustomEvent('walle-agent-progress',
           { detail: { id: agentId, data: data } }));
         return;
       }
@@ -4009,6 +4015,32 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     addMsg(d.ok === false ? 'sys' : 'bot', d.reply || (d.ok ? '已完成' : '处理失败'), meta);
   });
 
+  function armChatTimeout(rid) {
+    pending[rid].timer = setTimeout(function () {
+      if (!pending[rid]) return;
+      delete pending[rid];
+      busy = false;
+      els.send.disabled = false;
+      addMsg('sys', 'agent 超时未响应（20s），请检查 agent 状态。');
+    }, 20000);
+  }
+
+  // 长动作进度：收到进度就续期，避免推流/录像启动被 20s 误判超时
+  document.addEventListener('walle-agent-progress', function (e) {
+    var d = e.detail.data || {};
+    var p = d.request_id ? pending[d.request_id] : null;
+    if (!p) return;   // 未知 request_id 忽略
+    clearTimeout(p.timer);
+    armChatTimeout(d.request_id);
+    var stages = {
+      accepted: '已接受', started: '开始执行', waiting: '等待设备响应',
+      progress: '执行中', completed: '已完成', failed: '失败', stopped: '已停止'
+    };
+    var text = '[' + (stages[d.stage] || d.stage) + ']' +
+      (d.message ? ' ' + d.message : '');
+    addMsg(d.stage === 'failed' ? 'sys' : 'bot', text);
+  });
+
   function sendText(text) {
     text = (text || '').trim();
     if (!text || busy) return;
@@ -4025,15 +4057,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     addMsg('user', text);
     busy = true;
     els.send.disabled = true;
-    pending[rid] = {
-      timer: setTimeout(function () {
-        if (!pending[rid]) return;
-        delete pending[rid];
-        busy = false;
-        els.send.disabled = false;
-        addMsg('sys', 'agent 超时未响应（20s），请检查 agent 状态。');
-      }, 20000)
-    };
+    pending[rid] = {};
+    armChatTimeout(rid);
   }
 
   els.form.addEventListener('submit', function (e) {
