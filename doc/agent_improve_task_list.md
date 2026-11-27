@@ -239,7 +239,7 @@ agent：
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
-| M3 调度与任务 | 进行中 | 2/10 | SQLite 任务库、1s 调度线程已落地；任务类型、执行器、对账待后续 |
+| M3 调度与任务 | 进行中 | 3/10 | SQLite 任务库、1s 调度线程、四种任务类型已落地；任务工具、执行器、对账待后续 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
 
@@ -785,13 +785,20 @@ agent：
 
 - **层级**：L4 任务调度层
 - **小白解释**：除了“每天”，用户可能说“只明天一次”“工作日”“每隔两小时”。支持多种类型才能听懂更多话。
-- [ ] `daily_window`：每天 start-stop 窗口。
-- [ ] `once`：一次性。
-- [ ] `cron`：cron 表达式。
-- [ ] `interval`：间隔执行。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] `daily_window`：每天 start-stop 窗口。
+- [x] `once`：一次性。
+- [x] `cron`：cron 表达式。
+- [x] `interval`：间隔执行。
+- 实现：
+  - 新增 `walle-agent/src/task_schedule.py`：`validate_schedule()`、`next_occurrence(task, now)`、`advance_task(store, task, now)`。
+  - `daily_window`：每天 start/stop 两个边界，支持跨午夜（如 22:00–06:00），阶段为 `start` / `stop`。
+  - `once`：`at` 指定一次性时间；已过期返回 `None`。
+  - `cron`：5 段表达式（分 时 日 月 周），支持 `*`、列表、范围、步长；周字段 0/7=周日，日与周同时限制时按标准 cron 的 OR 语义。
+  - `interval`：按 `next_run_at` 锚点推进，避免漂移；无锚点时从当前时间加间隔。
+  - 时区取任务 `timezone`（默认 `Asia/Shanghai`）；`now` 支持 aware/naive；`advance_task()` 把下一次触发写回 `next_run_at`。
+- 文件：`walle-agent/src/task_schedule.py`、`walle-agent/test/test_task_schedule.py`
 - 验收：四种类型都有单元测试。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 13 个用例（四种类型、跨午夜、时区、非法配置、写回 next_run_at）；`pytest walle-agent/test` 126 passed；未修改 MQTT 协议
 
 #### M3-04 task.create / list / cancel / pause / resume
 
