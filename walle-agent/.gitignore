@@ -6,6 +6,8 @@
 .run/
 log/
 etc/.run/
+# 任务库（运行时 SQLite，含 -wal/-shm）
+data/
 
 # 凭据（部署时本地生成，不入库）
 etc/walle-agent.conf

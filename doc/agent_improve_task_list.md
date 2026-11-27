@@ -239,7 +239,7 @@ agent：
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
-| M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
+| M3 调度与任务 | 进行中 | 1/10 | SQLite 任务库已落地；调度线程、任务类型、恢复待后续 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
 
@@ -751,12 +751,18 @@ agent：
 
 - **层级**：L4 任务调度层
 - **小白解释**：定时任务要存在硬盘里，agent 重启后不能忘。SQLite 就是一个小型本地数据库，不需要额外服务器。
-- [ ] `tasks` 表：id、name、device、timezone、schedule_json、actions_json、enabled、created_at、updated_at、next_run_at。
-- [ ] `task_runs` 表：run_id、task_id、phase、scheduled_at、started_at、finished_at、request_id、result、cause、error。
-- [ ] WAL 模式；默认 `walle-agent/data/agent.db`。
-- 文件：`walle-agent/src/car_agent.py`（或 `scheduler.py`）
+- [x] `tasks` 表：id、name、device、timezone、schedule_json、actions_json、enabled、created_at、updated_at、next_run_at。
+- [x] `task_runs` 表：run_id、task_id、phase、scheduled_at、started_at、finished_at、request_id、result、cause、error。
+- [x] WAL 模式；默认 `walle-agent/data/agent.db`。
+- 实现：
+  - 新增 `walle-agent/src/task_store.py`：`TaskStore` 线程安全（内部 RLock）、`journal_mode=WAL`、`foreign_keys=ON`。
+  - `tasks` 的 JSON 字段入库为 `schedule_json/actions_json`，读取时解析为 `schedule/actions`；`task_runs` 增加 `(task_id, phase, scheduled_at)` 唯一索引，供 M3-02 防重。
+  - `task_runs` 外键 `ON DELETE CASCADE`；删除任务同时清理执行记录。
+  - `Agent.task_db()` 懒加载任务库，`TASK_DB_PATH` 默认 `data/agent.db`；`shutdown()` 关闭连接。
+  - `walle-agent/data/` 加入 `.gitignore`，运行时不入库。
+- 文件：`walle-agent/src/task_store.py`、`walle-agent/src/car_agent.py`、`walle-agent/test/test_task_store.py`、`walle-agent/.gitignore`
 - 验收：创建任务后重启 agent，任务仍在。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 6 个存储用例（重开仍存在、WAL、字段、更新/级联删除、防重、懒加载）；`pytest walle-agent/test` 107 passed；未修改 MQTT 协议
 
 #### M3-02 调度线程
 

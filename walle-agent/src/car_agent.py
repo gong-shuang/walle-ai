@@ -36,6 +36,7 @@ if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
 
 from walle_protocol import (RESULT_CODES, RequestBus, decode_result,  # noqa: E402,F401
                             new_request_id)
+from task_store import TaskStore  # noqa: E402
 
 try:
     import paho.mqtt.client as mqtt
@@ -67,6 +68,8 @@ DEFAULTS = {
     "LLM_BASE_URL": "",
     "LLM_API_KEY": "",
     "LLM_MODEL": "",
+    # M3-01：任务库路径；相对路径按 walle-agent/ 解析，默认 data/agent.db
+    "TASK_DB_PATH": "data/agent.db",
 }
 
 AGENT_VERSION_FILE = os.path.join(REPO_ROOT, "VERSION")
@@ -977,6 +980,9 @@ class Agent:
         self.chat_last = None
         # 当前线程正在处理的 chat request_id，长动作据此主动上报进度（§4.25）
         self.progress_local = threading.local()
+        # M3-01：任务库懒加载，避免只做对话时也创建 SQLite 文件
+        self.task_store = None
+        self.task_store_lock = threading.Lock()
         self._connect_mqtt()
 
     def _dev(self, device):
@@ -1380,6 +1386,13 @@ class Agent:
         bus = getattr(self, "request_bus", None)
         if bus is not None:
             bus.fail_all("agent_shutdown", "agent 退出")
+        store = getattr(self, "task_store", None)
+        if store is not None:
+            try:
+                store.close()
+            except Exception as exc:  # noqa: BLE001
+                log().warning("关闭任务库失败: %s", exc)
+            self.task_store = None
         client = self.mqtt_client
         if client is None:
             return
@@ -1865,6 +1878,14 @@ class Agent:
         return self.report_progress(request_id, stage, device=device,
                                     progress=progress, message=message,
                                     cause=cause)
+
+    def task_db(self):
+        """任务库（M3-01）：首次访问时创建，默认 walle-agent/data/agent.db。"""
+        if self.task_store is None:
+            with self.task_store_lock:
+                if self.task_store is None:
+                    self.task_store = TaskStore(self.cfg.get("TASK_DB_PATH"))
+        return self.task_store
 
     def chat_status(self):
         return {
