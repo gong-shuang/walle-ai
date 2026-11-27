@@ -1709,3 +1709,156 @@ def test_parse_intent_routes_task_commands():
 
     intent, _ = car_agent.parse_intent("每隔2小时录像")
     assert intent["schedule"] == {"type": "interval", "seconds": 7200}
+
+
+# ---------------- M3-05 任务执行 ----------------
+
+def _window_task(store, next_run_at="2026-11-27 08:00:00"):
+    return store.create_task(
+        "录像窗口", "dev-1",
+        {"type": "daily_window", "start": "08:00", "stop": "21:00"},
+        [{"phase": "start", "tool": "record.start"},
+         {"phase": "stop", "tool": "record.stop"}],
+        next_run_at=next_run_at)
+
+
+def test_task_run_start_records_run_and_advances(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+    monkeypatch.setattr(agent, "record_start", lambda device: {
+        "ok": True, "action": "record_start", "result": 0,
+        "request_id": "agent-record-1", "filename": "rec.fmp4",
+        "cause": "ok"})
+    advanced = []
+    monkeypatch.setattr(agent, "_advance_task",
+                        lambda store, fresh: advanced.append(fresh["id"]))
+
+    agent._run_task(task, "2026-11-27 08:00:00")
+
+    runs = store.list_runs(task["id"])
+    assert len(runs) == 1
+    assert runs[0]["phase"] == "start"
+    assert runs[0]["result"] == 0
+    assert runs[0]["request_id"] == "agent-record-1"
+    assert runs[0]["finished_at"]
+    assert advanced == [task["id"]]
+
+
+def test_task_run_stop_minus_4_is_success(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store, next_run_at="2026-11-27 21:00:00")
+    monkeypatch.setattr(agent, "record_stop", lambda device: {
+        "ok": True, "action": "record_stop", "result": -4,
+        "already_stopped": True, "cause": "当前未录制"})
+
+    agent._run_task(task, "2026-11-27 21:00:00")
+
+    run = store.list_runs(task["id"])[0]
+    assert run["phase"] == "stop"
+    assert run["result"] == -4
+    assert run["error"] is None
+    assert run["cause"] == "当前未录制"
+
+
+def test_task_run_no_space_does_not_retry(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+    calls = []
+
+    def fail(device):
+        calls.append(device)
+        return {"ok": False, "action": "record_start", "result": -7,
+                "error": "no_space", "cause": "磁盘空间不足"}
+
+    monkeypatch.setattr(agent, "record_start", fail)
+    agent._run_task(task, "2026-11-27 08:00:00")
+
+    assert calls == ["dev-1"]
+    run = store.list_runs(task["id"])[0]
+    assert run["error"] == "no_space"
+    assert run["result"] == -7
+
+
+def test_task_run_retries_on_failed(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    agent.cfg["TASK_RETRY_MAX"] = "1"
+    agent.cfg["TASK_RETRY_BACKOFF_SEC"] = "0"
+    task = _window_task(store)
+    calls = []
+
+    def flaky(device):
+        calls.append(device)
+        if len(calls) == 1:
+            return {"ok": False, "action": "record_start", "result": -6,
+                    "error": "failed", "cause": "执行失败"}
+        return {"ok": True, "action": "record_start", "result": 0,
+                "request_id": "agent-record-2", "cause": "ok"}
+
+    monkeypatch.setattr(agent, "record_start", flaky)
+    agent._run_task(task, "2026-11-27 08:00:00")
+
+    assert len(calls) == 2
+    run = store.list_runs(task["id"])[0]
+    assert run["error"] is None
+    assert run["request_id"] == "agent-record-2"
+
+
+def test_task_run_control_denied_records_holder(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+    calls = []
+
+    def denied(device):
+        calls.append(device)
+        return {"ok": False, "action": "record_start", "result": -5,
+                "error": "control_denied", "cause": "控制权被占用",
+                "control_holder": {"client_id": "web-1",
+                                   "client_name": "Web A"}}
+
+    monkeypatch.setattr(agent, "record_start", denied)
+    agent._run_task(task, "2026-11-27 08:00:00")
+
+    assert len(calls) == 1
+    run = store.list_runs(task["id"])[0]
+    assert run["error"] == "control_denied"
+    assert "Web A" in run["cause"]
+
+
+def test_task_run_skips_disabled_task(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+    store.update_task(task["id"], enabled=False)
+    calls = []
+    monkeypatch.setattr(agent, "record_start",
+                        lambda device: calls.append(device) or {"ok": True})
+
+    agent._run_task(task, "2026-11-27 08:00:00")
+
+    assert calls == []
+    assert store.list_runs(task["id"]) == []
+
+
+def test_task_run_does_not_repeat_same_slot(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+    calls = []
+    monkeypatch.setattr(agent, "record_start", lambda device: calls.append(
+        device) or {"ok": True, "action": "record_start", "result": 0,
+                    "cause": "ok"})
+
+    agent._run_task(task, "2026-11-27 08:00:00")
+    agent._run_task(task, "2026-11-27 08:00:00")
+
+    assert calls == ["dev-1"]
+    assert len(store.list_runs(task["id"])) == 1
+
+
+def test_start_task_scheduler_starts_and_stops(agent, tmp_path):
+    _use_task_store(agent, tmp_path)
+
+    scheduler = agent.start_task_scheduler()
+
+    assert scheduler.running is True
+    agent.shutdown()
+    assert agent.task_scheduler is None
+    assert scheduler.running is False

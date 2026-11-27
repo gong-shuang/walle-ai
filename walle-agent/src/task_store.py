@@ -227,6 +227,33 @@ class TaskStore:
                 (str(run_id),)).fetchone()
         return dict(row) if row else None
 
+    def get_run_by_slot(self, task_id, phase, scheduled_at):
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM task_runs WHERE task_id = ? AND phase = ?"
+                " AND scheduled_at IS ?",
+                (str(task_id), str(phase), scheduled_at)).fetchone()
+        return dict(row) if row else None
+
+    def update_run(self, run_id, **fields):
+        allowed = {"phase", "scheduled_at", "started_at", "finished_at",
+                   "request_id", "result", "cause", "error"}
+        unknown = set(fields) - allowed
+        if unknown:
+            raise ValueError("不支持更新字段：{}".format(
+                "、".join(sorted(unknown))))
+        if not fields:
+            return self.get_run(run_id)
+        updates = ["{} = ?".format(key) for key in fields]
+        params = list(fields.values())
+        params.append(str(run_id))
+        with self._lock:
+            self._conn.execute(
+                "UPDATE task_runs SET {} WHERE run_id = ?".format(
+                    ", ".join(updates)), params)
+            self._conn.commit()
+        return self.get_run(run_id)
+
     def list_runs(self, task_id, limit=50):
         try:
             limit = max(1, int(limit))

@@ -264,6 +264,20 @@ def next_occurrence(task, now=None):
     return {"at": candidate.strftime(TIME_FORMAT), "phase": phase}
 
 
+def phase_for_slot(task, scheduled_at):
+    """根据已到期的 next_run_at 判断本次应执行 start 还是 stop。"""
+    schedule = validate_schedule(task.get("schedule"))
+    if schedule["type"] != "daily_window":
+        return _phase_for(task, schedule)
+    text = str(scheduled_at or "").strip()
+    for phase in ("start", "stop"):
+        clock = _parse_clock(schedule[phase])
+        if (text.endswith(clock.strftime("%H:%M:%S"))
+                or text.endswith(clock.strftime("%H:%M"))):
+            return phase
+    return None
+
+
 def advance_task(store, task, now=None):
     """计算下一次触发并写回 next_run_at；返回 next_occurrence 的结果。"""
     nxt = next_occurrence(task, now)

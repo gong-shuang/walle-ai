@@ -39,6 +39,7 @@ from walle_protocol import (RESULT_CODES, RequestBus, decode_result,  # noqa: E4
                             new_request_id)
 from task_store import TaskStore  # noqa: E402
 import task_schedule  # noqa: E402
+from task_scheduler import TaskScheduler  # noqa: E402
 
 try:
     import paho.mqtt.client as mqtt
@@ -74,6 +75,9 @@ DEFAULTS = {
     "TASK_DB_PATH": "data/agent.db",
     # M3-02：任务调度时区
     "TASK_TIMEZONE": "Asia/Shanghai",
+    # M3-05/M3-08：任务失败重试次数与退避秒数
+    "TASK_RETRY_MAX": "2",
+    "TASK_RETRY_BACKOFF_SEC": "2",
 }
 
 AGENT_VERSION_FILE = os.path.join(REPO_ROOT, "VERSION")
@@ -1138,6 +1142,9 @@ class Agent:
         # M3-01：任务库懒加载，避免只做对话时也创建 SQLite 文件
         self.task_store = None
         self.task_store_lock = threading.Lock()
+        # M3-05：任务调度器，由 main() 显式启动，测试可单独控制
+        self.task_scheduler = None
+        self.task_scheduler_lock = threading.Lock()
         self._connect_mqtt()
 
     def _dev(self, device):
@@ -1541,6 +1548,13 @@ class Agent:
         bus = getattr(self, "request_bus", None)
         if bus is not None:
             bus.fail_all("agent_shutdown", "agent 退出")
+        scheduler = getattr(self, "task_scheduler", None)
+        if scheduler is not None:
+            try:
+                scheduler.stop()
+            except Exception as exc:  # noqa: BLE001
+                log().warning("停止任务调度器失败: %s", exc)
+            self.task_scheduler = None
         store = getattr(self, "task_store", None)
         if store is not None:
             try:
@@ -2308,6 +2322,118 @@ class Agent:
                 "task": self._task_public(task),
                 "task_id": task["id"], "task_name": task["name"],
                 "next_run_at": nxt["at"], "first_run_at": nxt["at"]}
+
+    # ---- 任务执行（M3-05）----
+    TASK_RETRYABLE_ERRORS = {"timeout", "failed", "control_failed",
+                             "mqtt_not_connected"}
+    TASK_TERMINAL_ERRORS = {"no_space", "unavailable", "unsupported",
+                            "capability_unsupported", "control_occupied",
+                            "control_denied", "resource_busy",
+                            "parameter_error", "bad_param", "not_found"}
+
+    def start_task_scheduler(self):
+        """启动任务调度线程；由 main() 调用，测试可单独调用。"""
+        with self.task_scheduler_lock:
+            if self.task_scheduler is None:
+                self.task_scheduler = TaskScheduler(
+                    self.task_db(), self._dispatch_task, tick_sec=1.0,
+                    timezone=self.cfg.get("TASK_TIMEZONE"))
+            self.task_scheduler.start()
+            return self.task_scheduler
+
+    def _dispatch_task(self, task, scheduled_at):
+        threading.Thread(target=self._run_task, args=(task, scheduled_at),
+                         daemon=True, name="agent-task-run").start()
+        return {"dispatched": True, "task_id": task.get("id")}
+
+    def _task_retry_max(self):
+        try:
+            return max(0, int(self.cfg.get("TASK_RETRY_MAX", "2")))
+        except (TypeError, ValueError):
+            return 2
+
+    def _task_retry_backoff(self):
+        try:
+            return max(0.0, float(self.cfg.get("TASK_RETRY_BACKOFF_SEC", "2")))
+        except (TypeError, ValueError):
+            return 2.0
+
+    def _run_task(self, task, scheduled_at):
+        """执行一个到期阶段，记录 task_runs 并推进 next_run_at。"""
+        task_id = task.get("id")
+        store = self.task_db()
+        fresh = store.get_task(task_id)
+        if not fresh or not fresh.get("enabled"):
+            return
+        if fresh.get("next_run_at") != scheduled_at:
+            return
+        phase = task_schedule.phase_for_slot(fresh, scheduled_at) or "unknown"
+        if store.get_run_by_slot(task_id, phase, scheduled_at):
+            return
+        started_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        run = store.record_run(task_id, phase, scheduled_at=scheduled_at,
+                               started_at=started_at)
+        if not run or run.get("started_at") != started_at:
+            return  # 并发/重复分发，已有线程在处理
+        run_id = run["run_id"]
+        if phase not in ("start", "stop"):
+            self._finish_task_run(store, run_id, result=None,
+                                  cause="无法确定任务阶段",
+                                  error="phase_unknown")
+            self._advance_task(store, fresh)
+            return
+
+        attempts = 0
+        max_retries = self._task_retry_max()
+        while True:
+            try:
+                out = (self.record_start(fresh["device"]) if phase == "start"
+                       else self.record_stop(fresh["device"]))
+            except Exception as exc:  # noqa: BLE001 - 任务线程不能因单次异常退出
+                log().exception("任务执行异常 task_id=%s phase=%s",
+                                task_id, phase)
+                out = {"ok": False, "error": "agent_exception",
+                       "cause": str(exc)}
+            if out.get("ok"):
+                break
+            error = out.get("error")
+            if (error in self.TASK_TERMINAL_ERRORS
+                    or error not in self.TASK_RETRYABLE_ERRORS):
+                break
+            if attempts >= max_retries:
+                break
+            attempts += 1
+            time.sleep(self._task_retry_backoff() * attempts)
+
+        error = None if out.get("ok") else (out.get("error") or "failed")
+        cause = out.get("cause") or ("ok" if out.get("ok") else error)
+        holder = out.get("control_holder") or {}
+        if holder:
+            who = (holder.get("client_name") or holder.get("client_id")
+                   or "其他客户端")
+            cause = "{}（控制权：{}）".format(cause, who)
+            log().warning("任务控制权被占用 task_id=%s phase=%s holder=%s",
+                          task_id, phase, who)
+        if not out.get("ok"):
+            log().warning("任务执行失败 task_id=%s phase=%s error=%s cause=%s",
+                          task_id, phase, error, cause)
+        self._finish_task_run(store, run_id, request_id=out.get("request_id"),
+                              result=out.get("result"), cause=cause,
+                              error=error)
+        self._advance_task(store, fresh)
+
+    @staticmethod
+    def _finish_task_run(store, run_id, **fields):
+        fields["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            store.update_run(run_id, **fields)
+        except Exception as exc:  # noqa: BLE001
+            log().warning("更新任务执行记录失败 run_id=%s: %s", run_id, exc)
+
+    def _advance_task(self, store, task):
+        nxt = task_schedule.advance_task(store, task)
+        if nxt is None:
+            store.update_task(task["id"], enabled=False)
 
     def chat_status(self):
         return {
@@ -4358,6 +4484,12 @@ def main():
         time.sleep(0.2)
     if not agent.mqtt_connected:
         print("walle-agent 启动 10s 内未连上 MQTT，请检查配置与 broker；进程将继续重连",
+              file=sys.stderr, flush=True)
+    try:
+        agent.start_task_scheduler()
+        print("task scheduler started", flush=True)
+    except Exception as exc:  # noqa: BLE001 - 调度器失败不应拖垮主进程
+        print("task scheduler start failed: {}".format(exc),
               file=sys.stderr, flush=True)
     # SIGTERM（systemctl stop / kill）也要走正常退出流程，补发离线状态
     signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)

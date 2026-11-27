@@ -1870,7 +1870,8 @@ agent 忽略未识别的字段。
 ### 4.26 agent 任务管理 agent/{agent}/task/...（v1.27）
 
 **作用**：Web/App 查看、创建、暂停、恢复、取消 agent 的定时录像任务。
-任务持久化在 agent 本地 SQLite，agent 重启后仍可查询；任务真正到点执行见 M3-05。
+任务持久化在 agent 本地 SQLite，agent 重启后仍可查询；agent 调度线程到点执行
+`record.start` / `record.stop`，并把结果写入 `task_runs`。
 
 - 5 组请求/应答，QoS1，不 retained。
 - 主题：

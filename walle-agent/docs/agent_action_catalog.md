@@ -292,6 +292,10 @@ agent/{a}/task/pause/request|response
 agent/{a}/task/resume/request|response
 ```
 
+执行：agent 启动时启动调度线程；到点按 `start`/`stop` 调用
+`record_start()` / `record_stop()`，结果写入 `task_runs`，并推进 `next_run_at`。
+`-4` 视为成功；`-7/-5/-3` 不重试；`-6` 按 `TASK_RETRY_MAX` 重试。
+
 ## 10. 进度上报（§4.25）
 
 长动作在对话线程内自动上报：

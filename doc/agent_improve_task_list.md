@@ -239,7 +239,7 @@ agent：
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
-| M3 调度与任务 | 进行中 | 4/10 | SQLite、调度线程、四种任务类型、任务工具与 Web 任务页签已落地；执行器、对账待后续 |
+| M3 调度与任务 | 进行中 | 5/10 | SQLite、调度线程、四种任务类型、任务工具/Web 页签、录像任务执行已落地；控制权策略、对账待后续 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
 
@@ -822,12 +822,20 @@ agent：
 
 - **层级**：L4 任务调度层（调用 L2 动作）
 - **小白解释**：到点真正去发“开始录像/停止录像”命令，而不是只响个闹钟。
-- [ ] start：acquire（按策略）→ `record/start/request` → 解码 → 记录 run。
-- [ ] stop：`record/stop/request` → `0/-4` 视为成功。
-- [ ] `-7` 磁盘不足不重试；`-5` 通知 holder；`-6` 重试。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] start：acquire（按策略）→ `record/start/request` → 解码 → 记录 run。
+- [x] stop：`record/stop/request` → `0/-4` 视为成功。
+- [x] `-7` 磁盘不足不重试；`-5` 通知 holder；`-6` 重试。
+- 实现：
+  - `main()` 启动 `Agent.start_task_scheduler()`；调度器到期后调用 `_dispatch_task()`，每个任务独立线程执行，避免阻塞 1s tick。
+  - `_run_task()` 先校验任务仍启用、`next_run_at` 未变化、该 slot 未执行过；用 `phase_for_slot()` 判断 start/stop，再调用 `record_start` / `record_stop`。
+  - `task_runs` 先写 `started_at`，结束后补 `finished_at/request_id/result/cause/error`；`(task_id, phase, scheduled_at)` 唯一索引防重复执行。
+  - 重试：`TASK_RETRY_MAX`（默认 2）、`TASK_RETRY_BACKOFF_SEC`（默认 2，线性退避）；仅重试 `timeout/failed/control_failed/mqtt_not_connected`。
+  - `-4` 视为成功；`-7`、`-5`、`-3`、`unsupported`、`resource_busy` 不重试；`-5` 把 holder 写进 run 的 `cause` 并记 warning。
+  - 执行完成后 `advance_task()` 推进 `next_run_at`；没有后续（如 once 已过期）自动 `enabled=false`。
+  - `shutdown()` 先停调度器，再关闭任务库。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/src/task_scheduler.py`、`walle-agent/src/task_schedule.py`、`walle-agent/src/task_store.py`、`walle-agent/test/`
 - 验收：每天 8 点开始、21 点停止稳定执行。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 9 个执行用例（start/stop、-4/-7/-5/-6、禁用跳过、重复 slot、调度器启停、phase 判断）；`pytest walle-agent/test` 144 passed；未修改 MQTT 协议
 
 #### M3-06 控制权策略 shared / exclusive
 

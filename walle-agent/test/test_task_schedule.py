@@ -108,6 +108,17 @@ def test_timezone_aware_now_is_converted():
         "at": "2026-11-28 08:00:00", "phase": "start"}
 
 
+def test_phase_for_slot_daily_window():
+    task = _task({"type": "daily_window", "start": "08:00", "stop": "21:00"})
+
+    assert task_schedule.phase_for_slot(
+        task, "2026-11-27 08:00:00") == "start"
+    assert task_schedule.phase_for_slot(
+        task, "2026-11-27 21:00:00") == "stop"
+    assert task_schedule.phase_for_slot(
+        task, "2026-11-27 12:00:00") is None
+
+
 @pytest.mark.parametrize("schedule", [
     {},
     {"type": "unknown"},
