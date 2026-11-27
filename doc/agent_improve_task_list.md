@@ -241,7 +241,7 @@ agent：
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
 | M3 调度与任务 | 已完成 | 10/10 | SQLite、调度线程、四种类型、任务工具/Web 页签、录像执行、shared 控制权、重启对账、重试/幂等、任务事件、调度测试全部落地；exclusive 延后（配置后按 shared 执行） |
 | M4 混合 LLM | 已完成 | 10/10 | 规则层、工具 Schema、本地/在线模型、混合路由、多轮会话、澄清与确认、提示词与上下文、长任务/中止集成、LLM 测试全部落地 |
-| M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
+| M5 全量与硬化 | 进行中 | 1/10 | record.delete 已落地；回放/手机音频、多设备、capabilities、ACL、测试待实现 |
 
 > 状态取值：未开始 / 进行中 / 已完成 / 阻塞。完成一项就更新对应里程碑的计数。
 
@@ -1176,11 +1176,22 @@ agent：
 
 - **层级**：L2 动作编排层
 - **小白解释**：用户说“删掉今天的录像”时要真的删；但正在录的文件不能删，删除前要确认。
-- [ ] 文件名白名单；删除前二次确认。
-- [ ] 返回 `0/-1/-2/-3/-6`；正在录制不可删。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] 文件名白名单；删除前二次确认。
+- [x] 返回 `0/-1/-2/-3/-6`；正在录制不可删。
+- 实现：
+  - 新增 `Agent.record_delete(device, filename=None, latest=False)`：
+    - 缺文件名返回 `-1`；本地白名单 `^rec_\d{8}_\d{6}\.fmp4$` 不匹配返回 `-2`
+      （拒绝路径穿越，不发设备请求）；
+    - `latest=true` 先查 `record/list/query`，按文件名倒序取最新一条，再删；
+      列表为空返回 `-3`“没有可删除的录像”；
+    - 设备返回码透传：`-3` 文件不存在/服务不可用、`-4` 正在录制不可删、`-6` 删除失败，
+      `cause` 直接用设备可读说明。
+  - 对话侧沿用 M4-07 二次确认：`删除最新录像` → 反问确认 → 用户“确认”后才调用
+    `record_delete`；`_reply_text()` 成功回“已删除录像：<文件名>”，失败回设备原因。
+  - `record/delete` 不申请控制权，不与录像/推流互斥。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/docs/agent_action_catalog.md`、`walle-agent/test/`
 - 验收：对话「删除最新录像」先确认再删除；错误码可读。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-28 / 本次改动 / 新增 4 个用例（对话确认后删最新、非法文件名/缺名不发请求、无录像返回 -3、正在录制 -4 可读）；`pytest walle-agent/test` 255 passed；未修改 MQTT 字段
 
 #### M5-02 record.play.start / stop
 
@@ -1290,7 +1301,7 @@ agent：
 ## 4. 全量协议覆盖矩阵
 
 > 目标：18 组设备 request/response 全部由 agent 覆盖；`online`、`alarm/report` 为订阅上报。
-> 当前覆盖：13/18 组；缺手机音频（2 组）、录像删除/播放（3 组），见 M5。
+> 当前覆盖：14/18 组；缺手机音频（2 组）、录像播放（2 组），见 M5。
 
 | # | 协议 | 主题 | 里程碑 | 所属层 | 当前状态 |
 |---|---|---|---|---|---|
@@ -1306,7 +1317,7 @@ agent：
 | 10 | 开始录像 | `record/start/request` → `.../response` | M2-01 | L2 | 已完成（-4 幂等 / -7 空间不足） |
 | 11 | 停止录像 | `record/stop/request` → `.../response` | M2-01 | L2 | 已完成（-4 幂等） |
 | 12 | 录像列表 | `record/list/query/request` → `.../response` | M2-01 | L2/L3 | 已完成 |
-| 13 | 删除录像 | `record/delete/request` → `.../response` | M5-01 | L2 | 未实现 |
+| 13 | 删除录像 | `record/delete/request` → `.../response` | M5-01 | L2 | 已完成（白名单 + 二次确认） |
 | 14 | 播放录像 | `record/play/start/request` → `.../response` | M5-02 | L2 | 未实现 |
 | 15 | 停止播放 | `record/play/stop/request` → `.../response` | M5-02 | L2 | 未实现 |
 | 16 | 电机控制 | `car/motor/set/request` → `.../response` | M2-04 | L2/L3 | 已完成（5Hz + -5/-8/-3 回执） |

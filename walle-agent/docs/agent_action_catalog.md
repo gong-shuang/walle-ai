@@ -79,6 +79,7 @@ print(out["reply"])
 | `record_start` | `record_start()` | `record/start/request` | acquire/release | 是 |
 | `record_stop` | `record_stop()` | `record/stop/request` | acquire/release | 否 |
 | `record_list` | `record_list()` | `record/list/query/request` | 否 | 否 |
+| `record_delete` | `record_delete()` | `record/list/query`（latest）→ `record/delete/request` | 否 | 否 |
 | `stream_start` | `stream_start()` | `stream/start/request` | acquire/release | 是 |
 | `stream_stop` | `stream_stop()` | `stream/stop/request` | acquire/release | 否 |
 | `servo_status` | `servo_status()` | `car/servo/status/query/request` | 否 | 是 |
@@ -89,7 +90,9 @@ print(out["reply"])
 | `task_create` | `task_create()` | 本地 SQLite + `runState` 预检 | 否 | 否 |
 | `task_cancel` / `task_pause` / `task_resume` | 同名方法 | 本地 SQLite | 否 | 否 |
 
-> `record/delete`、`record/play/start|stop`、`phone/audio/*` 尚未实现（M5）。
+> `record/play/start|stop`、`phone/audio/*` 尚未实现（M5）。
+> `record_delete` 已实现：文件名白名单 `rec_YYYYMMDD_HHMMSS.fmp4`，对话删除需二次确认，
+> 正在录制的文件由设备返回 `-4` 拒绝。
 >
 > 摄像头相关动作按设计**允许并行**：录像与推流可同时进行，录像与回放也可同时进行，
 > agent 不设置 camera 互斥锁。`motion`、`servo` 仅对同一资源的重复操作串行，冲突返回 `resource_busy`。

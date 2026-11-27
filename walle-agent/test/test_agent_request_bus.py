@@ -1110,9 +1110,8 @@ def test_parse_intent_routes_record_delete_and_play():
     assert intent == {"action": "record_play_stop"}
 
 
-def test_record_delete_and_play_are_recognized_but_not_implemented(agent):
-    for text, action in (("删除最新录像", "record_delete"),
-                         ("播放最新录像", "record_play_start"),
+def test_record_play_is_recognized_but_not_implemented(agent):
+    for text, action in (("播放最新录像", "record_play_start"),
                          ("停止播放", "record_play_stop")):
         intent, error = car_agent.parse_intent(text)
         assert error is None
@@ -2956,3 +2955,92 @@ def test_m410_llm_delete_requires_confirmation(agent, monkeypatch):
     assert calls == [{"action": "record_delete", "latest": True}]
     assert out["ok"] is True
     assert pending.peek(client_id, "dev-1") is None
+
+
+# ---------------- M5-01 record.delete ----------------
+
+def _fake_record_bus(agent, monkeypatch, records=None, delete_result=0,
+                     delete_cause="ok"):
+    calls = []
+
+    def fake(device, resource, payload=None, **kwargs):
+        calls.append((resource, dict(payload or {})))
+        if resource == "record/list/query/request":
+            body = {"result": 0, "records": list(records or [])}
+        else:
+            body = {"result": delete_result, "cause": delete_cause,
+                    "filename": (payload or {}).get("filename")}
+        return {"received": True, "request_id": "agent-record-test",
+                "payload": body, "decoded": car_agent.decode_result(body)}
+
+    monkeypatch.setattr(agent.request_bus, "request", fake)
+    return calls
+
+
+def test_m501_chat_delete_latest_confirms_then_deletes(agent, monkeypatch):
+    _store, pending = _setup_confirm_chat(agent, monkeypatch)
+    calls = _fake_record_bus(agent, monkeypatch, records=[
+        {"filename": "rec_20261127_090000.fmp4"},
+        {"filename": "rec_20261128_090000.fmp4"},
+    ])
+    client_id = "web-m501"
+
+    first = car_agent.handle_chat("web", "dev-1", "删除最新录像",
+                                  client_id=client_id)
+    assert first["ok"] is False
+    assert "确认" in first["reply"]
+    assert calls == []
+    assert pending.peek(client_id, "dev-1")["kind"] == "confirm"
+
+    out = car_agent.handle_chat("web", "dev-1", "确认", client_id=client_id)
+
+    assert out["ok"] is True
+    assert "已删除录像" in out["reply"]
+    assert "rec_20261128_090000.fmp4" in out["reply"]
+    assert calls == [
+        ("record/list/query/request", {}),
+        ("record/delete/request",
+         {"filename": "rec_20261128_090000.fmp4"}),
+    ]
+    assert pending.peek(client_id, "dev-1") is None
+
+
+def test_m501_record_delete_rejects_invalid_filename(agent, monkeypatch):
+    def no_call(*args, **kwargs):
+        raise AssertionError("非法文件名不应向设备发送请求")
+
+    monkeypatch.setattr(agent.request_bus, "request", no_call)
+
+    bad = agent.record_delete("dev-1", "../rec_20261128_090000.fmp4")
+    assert bad["ok"] is False
+    assert bad["result"] == -2
+    assert "非法文件名" in bad["cause"]
+
+    empty = agent.record_delete("dev-1")
+    assert empty["ok"] is False
+    assert empty["result"] == -1
+    assert "缺少文件名" in empty["cause"]
+
+
+def test_m501_record_delete_latest_without_records(agent, monkeypatch):
+    _fake_record_bus(agent, monkeypatch, records=[])
+
+    out = agent.record_delete("dev-1", latest=True)
+
+    assert out["ok"] is False
+    assert out["result"] == -3
+    assert "没有可删除的录像" in out["cause"]
+
+
+def test_m501_record_delete_recording_is_rejected(agent, monkeypatch):
+    _fake_record_bus(agent, monkeypatch, delete_result=-4,
+                     delete_cause="该文件正在录制，不可删除")
+
+    out = agent.record_delete("dev-1", "rec_20261128_090000.fmp4")
+
+    assert out["ok"] is False
+    assert out["result"] == -4
+    assert out["error"] == "recording"
+    assert "正在录制" in out["cause"]
+    reply = car_agent._reply_text({"action": "record_delete"}, out)
+    assert "正在录制" in reply

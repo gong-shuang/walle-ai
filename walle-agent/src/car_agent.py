@@ -215,6 +215,8 @@ _PENDING_STORE_LOCK = threading.RLock()
 FOLLOWUP_STEP_M = 0.5
 # M4-07：舵机目标离中位超过该值视为大幅动作，需要二次确认
 SERVO_CONFIRM_MARGIN = 500
+# M5-01：删除录像文件名白名单，与设备端 record/delete 一致（仅文件名，不含路径）
+_RECORD_DELETE_RE = re.compile(r"^rec_\d{8}_\d{6}\.fmp4$")
 
 
 def _machine_fingerprint():
@@ -3343,10 +3345,8 @@ class Agent:
         if intent["action"] == "record_list":
             return self.record_list(device)
         if intent["action"] == "record_delete":
-            # 规则层已识别；实际删除在 M5-01 接入
-            return {"ok": False, "action": "record_delete", "device": device,
-                    "error": "unsupported",
-                    "cause": "录像删除功能尚未实现（M5-01）"}
+            return self.record_delete(device, intent.get("filename"),
+                                      bool(intent.get("latest")))
         if intent["action"] in ("record_play_start", "record_play_stop"):
             return {"ok": False, "action": intent["action"], "device": device,
                     "error": "unsupported",
@@ -3972,6 +3972,72 @@ class Agent:
             out["error"] = decoded.get("error") or "failed"
             out["cause"] = decoded.get("cause") or "查询录像列表失败"
         return out
+
+    def record_delete(self, device, filename=None, latest=False):
+        """删除指定录像或最新录像（M5-01）：本地白名单校验后直连设备删除。"""
+        if not (self.mqtt_client and self.mqtt_connected):
+            return {"ok": False, "action": "record_delete", "device": device,
+                    "result": -3, "error": "mqtt_not_connected",
+                    "cause": "MQTT 未连接"}
+        target = str(filename or "").strip()
+        if latest and not target:
+            listed = self.record_list(device)
+            if not listed.get("ok"):
+                return {"ok": False, "action": "record_delete",
+                        "device": device,
+                        "result": (listed.get("result")
+                                   if listed.get("result") is not None
+                                   else -3),
+                        "error": listed.get("error") or "failed",
+                        "cause": "查询最新录像失败：{}".format(
+                            listed.get("cause") or listed.get("error")
+                            or "未知错误")}
+            records = [item for item in listed.get("records") or []
+                       if isinstance(item, dict) and item.get("filename")]
+            if not records:
+                return {"ok": False, "action": "record_delete",
+                        "device": device, "result": -3,
+                        "error": "not_found", "cause": "没有可删除的录像"}
+            records.sort(key=lambda item: str(item.get("filename")),
+                         reverse=True)
+            target = str(records[0]["filename"])
+        if not target:
+            return {"ok": False, "action": "record_delete", "device": device,
+                    "result": -1, "error": "bad_param",
+                    "cause": "命令无效：缺少文件名"}
+        if not _RECORD_DELETE_RE.match(target):
+            return {"ok": False, "action": "record_delete", "device": device,
+                    "result": -2, "error": "invalid_filename",
+                    "filename": target,
+                    "cause": "非法文件名（只允许 rec_YYYYMMDD_HHMMSS.fmp4，"
+                             "不能包含路径）"}
+        res = self.request_bus.request(
+            device, "record/delete/request", {"filename": target},
+            timeout=6.0)
+        if not res.get("received"):
+            return {"ok": False, "action": "record_delete", "device": device,
+                    "request_id": res.get("request_id"),
+                    "filename": target,
+                    "error": res.get("error") or "timeout",
+                    "cause": res.get("cause") or "等待删除应答超时"}
+        payload = res.get("payload") or {}
+        decoded = res.get("decoded") or decode_result(payload)
+        result = decoded.get("result")
+        deleted = str(payload.get("filename") or target)
+        base = {"action": "record_delete", "device": device,
+                "request_id": res.get("request_id"), "result": result,
+                "filename": deleted, "payload": payload}
+        if result == 0:
+            base.update({"ok": True, "cause": decoded.get("cause") or "ok"})
+            return base
+        base.update({
+            "ok": False,
+            "error": decoded.get("error") or "failed",
+            "cause": decoded.get("cause") or "删除失败",
+        })
+        if result == -4:
+            base["error"] = "recording"
+        return base
 
     def servo_status(self, device, ids=None, include_offset=False):
         """查询舵机位置：只读查询，不申请控制权（M2-03）。"""
@@ -5101,7 +5167,14 @@ def _reply_text(intent, result):
                 _human_bytes(result.get("limit_bytes")) or "?")
         return "查询录像列表失败：{}。".format(
             result.get("cause") or result.get("error") or "未知错误")
-    elif action in ("record_delete", "record_play_start", "record_play_stop"):
+    elif action == "record_delete":
+        if result.get("ok"):
+            return "已删除录像{}。".format(
+                "：" + str(result["filename"])
+                if result.get("filename") else "")
+        return "删除录像失败：{}。".format(
+            result.get("cause") or result.get("error") or "未知错误")
+    elif action in ("record_play_start", "record_play_stop"):
         return result.get("cause") or "该录像功能尚未实现。"
     else:
         return "已解析。"
