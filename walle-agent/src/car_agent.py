@@ -36,6 +36,7 @@ if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
 from walle_protocol import (RESULT_CODES, RequestBus, decode_result,  # noqa: E402,F401
                             new_request_id)
 from task_store import TaskStore  # noqa: E402
+import chat_session  # noqa: E402
 import llm_router  # noqa: E402
 import task_schedule  # noqa: E402
 from task_scheduler import TaskScheduler  # noqa: E402
@@ -69,6 +70,9 @@ DEFAULTS = {
     "LLM_ENABLED": "0",
     # M4-05：off/local/online/hybrid；hybrid=简单先本地、复杂先在线，失败互相回退
     "LLM_MODE": "local",
+    # M4-06：多轮会话缓存（按 client_id + device）
+    "CHAT_HISTORY_MAX_TURNS": "8",
+    "CHAT_HISTORY_TTL_SEC": "1800",
     "LLM_BASE_URL": "",
     "LLM_API_KEY": "",
     "LLM_MODEL": "",
@@ -201,6 +205,10 @@ AGENT_NAME_FILE = os.path.join(REPO_ROOT, "etc", ".run", "agent-name")
 
 _AGENT_NAME = None
 _AGENT_NAME_LOCK = threading.RLock()
+
+_CHAT_STORE = None
+_CHAT_STORE_LOCK = threading.RLock()
+FOLLOWUP_STEP_M = 0.5
 
 
 def _machine_fingerprint():
@@ -1118,7 +1126,7 @@ def validate_intent(intent, cfg):
                             "stream_start", "stream_stop", "servo_status",
                             "servo_set", "servo_center", "servo_relative",
                             "task_list", "task_create", "task_cancel",
-                            "task_pause", "task_resume"):
+                            "task_pause", "task_resume", "task_update"):
         return intent, None
 
     max_distance = float(cfg["MAX_DISTANCE"])
@@ -2159,7 +2167,8 @@ class Agent:
                 }[missing]
                 result = {"ok": False, "error": "invalid", "reply": reply}
             else:
-                result = handle_chat(client_name, device, text)
+                result = handle_chat(client_name, device, text,
+                                     client_id=client_id)
             response["ok"] = bool(result.get("ok"))
             response["reply"] = result.get("reply")
             for key in ("intent", "warning", "error", "action", "duration_sec"):
@@ -2401,6 +2410,75 @@ class Agent:
                 "task": self._task_public(task),
                 "task_id": task["id"], "task_name": task["name"],
                 "next_run_at": nxt["at"], "first_run_at": nxt["at"]}
+
+    def task_update(self, task_id, time_text, boundary="start"):
+        """M4-06：修改任务时间（多轮「改成晚上10点」）。"""
+        store = self.task_db()
+        task = store.get_task(str(task_id or "").strip()) if task_id else None
+        if task is None:
+            return {"ok": False, "action": "task_update",
+                    "error": "not_found",
+                    "cause": "任务不存在：{}".format(task_id or "")}
+        try:
+            hour, minute = [int(part) for part in
+                            str(time_text).split(":")[:2]]
+        except (TypeError, ValueError):
+            return {"ok": False, "action": "task_update",
+                    "error": "bad_param", "cause": "时间格式应为 HH:MM",
+                    "task_id": task["id"]}
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            return {"ok": False, "action": "task_update",
+                    "error": "bad_param", "cause": "时间超出范围",
+                    "task_id": task["id"]}
+        new_time = "{:02d}:{:02d}".format(hour, minute)
+        schedule = dict(task.get("schedule") or {})
+        kind = schedule.get("type")
+        boundary = "stop" if boundary == "stop" else "start"
+        if kind == "daily_window":
+            schedule[boundary] = new_time
+        elif kind == "once":
+            at = str(schedule.get("at") or "").strip()
+            date = (at.split(" ")[0] if " " in at else
+                    task_schedule.now_in_timezone(
+                        task.get("timezone")).date().isoformat())
+            schedule["at"] = "{} {}:00".format(date, new_time)
+        elif kind == "cron":
+            parts = str(schedule.get("expr") or "").split()
+            if len(parts) != 5:
+                return {"ok": False, "action": "task_update",
+                        "error": "bad_param", "cause": "cron 表达式非法",
+                        "task_id": task["id"]}
+            parts[0], parts[1] = str(minute), str(hour)
+            schedule["expr"] = " ".join(parts)
+        else:
+            return {"ok": False, "action": "task_update",
+                    "error": "unsupported",
+                    "cause": "interval 任务不支持修改时间",
+                    "task_id": task["id"]}
+        try:
+            schedule = task_schedule.validate_schedule(schedule)
+        except ValueError as exc:
+            return {"ok": False, "action": "task_update",
+                    "error": "bad_param", "cause": str(exc),
+                    "task_id": task["id"]}
+        draft = dict(task)
+        draft["schedule"] = schedule
+        nxt = task_schedule.next_occurrence(draft)
+        if nxt is None:
+            return {"ok": False, "action": "task_update",
+                    "error": "no_future", "cause": "修改后没有下一次执行时间",
+                    "task_id": task["id"]}
+        updated = store.update_task(task["id"], schedule=schedule,
+                                    next_run_at=nxt["at"])
+        if kind == "once":
+            label = "执行时间"
+        else:
+            label = "停止时间" if boundary == "stop" else "开始时间"
+        return {"ok": True, "action": "task_update",
+                "task": self._task_public(updated), "task_id": task["id"],
+                "task_name": task["name"], "next_run_at": nxt["at"],
+                "reply": "任务「{}」的{}已改为 {}".format(
+                    task["name"], label, new_time)}
 
     # ---- 任务执行（M3-05）----
     TASK_RETRYABLE_ERRORS = {"timeout", "failed", "control_failed",
@@ -3164,6 +3242,9 @@ class Agent:
         if intent["action"] == "task_resume":
             return self.task_resume(intent.get("task_id"),
                                     intent.get("task_name"))
+        if intent["action"] == "task_update":
+            return self.task_update(intent.get("task_id"), intent.get("time"),
+                                    intent.get("boundary", "start"))
         if intent["action"] == "record_start":
             return self.record_start(device, intent.get("segment_sec") or 0)
         if intent["action"] == "record_stop":
@@ -4527,11 +4608,11 @@ def _get_agent():
 
 # ---------------- 可选 LLM 兜底 ----------------
 
-def _llm_parse(text):
+def _llm_parse(text, context=None):
     """M4-05：按 LLM_MODE 路由（本地/在线/混合）；失败返回 None 交给规则层。"""
     try:
         intent, error, source = llm_router.parse_hybrid(
-            text, load_config())
+            text, load_config(), context=context)
     except Exception as exc:  # noqa: BLE001 - LLM 失败不能拖垮对话
         log().warning("LLM 解析异常: %s", exc)
         return None
@@ -4754,6 +4835,11 @@ def _reply_text(intent, result):
                 result.get("next_run_at") or "无")
         return "恢复任务失败：{}。".format(
             result.get("cause") or result.get("error") or "未知错误")
+    elif action == "task_update":
+        if result.get("ok"):
+            return result.get("reply") or "任务已更新。"
+        return "修改任务失败：{}。".format(
+            result.get("cause") or result.get("error") or "未知错误")
     elif action == "record_start":
         if result.get("ok"):
             if result.get("already_recording"):
@@ -4884,30 +4970,148 @@ def _chat_device_result(result):
     return {"truncated": True, "size_bytes": size, "summary": summary}
 
 
-def handle_chat(client_name, device, text):
+def _chat_store():
+    """M4-06：进程内多轮会话缓存；首次访问时按配置创建。"""
+    global _CHAT_STORE
+    with _CHAT_STORE_LOCK:
+        if _CHAT_STORE is None:
+            cfg = load_config()
+            try:
+                max_turns = int(cfg.get("CHAT_HISTORY_MAX_TURNS") or 8)
+            except (TypeError, ValueError):
+                max_turns = 8
+            try:
+                ttl = float(cfg.get("CHAT_HISTORY_TTL_SEC") or 1800)
+            except (TypeError, ValueError):
+                ttl = 1800
+            _CHAT_STORE = chat_session.ConversationStore(
+                max_turns=max_turns, ttl_sec=ttl)
+        return _CHAT_STORE
+
+
+def _choose_task_boundary(text, schedule, new_time):
+    if any(word in text for word in ("停止", "结束", "关闭")):
+        return "stop"
+    if any(word in text for word in ("开始", "启动", "打开")):
+        return "start"
+    if (schedule or {}).get("type") == "daily_window":
+        stop = str(schedule.get("stop") or "")
+        if stop and new_time > stop:
+            return "stop"
+    return "start"
+
+
+def _resolve_followup(text, store, identity, device):
+    """M4-06：解析「再往前一点 / 改成晚上10点 / 删除最新录像」。"""
+    t = _normalize(text)
+    if not t:
+        return None
+
+    if ("再" in t or "继续" in t) and ("一点" in t or "点" in t):
+        direction = None
+        for value, words in (
+                ("forward", ("往前", "向前", "前进", "往前走")),
+                ("backward", ("往后", "向后", "后退", "倒车")),
+                ("left", ("往左", "向左", "左移")),
+                ("right", ("往右", "向右", "右移"))):
+            if any(word in t for word in words):
+                direction = value
+                break
+        if direction and store.last(identity, device, action="move"):
+            return {"action": "move", "direction": direction,
+                    "distance_m": FOLLOWUP_STEP_M}
+
+    if any(word in t for word in ("改成", "换成", "改为", "换为")):
+        times = _task_times(t)
+        if times:
+            previous = store.last(identity, device, action="task_create")
+            if previous:
+                outcome = previous.get("outcome") or {}
+                task_id = outcome.get("task_id")
+                if task_id:
+                    new_time = _fmt_task_time(times[0])
+                    return {
+                        "action": "task_update", "task_id": task_id,
+                        "time": new_time,
+                        "boundary": _choose_task_boundary(
+                            t, outcome.get("schedule") or {}, new_time),
+                    }
+
+    if any(word in t for word in ("删除", "删掉", "播放", "回放")) and any(
+            word in t for word in ("最新", "最后", "它", "这个", "这条")):
+        previous = store.last(identity, device, action="record_list")
+        if previous:
+            filename = (previous.get("outcome") or {}).get("latest_filename")
+            if filename:
+                action = ("record_delete" if any(
+                    word in t for word in ("删除", "删掉"))
+                    else "record_play_start")
+                return {"action": action, "filename": filename}
+    return None
+
+
+def _history_outcome(result):
+    outcome = {"ok": bool(result.get("ok"))}
+    task = result.get("task") or {}
+    task_id = result.get("task_id") or task.get("task_id")
+    if task_id:
+        outcome["task_id"] = task_id
+    schedule = task.get("schedule") or result.get("schedule")
+    if schedule:
+        outcome["schedule"] = schedule
+    records = result.get("records")
+    if isinstance(records, list) and records and isinstance(records[0], dict):
+        filename = records[0].get("filename")
+        if filename:
+            outcome["latest_filename"] = filename
+    for key in ("direction", "distance_m", "filename", "room_number"):
+        if result.get(key) is not None:
+            outcome[key] = result[key]
+    reply = result.get("reply")
+    if reply:
+        outcome["summary"] = str(reply)[:160]
+    return outcome
+
+
+def _record_chat(store, identity, device, text, intent, result):
+    store.append(identity, device, text, intent=intent,
+                 outcome=_history_outcome(result))
+    return result
+
+
+def handle_chat(client_name, device, text, client_id=None):
     agent = _get_agent()
-    intent, err = parse_intent(text)
-    log().info("chat client_name=%s device=%s text=%r intent=%s err=%s",
-               client_name, device, text, intent, err)
+    store = _chat_store()
+    identity = client_id or client_name
+    intent = _resolve_followup(text, store, identity, device)
+    err = None
     if intent is None:
-        intent = _llm_parse(text)
+        intent, err = parse_intent(text)
+    log().info("chat client_id=%s client_name=%s device=%s text=%r "
+               "intent=%s err=%s", client_id, client_name, device, text,
+               intent, err)
+    if intent is None:
+        intent = _llm_parse(text, context=store.context(identity, device))
         if intent is not None:
             err = None
     if intent is None:
-        return {"ok": False, "device": device,
-                "reply": err or "未识别该指令。",
-                "mqtt": agent.mqtt_status()}
+        return _record_chat(store, identity, device, text, None, {
+            "ok": False, "device": device,
+            "reply": err or "未识别该指令。",
+            "mqtt": agent.mqtt_status()})
     if intent.get("action") == "unknown":
         # 模型明确表示没有匹配的工具：给可操作的提示，不套用规则层旧文案
-        return {"ok": False, "device": device,
-                "reply": ("我暂时没理解这句话。你可以说：前进3米、开始录像、"
-                          "查看任务、今天星期几。"),
-                "mqtt": agent.mqtt_status()}
+        return _record_chat(store, identity, device, text, intent, {
+            "ok": False, "device": device,
+            "reply": ("我暂时没理解这句话。你可以说：前进3米、开始录像、"
+                      "查看任务、今天星期几。"),
+            "mqtt": agent.mqtt_status()})
 
     intent, warning = validate_intent(intent, agent.cfg)
     if intent is None:
-        return {"ok": False, "device": device,
-                "reply": warning, "mqtt": agent.mqtt_status()}
+        return _record_chat(store, identity, device, text, None, {
+            "ok": False, "device": device,
+            "reply": warning, "mqtt": agent.mqtt_status()})
 
     result = agent.execute(device, intent, client_name)
     result["intent"] = intent
@@ -4916,7 +5120,8 @@ def handle_chat(client_name, device, text):
     if warning:
         result["warning"] = warning
     result["reply"] = _reply_text(intent, result)
-    return result
+    return _record_chat(store, identity, device, text,
+                        result.get("intent") or intent, result)
 
 
 def health(device=None):

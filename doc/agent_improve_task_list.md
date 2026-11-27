@@ -240,7 +240,7 @@ agent：
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
 | M3 调度与任务 | 已完成 | 10/10 | SQLite、调度线程、四种类型、任务工具/Web 页签、录像执行、shared 控制权、重启对账、重试/幂等、任务事件、调度测试全部落地；exclusive 延后（配置后按 shared 执行） |
-| M4 混合 LLM | 进行中 | 5/10 | 规则层、工具 Schema、本地/在线模型、混合路由已落地；多轮与确认待实现 |
+| M4 混合 LLM | 进行中 | 6/10 | 规则层、工具 Schema、本地/在线模型、混合路由、多轮会话已落地；确认与上下文增强待实现 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
 
 > 状态取值：未开始 / 进行中 / 已完成 / 阻塞。完成一项就更新对应里程碑的计数。
@@ -1054,12 +1054,25 @@ agent：
 
 - **层级**：L1 对话理解层
 - **小白解释**：用户会说“改成晚上10点”“删除最新录像”“再往前一点”，需要记住上一轮说了什么。
-- [ ] 按 `client_id + device` 保存最近 6–10 轮。
-- [ ] 支持「改成晚上 10 点」「删除最新录像」「再往前一点」。
-- [ ] 过期会话清理。
-- 文件：`walle-agent/src/`
+- [x] 按 `client_id + device` 保存最近 6–10 轮。
+- [x] 支持「改成晚上 10 点」「删除最新录像」「再往前一点」。
+- [x] 过期会话清理。
+- 实现：
+  - 新增 `walle-agent/src/chat_session.py`：`ConversationStore` 按
+    `client_id + device` 保存最近 8 轮（`CHAT_HISTORY_MAX_TURNS`），
+    30 分钟过期（`CHAT_HISTORY_TTL_SEC`），线程安全、进程重启后清空。
+  - `handle_chat()` 接收 `client_id`，每轮记录用户文本、intent 与结果摘要；
+    规则未命中时把最近 6 轮作为 context 传给 LLM。
+  - 指代解析 `_resolve_followup()`：
+    - 「再往前/后/左/右一点」→ 复用上一轮 move 方向，默认 0.5 米；
+    - 「改成晚上 10 点」→ 引用上一轮创建的任务，按时间选择 start/stop，
+      调用新增的 `task_update` 更新原任务，避免重复创建；
+    - 「删除最新录像 / 删除它」→ 引用上一轮 `record_list` 的首个文件名。
+  - `Agent.task_update()` 支持 `daily_window` / `once` / `cron` 改时间并重算
+    `next_run_at`；`interval` 返回 `unsupported`。
+- 文件：`walle-agent/src/chat_session.py`、`walle-agent/src/car_agent.py`、`walle-agent/test/`
 - 验收：多轮指令能正确引用上一轮结果。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 11 个多轮用例（缓存/TTL/上下文、移动指代、任务改时间、删除最新、task_update、历史落盘）；`pytest walle-agent/test` 226 passed
 
 #### M4-07 澄清与确认
 

@@ -627,7 +627,7 @@ def _chat_response(agent):
 
 
 def test_chat_response_stream_start_carries_room_number(agent, monkeypatch):
-    monkeypatch.setattr(car_agent, "handle_chat", lambda *args: {
+    monkeypatch.setattr(car_agent, "handle_chat", lambda *args, **kwargs: {
         "ok": True, "action": "stream_start", "room_number": "room-123",
         "reply": "已开始推流，房间号：room-123。",
         "payload": {"result": 0, "room_number": "room-123"},
@@ -640,7 +640,7 @@ def test_chat_response_stream_start_carries_room_number(agent, monkeypatch):
 
 
 def test_chat_response_record_list_carries_filenames(agent, monkeypatch):
-    monkeypatch.setattr(car_agent, "handle_chat", lambda *args: {
+    monkeypatch.setattr(car_agent, "handle_chat", lambda *args, **kwargs: {
         "ok": True, "action": "record_list", "count": 1,
         "reply": "共 1 个录像：rec_20261127_080000.fmp4。",
         "records": [{
@@ -662,7 +662,7 @@ def test_chat_response_record_list_carries_filenames(agent, monkeypatch):
 
 
 def test_chat_response_servo_set_carries_applied_skipped(agent, monkeypatch):
-    monkeypatch.setattr(car_agent, "handle_chat", lambda *args: {
+    monkeypatch.setattr(car_agent, "handle_chat", lambda *args, **kwargs: {
         "ok": True, "action": "servo_set",
         "reply": "舵机已设置：ID1=1500；已跳过：ID2=3000（越界）。",
         "applied": [{"id": 1, "position": 1500}],
@@ -679,7 +679,7 @@ def test_chat_response_servo_set_carries_applied_skipped(agent, monkeypatch):
 
 
 def test_chat_response_truncates_large_device_result(agent, monkeypatch):
-    monkeypatch.setattr(car_agent, "handle_chat", lambda *args: {
+    monkeypatch.setattr(car_agent, "handle_chat", lambda *args, **kwargs: {
         "ok": True, "action": "record_list", "records": [],
         "reply": "暂无录像。",
         "payload": {"result": 0, "cause": "ok", "records": [],
@@ -766,7 +766,7 @@ def test_servo_status_reports_failed_progress(agent, monkeypatch):
 def test_chat_request_sets_and_clears_progress_context(agent, monkeypatch):
     seen = {}
 
-    def fake_handle_chat(client_name, device, text):
+    def fake_handle_chat(client_name, device, text, client_id=None):
         seen["request_id"] = agent._chat_request_id()
         return {"ok": True, "reply": "ok", "action": "status"}
 
@@ -1155,7 +1155,7 @@ def test_handle_chat_unknown_from_llm_replies_hint(agent, monkeypatch):
     monkeypatch.setattr(car_agent, "_get_agent", lambda: agent)
     monkeypatch.setattr(car_agent, "parse_intent", lambda text: (None, "old"))
     monkeypatch.setattr(car_agent, "_llm_parse",
-                        lambda text: {"action": "unknown"})
+                        lambda text, context=None: {"action": "unknown"})
 
     out = car_agent.handle_chat("web", "dev-1", "讲个笑话")
 
@@ -1637,7 +1637,7 @@ def test_servo_status_partial_keeps_available_results(agent):
 
 
 def test_chat_response_record_start_carries_recording(agent, monkeypatch):
-    monkeypatch.setattr(car_agent, "handle_chat", lambda *args: {
+    monkeypatch.setattr(car_agent, "handle_chat", lambda *args, **kwargs: {
         "ok": True, "action": "record_start", "recording": True,
         "filename": "rec_test.fmp4", "started_at": "2026-11-27 14:00:00",
         "reply": "已开始录像：rec_test.fmp4",
@@ -1652,7 +1652,7 @@ def test_chat_response_record_start_carries_recording(agent, monkeypatch):
 
 def test_chat_response_servo_status_carries_servos(agent, monkeypatch):
     servos = [{"id": 1, "position": 1500, "available": True, "error": None}]
-    monkeypatch.setattr(car_agent, "handle_chat", lambda *args: {
+    monkeypatch.setattr(car_agent, "handle_chat", lambda *args, **kwargs: {
         "ok": True, "action": "servo_status", "servos": servos,
         "reply": "舵机状态：ID1（上下）=1500。",
         "payload": {"result": 0, "servos": servos},
@@ -2422,3 +2422,134 @@ def test_reconcile_catch_up_publishes_events(agent, tmp_path, monkeypatch):
     assert events[1]["message"].endswith("rec.fmp4")
     assert run["request_id"] == "agent-reconcile-1"
     assert run["error"] is None
+
+
+# ---------------- M4-06 多轮会话 ----------------
+
+def _history():
+    return car_agent.chat_session.ConversationStore()
+
+
+def test_followup_repeat_move():
+    store = _history()
+    store.append(
+        "web", "dev-1", "前进3米",
+        intent={"action": "move", "direction": "forward", "distance_m": 3},
+        outcome={"distance_m": 3})
+
+    assert car_agent._resolve_followup(
+        "再往前一点", store, "web", "dev-1") == {
+            "action": "move", "direction": "forward", "distance_m": 0.5}
+    assert car_agent._resolve_followup(
+        "再往右一点", store, "web", "dev-1") == {
+            "action": "move", "direction": "right", "distance_m": 0.5}
+    assert car_agent._resolve_followup(
+        "再往前一点", _history(), "web", "dev-1") is None
+
+
+def test_followup_task_time_update():
+    schedule = {"type": "daily_window", "start": "08:00", "stop": "21:00"}
+    store = _history()
+    store.append(
+        "web", "dev-1", "每天8点开始录像，晚上9点停止",
+        intent={"action": "task_create", "schedule": schedule},
+        outcome={"task_id": "task-1a2b3c4d", "schedule": schedule})
+
+    assert car_agent._resolve_followup(
+        "改成晚上10点", store, "web", "dev-1") == {
+            "action": "task_update", "task_id": "task-1a2b3c4d",
+            "time": "22:00", "boundary": "stop"}
+    assert car_agent._resolve_followup(
+        "开始时间改成早上7点", store, "web", "dev-1") == {
+            "action": "task_update", "task_id": "task-1a2b3c4d",
+            "time": "07:00", "boundary": "start"}
+
+
+def test_followup_delete_latest_from_history():
+    store = _history()
+    store.append(
+        "web", "dev-1", "查看录像",
+        intent={"action": "record_list"},
+        outcome={"latest_filename": "20261127_080000.fmp4"})
+
+    assert car_agent._resolve_followup(
+        "删除最新录像", store, "web", "dev-1") == {
+            "action": "record_delete",
+            "filename": "20261127_080000.fmp4"}
+    assert car_agent._resolve_followup(
+        "删除它", store, "web", "dev-1") == {
+            "action": "record_delete",
+            "filename": "20261127_080000.fmp4"}
+
+
+def test_task_update_daily_window(agent, tmp_path):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+
+    out = agent.task_update(task["id"], "22:00", "stop")
+
+    assert out["ok"] is True
+    fresh = store.get_task(task["id"])
+    assert fresh["schedule"]["stop"] == "22:00"
+    assert fresh["next_run_at"]
+
+
+def test_task_update_once_and_cron(agent, tmp_path):
+    store = _use_task_store(agent, tmp_path)
+    once = store.create_task(
+        "一次性", "dev-1",
+        {"type": "once", "at": "2030-01-01 08:00:00"},
+        [{"phase": "start", "tool": "record.start"}],
+        next_run_at="2030-01-01 08:00:00")
+    cron = store.create_task(
+        "cron", "dev-1", {"type": "cron", "expr": "0 8 * * 1-5"},
+        [{"phase": "start", "tool": "record.start"}],
+        next_run_at="2026-11-27 08:00:00")
+
+    assert agent.task_update(once["id"], "10:00", "start")["ok"] is True
+    assert store.get_task(once["id"])["schedule"]["at"] == (
+        "2030-01-01 10:00:00")
+    assert agent.task_update(cron["id"], "10:30", "start")["ok"] is True
+    assert store.get_task(cron["id"])["schedule"]["expr"] == "30 10 * * 1-5"
+
+
+def test_task_update_interval_is_unsupported(agent, tmp_path):
+    store = _use_task_store(agent, tmp_path)
+    task = store.create_task(
+        "间隔", "dev-1", {"type": "interval", "seconds": 3600},
+        [{"phase": "start", "tool": "record.start"}],
+        next_run_at="2026-11-27 08:00:00")
+
+    out = agent.task_update(task["id"], "10:00")
+
+    assert out["ok"] is False
+    assert out["error"] == "unsupported"
+
+
+def test_handle_chat_records_history_and_passes_context(agent, monkeypatch):
+    store = _history()
+    monkeypatch.setattr(car_agent, "_CHAT_STORE", store)
+    monkeypatch.setattr(car_agent, "_get_agent", lambda: agent)
+    store.append(
+        "web", "dev-1", "前进3米",
+        intent={"action": "move", "direction": "forward", "distance_m": 3},
+        outcome={"summary": "已前进 3 米"})
+    captured = {}
+    monkeypatch.setattr(car_agent, "parse_intent", lambda text: (None, "x"))
+
+    def fake_llm(text, context=None):
+        captured["context"] = context
+        return {"action": "stop"}
+
+    monkeypatch.setattr(car_agent, "_llm_parse", fake_llm)
+    monkeypatch.setattr(
+        agent, "execute",
+        lambda device, intent, client: {"ok": True, "action": "stop",
+                                        "reply": "已停止。"})
+
+    car_agent.handle_chat("web", "dev-1", "停下来", client_id="web")
+
+    assert "用户：前进3米" in captured["context"]
+    last = store.last("web", "dev-1")
+    assert last["text"] == "停下来"
+    assert last["intent"]["action"] == "stop"
