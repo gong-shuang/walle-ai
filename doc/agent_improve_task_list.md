@@ -240,7 +240,7 @@ agent：
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
 | M3 调度与任务 | 已完成 | 10/10 | SQLite、调度线程、四种类型、任务工具/Web 页签、录像执行、shared 控制权、重启对账、重试/幂等、任务事件、调度测试全部落地；exclusive 延后（配置后按 shared 执行） |
-| M4 混合 LLM | 进行中 | 7/10 | 规则层、工具 Schema、本地/在线模型、混合路由、多轮会话、澄清与确认已落地；提示词/中止/测试待实现 |
+| M4 混合 LLM | 进行中 | 9/10 | 规则层、工具 Schema、本地/在线模型、混合路由、多轮会话、澄清与确认、提示词与上下文、长任务/中止集成已落地；LLM 测试待实现 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
 
 > 状态取值：未开始 / 进行中 / 已完成 / 阻塞。完成一项就更新对应里程碑的计数。
@@ -1127,12 +1127,26 @@ agent：
 
 - **层级**：L1 对话理解层 + L4 任务调度层
 - **小白解释**：长任务要能看到进度、能中止；但“停止运动”和“取消任务”是两回事，不能混。
-- [ ] 多步任务调用 `report_progress()`。
-- [ ] `chat/stop` 中止当前会话。
-- [ ] 任务取消走 `task.cancel`，不要误用 `chat/stop`。
-- 文件：`walle-agent/src/`
+- [x] 多步任务调用 `report_progress()`。
+- [x] `chat/stop` 中止当前会话。
+- [x] 任务取消走 `task.cancel`，不要误用 `chat/stop`。
+- 实现：
+  - 新增进行中对话登记 `Agent.active_chats`（`request_id` / `device` / 线程号 / 中止事件），
+    `_run_chat_request()` 开始时登记、结束时注销。
+  - `chat/stop` 在停车前先调用 `Agent.abort_chats()`：给对话线程置中止标记、
+    上报 `stage=stopped` 进度（`cause=chat_stop`），并通过新增的
+    `RequestBus.cancel_threads()` 只取消这些对话线程自己发出的 pending 请求，
+    不影响其他会话或定时任务；停车/释放控制权流程保持不变。
+  - 被中止的 `chat/response` 返回 `ok=false`、`error=chat_stopped`、
+    `reply="会话已中止。"`；`chat/stop/response` 的 `stopped` 同时覆盖
+    “运动被中止”和“对话长动作被中止”。
+  - 任务创建（能力预检 + 落库，可能等待 runState）接入
+    `_report_action_progress()`：`accepted` → `waiting` → `completed` / `failed`。
+    定时任务执行仍走 `task/report`（M3-09），两者不混用。
+  - 任务取消继续走 `task_cancel`（`task/cancel/request`），`chat/stop` 不删除任何任务。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/src/walle_protocol.py`、`walle-agent/test/`
 - 验收：长任务可看到进度、可中止；任务取消不影响其他任务。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 5 个用例（RequestBus 按线程取消不误伤他人、chat/stop 中止等待中的录像请求并保留任务、task_create 成功/失败进度、取消任务不影响其他任务）；`pytest walle-agent/test` 247 passed；未修改 MQTT topic/JSON 字段
 
 #### M4-10 LLM 测试
 

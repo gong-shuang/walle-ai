@@ -1232,6 +1232,9 @@ class Agent:
         self.chat_last = None
         # 当前线程正在处理的 chat request_id，长动作据此主动上报进度（§4.25）
         self.progress_local = threading.local()
+        # M4-09：进行中的 chat 请求；chat/stop 据此中止长动作
+        self.chat_lock = threading.Lock()
+        self.active_chats = {}
         # M3-01：任务库懒加载，避免只做对话时也创建 SQLite 文件
         self.task_store = None
         self.task_store_lock = threading.Lock()
@@ -1959,28 +1962,34 @@ class Agent:
         if not request_id:
             response.update({"result": -1, "cause": "请求里没有 request_id"})
         else:
+            # M4-09：先中止进行中的 chat 长动作，再处理运动停止
+            aborted = self.abort_chats(device or None)
             res = self.stop_session(client_name or client_id or "unknown",
                                     device or None)
             if not res.get("ok"):
                 error = res.get("error")
                 if error == "mqtt_not_connected":
-                    response.update({"result": -3, "cause": "MQTT 未连接"})
+                    response.update({"result": -3, "cause": "MQTT 未连接",
+                                     "stopped": bool(aborted)})
                 else:
                     response.update({"result": -6,
                                      "cause": res.get("cause")
-                                              or res.get("note") or "停止失败"})
+                                              or res.get("note") or "停止失败",
+                                     "stopped": bool(aborted)})
             else:
                 publish = res.get("result") or {}
+                target = res.get("device") or (device or None)
+                stopped = bool(res.get("stopped")) or bool(aborted)
                 if publish and publish.get("published") is False:
                     response.update({"result": -3,
                                      "cause": "零速指令未下发：MQTT 未连接",
-                                     "device": res.get("device"),
-                                     "stopped": bool(res.get("stopped")),
+                                     "device": target,
+                                     "stopped": stopped,
                                      "released": bool(res.get("released"))})
                 else:
                     response.update({
-                        "device": res.get("device"),
-                        "stopped": bool(res.get("stopped")),
+                        "device": target,
+                        "stopped": stopped,
                         "released": bool(res.get("released")),
                         "cause": res.get("cause") or res.get("note") or "ok",
                     })
@@ -2132,6 +2141,8 @@ class Agent:
         response = {"request_id": request_id, "agent_id": agent_identity(),
                     "device": device, "ts": int(time.time())}
         self.progress_local.request_id = request_id or None
+        abort_event = (self._register_chat(request_id, device)
+                       if request_id else None)
         try:
             missing = None
             is_discover = any(w in _normalize(text) for w in DISCOVER_WORDS)
@@ -2172,9 +2183,20 @@ class Agent:
                     "text": "请求里没有文本内容。",
                 }[missing]
                 result = {"ok": False, "error": "invalid", "reply": reply}
+            elif abort_event is not None and abort_event.is_set():
+                result = {"ok": False, "error": "chat_stopped",
+                          "reply": "会话已中止。"}
             else:
                 result = handle_chat(client_name, device, text,
                                      client_id=client_id)
+                if abort_event is not None and abort_event.is_set():
+                    # 长动作可能在中止后才返回：统一改写成“已中止”
+                    result = {
+                        "ok": False, "error": "chat_stopped",
+                        "device": device,
+                        "action": result.get("action"),
+                        "reply": "会话已中止。",
+                    }
             response["ok"] = bool(result.get("ok"))
             response["reply"] = result.get("reply")
             for key in ("intent", "warning", "error", "action", "duration_sec"):
@@ -2192,6 +2214,8 @@ class Agent:
                              "error": "agent_exception"})
             log().error("chat request %s 处理失败: %s", request_id, exc)
         finally:
+            if request_id:
+                self._unregister_chat(request_id)
             self.progress_local.request_id = None
         self.chat_last = {"request_id": request_id, "client_id": client_id,
                           "client_name": client_name, "device": device,
@@ -2235,6 +2259,56 @@ class Agent:
     def _chat_request_id(self):
         """当前线程处理的 chat request_id；非对话线程返回 None。"""
         return getattr(self.progress_local, "request_id", None)
+
+    def _register_chat(self, request_id, device):
+        """M4-09：登记进行中的 chat 请求，返回中止事件。"""
+        event = threading.Event()
+        with self.chat_lock:
+            self.active_chats[request_id] = {
+                "device": str(device or ""),
+                "thread_id": threading.get_ident(),
+                "event": event,
+                "ts": time.time(),
+            }
+        return event
+
+    def _unregister_chat(self, request_id):
+        with self.chat_lock:
+            self.active_chats.pop(request_id, None)
+
+    def _current_chat_event(self):
+        """当前线程 chat 请求的中止事件；非对话线程返回 None。"""
+        request_id = self._chat_request_id()
+        if not request_id:
+            return None
+        with self.chat_lock:
+            item = self.active_chats.get(request_id)
+            return item["event"] if item else None
+
+    def _chat_aborted(self):
+        event = self._current_chat_event()
+        return bool(event is not None and event.is_set())
+
+    def abort_chats(self, device=None):
+        """M4-09：中止进行中的 chat 请求并唤醒它们等待的设备应答。
+
+        只取消这些对话线程自己发出的 pending 请求，不影响其他会话或任务。
+        """
+        with self.chat_lock:
+            items = [(request_id, dict(item))
+                     for request_id, item in self.active_chats.items()
+                     if not device or item["device"] == device]
+        for request_id, item in items:
+            item["event"].set()
+            self.report_progress(
+                request_id, "stopped", device=item["device"] or None,
+                message="会话已中止", cause="chat_stop")
+        cancelled = self.request_bus.cancel_threads(
+            [item["thread_id"] for _, item in items],
+            "cancelled", "会话已中止")
+        log().info("chat abort device=%s requests=%s pending=%s",
+                   device or "-", len(items), cancelled)
+        return [request_id for request_id, _ in items]
 
     def _report_action_progress(self, stage, device=None, message=None,
                                 progress=None, cause=None):
@@ -2318,14 +2392,21 @@ class Agent:
         if not device:
             return {"ok": False, "action": "task_create",
                     "error": "bad_param", "cause": "缺少设备 device"}
+        self._report_action_progress("accepted", device, "已接受创建任务请求")
         try:
             schedule = task_schedule.validate_schedule(schedule)
             actions = self._validate_task_actions(schedule, actions)
         except ValueError as exc:
+            self._report_action_progress("failed", device, str(exc),
+                                         cause="bad_param")
             return {"ok": False, "action": "task_create",
                     "error": "bad_param", "cause": str(exc)}
+        self._report_action_progress("waiting", device, "正在确认设备录像能力")
         preflight = self.preflight_recording_task(device)
         if not preflight.get("ok"):
+            self._report_action_progress(
+                "failed", device, preflight.get("cause"),
+                cause=preflight.get("error") or "capability_unknown")
             return {"ok": False, "action": "task_create",
                     "error": preflight.get("error") or "capability_unknown",
                     "cause": preflight.get("cause") or "无法确认设备录像能力",
@@ -2338,11 +2419,15 @@ class Agent:
                  "actions": actions, "next_run_at": None}
         nxt = task_schedule.next_occurrence(draft)
         if nxt is None:
+            self._report_action_progress("failed", device, "该计划没有下一次执行时间",
+                                         cause="no_future")
             return {"ok": False, "action": "task_create",
                     "error": "no_future", "cause": "该计划没有下一次执行时间"}
         task = self.task_db().create_task(
             name, device, schedule, actions, timezone=timezone,
             enabled=enabled, next_run_at=nxt["at"])
+        self._report_action_progress(
+            "completed", device, "任务「{}」已创建".format(name), progress=100)
         return {"ok": True, "action": "task_create", "task": self._task_public(task),
                 "task_id": task["id"], "first_run_at": nxt["at"],
                 "first_phase": nxt["phase"], "next_run_at": nxt["at"]}
@@ -5422,6 +5507,10 @@ def handle_chat(client_name, device, text, client_id=None):
                    "intent=%s err=%s", client_id, client_name, device, text,
                    intent, err)
         if intent is None:
+            if agent._chat_aborted():
+                return _record_chat(store, identity, device, text, None, {
+                    "ok": False, "device": device, "error": "chat_stopped",
+                    "reply": "会话已中止。", "mqtt": agent.mqtt_status()})
             context = _chat_llm_context(
                 agent, device, store.context(identity, device))
             intent = _llm_parse(text, context=context)
@@ -5447,6 +5536,12 @@ def handle_chat(client_name, device, text, client_id=None):
         return _record_chat(store, identity, device, text, None, {
             "ok": False, "device": device,
             "reply": warning, "mqtt": agent.mqtt_status()})
+    # M4-09：解析完成后才收到 chat/stop，不再产生新的设备动作
+    if agent._chat_aborted():
+        return _record_chat(store, identity, device, text, intent, {
+            "ok": False, "device": device, "action": intent.get("action"),
+            "error": "chat_stopped", "reply": "会话已中止。",
+            "mqtt": agent.mqtt_status()})
 
     return _offer_intent(agent, store, pending_store, identity, device, text,
                          client_name, intent, warning)

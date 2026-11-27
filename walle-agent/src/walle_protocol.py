@@ -85,6 +85,7 @@ class PendingRequest:
     response_topic: str
     event: threading.Event = field(default_factory=threading.Event)
     created_at: float = 0.0
+    thread_id: int = 0
     payload: dict = None
     decoded: dict = None
     error: str = None
@@ -148,6 +149,7 @@ class RequestBus:
             request_topic=request_topic,
             response_topic=response_topic,
             created_at=started,
+            thread_id=threading.get_ident(),
         )
         with self._lock:
             if request_id in self._pending:
@@ -284,6 +286,24 @@ class RequestBus:
             pending.event.set()
             self._stats["cancelled"] += 1
             return True
+
+    def cancel_threads(self, thread_ids, error="cancelled", cause=None):
+        """取消指定线程发出且仍在等待的请求（M4-09 会话中止用）。"""
+        targets = set(thread_ids or ())
+        if not targets:
+            return 0
+        with self._lock:
+            request_ids = [request_id
+                           for request_id, pending in self._pending.items()
+                           if pending.thread_id in targets]
+            for request_id in request_ids:
+                pending = self._pending.pop(request_id)
+                pending.error = error
+                pending.cause = cause or error
+                pending.event.set()
+                self._stats["cancelled"] += 1
+            self._stats["pending"] = len(self._pending)
+        return len(request_ids)
 
     def stats(self):
         with self._lock:

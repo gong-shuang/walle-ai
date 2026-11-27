@@ -213,3 +213,32 @@ def test_publish_exception_returns_publish_failed():
     assert res["error"] == "publish_failed"
     assert "publish_exception" in res["publish"]["error"]
     assert bus.stats()["pending"] == 0
+
+
+def test_cancel_threads_only_wakes_matching_owner():
+    bus = _make_bus(None, default_timeout=2.0)
+    results = {}
+
+    def worker():
+        results["res"] = bus.request("dev-1", "runState/query/request")
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    for _ in range(100):
+        if bus.stats().get("pending") == 1:
+            break
+        threading.Event().wait(0.01)
+    assert bus.stats().get("pending") == 1
+
+    # 主线程不在目标集合内，不应误伤工作线程的请求
+    assert bus.cancel_threads([threading.get_ident()]) == 0
+    assert bus.stats().get("pending") == 1
+
+    assert bus.cancel_threads([thread.ident], "cancelled",
+                              "会话已中止") == 1
+    thread.join(timeout=1)
+
+    assert results["res"]["received"] is False
+    assert results["res"]["error"] == "cancelled"
+    assert results["res"]["cause"] == "会话已中止"
+    assert bus.stats()["pending"] == 0
