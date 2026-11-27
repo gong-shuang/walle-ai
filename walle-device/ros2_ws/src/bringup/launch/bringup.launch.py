@@ -26,6 +26,12 @@ def _version_banner():
         os.environ.get('WALLE_VERSION_DATE', 'unknown'))
 
 
+def _platform_default():
+    """运行平台：robot（真机）/ pc（PC 模拟），与 env_walle.sh 的 WALLE_PLATFORM 一致。"""
+    value = os.environ.get('WALLE_PLATFORM', 'robot').strip().lower()
+    return value if value in ('robot', 'pc') else 'robot'
+
+
 def _camera_conf_module():
     """按文件加载 camera_conf.py（symlink-install 下 bringup 包不可直接 import）。"""
     path = os.path.join(get_package_share_directory('bringup'),
@@ -39,6 +45,20 @@ def _camera_conf_module():
 
 
 def launch_setup(context):
+    platform = LaunchConfiguration('platform').perform(context).strip().lower()
+    if platform not in ('robot', 'pc'):
+        platform = 'robot'
+
+    def _switch(name):
+        """开关默认 auto：真机开启，PC 关闭；显式 true/false 优先。"""
+        raw = LaunchConfiguration(name).perform(context).strip().lower()
+        if raw in ('', 'auto'):
+            return platform == 'robot'
+        return raw in ('1', 'true', 'yes', 'on')
+
+    enable_ai = _switch('enable_ai')
+    enable_speech = _switch('enable_speech')
+
     # 获取包的路径
     controller_package_path = get_package_share_directory('controller')
     large_models_package_path = get_package_share_directory('large_models')
@@ -57,11 +77,22 @@ def launch_setup(context):
     enable_web_video_server = LaunchConfiguration(
         'enable_web_video_server', default=_debug_default())
 
-    # 启动 controller 的 launch 文件（ros_robot_controller + mecanum_chassis_node）
-    controller_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(controller_package_path, 'launch/controller.launch.py')),
-    )
+    # 真机：启动 controller 的 launch 文件（ros_robot_controller + mecanum_chassis_node）
+    # PC：跳过真实底盘节点，由 pc_robot 模拟电机/舵机/电池/声呐
+    controller_launch = None
+    pc_robot_launch = None
+    pc_robot_package_path = None
+    if platform == 'robot':
+        controller_launch = IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(controller_package_path, 'launch/controller.launch.py')),
+        )
+    else:
+        pc_robot_package_path = get_package_share_directory('pc_robot')
+        pc_robot_launch = IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(pc_robot_package_path, 'launch/pc_robot.launch.py')),
+        )
 
     # 启动 rosbridge_websocket / rosapi（walle_net 仅做启动编排）
     # 仅调试时开启：ros2 launch bringup bringup.launch.py enable_rosbridge:=true
@@ -79,10 +110,16 @@ def launch_setup(context):
     )
 
     # 启动 MQTT -> ROS2 桥（唯一 MQTT 客户端）
+    # PC 模式使用 pc_robot 包里的 support_* 覆盖文件，bridge 源码保持不变
+    bridge_launch_args = {}
+    if platform == 'pc':
+        bridge_launch_args['params_file'] = os.path.join(
+            pc_robot_package_path, 'config', 'net_mqtt_bridge_pc.yaml')
     net_mqtt_bridge_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(net_mqtt_bridge_package_path,
                          'launch/net_mqtt_bridge.launch.py')),
+        launch_arguments=bridge_launch_args.items(),
     )
 
     # 摄像头参数唯一来源：scripts/auto_gen_camera_conf.sh 生成的 JSON。
@@ -106,6 +143,9 @@ def launch_setup(context):
     cam = camera_conf.get('camera', {}) if camera_conf else {}
     device = (cam.get('device') if camera_conf is not None
               else camera_device_arg or '/dev/video0')
+    camera_available = camera_conf is not None and os.path.exists(device)
+    # 真机保持原行为；PC 只有检测到摄像头才启动 camera / video / record
+    start_video_nodes = (platform == 'robot') or camera_available
     if camera_conf is not None:
         note = ''
         if not os.path.exists(device):
@@ -192,30 +232,51 @@ def launch_setup(context):
         package='bringup',
         executable='startup_check',
         output='screen',
+        parameters=[{
+            'platform': platform,
+            'camera_enabled': bool(start_video_nodes and usb_cam_launch is not None),
+        }],
     )
 
-    camera_actions = [
+    stage2_actions = [
         config_log,
-        LogInfo(msg='[bringup] 阶段 2/4：启动 usb_cam 与声呐'),
+        LogInfo(msg='[bringup] 阶段 2/4：%s'
+                % ('启动 usb_cam 与声呐' if platform == 'robot'
+                   else '检查摄像头')),
     ]
     if usb_cam_launch is not None:
-        camera_actions.append(usb_cam_launch)
-    else:
-        camera_actions.append(LogInfo(
+        stage2_actions.append(usb_cam_launch)
+    elif platform == 'robot':
+        stage2_actions.append(LogInfo(
             msg='[bringup] 摄像头未启动：请运行 '
                 'walle-device/scripts/auto_gen_camera_conf.sh 生成配置后重启'))
-    camera_actions.append(sonar_controller_launch)
-    start_camera = TimerAction(period=3.0, actions=camera_actions)
-    start_services = TimerAction(
-        period=6.0,
-        actions=[
-            LogInfo(msg='[bringup] 阶段 3/4：启动视频桥、录像、语音与大模型'),
-            video_webrtc_bridge_launch,
-            record_video_launch,
-            speech_recognition_launch,
-            large_models_launch,
-        ],
-    )
+    if platform == 'robot':
+        stage2_actions.append(sonar_controller_launch)
+    if platform == 'pc' and not camera_available:
+        stage2_actions.append(LogInfo(
+            msg='[bringup] PC 模式未检测到摄像头：跳过 usb_cam / 视频桥 / 录像'))
+    start_camera = TimerAction(period=3.0, actions=stage2_actions)
+
+    stage3_actions = [
+        LogInfo(msg='[bringup] 阶段 3/4：启动视频桥、录像、语音与大模型'),
+    ]
+    if start_video_nodes:
+        stage3_actions.extend([video_webrtc_bridge_launch, record_video_launch])
+    else:
+        stage3_actions.append(LogInfo(
+            msg='[bringup] PC 模式：未启用摄像头，跳过 video_webrtc_bridge 与 record_video'))
+    if enable_speech:
+        stage3_actions.append(speech_recognition_launch)
+    else:
+        stage3_actions.append(LogInfo(
+            msg='[bringup] 已跳过语音盒子节点（enable_speech:=true 可开启）'))
+    if enable_ai:
+        stage3_actions.append(large_models_launch)
+    else:
+        stage3_actions.append(LogInfo(
+            msg='[bringup] 已跳过 large_models（enable_ai:=true 可开启）'))
+    start_services = TimerAction(period=6.0, actions=stage3_actions)
+
     start_net = TimerAction(
         period=9.0,
         actions=[
@@ -241,21 +302,38 @@ def launch_setup(context):
         output='screen',
     )
 
-    return [
+    stage1_actions = [
         version_log,
         set_output_volume,
-        LogInfo(msg='[bringup] 阶段 1/4：启动底盘与调试服务'),
+        LogInfo(msg='[bringup] 平台：%s' % platform),
+        LogInfo(msg='[bringup] 阶段 1/4：%s'
+                % ('启动底盘与调试服务' if platform == 'robot'
+                   else '启动 PC 模拟节点与调试服务')),
         net_launch,
         web_video_server_launch,
-        controller_launch,
-        start_camera,
-        start_services,
-        start_net,
     ]
+    if platform == 'pc':
+        stage1_actions.append(pc_robot_launch)
+    else:
+        stage1_actions.append(controller_launch)
+    return stage1_actions + [start_camera, start_services, start_net]
 
 
 def generate_launch_description():
+    platform_default = _platform_default()
     return LaunchDescription([
+        DeclareLaunchArgument(
+            'platform',
+            default_value=platform_default,
+            description='robot = real device, pc = simulated device'),
+        DeclareLaunchArgument(
+            'enable_ai',
+            default_value='auto',
+            description='Start large_models nodes: auto (robot=true/pc=false), true, false'),
+        DeclareLaunchArgument(
+            'enable_speech',
+            default_value='auto',
+            description='Start speech (I2C voice box) node: auto (robot=true/pc=false), true, false'),
         DeclareLaunchArgument(
             'sonar', default_value='true',
             description='Start sonar controller node'),

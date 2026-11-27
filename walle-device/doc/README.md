@@ -27,19 +27,21 @@
 
 硬件：
 
-- 树莓派 5（RaspberryPi5）或香橙派 5（OrangePi5），系统为 Ubuntu 24.04
+- 树莓派 5（RaspberryPi5）或香橙派 5（OrangePi5）
 - Walle 麦克纳姆轮底盘（STM32 控制器，SoC UART 连接）
 - USB 摄像头、I2C 声呐、麦克风/扬声器（或语音盒子）
 
 软件：
 
-- ROS 2 Jazzy、Python 3.12、colcon
+- 系统环境： Ubuntu 24.04， ROS 2 Jazzy ，Python 3.12
+- 兼容： Ubuntu 22.04 系统，此时 ROS 2 humble ，Python 3.10 版本
+- colcon 构建工具
 - ffmpeg（推流）、OpenCV（`python3-opencv`）、`python3-smbus`、`v4l-utils`（摄像头枚举与校验）
 - Python 依赖见 [`requirements.txt`](requirements.txt)
 
 
 ## Ubuntu环境配置
-本项目在Ubuntu 24.04上运行。
+本文档在 Ubuntu 24.04（ROS 2 Jazzy）环境下编辑，建议在该环境下运行（如果在Ubuntu 22.04 系统上运行，需要安装 ROS 2 humble 版本）。
 1.烧录ubuntu镜像到SD卡
 
 2.修改系统源为国内源，如阿里云源

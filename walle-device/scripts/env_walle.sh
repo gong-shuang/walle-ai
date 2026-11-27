@@ -2,6 +2,11 @@
 # Walle 环境配置（只设置环境变量，不启动节点）
 # 用法：source ~/walle-device/scripts/env_walle.sh
 # 注意：不要与 env_TurboPi.sh 在同一个终端里混用，两个工作空间存在同名包。
+#
+# 平台：
+#   robot（默认）= 真机（有 /proc/device-tree 时自动判定）
+#   pc           = PC 模拟环境（无设备树时自动判定）
+#   可用 WALLE_PLATFORM=robot|pc 显式覆盖。
 
 # 必须用 source 执行，否则 export 的变量不会留在当前终端
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
@@ -9,8 +14,67 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     exit 1
 fi
 
-# venv 目录：默认 $HOME/venv；实际路径不同时用 WALLE_VENV 指定
-venv_path="${WALLE_VENV:-$HOME/venv}"
+# 以脚本所在目录为基准，不依赖当前工作目录
+current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # walle-device/scripts
+walle_home="$(cd "$current_dir/.." && pwd)"                  # walle-device
+export WALLE_HOME="$walle_home"
+
+# ===== 平台判定 =====
+# 显式指定优先；未指定时按设备树判断：有 /proc/device-tree 视为真机，否则视为 PC
+if [[ -z "${WALLE_PLATFORM:-}" ]]; then
+    if [[ -d /proc/device-tree ]]; then
+        WALLE_PLATFORM=robot
+    else
+        WALLE_PLATFORM=pc
+    fi
+fi
+case "$WALLE_PLATFORM" in
+    robot|pc) ;;
+    *)
+        echo -e "\033[31m[错误] WALLE_PLATFORM 只能是 robot 或 pc（当前：$WALLE_PLATFORM）\033[0m" >&2
+        return 1
+        ;;
+esac
+export WALLE_PLATFORM
+
+# ===== 主控板 / I2C =====
+if [[ "$WALLE_PLATFORM" == pc ]]; then
+    # PC 不依赖真实主控板与 I2C
+    export MAIN_CONTROL_BOARD="${MAIN_CONTROL_BOARD:-PC}"
+    unset WALLE_I2C_BUS
+else
+    # 主控板型号：RaspberryPi5 / OrangePi5
+    # 可通过环境变量 MAIN_CONTROL_BOARD 覆盖；默认 OrangePi5
+    export MAIN_CONTROL_BOARD="${MAIN_CONTROL_BOARD:-OrangePi5}"
+
+    # 根据主控板型号自动选择 I2C 总线：
+    #   RaspberryPi5 -> i2c-1 (总线 1)
+    #   OrangePi5    -> i2c-2 (总线 2)
+    case "$MAIN_CONTROL_BOARD" in
+        OrangePi5)
+            export WALLE_I2C_BUS=2
+            ;;
+        RaspberryPi5|*)
+            export WALLE_I2C_BUS=1
+            ;;
+    esac
+fi
+
+# ===== venv 定位 =====
+# 优先级：WALLE_VENV > PC 常见位置 > $HOME/venv
+if [[ -n "${WALLE_VENV:-}" ]]; then
+    venv_path="$WALLE_VENV"
+elif [[ "$WALLE_PLATFORM" == pc ]]; then
+    for cand in "$walle_home/../../venv" "$walle_home/../venv" "$HOME/venv"; do
+        if [[ -x "$cand/bin/python" ]]; then
+            venv_path="$(cd "$cand" && pwd)"
+            break
+        fi
+    done
+    venv_path="${venv_path:-$HOME/venv}"
+else
+    venv_path="$HOME/venv"
+fi
 
 # 已加载且 venv 仍是当前路径才跳过，避免重复 source 导致 PATH / PYTHONPATH 越叠越长
 if [[ -n "${WALLE_ENV_LOADED:-}" && "${VIRTUAL_ENV:-}" == "$venv_path" ]]; then
@@ -24,54 +88,43 @@ if [[ -n "${TURBOPI_ENV_LOADED:-}" ]]; then
     return 1
 fi
 
-# 未带本环境标记但已有 ROS2 环境（如手动 source 过 /opt/ros），同样视为不匹配
+# 未带本环境标记但已有 ROS2 环境：
+# .bashrc 里自动 source 的 /opt/ros/<distro> 属于正常情况，允许继续；
+# 只有额外叠加了其它工作空间（TurboPi、其它 ROS 项目）才拒绝。
 if [[ -z "${WALLE_ENV_LOADED:-}" ]] && { [[ -n "${ROS_DISTRO:-}" ]] || [[ -n "${AMENT_PREFIX_PATH:-}" ]]; }; then
-    echo -e "\033[31m[错误] 当前终端已存在其它 ROS2 环境，不能混用 Walle 环境。\033[0m" >&2
-    echo -e "\033[31m       请新开一个干净终端后再 source env_walle.sh。\033[0m" >&2
-    return 1
+    extra_ament="$(printf '%s' "${AMENT_PREFIX_PATH:-}" \
+        | tr ':' '\n' | grep -v -E '^/opt/ros/[^/]+$' | grep -v '^$' || true)"
+    if [[ -n "$extra_ament" ]]; then
+        echo -e "\033[31m[错误] 当前终端已加载其它 ROS2 工作空间，不能混用 Walle 环境：\033[0m" >&2
+        echo -e "\033[31m       $extra_ament\033[0m" >&2
+        echo -e "\033[31m       请新开一个干净终端后再 source env_walle.sh。\033[0m" >&2
+        return 1
+    fi
 fi
 
 export WALLE_ENV_LOADED=1
-
-# 以脚本所在目录为基准，不依赖当前工作目录
-current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # walle-device/scripts
-walle_home="$(cd "$current_dir/.." && pwd)"                  # walle-device
-export WALLE_HOME="$walle_home"
 
 # 版本号唯一来源：设备端根目录 VERSION
 # （WALLE_VERSION_NUM / WALLE_VERSION_NAME / WALLE_VERSION_DATE）
 source "$walle_home/VERSION"
 export VERSION="|V${WALLE_VERSION_NAME}|${WALLE_VERSION_DATE}|"
 
-# 生产环境（默认）：prod，调试环境：debug
-export WALLE_RUNTIME_ENV=debug
-
 # 机器类型：Walle
 export MACHINE_TYPE=Walle
-
-# 主控板型号：RaspberryPi5 / OrangePi5
-# 可通过环境变量 MAIN_CONTROL_BOARD 覆盖；默认 OrangePi5
-export MAIN_CONTROL_BOARD="${MAIN_CONTROL_BOARD:-OrangePi5}"
-
-# 根据主控板型号自动选择 I2C 总线：
-#   RaspberryPi5 -> i2c-1 (总线 1)
-#   OrangePi5    -> i2c-2 (总线 2)
-case "$MAIN_CONTROL_BOARD" in
-    OrangePi5)
-        export WALLE_I2C_BUS=2
-        ;;
-    RaspberryPi5|*)
-        export WALLE_I2C_BUS=1
-        ;;
-esac
 
 # 语言设置，主要涉及语音部分：Chinese/English
 export ASR_LANGUAGE=Chinese
 
-# 运行环境：prod（生产，默认）/ debug（调试）
+# 运行环境：prod（生产）/ debug（调试）
 # debug 会自动开启 rosbridge(9090) 等调试能力；线上保持 prod
+# PC 默认 debug 方便调试，真机默认 prod
 # 临时切换：WALLE_RUNTIME_ENV=debug source env_walle.sh
-export WALLE_RUNTIME_ENV="${WALLE_RUNTIME_ENV:-prod}"
+if [[ "$WALLE_PLATFORM" == pc ]]; then
+    default_runtime_env=debug
+else
+    default_runtime_env=prod
+fi
+export WALLE_RUNTIME_ENV="${WALLE_RUNTIME_ENV:-$default_runtime_env}"
 
 # 走 install 目录（package share），不再依赖源码目录硬编码路径
 export need_compile=True
@@ -97,12 +150,49 @@ if [[ ! -f "$venv_path/bin/activate" ]]; then
     return 1
 fi
 source "$venv_path/bin/activate"
-if [[ "$MAIN_CONTROL_BOARD" == RaspberryPi5 ]]; then
-    source /opt/ros/jazzy/setup.bash
-elif [[ "$MAIN_CONTROL_BOARD" == OrangePi5 ]]; then
-    source /opt/ros/humble/setup.bash
+
+# ===== ROS2 发行版 =====
+# 统一按 Ubuntu 版本选择：22.04 -> humble，24.04 -> jazzy；可用 WALLE_ROS_DISTRO 覆盖。
+os_version_id="$(. /etc/os-release 2>/dev/null && echo "${VERSION_ID:-}")"
+if [[ -n "${WALLE_ROS_DISTRO:-}" ]]; then
+    ros_distro="$WALLE_ROS_DISTRO"
+else
+    case "$os_version_id" in
+        24.*) ros_distro=jazzy ;;
+        *)    ros_distro=humble ;;
+    esac
+    # 默认发行版未安装时回退到已安装的另一个，避免镜像/环境差异导致无法加载
+    if [[ ! -f "/opt/ros/$ros_distro/setup.bash" ]]; then
+        for d in jazzy humble; do
+            if [[ -f "/opt/ros/$d/setup.bash" ]]; then
+                ros_distro="$d"
+                break
+            fi
+        done
+    fi
 fi
-source "$walle_home/ros2_ws/install/setup.bash"
+
+if [[ ! -f "/opt/ros/$ros_distro/setup.bash" ]]; then
+    echo -e "\033[31m[错误] 未找到 /opt/ros/$ros_distro/setup.bash\033[0m" >&2
+    echo -e "\033[31m       请安装 ROS2 $ros_distro，或用 WALLE_ROS_DISTRO 指定已安装版本。\033[0m" >&2
+    return 1
+fi
+if [[ -n "${ROS_DISTRO:-}" && "$ROS_DISTRO" != "$ros_distro" ]]; then
+    echo -e "\033[31m[错误] 当前终端已加载 ROS2 $ROS_DISTRO，但本环境需要 $ros_distro。\033[0m" >&2
+    echo -e "\033[31m       请新开终端，或调整 .bashrc 后重试。\033[0m" >&2
+    return 1
+fi
+# .bashrc 已 source 同名发行版时跳过，避免 AMENT_PREFIX_PATH / PYTHONPATH 重复叠加
+if [[ "${ROS_DISTRO:-}" != "$ros_distro" ]]; then
+    source "/opt/ros/$ros_distro/setup.bash"
+fi
+
+workspace_setup="$walle_home/ros2_ws/install/setup.bash"
+if [[ -f "$workspace_setup" ]]; then
+    source "$workspace_setup"
+else
+    echo -e "\033[33m[警告] 未找到 $workspace_setup；请先 colcon build（PC 首次运行必做）\033[0m" >&2
+fi
 # source "$current_dir/third_party_ros2/third_party_ws/install/setup.bash"
 
 # ROS 节点入口脚本 shebang 固定为 /usr/bin/python3，仅 activate venv 节点看不到其中的包，
@@ -121,13 +211,19 @@ fi
 os_pretty="$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")"
 # ROS_DISTRO 由上面的 /opt/ros/*/setup.bash 设置，随实际安装的 ROS 发行版变化
 ros_distro="${ROS_DISTRO:-unknown}"
+if [[ -n "${WALLE_I2C_BUS:-}" ]]; then
+    board_line="$MAIN_CONTROL_BOARD (I2C bus $WALLE_I2C_BUS)"
+else
+    board_line="$MAIN_CONTROL_BOARD"
+fi
 
 
 echo -e "\033[32m----------------------------------------------
 当前环境是ROS2|The current environment is ROS2
 ----------------------------------------------\033[0m"
+echo -e "PLATFORM: \033[32m$WALLE_PLATFORM\033[0m"
 echo -e "MACHINE: \033[32m$MACHINE_TYPE\033[0m"
-echo -e "BOARD:   \033[32m$MAIN_CONTROL_BOARD\033[0m (I2C bus $WALLE_I2C_BUS)"
+echo -e "BOARD:   \033[32m$board_line\033[0m"
 echo -e "RUNTIME: \033[32m$WALLE_RUNTIME_ENV\033[0m"
 echo -e "OS:      \033[32m${os_pretty:-Unknown}\033[0m"
 echo -e "ROS2:    \033[32m${ros_distro^}\033[0m"

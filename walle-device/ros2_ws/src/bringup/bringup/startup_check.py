@@ -3,10 +3,12 @@
 
 import importlib.util
 import os
+import threading
 import time
 
 import rclpy
 from ament_index_python.packages import get_package_share_directory
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import String
@@ -38,6 +40,28 @@ STARTUP_TIMEOUT = 30.0
 class StartupCheckNode(Node):
     def __init__(self):
         super().__init__('startup_check_node')
+
+        # 平台由 bringup 传入（robot / pc）；PC 模式只检查模拟节点与可选摄像头
+        self.declare_parameter('platform', os.environ.get('WALLE_PLATFORM', 'robot'))
+        self.declare_parameter('camera_enabled', True)
+        self._platform = str(self.get_parameter('platform').value).strip().lower()
+        if self._platform not in ('robot', 'pc'):
+            self._platform = 'robot'
+        self._camera_enabled = bool(self.get_parameter('camera_enabled').value)
+
+        if self._platform == 'pc':
+            self._required_nodes = ['pc_robot', 'net_mqtt_bridge']
+            self._required_topics = []
+            if self._camera_enabled:
+                self._required_nodes.extend(['usb_cam', 'video_webrtc_bridge'])
+                self._required_topics.append('/image_raw')
+            self._optional_nodes = tuple(
+                name for name in OPTIONAL_NODES if name != 'sonar_controller')
+        else:
+            self._required_nodes = list(REQUIRED_NODES)
+            self._required_topics = list(REQUIRED_TOPICS)
+            self._optional_nodes = OPTIONAL_NODES
+
         self.buzzer_pub = self.create_publisher(BuzzerState, 'ros_robot_controller/set_buzzer', 1)
         self.pwm_pub = self.create_publisher(
             SetPWMServoState, 'ros_robot_controller/pwm_servo/set_state', 10)
@@ -49,10 +73,14 @@ class StartupCheckNode(Node):
         self.timer = self.create_timer(1.0, self.check_ready)
         self._check_camera_conf()
         self.get_logger().info(
-            'startup_check：等待关键节点就绪（最多 %.0fs）' % STARTUP_TIMEOUT)
+            'startup_check：平台=%s，等待关键节点就绪（最多 %.0fs）'
+            % (self._platform, STARTUP_TIMEOUT))
 
     def _check_camera_conf(self):
         """校验 walle_camera.conf 是否存在且 schema 合法。"""
+        if self._platform == 'pc' and not self._camera_enabled:
+            self.get_logger().info('PC 模式未启用摄像头，跳过摄像头配置校验')
+            return
         try:
             path = os.path.join(
                 get_package_share_directory('bringup'), 'camera_conf.py')
@@ -81,8 +109,8 @@ class StartupCheckNode(Node):
         if self.done:
             return
         nodes = {name.lstrip('/') for name in self.get_node_names()}
-        missing = [name for name in REQUIRED_NODES if name not in nodes]
-        missing_topics = [topic for topic in REQUIRED_TOPICS
+        missing = [name for name in self._required_nodes if name not in nodes]
+        missing_topics = [topic for topic in self._required_topics
                           if self.count_publishers(topic) == 0]
         if (missing or missing_topics) and time.monotonic() < self.deadline:
             waiting = missing + [f'{topic}(无发布者)' for topic in missing_topics]
@@ -91,7 +119,7 @@ class StartupCheckNode(Node):
 
         self.done = True
         self.timer.cancel()
-        optional_missing = [name for name in OPTIONAL_NODES if name not in nodes]
+        optional_missing = [name for name in self._optional_nodes if name not in nodes]
         if missing or missing_topics:
             status = 'timeout: missing=' + ','.join(missing + missing_topics)
             self.get_logger().error(
@@ -106,9 +134,22 @@ class StartupCheckNode(Node):
 
         self.health_pub.publish(String(data=status))
         self.announce()
-        rclpy.shutdown()
+        # 在定时器回调里直接 rclpy.shutdown() 可能等待 executor 而死锁，
+        # 放到独立线程里延迟关闭，让 main 里的 spin 正常返回。
+        threading.Thread(target=self._shutdown, daemon=True).start()
+
+    @staticmethod
+    def _shutdown():
+        time.sleep(0.1)
+        try:
+            rclpy.shutdown()
+        except Exception:  # noqa: BLE001
+            pass
 
     def announce(self):
+        if self._platform == 'pc':
+            self.get_logger().info('PC 模式：跳过蜂鸣器 / PWM 舵机播报')
+            return
         msg = BuzzerState()
         msg.freq = 1900
         msg.on_time = 0.2
@@ -134,7 +175,14 @@ class StartupCheckNode(Node):
 def main():
     rclpy.init()
     node = StartupCheckNode()
-    rclpy.spin(node)
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

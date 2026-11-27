@@ -1,0 +1,19 @@
+pc_robot:
+  ros__parameters:
+    # 电池：mV，battery_period 秒；battery_enabled=false 模拟传感器断链
+    battery_mv: 8000
+    battery_period: 0.5
+    battery_enabled: true
+
+    # 声呐：mm，20Hz；sonar_valid=false 时发布 -1（无效）
+    sonar_distance_mm: 1000
+    sonar_period: 0.05
+    sonar_valid: true
+
+    # 模拟底盘看门狗：超过该时长没有新 /cmd_vel 就停车
+    cmd_vel_timeout: 0.6
+
+    # 舵机默认/限位（与真机协议范围一致）
+    servo_default_position: 1500
+    servo_min_position: 800
+    servo_max_position: 2200

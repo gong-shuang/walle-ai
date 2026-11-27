@@ -1,0 +1,12 @@
+# PC 模拟环境专用的 net_mqtt_bridge 参数覆盖。
+# 只覆盖 support_*，其余参数沿用 net_mqtt_bridge/config/net_mqtt_bridge.yaml 与节点默认值。
+# 没有摄像头时把 support_stream / support_recording 改为 false。
+net_mqtt_bridge:
+  ros__parameters:
+    support_stream: true
+    support_phone_audio: true
+    support_recording: true
+    support_motor: true
+    support_servo: true
+    support_battery: true
+    support_sonar: true
