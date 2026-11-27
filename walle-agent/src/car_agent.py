@@ -904,9 +904,9 @@ class Agent:
         prefix = "walle/{}/device/+".format(self.tenant)
         subs = [
             (prefix + "/online", 1),
-            (prefix + "/+/response", 1),           # 1 层资源：xxx/response
-            (prefix + "/+/+/response", 1),         # 2 层：baseState/query/response、stream/start/response、control/acquire/response
-            (prefix + "/+/+/+/response", 1),       # 3 层：record/list/query/response
+            (prefix + "/alarm/report", 1),         # 电池低压 / 前方障碍 / 媒体中断
+            (prefix + "/+/+/response", 1),         # 2 层资源：baseState/query/response、stream/start/response、control/acquire/response
+            (prefix + "/+/+/+/response", 1),       # 3 层：record/list/query/response、car/motor/set/response
             (prefix + "/+/+/+/+/response", 1),     # 4 层：car/servo/status/query/response
         ]
         # agent 自身的请求按层级用通配符覆盖，新增同层功能无需改订阅：

@@ -1512,9 +1512,9 @@ agent 启动/重连后订阅：
 - `walle/{t}/agent/{agent}/+/request`（1 层，如 `chat/request`）
 - `walle/{t}/agent/{agent}/+/+/request`（2 层，如 `baseState/query/request`、`config/modify/request`、`chat/stop/request`）
 - `walle/{t}/device/+/online`
-- `walle/{t}/device/+/+/response`（1 层资源）
-- `walle/{t}/device/+/+/+/response`（2 层，如 `baseState/query/response`、`stream/start/response`、`control/acquire/response`）
-- `walle/{t}/device/+/+/+/+/response`（3 层，如 `record/list/query/response`）
+- `walle/{t}/device/+/alarm/report`（主动告警，如 `battery_low`、`obstacle_near`、`video_lost`）
+- `walle/{t}/device/+/+/+/response`（2 层资源，如 `baseState/query/response`、`stream/start/response`、`control/acquire/response`）
+- `walle/{t}/device/+/+/+/+/response`（3 层，如 `record/list/query/response`、`car/motor/set/response`）
 - `walle/{t}/device/+/+/+/+/+/response`（4 层，如 `car/servo/status/query/response`）
 
 `request` / `response` 均使用分层通配符，新增同层资源无需改订阅；新增更深层级时补一条模式。

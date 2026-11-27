@@ -290,11 +290,11 @@ agent：
 
 - **层级**：L3 设备通信与状态层
 - **小白解释**：agent 现在收不到设备告警；补上订阅后，设备电池低、前方有障碍、推流断了，它才能第一时间知道。
-- [ ] 新增 `walle/{t}/device/+/alarm/report` 订阅。
-- [ ] 删除无效的 `prefix + "/+/response"` 层或改为实际需要的主题。
-- [ ] 修正订阅注释层级，与 §4.20 的订阅关系一致。
-- [ ] 可选：订阅 `walle/{t}/client/+/online`，用于展示控制权竞争者。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] 新增 `walle/{t}/device/+/alarm/report` 订阅。
+- [x] 删除无效的 `prefix + "/+/response"` 层（没有 1 层资源的 response 主题）。
+- [x] 修正订阅注释层级，与 §4.20 的订阅关系一致。
+- [ ] 可选：订阅 `walle/{t}/client/+/online`，用于展示控制权竞争者（暂不做）。
+- 文件：`walle-agent/src/car_agent.py`、`doc/MQTT_protocol_convention.md`（§4.20）
 - 验收：`WALLE_AGENT_DEBUG=1` 打印的订阅清单与协议文档一致。
 - 完成：<!-- 日期 / commit / 证据 -->
 
