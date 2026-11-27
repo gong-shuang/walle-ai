@@ -2086,3 +2086,108 @@ def test_reconcile_keeps_manual_recording_outside_window(agent, tmp_path,
     assert stops == []
     assert out["devices"][0]["action"] == "keep"
     assert out["devices"][0]["reason"] == "recording_not_owned"
+
+
+# ---------------- M3-08 重试与幂等 ----------------
+
+def test_task_run_start_minus_4_is_success(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    task = _window_task(store)
+    calls = []
+    monkeypatch.setattr(agent, "record_start", lambda device: calls.append(
+        device) or {"ok": True, "action": "record_start", "result": -4,
+                    "already_recording": True, "cause": "已在录制"})
+
+    agent._run_task(task, "2026-11-27 08:00:00")
+
+    assert calls == ["dev-1"]
+    run = store.list_runs(task["id"])[0]
+    assert run["error"] is None
+    assert run["result"] == -4
+    assert run["cause"] == "已在录制"
+
+
+def test_task_run_retry_exhausted_records_failure(agent, tmp_path,
+                                                  monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    agent.cfg["TASK_RETRY_MAX"] = "2"
+    agent.cfg["TASK_RETRY_BACKOFF_SEC"] = "0"
+    task = _window_task(store)
+    calls = []
+
+    def fail(device):
+        calls.append(device)
+        return {"ok": False, "action": "record_start", "result": -6,
+                "error": "failed", "cause": "执行失败"}
+
+    monkeypatch.setattr(agent, "record_start", fail)
+    agent._run_task(task, "2026-11-27 08:00:00")
+
+    assert len(calls) == 3  # 首次 + TASK_RETRY_MAX 次重试
+    run = store.list_runs(task["id"])[0]
+    assert run["error"] == "failed"
+    assert run["result"] == -6
+
+
+def test_task_run_zero_retry_attempts_once(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    agent.cfg["TASK_RETRY_MAX"] = "0"
+    task = _window_task(store)
+    calls = []
+
+    def timeout(device):
+        calls.append(device)
+        return {"ok": False, "action": "record_start",
+                "error": "timeout", "cause": "等待录像应答超时"}
+
+    monkeypatch.setattr(agent, "record_start", timeout)
+    agent._run_task(task, "2026-11-27 08:00:00")
+
+    assert len(calls) == 1
+    assert store.list_runs(task["id"])[0]["error"] == "timeout"
+
+
+def test_task_run_unknown_error_does_not_retry(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    agent.cfg["TASK_RETRY_MAX"] = "2"
+    task = _window_task(store)
+    calls = []
+
+    def broken(device):
+        calls.append(device)
+        return {"ok": False, "error": "agent_exception", "cause": "内部异常"}
+
+    monkeypatch.setattr(agent, "record_start", broken)
+    agent._run_task(task, "2026-11-27 08:00:00")
+
+    assert len(calls) == 1
+    assert store.list_runs(task["id"])[0]["error"] == "agent_exception"
+
+
+def test_reconcile_catch_up_retries_timeout(agent, tmp_path, monkeypatch):
+    store = _use_task_store(agent, tmp_path)
+    agent.cfg["TASK_RETRY_MAX"] = "1"
+    agent.cfg["TASK_RETRY_BACKOFF_SEC"] = "0"
+    task = _window_task(store, next_run_at="2026-11-27 21:00:00")
+    monkeypatch.setattr(agent, "device_run_state",
+                        lambda device: _recording_state(False))
+    monkeypatch.setattr(agent, "_advance_task", lambda store, fresh: None)
+    calls = []
+
+    def flaky(device):
+        calls.append(device)
+        if len(calls) == 1:
+            return {"ok": False, "error": "timeout", "cause": "超时"}
+        return {"ok": True, "action": "record_start", "result": 0,
+                "request_id": "agent-record-retry", "cause": "ok"}
+
+    monkeypatch.setattr(agent, "record_start", flaky)
+
+    out = agent.reconcile_tasks(now=datetime(2026, 11, 27, 10, 0, 0))
+
+    assert len(calls) == 2
+    assert out["devices"][0]["action"] == "start"
+    assert out["devices"][0]["ok"] is True
+    run = store.list_runs(task["id"])[0]
+    assert run["error"] is None
+    assert run["request_id"] == "agent-record-retry"

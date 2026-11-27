@@ -239,7 +239,7 @@ agent：
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
-| M3 调度与任务 | 进行中 | 6/10 | SQLite、调度线程、四种类型、任务工具/Web 页签、录像执行、shared 控制权、重启对账已落地；exclusive 待定 |
+| M3 调度与任务 | 进行中 | 7/10 | SQLite、调度线程、四种类型、任务工具/Web 页签、录像执行、shared 控制权、重启对账、重试/幂等已落地；exclusive 待定 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
 
@@ -878,12 +878,19 @@ agent：
 
 - **层级**：L4 任务调度层
 - **小白解释**：设备说“已经在录”不是失败；“磁盘满了”重试也没用。要能区分，不然会做无用功。
-- [ ] `record.start -4` 已在录 → 成功；`-7` → 不重试；`-6` → 重试。
-- [ ] `record.stop -4` 未录制 → 成功。
-- [ ] 重试次数 `TASK_RETRY_MAX`，退避。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] `record.start -4` 已在录 → 成功；`-7` → 不重试；`-6` → 重试。
+- [x] `record.stop -4` 未录制 → 成功。
+- [x] 重试次数 `TASK_RETRY_MAX`，退避。
+- 实现：
+  - 抽出 `_task_action_with_retry()`：任务执行与启动对账共用同一套重试/终止规则。
+  - `-4` 由 `record_start` / `record_stop` 归一为成功（已在录/未录制），run 记 `error=None`。
+  - `-7`（no_space）、`-5`（control_*）、`-3`（unavailable）、`-2`（bad_param）及其他非可重试错误只尝试一次。
+  - `timeout` / `failed` / `control_failed` / `mqtt_not_connected` 最多重试 `TASK_RETRY_MAX` 次，
+    按 `TASK_RETRY_BACKOFF_SEC` 线性退避；`TASK_RETRY_MAX=0` 时只尝试一次。
+  - 同一 `(task_id, phase, scheduled_at)` 仍由 `task_runs` 唯一索引去重，重复分发不会重复执行。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/test/test_agent_request_bus.py`、`walle-agent/docs/agent_action_catalog.md`
 - 验收：模拟各错误码，任务状态正确。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 5 个用例（start -4、重试耗尽、零重试、未知错误不重试、对账补启动重试）；`pytest walle-agent/test` 162 passed；未修改 MQTT 协议
 
 #### M3-09 任务进度/事件
 

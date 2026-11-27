@@ -2396,6 +2396,38 @@ class Agent:
         except (TypeError, ValueError):
             return 2.0
 
+    def _task_action_with_retry(self, device, phase):
+        """执行一次录像开始/停止，按 M3-08 规则重试。
+
+        `-4`（已在录/未录制）已在 record_start/record_stop 里归一为成功；
+        只有 timeout/failed/control_failed/mqtt_not_connected 会按
+        `TASK_RETRY_MAX` 与 `TASK_RETRY_BACKOFF_SEC` 线性退避重试。
+        """
+        attempts = 0
+        max_retries = self._task_retry_max()
+        while True:
+            try:
+                out = (self.record_start(device) if phase == "start"
+                       else self.record_stop(device))
+            except Exception as exc:  # noqa: BLE001 - 任务线程不能因单次异常退出
+                log().exception("任务执行异常 device=%s phase=%s",
+                                device, phase)
+                out = {"ok": False, "error": "agent_exception",
+                       "cause": str(exc)}
+            if out.get("ok"):
+                return out
+            error = out.get("error")
+            if (error in self.TASK_TERMINAL_ERRORS
+                    or error not in self.TASK_RETRYABLE_ERRORS):
+                return out
+            if attempts >= max_retries:
+                return out
+            attempts += 1
+            log().warning(
+                "任务动作失败，第 %s 次重试 device=%s phase=%s error=%s",
+                attempts, device, phase, error)
+            time.sleep(self._task_retry_backoff() * attempts)
+
     def _run_task(self, task, scheduled_at):
         """执行一个到期阶段，记录 task_runs 并推进 next_run_at。"""
         task_id = task.get("id")
@@ -2421,28 +2453,7 @@ class Agent:
             self._advance_task(store, fresh)
             return
 
-        attempts = 0
-        max_retries = self._task_retry_max()
-        while True:
-            try:
-                out = (self.record_start(fresh["device"]) if phase == "start"
-                       else self.record_stop(fresh["device"]))
-            except Exception as exc:  # noqa: BLE001 - 任务线程不能因单次异常退出
-                log().exception("任务执行异常 task_id=%s phase=%s",
-                                task_id, phase)
-                out = {"ok": False, "error": "agent_exception",
-                       "cause": str(exc)}
-            if out.get("ok"):
-                break
-            error = out.get("error")
-            if (error in self.TASK_TERMINAL_ERRORS
-                    or error not in self.TASK_RETRYABLE_ERRORS):
-                break
-            if attempts >= max_retries:
-                break
-            attempts += 1
-            time.sleep(self._task_retry_backoff() * attempts)
-
+        out = self._task_action_with_retry(fresh["device"], phase)
         error = None if out.get("ok") else (out.get("error") or "failed")
         cause = out.get("cause") or ("ok" if out.get("ok") else error)
         holder = out.get("control_holder") or {}
@@ -2647,7 +2658,7 @@ class Agent:
         item = {"device": device, "desired": desired, "recording": actual,
                 "action": "none"}
         if desired and not actual:
-            out = self.record_start(device)
+            out = self._task_action_with_retry(device, "start")
             self._record_reconcile_run(active, "start", out, base_now)
             self._advance_task(store, active)
             item.update({"action": "start", "ok": bool(out.get("ok")),
@@ -2659,7 +2670,7 @@ class Agent:
                              "reason": "recording_not_owned"})
             else:
                 owner = store.get_task(latest.get("task_id"))
-                out = self.record_stop(device)
+                out = self._task_action_with_retry(device, "stop")
                 if owner is not None:
                     self._record_reconcile_run(owner, "stop", out, base_now)
                     self._advance_task(store, owner)

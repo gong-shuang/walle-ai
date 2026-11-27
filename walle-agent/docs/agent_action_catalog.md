@@ -292,9 +292,11 @@ agent/{a}/task/pause/request|response
 agent/{a}/task/resume/request|response
 ```
 
-执行：agent 启动时启动调度线程；到点按 `start`/`stop` 调用
+执行：agent 启动时先做重启对账，再启动调度线程；到点按 `start`/`stop` 调用
 `record_start()` / `record_stop()`，结果写入 `task_runs`，并推进 `next_run_at`。
-`-4` 视为成功；`-7/-5/-3` 不重试；`-6` 按 `TASK_RETRY_MAX` 重试。
+任务执行与启动对账共用一套重试规则：`-4` 视为成功；`-7/-5/-3` 等终止错误不重试；
+`timeout/failed/control_failed/mqtt_not_connected` 按 `TASK_RETRY_MAX`（默认 2）重试，
+退避 `TASK_RETRY_BACKOFF_SEC`（默认 2s，线性）。
 shared 模式下控制权获取失败会发布 `agent/{a}/alarm/report`
 （`metric=control`、`alarm_type=control_occupied`），聊天请求失败只回 `chat/response`。
 
