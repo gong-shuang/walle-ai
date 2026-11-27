@@ -142,6 +142,14 @@ def _release_requests(agent):
     ]
 
 
+def _action_requests(agent, device, suffix):
+    return [
+        item for item in agent.mqtt_client.published
+        if "/device/{}/".format(device) in item["topic"]
+        and item["topic"].endswith(suffix)
+    ]
+
+
 @pytest.fixture
 def agent(monkeypatch):
     monkeypatch.setattr(car_agent, "log", lambda: _SilentLogger())
@@ -454,37 +462,42 @@ def test_chat_stop_by_device_keeps_other_motion(agent):
     assert agent.control_held == {}
 
 
-def test_camera_resource_lock_is_per_device(agent):
-    lock1 = agent._acquire_resource("dev-1", "camera")
-    assert lock1 is not None
-    try:
-        blocked = agent.record_start("dev-1")
-        assert blocked["ok"] is False
-        assert blocked["error"] == "resource_busy"
-        assert "dev-1" not in agent.control_held
+def test_record_and_stream_run_concurrently(agent):
+    """设计允许录像与推流同时进行：agent 不应以 camera 互斥拒绝。"""
+    results = {}
+    record_thread = threading.Thread(
+        target=lambda: results.setdefault(
+            "record", agent.record_start("dev-1")), daemon=True)
+    stream_thread = threading.Thread(
+        target=lambda: results.setdefault(
+            "stream", agent.stream_start("dev-1")), daemon=True)
+    record_thread.start()
+    stream_thread.start()
 
-        results = []
-        worker = threading.Thread(
-            target=lambda: results.append(agent.record_start("dev-2")),
-            daemon=True)
-        worker.start()
-        assert _wait_for(lambda: any(
-            "/device/dev-2/record/start/request" in item["topic"]
-            for item in agent.mqtt_client.published))
-        request = [
-            item for item in agent.mqtt_client.published
-            if "/device/dev-2/record/start/request" in item["topic"]
-        ][-1]["payload"]
+    assert _wait_for(lambda: (
+        _action_requests(agent, "dev-1", "/record/start/request")
+        and _action_requests(agent, "dev-1", "/stream/start/request")))
+
+    for suffix, response_topic, extra in (
+            ("/record/start/request",
+             "walle/test/device/dev-1/record/start/response",
+             {"result": 0, "cause": "ok", "filename": "rec.fmp4"}),
+            ("/stream/start/request",
+             "walle/test/device/dev-1/stream/start/response",
+             {"result": 0, "cause": "ok", "room_number": "room-1"})):
+        request = _action_requests(agent, "dev-1", suffix)[-1]["payload"]
+        payload = dict(extra)
+        payload["request_id"] = request["request_id"]
         agent._on_message(None, None, SimpleNamespace(
-            topic="walle/test/device/dev-2/record/start/response",
-            qos=1, retain=False,
-            payload=json.dumps({
-                "request_id": request["request_id"],
-                "result": 0, "cause": "ok", "filename": "dev2.fmp4",
-            }).encode("utf-8")))
-        worker.join(timeout=2)
-        assert results[0]["ok"] is True
-        assert results[0]["filename"] == "dev2.fmp4"
-        assert "dev-2" not in agent.control_held
-    finally:
-        agent._release_resource(lock1)
+            topic=response_topic, qos=1, retain=False,
+            payload=json.dumps(payload).encode("utf-8")))
+
+    record_thread.join(timeout=2)
+    stream_thread.join(timeout=2)
+    assert results["record"]["ok"] is True
+    assert results["record"]["filename"] == "rec.fmp4"
+    assert results["stream"]["ok"] is True
+    assert results["stream"]["room_number"] == "room-1"
+    assert "resource_busy" not in (
+        results["record"].get("error"), results["stream"].get("error"))
+    assert agent.control_held == {}

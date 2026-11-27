@@ -74,17 +74,20 @@ print(out["reply"])
 | `agent_status` | `agent_status()` | 本机采集 | 否 | 否 |
 | `service_health` | `service_health()` | 本地 health | 否 | 否 |
 | `alarm_status` | `recent_alarm()` | 缓存 `alarm/report` | 否 | 否 |
-| `record_start` | `record_start()` | `record/start/request` | acquire/release + camera 锁 | 是 |
-| `record_stop` | `record_stop()` | `record/stop/request` | acquire/release + camera 锁 | 否 |
+| `record_start` | `record_start()` | `record/start/request` | acquire/release | 是 |
+| `record_stop` | `record_stop()` | `record/stop/request` | acquire/release | 否 |
 | `record_list` | `record_list()` | `record/list/query/request` | 否 | 否 |
-| `stream_start` | `stream_start()` | `stream/start/request` | acquire/release + camera 锁 | 是 |
-| `stream_stop` | `stream_stop()` | `stream/stop/request` | acquire/release + camera 锁 | 否 |
+| `stream_start` | `stream_start()` | `stream/start/request` | acquire/release | 是 |
+| `stream_stop` | `stream_stop()` | `stream/stop/request` | acquire/release | 否 |
 | `servo_status` | `servo_status()` | `car/servo/status/query/request` | 否 | 是 |
 | `servo_set` | `servo_set()` | `car/servo/set/request` | acquire/release + servo 锁 | 否 |
 | `servo_center` | `servo_center()` | `car/servo/set/request` | acquire/release + servo 锁 | 否 |
 | `servo_relative` | `servo_relative()` | status → set | acquire/release + servo 锁 | 是（status 阶段） |
 
 > `record/delete`、`record/play/start|stop`、`phone/audio/*` 尚未实现（M5）。
+>
+> 摄像头相关动作按设计**允许并行**：录像与推流可同时进行，录像与回放也可同时进行，
+> agent 不设置 camera 互斥锁。`motion`、`servo` 仅对同一资源的重复操作串行，冲突返回 `resource_busy`。
 
 ## 4. 运动控制
 
@@ -289,6 +292,6 @@ python3 -m pytest -q walle-agent/test
 ```
 
 - `test_agent_request_bus.py`：动作 payload、结果解码、幂等、错误码、chat data。
-- `test_safety_regression.py`：控制权、资源互斥、运动回执 `-5/-8/-3`、零速与释放。
+- `test_safety_regression.py`：控制权、同资源串行/摄像头并行、运动回执 `-5/-8/-3`、零速与释放。
 - `test_request_bus.py`：request_id 配对、超时、重复应答。
 - `test_device_registry.py`：在线状态、告警、能力缓存。

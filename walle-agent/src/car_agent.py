@@ -946,7 +946,8 @@ class Agent:
         self.sessions = {}
         self.last_motion_error = None
         self.state_lock = threading.Lock()
-        # device_id -> {resource_name: Lock}，资源名：motion/camera/servo/playback
+        # device_id -> {resource_name: Lock}；仅同资源串行（motion/servo），
+        # 摄像头相关动作（录像/推流/回放）按设计允许并行，不使用 camera 锁
         self.resource_locks = {}
         self.resource_lock = threading.Lock()
         # device_id -> lease；每台设备独立持有控制权
@@ -2586,17 +2587,8 @@ class Agent:
             segment = max(0, min(int(segment_sec or 0), 86400))
         except (TypeError, ValueError):
             segment = 0
-        camera_lock = self._acquire_resource(device, "camera")
-        if camera_lock is None:
-            self._report_action_progress(
-                "failed", device, "设备摄像头正被执行其他操作（推流/录像）",
-                cause="resource_busy")
-            return {"ok": False, "action": "record_start", "device": device,
-                    "error": "resource_busy",
-                    "cause": "设备摄像头正被执行其他操作（推流/录像）"}
         control = self._acquire_control(device)
         if not control.get("ok"):
-            self._release_resource(camera_lock)
             self._report_action_progress("failed", device, control.get("cause"),
                                          cause=control.get("error"))
             return {"ok": False, "action": "record_start", "device": device,
@@ -2610,7 +2602,6 @@ class Agent:
                 {"segment_sec": segment}, timeout=12.0)
         finally:
             release = self._release_control(device)
-            self._release_resource(camera_lock)
 
         if not res.get("received"):
             out = {"ok": False, "action": "record_start", "device": device,
@@ -2679,14 +2670,8 @@ class Agent:
         if not (self.mqtt_client and self.mqtt_connected):
             return {"ok": False, "action": "record_stop", "device": device,
                     "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
-        camera_lock = self._acquire_resource(device, "camera")
-        if camera_lock is None:
-            return {"ok": False, "action": "record_stop", "device": device,
-                    "error": "resource_busy",
-                    "cause": "设备摄像头正被执行其他操作（推流/录像）"}
         control = self._acquire_control(device)
         if not control.get("ok"):
-            self._release_resource(camera_lock)
             return {"ok": False, "action": "record_stop", "device": device,
                     "error": control.get("error"),
                     "cause": control.get("cause"),
@@ -2696,7 +2681,6 @@ class Agent:
                 device, "record/stop/request", {}, timeout=12.0)
         finally:
             release = self._release_control(device)
-            self._release_resource(camera_lock)
 
         if not res.get("received"):
             return {"ok": False, "action": "record_stop", "device": device,
@@ -3000,17 +2984,8 @@ class Agent:
                                          cause="mqtt_not_connected")
             return {"ok": False, "action": "stream_start", "device": device,
                     "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
-        camera_lock = self._acquire_resource(device, "camera")
-        if camera_lock is None:
-            self._report_action_progress(
-                "failed", device, "设备摄像头正被执行其他操作（推流/录像）",
-                cause="resource_busy")
-            return {"ok": False, "action": "stream_start", "device": device,
-                    "error": "resource_busy",
-                    "cause": "设备摄像头正被执行其他操作（推流/录像）"}
         control = self._acquire_control(device)
         if not control.get("ok"):
-            self._release_resource(camera_lock)
             self._report_action_progress("failed", device, control.get("cause"),
                                          cause=control.get("error"))
             return {"ok": False, "action": "stream_start", "device": device,
@@ -3023,7 +2998,6 @@ class Agent:
                 device, "stream/start/request", {}, timeout=20.0)
         finally:
             release = self._release_control(device)
-            self._release_resource(camera_lock)
 
         if not res.get("received"):
             out = {"ok": False, "action": "stream_start", "device": device,
@@ -3093,14 +3067,8 @@ class Agent:
             return {"ok": False, "action": "stream_stop", "device": device,
                     "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
         room = str(room_number or "").strip()
-        camera_lock = self._acquire_resource(device, "camera")
-        if camera_lock is None:
-            return {"ok": False, "action": "stream_stop", "device": device,
-                    "error": "resource_busy",
-                    "cause": "设备摄像头正被执行其他操作（推流/录像）"}
         control = self._acquire_control(device)
         if not control.get("ok"):
-            self._release_resource(camera_lock)
             return {"ok": False, "action": "stream_stop", "device": device,
                     "error": control.get("error"),
                     "cause": control.get("cause"),
@@ -3111,7 +3079,6 @@ class Agent:
                 device, "stream/stop/request", body, timeout=12.0)
         finally:
             release = self._release_control(device)
-            self._release_resource(camera_lock)
 
         if not res.get("received"):
             return {"ok": False, "action": "stream_stop", "device": device,
