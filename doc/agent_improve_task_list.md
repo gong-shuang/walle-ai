@@ -7,7 +7,7 @@
 > 使用方式：每完成一项，把 `[ ]` 改成 `[x]`，补上完成日期、提交或证据，并更新「进度总览」和「更新记录」。
 >
 > 最后更新：2026-11-27
-> 当前阶段：M2 进行中（3/10）
+> 当前阶段：M2 进行中（4/10）
 
 ---
 
@@ -238,7 +238,7 @@ agent：
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
-| M2 核心设备动作 | 进行中 | 3/10 | record、stream、servo 已落地；电机回执等待做 |
+| M2 核心设备动作 | 进行中 | 4/10 | record、stream、servo、电机回执已落地；控制权 per-device 等待做 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
@@ -640,13 +640,19 @@ agent：
 
 - **层级**：L2 动作编排层 + L3 设备通信与状态层
 - **小白解释**：现在电机每条命令都有回复了，agent 不能发了不管；遇到“别人在控制”或“前面有障碍”要立即停车。
-- [ ] `_run_motion` 使用 `publish_motor()`，不等待 PUBACK。
-- [ ] 处理 `car/motor/set/response`：`-5/-8/-3` 立即停止并提示。
-- [ ] `result=0` 不逐条提示，避免 5Hz 刷屏。
-- [ ] 运动结束补发 3 次零速并 release。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] `_run_motion` 使用 `publish_motor()`，不等待 PUBACK。
+- [x] 处理 `car/motor/set/response`：`-5/-8/-3` 立即停止并提示。
+- [x] `result=0` 不逐条提示，避免 5Hz 刷屏。
+- [x] 运动结束补发 3 次零速并 release。
+- 实现：
+  - `_run_motion` 以 5Hz 调用 `publish_motor()`，只 publish，不等待 PUBACK。
+  - `_on_motor_response` 只处理当前运动 `request_id`；`-5/-8/-3` 对应 `control_denied/safety/unavailable` 时立即 `abort.set()`，记录 `last_motion_error`（result/error/cause/holder）并 warning。
+  - `result=0` 不打印 INFO，仅 debug，避免 5Hz 刷屏。
+  - 运动结束 `finally` 补发 3 次零速并 release；`chat/stop` 触发时由 `stop()` 统一收尾，避免重复。
+  - 提示口径：日志 + `health().last_motion_error`；短会话不主动推送对话消息。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/test/test_safety_regression.py`
 - 验收：运动过程中 obstacle `-8` 能立即停车；控制权被抢 `-5` 能提示。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次提交 / `-8` 既有用例 + 新增 `-5/-3` 参数化用例；`pytest walle-agent/test` 81 passed；未修改 MQTT 协议
 
 #### M2-05 控制权 per-device
 
@@ -1178,6 +1184,7 @@ agent：
 | 2026-11-27 | M2-01 | record.start/stop/list 落地：能力预检、控制权 acquire/release、-4 幂等、列表查询；M2 进度 1/10 | 本次提交 |
 | 2026-11-27 | M2-02 | stream.start/stop 落地：房间号复用、房间号一致性校验、-3 无摄像头提示；M2 进度 2/10 | 本次提交 |
 | 2026-11-27 | M2-03 | servo.status/set 落地：6s/10s 查询、applied/skipped、回中、先查后设相对调整；M2 进度 3/10 | 本次提交 |
+| 2026-11-27 | M2-04 | 电机运动回执补齐：-5/-8/-3 中止、零速+release、成功帧静默；新增 -5/-3 用例；M2 进度 4/10 | 本次提交 |
 
 ---
 

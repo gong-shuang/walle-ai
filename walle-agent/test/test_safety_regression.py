@@ -334,3 +334,38 @@ def test_real_motion_motor_error_still_worker_cleanup(agent):
                for item in zero_requests)
     assert len(_release_requests(agent)) == 1
     assert agent.control_held is None
+
+
+@pytest.mark.parametrize("result,error,cause,holder", [
+    (-5, "control_denied", "控制权被占用",
+     {"client_id": "web-1", "client_name": "Web A"}),
+    (-3, "unavailable", "底盘控制链路不可用", None),
+])
+def test_real_motion_motor_denied_or_unavailable_still_cleanup(
+        agent, result, error, cause, holder):
+    """-5/-3 与 -8 同一分支：中止运动、补 3 次零速、释放租约。"""
+    device = _start_real_motion(agent)
+    with agent.state_lock:
+        request_id = agent.motion_rid
+    assert request_id
+
+    payload = {"request_id": request_id, "result": result, "cause": cause}
+    decoded = {"error": error, "result": result, "cause": cause}
+    if holder:
+        payload["control_holder"] = holder
+        decoded["holder"] = holder
+    agent._on_motor_response(device, payload, decoded)
+
+    worker = agent.worker
+    assert worker is not None
+    worker.join(timeout=3.0)
+    assert not worker.is_alive()
+    assert agent.last_motion_error["result"] == result
+    assert agent.last_motion_error["error"] == error
+
+    zero_requests = _zero_requests(agent)
+    assert len(zero_requests) == 3
+    assert all(item["payload"].get("request_id") == request_id
+               for item in zero_requests)
+    assert len(_release_requests(agent)) == 1
+    assert agent.control_held is None
