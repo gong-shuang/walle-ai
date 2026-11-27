@@ -238,7 +238,7 @@ agent：
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
-| M2 核心设备动作 | 进行中 | 7/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度已落地 |
+| M2 核心设备动作 | 进行中 | 8/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试已落地 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
@@ -705,12 +705,15 @@ agent：
 
 - **层级**：跨层（测试工程）
 - **小白解释**：保证每个动作的参数拼装正确、错误码翻译正确，不会因为改一个功能弄坏另一个。
-- [ ] 每个动作的 payload 构造、结果解码、幂等、错误码。
-- [ ] `record -4/-7`、`stream -3/-4`、`servo skipped`、`motor -5/-8`。
-- [ ] `chat/response` 的 `data` 字段。
+- [x] 每个动作的 payload 构造、结果解码、幂等、错误码。
+- [x] `record -4/-7`、`stream -3/-4`、`servo skipped`、`motor -5/-8`。
+- [x] `chat/response` 的 `data` 字段。
+- 实现：
+  - 动作契约测试集中在 `test_agent_request_bus.py`：新增 record 已录 `-4`、录像超时、录像停止成功、录像列表 `-6`、推流停止带房间号、舵机 `-5` 控制权被占、舵机 `-3` 部分可用，以及 `chat/response` 的 `data.recording` / `data.servos`。
+  - 既有用例已覆盖：record `-7`、record_stop `-4`、stream_start `-3`、stream_stop `-4`/房间号不一致、servo skipped、motor `-5/-8`（`test_safety_regression.py`）。
 - 文件：`walle-agent/test/`
 - 验收：`pytest -q walle-agent/test` 全部通过。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 9 个动作契约用例；`pytest walle-agent/test` 101 passed；未修改 MQTT 协议
 
 #### M2-09 动作层文档
 

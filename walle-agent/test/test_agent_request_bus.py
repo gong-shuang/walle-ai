@@ -1391,3 +1391,148 @@ def test_parse_intent_routes_servo_commands():
     intent, _ = car_agent.parse_intent("舵机1到1400")
     assert intent == {"action": "servo_set", "duration": 1.0,
                       "servos": [{"id": 1, "position": 1400}]}
+
+
+# ---------------- M2-08 动作层契约：payload / 结果解码 / 幂等 / 错误码 ----------------
+
+def test_record_start_already_recording_is_idempotent(agent):
+    out = _call_with_response(
+        agent, lambda: agent.record_start("dev-1"),
+        "/record/start/request",
+        "walle/test/device/dev-1/record/start/response", {
+            "result": -4, "cause": "已在录制",
+            "filename": "rec_existing.fmp4",
+        })
+
+    assert out["ok"] is True
+    assert out["recording"] is True
+    assert out["already_recording"] is True
+    assert out["filename"] == "rec_existing.fmp4"
+    assert agent.control_held == {}
+
+
+def test_record_start_timeout_reports_error_and_releases(agent, monkeypatch):
+    monkeypatch.setattr(agent, "_acquire_control", lambda device: {"ok": True})
+    monkeypatch.setattr(agent, "_release_control", lambda device: {"ok": True})
+    monkeypatch.setattr(agent.request_bus, "request", lambda *args, **kwargs: {
+        "received": False, "error": "timeout", "cause": "等待录像应答超时",
+    })
+
+    out = agent.record_start("dev-1")
+
+    assert out["ok"] is False
+    assert out["error"] == "timeout"
+    assert out["cause"] == "等待录像应答超时"
+    assert out["control"]["ok"] is True
+
+
+def test_record_stop_success_returns_filename(agent):
+    out = _call_with_response(
+        agent, lambda: agent.record_stop("dev-1"),
+        "/record/stop/request",
+        "walle/test/device/dev-1/record/stop/response", {
+            "result": 0, "cause": "ok", "filename": "rec_test.fmp4",
+        })
+
+    assert out["ok"] is True
+    assert out["recording"] is False
+    assert out["filename"] == "rec_test.fmp4"
+    request = _published(agent, "/record/stop/request")[-1]["payload"]
+    assert "request_id" in request
+    assert agent.control_held == {}
+
+
+def test_record_list_failure_keeps_empty_records(agent):
+    out = _call_with_response(
+        agent, lambda: agent.record_list("dev-1"),
+        "/record/list/query/request",
+        "walle/test/device/dev-1/record/list/query/response", {
+            "result": -6, "cause": "查询录像列表失败",
+        })
+
+    assert out["ok"] is False
+    assert out["error"] == "failed"
+    assert out["records"] == []
+    assert out["count"] == 0
+
+
+def test_stream_stop_payload_carries_room_number(agent):
+    out = _call_with_response(
+        agent, lambda: agent.stream_stop("dev-1", "room-a"),
+        "/stream/stop/request",
+        "walle/test/device/dev-1/stream/stop/response", {
+            "result": 0, "cause": "ok", "stopped": True,
+            "room_number": "room-a",
+        })
+
+    assert out["ok"] is True
+    assert out["stopped"] is True
+    request = _published(agent, "/stream/stop/request")[-1]["payload"]
+    assert request["room_number"] == "room-a"
+    assert agent.control_held == {}
+
+
+def test_servo_set_control_denied_returns_holder(agent):
+    out = _call_with_response(
+        agent, lambda: agent.servo_set(
+            "dev-1", [{"id": 1, "position": 1500}], 0.5),
+        "/car/servo/set/request",
+        "walle/test/device/dev-1/car/servo/set/response", {
+            "result": -5, "cause": "控制权被占用",
+            "control_holder": {"client_id": "web-1",
+                               "client_name": "Web A"},
+        })
+
+    assert out["ok"] is False
+    assert out["error"] == "control_denied"
+    assert out["control_holder"]["client_id"] == "web-1"
+    request = _published(agent, "/car/servo/set/request")[-1]["payload"]
+    assert request["duration"] == 0.5
+    assert agent.control_held == {}
+
+
+def test_servo_status_partial_keeps_available_results(agent):
+    out = _call_with_response(
+        agent, lambda: agent.servo_status("dev-1", ids=[1, 2]),
+        "/car/servo/status/query/request",
+        "walle/test/device/dev-1/car/servo/status/query/response", {
+            "result": -3, "cause": "部分舵机不可用",
+            "servos": [
+                {"id": 1, "position": 1500, "available": True,
+                 "error": None},
+                {"id": 2, "position": None, "available": False,
+                 "error": "read_failed"},
+            ],
+        })
+
+    assert out["ok"] is False
+    assert out["partial"] is True
+    assert [item["id"] for item in out["servos"]] == [1, 2]
+    assert _published(agent, "/control/acquire/request") == []
+
+
+def test_chat_response_record_start_carries_recording(agent, monkeypatch):
+    monkeypatch.setattr(car_agent, "handle_chat", lambda *args: {
+        "ok": True, "action": "record_start", "recording": True,
+        "filename": "rec_test.fmp4", "started_at": "2026-11-27 14:00:00",
+        "reply": "已开始录像：rec_test.fmp4",
+        "payload": {"result": 0, "filename": "rec_test.fmp4"},
+    })
+
+    payload = _chat_response(agent)
+
+    assert payload["data"]["recording"]["recording"] is True
+    assert payload["data"]["recording"]["filename"] == "rec_test.fmp4"
+
+
+def test_chat_response_servo_status_carries_servos(agent, monkeypatch):
+    servos = [{"id": 1, "position": 1500, "available": True, "error": None}]
+    monkeypatch.setattr(car_agent, "handle_chat", lambda *args: {
+        "ok": True, "action": "servo_status", "servos": servos,
+        "reply": "舵机状态：ID1（上下）=1500。",
+        "payload": {"result": 0, "servos": servos},
+    })
+
+    payload = _chat_response(agent)
+
+    assert payload["data"]["servos"] == servos
