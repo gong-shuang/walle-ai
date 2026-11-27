@@ -239,7 +239,7 @@ agent：
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
 | M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 已完成 | 10/10 | record、stream、servo、电机回执、控制权/会话 per-device、chat/response 结构化、长动作进度、动作层测试/文档、资源并发确认全部落地 |
-| M3 调度与任务 | 进行中 | 3/10 | SQLite 任务库、1s 调度线程、四种任务类型已落地；任务工具、执行器、对账待后续 |
+| M3 调度与任务 | 进行中 | 4/10 | SQLite、调度线程、四种任务类型、任务工具与 Web 任务页签已落地；执行器、对账待后续 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
 | M5 全量与硬化 | 未开始 | 0/10 | 删除/回放/手机音频、多设备、capabilities、ACL、测试 |
 
@@ -804,12 +804,19 @@ agent：
 
 - **层级**：L4 任务调度层（L1 提供自然语言入口）
 - **小白解释**：用户要能“创建任务、查看任务、取消任务、暂停任务”。没有这些，任务只能靠改数据库。
-- [ ] 任务工具 + 自然语言入口。
-- [ ] 创建前查 `runState.recording.is_supported`。
-- [ ] 返回 task_id、首次执行时间、下次执行时间。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] 任务工具 + 自然语言入口。
+- [x] 创建前查 `runState.recording.is_supported`。
+- [x] 返回 task_id、首次执行时间、下次执行时间。
+- 实现：
+  - 协议新增 5 组主题：`task/list/query`、`task/create`、`task/cancel`、`task/pause`、`task/resume`（文档 v1.27，§4.26）。
+  - Agent 新增 `task_create / task_list / task_cancel / task_pause / task_resume`；对外任务对象统一 `task_id`，列表附带最近一次 `last_run`。
+  - 创建时校验 `schedule`/`actions`，调用 `preflight_recording_task()` 确认录像能力，再用 `next_occurrence()` 计算首次 `next_run_at`。
+  - 自然语言支持：「每天8点开始录像，晚上9点停止」「明天早上8点开始录像」「工作日8点开始，18点停止」「每隔2小时录像」，以及「查看/取消/暂停/恢复任务」。
+  - `daily_window` 增加可选 `weekdays`（0=周一），用于“工作日”任务。
+  - Web 任务页签已接通：列表展示名称、设备、计划、状态、下次执行、最近结果，支持暂停/恢复/取消；打开页签、切换 agent、操作完成后刷新。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/src/task_schedule.py`、`walle-agent/src/task_store.py`、`web/car_ctl_by_mqtt.html`、`doc/MQTT_protocol_convention.md`、`walle-agent/test/`
 - 验收：对话创建/查看/取消任务可用。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次改动 / 新增 8 个任务管理用例与 Web 任务页签；`pytest walle-agent/test` 134 passed；协议文档 v1.27
 
 #### M3-05 任务执行：录像 start/stop
 
@@ -1146,6 +1153,11 @@ agent：
 | 25 | agent 会话停止 | `agent/{a}/chat/stop/request|response` | M3 | L2/L3 | 部分（仅 agent 自己的运动会话） |
 | 26 | agent 进度 | `agent/{a}/chat/progress/report` | M2-07/M3-09 | L2/L4 | 已完成（record/stream/servo 已接入） |
 | 27 | 客户端在线 | `client/{client_id}/online` | 可选 | L3 | 未订阅（可选） |
+| 28 | 任务列表 | `agent/{a}/task/list/query/request|response` | M3-04 | L4 | 已完成 |
+| 29 | 创建任务 | `agent/{a}/task/create/request|response` | M3-04 | L4 | 已完成 |
+| 30 | 取消任务 | `agent/{a}/task/cancel/request|response` | M3-04 | L4 | 已完成 |
+| 31 | 暂停任务 | `agent/{a}/task/pause/request|response` | M3-04 | L4 | 已完成 |
+| 32 | 恢复任务 | `agent/{a}/task/resume/request|response` | M3-04 | L4 | 已完成 |
 
 ---
 

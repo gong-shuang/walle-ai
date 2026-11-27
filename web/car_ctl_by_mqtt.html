@@ -363,10 +363,12 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   border:1px dashed var(--line);border-radius:12px}
 /* 对话助手卡片 */
 .agentCard .cardHead{flex-wrap:wrap}
-.agentCard .agHeadOps,.agentStateCard .agHeadOps{display:flex;align-items:center;gap:8px;
-  flex-wrap:wrap;justify-content:flex-end}
-.agentCard .agSelect,.agentStateCard .agSelect{height:30px;padding:0 10px;border-radius:8px;
-  border:1px solid var(--line2);background:var(--card);color:var(--text);font-size:12px;max-width:220px}
+.agentCard .agHeadOps,.agentStateCard .agHeadOps,.agentTasksCard .agHeadOps{display:flex;
+  align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.agentCard .agSelect,.agentStateCard .agSelect,.agentTasksCard .agSelect{height:30px;
+  padding:0 10px;border-radius:8px;border:1px solid var(--line2);background:var(--card);
+  color:var(--text);font-size:12px;max-width:220px}
+.agentTasksCard .agSelect option{background:var(--card);color:var(--text)}
 .agentCard .agEstop{border-color:rgba(255,107,107,.5);background:rgba(255,107,107,.14);
   color:#ffd7d7;font-weight:600}
 .agentCard .agEstop:hover{background:rgba(255,107,107,.24)}
@@ -407,6 +409,28 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 .agentCard .agHint{padding:10px 0 0;font-size:11px;color:var(--dim)}
 @media(max-width:900px){
   .agentCard .agHeadOps{justify-content:flex-start}
+}
+/* agent 任务列表 */
+.agentTaskList{display:flex;flex-direction:column;gap:10px;padding-top:12px}
+.agentTaskItem{display:flex;gap:14px;align-items:center;justify-content:space-between;
+  padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card2)}
+.agentTaskMain{flex:1 1 auto;min-width:0}
+.agentTaskMain b{display:block;font-size:14px;color:var(--text);font-weight:600}
+.agentTaskMeta{margin-top:4px;font-size:11.5px;color:var(--muted);word-break:break-all;line-height:1.6}
+.agentTaskSide{flex:none;text-align:right;font-size:11.5px;color:var(--muted);line-height:1.7}
+.agentTaskState{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;
+  border:1px solid rgba(61,220,151,.35);color:#bfffe0;background:rgba(61,220,151,.10)}
+.agentTaskState.off{border-color:rgba(255,255,255,.18);color:var(--muted);background:transparent}
+.agentTaskOps{display:flex;gap:6px;flex:none;flex-wrap:wrap;justify-content:flex-end}
+.agentTaskOps button{height:28px;padding:0 10px;border-radius:8px;border:1px solid var(--line2);
+  background:transparent;color:var(--muted);cursor:pointer;font-size:11.5px}
+.agentTaskOps button:hover{color:var(--text);border-color:#3a475c}
+.agentTaskOps button[data-task-op="cancel"]{color:#ff9c9c;border-color:rgba(255,107,107,.35)}
+.agentTaskEmpty{padding:22px 0;text-align:center;color:var(--dim);font-size:12px}
+@media(max-width:860px){
+  .agentTaskItem{flex-wrap:wrap}
+  .agentTaskSide{text-align:left;width:100%}
+  .agentTaskOps{width:100%;justify-content:flex-start}
 }
 .mainArea{flex:1;min-width:0;padding:18px 18px 18px 20px;overflow-x:hidden}
 .tabPanel{display:none;animation:fadeIn .18s ease}
@@ -826,10 +850,17 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       <div class="cardHead">
         <div>
           <h2>任务列表</h2>
-          <small>agent 任务编排（待实现）</small>
+          <small>agent 任务编排 · SQLite 持久化</small>
+        </div>
+        <div class="agHeadOps">
+          <select id="agTaskSelect" class="agSelect" title="选择 agent"></select>
+          <button id="agTaskRefresh" class="btn" type="button">刷新</button>
         </div>
       </div>
-      <div class="agentTaskEmpty">任务列表功能将在后续版本提供。</div>
+      <div id="agTaskMsg" class="videoMsg">选择 agent 后自动加载任务。</div>
+      <div id="agTaskList" class="agentTaskList">
+        <div class="agentTaskEmpty">暂无任务</div>
+      </div>
     </section>
 
     <!-- ============ web端设置卡片 ============ -->
@@ -1205,7 +1236,8 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     mqtt.topics.push(agentPrefix + '+/online', agentPrefix + '+/chat/response',
       agentPrefix + '+/chat/progress/report',
       agentPrefix + '+/baseState/query/response', agentPrefix + '+/config/modify/response',
-      agentPrefix + '+/chat/stop/response');
+      agentPrefix + '+/chat/stop/response',
+      agentPrefix + '+/task/+/response', agentPrefix + '+/task/+/+/response');
     mqtt.connect({
       url: wsUrlNow(), user: cfg.user, pass: cfg.pass, clientId: clientIdNow(), keepalive: cfg.keepalive,
       willTopic: clientOnlineTopic(),
@@ -1269,6 +1301,17 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       if (/\/chat\/stop\/response$/.test(topic)) {
         document.dispatchEvent(new CustomEvent('walle-agent-stop',
           { detail: { id: agentId, data: data } }));
+        return;
+      }
+      if (/\/task\/list\/query\/response$/.test(topic)) {
+        document.dispatchEvent(new CustomEvent('walle-agent-task',
+          { detail: { id: agentId, op: 'list', data: data } }));
+        return;
+      }
+      var taskMatch = topic.match(/\/task\/(create|cancel|pause|resume)\/response$/);
+      if (taskMatch) {
+        document.dispatchEvent(new CustomEvent('walle-agent-task',
+          { detail: { id: agentId, op: taskMatch[1], data: data } }));
         return;
       }
     }
@@ -3597,7 +3640,11 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     send: document.getElementById('agSend'),
     form: document.getElementById('agForm'),
     estop: document.getElementById('agEstop'),
-    agents: document.getElementById('agSelect')
+    agents: document.getElementById('agSelect'),
+    taskSelect: document.getElementById('agTaskSelect'),
+    taskRefresh: document.getElementById('agTaskRefresh'),
+    taskMsg: document.getElementById('agTaskMsg'),
+    taskList: document.getElementById('agTaskList')
   };
   var detailEls = {
     select: document.getElementById('agDetailSelect'),
@@ -3631,6 +3678,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
   var pending = {};       // request_id -> { timer }
   var busy = false;
   var stopPendingRid = '';
+  var taskPending = { rid: '', op: '' };
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) {
@@ -3726,21 +3774,27 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var saved = selected || sessionStorage.getItem('walle_agent') || '';
     els.agents.innerHTML = '';
     if (detailEls.select) detailEls.select.innerHTML = '';
+    if (els.taskSelect) els.taskSelect.innerHTML = '';
     if (!ids.length) {
       var chatOpt = document.createElement('option');
       chatOpt.value = '';
       chatOpt.textContent = '（暂无在线 agent）';
       els.agents.appendChild(chatOpt);
       if (detailEls.select) detailEls.select.appendChild(chatOpt.cloneNode(true));
+      if (els.taskSelect) els.taskSelect.appendChild(chatOpt.cloneNode(true));
       selected = '';
+      setTaskMsg('请先选择在线 agent。');
+      renderTaskList([]);
     } else {
       ids.forEach(function (id) {
         els.agents.appendChild(makeAgentOption(id, true));
         if (detailEls.select) detailEls.select.appendChild(makeAgentOption(id, false));
+        if (els.taskSelect) els.taskSelect.appendChild(makeAgentOption(id, false));
       });
       selected = ids.indexOf(saved) >= 0 ? saved : ids[0];
       els.agents.value = selected;
       if (detailEls.select) detailEls.select.value = selected;
+      if (els.taskSelect) els.taskSelect.value = selected;
       sessionStorage.setItem('walle_agent', selected);
     }
     // 详情页已打开但还没有数据时，agent 上线后自动查询一次
@@ -3748,7 +3802,181 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
         document.querySelector('.tabPanel[data-tab="agent-detail"].active')) {
       requestAgentState();
     }
+    if (selected &&
+        document.querySelector('.tabPanel[data-tab="agent-tasks"].active')) {
+      requestTasks();
+    }
   }
+
+  // ---------------- agent 任务列表（M3-04） ----------------
+  function setTaskMsg(text) {
+    if (els.taskMsg) els.taskMsg.textContent = text;
+  }
+
+  function taskScheduleText(task) {
+    var schedule = task.schedule || {};
+    if (schedule.type === 'daily_window') {
+      var prefix = (schedule.weekdays && schedule.weekdays.length === 5)
+        ? '工作日' : '每天';
+      return prefix + ' ' + schedule.start + '–' + schedule.stop;
+    }
+    if (schedule.type === 'once') return '一次 · ' + (schedule.at || '—');
+    if (schedule.type === 'cron') return 'cron · ' + (schedule.expr || '—');
+    if (schedule.type === 'interval') return '间隔 ' + (schedule.seconds || 0) + ' 秒';
+    return schedule.type || '未知计划';
+  }
+
+  function taskActionsText(task) {
+    var actions = task.actions || [];
+    return actions.map(function (item) {
+      return (item.phase || '?') + ':' + (item.tool || '?');
+    }).join(' / ') || '无动作';
+  }
+
+  function taskLastRunText(last) {
+    if (!last) return '尚未执行';
+    var result = Number(last.result);
+    var status = result === 0 ? '成功' : (last.error || last.cause || '失败');
+    return (last.phase || '-') + ' · ' + status +
+      (last.finished_at ? ' · ' + last.finished_at : '');
+  }
+
+  function renderTaskList(tasks) {
+    var list = els.taskList;
+    if (!list) return;
+    list.innerHTML = '';
+    if (!tasks || !tasks.length) {
+      var empty = document.createElement('div');
+      empty.className = 'agentTaskEmpty';
+      empty.textContent = '暂无任务';
+      list.appendChild(empty);
+      return;
+    }
+    tasks.forEach(function (task) {
+      var row = document.createElement('div');
+      row.className = 'agentTaskItem';
+
+      var main = document.createElement('div');
+      main.className = 'agentTaskMain';
+      var name = document.createElement('b');
+      name.textContent = task.name || task.task_id || task.id || '未命名任务';
+      main.appendChild(name);
+      var meta = document.createElement('div');
+      meta.className = 'agentTaskMeta';
+      meta.textContent = (task.device || '-') + ' · ' +
+        taskScheduleText(task) + ' · ' + taskActionsText(task);
+      main.appendChild(meta);
+      row.appendChild(main);
+
+      var side = document.createElement('div');
+      side.className = 'agentTaskSide';
+      var state = document.createElement('span');
+      state.className = 'agentTaskState' + (task.enabled ? '' : ' off');
+      state.textContent = task.enabled ? '已启用' : '已暂停';
+      side.appendChild(state);
+      var next = document.createElement('div');
+      next.textContent = '下次：' + (task.next_run_at || '—');
+      side.appendChild(next);
+      var last = document.createElement('div');
+      last.textContent = '最近：' + taskLastRunText(task.last_run);
+      side.appendChild(last);
+      row.appendChild(side);
+
+      var taskId = task.task_id || task.id;
+      var ops = document.createElement('div');
+      ops.className = 'agentTaskOps';
+      var toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.setAttribute('data-task-op', task.enabled ? 'pause' : 'resume');
+      toggle.textContent = task.enabled ? '暂停' : '恢复';
+      toggle.addEventListener('click', function () {
+        sendTaskOp(task.enabled ? 'pause' : 'resume', taskId);
+      });
+      ops.appendChild(toggle);
+      var cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.setAttribute('data-task-op', 'cancel');
+      cancel.textContent = '取消';
+      cancel.addEventListener('click', function () {
+        sendTaskOp('cancel', taskId);
+      });
+      ops.appendChild(cancel);
+      row.appendChild(ops);
+
+      list.appendChild(row);
+    });
+  }
+
+  function requestTasks() {
+    if (!selected) {
+      setTaskMsg('请先选择在线 agent。');
+      renderTaskList([]);
+      return;
+    }
+    if (!window.__wallePublish) {
+      setTaskMsg('MQTT 未连接，任务未加载。');
+      return;
+    }
+    if (taskPending.rid) return;
+    var rid = 'web-task-list-' + Math.random().toString(16).slice(2, 8);
+    taskPending = { rid: rid, op: 'list' };
+    setTaskMsg('正在加载任务…');
+    var topic = window.__walleAgentBase() + selected + '/task/list/query/request';
+    if (!window.__wallePublish(topic, { request_id: rid })) {
+      taskPending = { rid: '', op: '' };
+      setTaskMsg('MQTT 未连接，任务未加载。');
+      return;
+    }
+    setTimeout(function () {
+      if (taskPending.rid !== rid) return;
+      taskPending = { rid: '', op: '' };
+      setTaskMsg('任务查询超时（8s），请刷新重试。');
+    }, 8000);
+  }
+
+  function sendTaskOp(op, taskId) {
+    if (!selected || !taskId || !window.__wallePublish) {
+      setTaskMsg(!window.__wallePublish ? 'MQTT 未连接。' : '缺少任务或 agent。');
+      return;
+    }
+    if (taskPending.rid) return;
+    var rid = 'web-task-' + op + '-' + Math.random().toString(16).slice(2, 8);
+    taskPending = { rid: rid, op: op };
+    var labels = { pause: '暂停', resume: '恢复', cancel: '取消' };
+    setTaskMsg('正在' + (labels[op] || op) + '任务…');
+    var topic = window.__walleAgentBase() + selected + '/task/' + op + '/request';
+    if (!window.__wallePublish(topic, { request_id: rid, task_id: taskId })) {
+      taskPending = { rid: '', op: '' };
+      setTaskMsg('MQTT 未连接，操作未发出。');
+      return;
+    }
+    setTimeout(function () {
+      if (taskPending.rid !== rid) return;
+      taskPending = { rid: '', op: '' };
+      setTaskMsg('任务操作超时（8s），请刷新重试。');
+    }, 8000);
+  }
+
+  document.addEventListener('walle-agent-task', function (e) {
+    var id = e.detail.id, d = e.detail.data || {}, op = e.detail.op;
+    if (id !== selected) return;
+    if (!taskPending.rid) return;
+    if (d.request_id && d.request_id !== taskPending.rid) return;
+    var requested = taskPending.op;
+    taskPending = { rid: '', op: '' };
+    if (Number(d.result) !== 0) {
+      setTaskMsg('任务操作失败：' + (d.cause || ('result=' + d.result)));
+      return;
+    }
+    if (op === 'list' && requested === 'list') {
+      renderTaskList(d.tasks || []);
+      setTaskMsg('共 ' + (d.count || 0) + ' 个任务 · ' + (d.datetime || ''));
+      return;
+    }
+    var labels = { create: '创建', pause: '暂停', resume: '恢复', cancel: '取消' };
+    setTaskMsg((labels[op] || op) + '成功 · ' + (d.datetime || ''));
+    requestTasks();
+  });
 
   // ---------------- agent 详情（baseState/query） ----------------
   function fmtBytes(n) {
@@ -3952,6 +4180,7 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
 
   document.addEventListener('walle-tab-change', function (e) {
     if (e.detail && e.detail.tab === 'agent-detail') requestAgentState();
+    if (e.detail && e.detail.tab === 'agent-tasks') requestTasks();
   });
   if (detailEls.refresh) detailEls.refresh.addEventListener('click', requestAgentState);
   if (detailEls.select) {
@@ -3959,8 +4188,12 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
       selected = detailEls.select.value;
       sessionStorage.setItem('walle_agent', selected);
       if (els.agents) els.agents.value = selected;
+      if (els.taskSelect) els.taskSelect.value = selected;
       syncRenameInput();
       requestAgentState();
+      if (document.querySelector('.tabPanel[data-tab="agent-tasks"].active')) {
+        requestTasks();
+      }
     });
   }
 
@@ -4013,6 +4246,10 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     var dataMeta = formatAgentData(d);
     if (dataMeta) meta += (meta ? '<br>' : '') + dataMeta;
     addMsg(d.ok === false ? 'sys' : 'bot', d.reply || (d.ok ? '已完成' : '处理失败'), meta);
+    if ((d.action || '').indexOf('task_') === 0 &&
+        document.querySelector('.tabPanel[data-tab="agent-tasks"].active')) {
+      requestTasks();
+    }
   });
 
   function armChatTimeout(rid) {
@@ -4076,8 +4313,26 @@ textarea:focus,.input:focus{border-color:rgba(61,220,151,.5);box-shadow:0 0 0 3p
     selected = els.agents.value;
     sessionStorage.setItem('walle_agent', selected);
     if (detailEls.select) detailEls.select.value = selected;
+    if (els.taskSelect) els.taskSelect.value = selected;
     syncRenameInput();
+    if (document.querySelector('.tabPanel[data-tab="agent-tasks"].active')) {
+      requestTasks();
+    }
   });
+
+  if (els.taskSelect) {
+    els.taskSelect.addEventListener('change', function () {
+      selected = els.taskSelect.value;
+      sessionStorage.setItem('walle_agent', selected);
+      els.agents.value = selected;
+      if (detailEls.select) detailEls.select.value = selected;
+      syncRenameInput();
+      requestTasks();
+    });
+  }
+  if (els.taskRefresh) {
+    els.taskRefresh.addEventListener('click', requestTasks);
+  }
 
   // 停止会话：优雅停止 agent 当前会话（电机停车并释放控制权）
   els.estop.addEventListener('click', function () {
