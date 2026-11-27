@@ -667,3 +667,119 @@ def test_motor_preflight_blocks_unsupported_without_publish(agent):
         if item["topic"].endswith("/car/motor/set/request")
         or item["topic"].endswith("/control/acquire/request")
     ]
+
+
+def test_alarm_updates_registry_and_notice(agent):
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/alarm/report", {
+            "event": "alarm", "level": "warning", "metric": "battery",
+            "alarm_type": "battery_low", "message": "电池电压过低：当前 6.5V",
+            "detail": {"value": 6.5, "unit": "V", "threshold": 7.0},
+        }))
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/alarm/report", {
+            "event": "alarm", "level": "warning", "metric": "obstacle",
+            "alarm_type": "obstacle_near", "message": "前方 25cm 有障碍物",
+            "detail": {"distance_cm": 25.0},
+        }))
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/alarm/report", {
+            "event": "alarm", "level": "warning", "metric": "stream",
+            "alarm_type": "video_lost", "message": "推流中断",
+        }))
+
+    state = agent.device_state("dev-1")
+    assert state["last_alarm"]["alarm_type"] == "video_lost"
+    assert state["battery"]["voltage_v"] == 6.5
+    assert state["sonar"]["distance_cm"] == 25.0
+    assert state["stream"]["streaming"] is False
+    assert agent.last_alarm_notice["alarm_type"] == "video_lost"
+    assert agent.health("dev-1")["last_alarm"]["message"] == "推流中断"
+
+
+def _start_fake_motion(agent, direction="forward"):
+    worker = threading.Thread(target=agent.abort.wait, args=(5,), daemon=True)
+    worker.start()
+    with agent.state_lock:
+        agent.worker = worker
+        agent.active_device = "dev-1"
+        agent.motion_intent = {"action": "move", "direction": direction}
+        agent.abort.clear()
+    return worker
+
+
+def test_obstacle_alarm_stops_forward_motion(agent, monkeypatch):
+    calls = []
+    monkeypatch.setattr(agent, "stop", lambda client_name=None, device=None: (
+        calls.append((client_name, device)) or {"ok": True, "stopped": True}))
+    worker = _start_fake_motion(agent, "forward")
+
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/alarm/report", {
+            "event": "alarm", "level": "warning", "metric": "obstacle",
+            "alarm_type": "obstacle_near", "message": "前方 25cm 有障碍物",
+            "detail": {"distance_cm": 25.0},
+        }))
+
+    assert _wait_for(lambda: bool(calls)
+                     and agent.last_alarm_notice.get("action") == "stopped")
+    assert calls[0] == ("device_alarm", "dev-1")
+    assert agent.last_alarm_notice["action"] == "stopped"
+    agent.abort.set()
+    worker.join(timeout=2)
+
+
+def test_obstacle_alarm_does_not_stop_reverse_motion(agent, monkeypatch):
+    calls = []
+    monkeypatch.setattr(agent, "stop", lambda client_name=None, device=None: (
+        calls.append((client_name, device)) or {"ok": True}))
+    worker = _start_fake_motion(agent, "backward")
+
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/alarm/report", {
+            "event": "alarm", "level": "warning", "metric": "obstacle",
+            "alarm_type": "obstacle_near", "message": "前方 25cm 有障碍物",
+            "detail": {"distance_cm": 25.0},
+        }))
+
+    assert not _wait_for(lambda: bool(calls), timeout=0.2)
+    assert calls == []
+    assert agent.last_alarm_notice["alarm_type"] == "obstacle_near"
+    agent.abort.set()
+    worker.join(timeout=2)
+
+
+def test_battery_critical_alarm_stops_motion(agent, monkeypatch):
+    calls = []
+    monkeypatch.setattr(agent, "stop", lambda client_name=None, device=None: (
+        calls.append((client_name, device)) or {"ok": True, "stopped": True}))
+    worker = _start_fake_motion(agent, "backward")
+
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/alarm/report", {
+            "event": "alarm", "level": "critical", "metric": "battery",
+            "alarm_type": "battery_low", "message": "电池电压极低：当前 6.0V",
+            "detail": {"value": 6.0, "unit": "V", "threshold": 6.6},
+        }))
+
+    assert _wait_for(lambda: bool(calls))
+    assert calls[0] == ("device_alarm", "dev-1")
+    agent.abort.set()
+    worker.join(timeout=2)
+
+
+def test_recent_alarm_and_intent(agent):
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/alarm/report", {
+            "event": "alarm", "level": "warning", "metric": "battery",
+            "alarm_type": "battery_low", "message": "电池电压过低",
+            "detail": {"value": 6.5, "unit": "V", "threshold": 7.0},
+        }))
+
+    out = agent.recent_alarm("dev-1")
+    assert out["ok"] is True
+    assert "电池电压过低" in out["reply"]
+
+    intent, error = car_agent.parse_intent("最新告警")
+    assert error is None
+    assert intent == {"action": "alarm_status"}

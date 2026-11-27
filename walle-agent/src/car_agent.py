@@ -734,6 +734,8 @@ def parse_intent(text):
 
     if any(w in t for w in DISCOVER_WORDS):
         return {"action": "device_discover"}, None
+    if any(w in t for w in ("告警", "报警", "最新告警", "有没有告警", "alarm")):
+        return {"action": "alarm_status"}, None
 
     if (("agent" in t and ("状态" in t or "status" in t or "状况" in t))
             or any(w in t for w in ("你的状态", "你自己状态", "自身状态"))):
@@ -805,7 +807,7 @@ def validate_intent(intent, cfg):
     """返回 (intent, warning)。校验失败时 intent=None，warning 为原因。"""
     if intent["action"] in ("stop", "status", "device_base_state",
                             "device_run_state", "device_discover",
-                            "agent_status", "service_health"):
+                            "agent_status", "service_health", "alarm_status"):
         return intent, None
 
     max_distance = float(cfg["MAX_DISTANCE"])
@@ -882,6 +884,10 @@ class Agent:
         self._discovery_results = {}
         self._discovery_until = 0.0
         self._discovery_running = False
+        # 告警提示（最近一次）与运动意图（供障碍/低压联锁判断）
+        self.alarm_lock = threading.Lock()
+        self.last_alarm_notice = None
+        self.motion_intent = None
         self.chat_enabled = cfg.get("CHAT_MQTT_ENABLED", "1") == "1"
         self.chat_requests = 0
         self.chat_errors = 0
@@ -922,6 +928,8 @@ class Agent:
                     "control_holder_ts": None,
                     "last_alarm": None,
                     "last_alarm_ts": None,
+                    "alarm_groups": None,
+                    "alarm_groups_ts": None,
                 }
                 self.devices[device] = item
             return item
@@ -938,7 +946,8 @@ class Agent:
         """设备重启/离线时清空状态，避免沿用旧值。"""
         for key in ("baseState", "baseState_ts", "runState", "runState_ts",
                     "recording", "stream", "phone_audio", "motor", "servo",
-                    "battery", "sonar", "control_holder", "control_holder_ts"):
+                    "battery", "sonar", "control_holder", "control_holder_ts",
+                    "alarm_groups", "alarm_groups_ts"):
             item[key] = None
 
     def _update_device_cache(self, item, topic, payload, now=None):
@@ -1003,6 +1012,130 @@ class Agent:
     def _update_alarm(self, item, payload, now):
         item["last_alarm"] = copy.deepcopy(payload)
         item["last_alarm_ts"] = now
+        alarm_type = str(payload.get("alarm_type") or "")
+        detail = payload.get("detail")
+        detail = detail if isinstance(detail, dict) else {}
+        touched = []
+        if alarm_type == "battery_low" and detail.get("value") is not None:
+            group = dict(item.get("battery") or {})
+            group["voltage_v"] = detail.get("value")
+            group["available"] = True
+            item["battery"] = group
+            touched.append("battery")
+        elif alarm_type == "obstacle_near":
+            group = dict(item.get("sonar") or {})
+            if detail.get("distance_cm") is not None:
+                group["distance_cm"] = detail.get("distance_cm")
+            group["available"] = True
+            item["sonar"] = group
+            touched.append("sonar")
+        if "video" in alarm_type or "stream" in alarm_type:
+            group = dict(item.get("stream") or {})
+            group["streaming"] = False
+            group["reason"] = payload.get("message")
+            item["stream"] = group
+            touched.append("stream")
+        if "audio" in alarm_type:
+            group = dict(item.get("phone_audio") or {})
+            group["playing"] = False
+            group["reason"] = payload.get("message")
+            item["phone_audio"] = group
+            touched.append("phone_audio")
+        touched_existing = set(item.get("alarm_groups") or [])
+        touched_existing.update(touched)
+        item["alarm_groups"] = sorted(touched_existing)
+        item["alarm_groups_ts"] = now
+
+    def _handle_alarm(self, device, payload):
+        """设备主动告警：记录提示，障碍/严重低压时尝试停车。"""
+        if not isinstance(payload, dict):
+            return
+        notice = {
+            "device": device,
+            "event": payload.get("event"),
+            "level": payload.get("level"),
+            "alarm_type": payload.get("alarm_type"),
+            "message": payload.get("message"),
+            "detail": copy.deepcopy(payload.get("detail")),
+            "ts": time.time(),
+            "action": None,
+        }
+        with self.alarm_lock:
+            self.last_alarm_notice = notice
+        log().warning("设备告警 device=%s type=%s level=%s message=%s",
+                      device, notice["alarm_type"], notice["level"],
+                      notice["message"])
+        event = notice["event"]
+        alarm_type = str(notice["alarm_type"] or "")
+        level = str(notice["level"] or "")
+        if event == "alarm" and (alarm_type == "obstacle_near"
+                                 or level == "critical"):
+            threading.Thread(
+                target=self._alarm_stop,
+                args=(device, alarm_type == "obstacle_near"),
+                daemon=True, name="alarm-stop").start()
+
+    def _agent_moving(self, device, forward_only=False):
+        with self.state_lock:
+            worker = self.worker
+            active = self.active_device
+            intent = self.motion_intent
+            moving = bool(worker is not None and worker.is_alive()
+                          and active == device and not self.abort.is_set())
+        if not moving:
+            return False
+        if forward_only:
+            return (isinstance(intent, dict)
+                    and intent.get("action") == "move"
+                    and intent.get("direction") == "forward")
+        return True
+
+    def _alarm_stop(self, device, forward_only):
+        if not self._agent_moving(device, forward_only):
+            return
+        result = self.stop("device_alarm", device)
+        with self.alarm_lock:
+            if self.last_alarm_notice is not None:
+                self.last_alarm_notice["action"] = "stopped"
+                self.last_alarm_notice["stop_result"] = result
+
+    def recent_alarm(self, device=None):
+        """返回最近一次告警，供对话提示。"""
+        with self.dev_lock:
+            if device:
+                item = self.devices.get(device)
+                alarm = (copy.deepcopy(item.get("last_alarm"))
+                         if item else None)
+            else:
+                best = None
+                best_ts = -1.0
+                for item_device, item in self.devices.items():
+                    ts = item.get("last_alarm_ts")
+                    if ts is not None and ts > best_ts:
+                        best = (item_device, item.get("last_alarm"))
+                        best_ts = ts
+                alarm = copy.deepcopy(best[1]) if best else None
+                device = best[0] if best else device
+        if not isinstance(alarm, dict):
+            return {
+                "ok": True,
+                "action": "alarm_status",
+                "device": device,
+                "alarm": None,
+                "reply": "该设备暂无告警。" if device else "暂无告警。",
+            }
+        message = alarm.get("message") or alarm.get("alarm_type") or "未知告警"
+        level = alarm.get("level")
+        reply = "最近告警：{}".format(message)
+        if level:
+            reply += "（{}）".format(level)
+        return {
+            "ok": True,
+            "action": "alarm_status",
+            "device": device,
+            "alarm": alarm,
+            "reply": reply,
+        }
 
     def _update_control_holder(self, item, payload, now):
         if "control_holder" in payload:
@@ -1074,12 +1207,24 @@ class Agent:
             "last_alarm_ts": data.get("last_alarm_ts"),
         }
         if run_state is None:
-            for name in _RUN_GROUP_DEFAULTS:
-                snapshot[name] = None
+            alarm_ts = data.get("last_alarm_ts")
+            alarm_fresh = (alarm_ts is not None
+                           and now - float(alarm_ts) <= DEVICE_STATE_TTL_SEC)
+            if not alarm_fresh:
+                for name in _RUN_GROUP_DEFAULTS:
+                    snapshot[name] = None
+            else:
+                touched = set(data.get("alarm_groups") or [])
+                for name in _RUN_GROUP_DEFAULTS:
+                    snapshot[name] = (
+                        self._normalize_run_group(name, data.get(name))
+                        if name in touched else None)
         else:
             for name in _RUN_GROUP_DEFAULTS:
-                snapshot[name] = self._normalize_run_group(
-                    name, run_state.get(name))
+                group = data.get(name)
+                if group is None:
+                    group = run_state.get(name)
+                snapshot[name] = self._normalize_run_group(name, group)
             holder_ts = data.get("control_holder_ts")
             holder = data.get("control_holder")
             if holder_ts is None:
@@ -1297,6 +1442,8 @@ class Agent:
         if msg.topic.endswith("/car/motor/set/response"):
             self._on_motor_response(device, payload, decoded)
         self._update_device_cache(item, msg.topic, payload)
+        if msg.topic.endswith("/alarm/report"):
+            self._handle_alarm(device, payload)
         if msg.topic.endswith("/discovery/query/response"):
             self._record_discovery(device, payload)
         if (isinstance(payload, dict) and "online" in msg.topic
@@ -1535,6 +1682,8 @@ class Agent:
                        for w in ("你的状态", "你自己状态", "自身状态"))
                 or any(w in normalized_text
                        for w in ("服务健康", "服务状态", "健康检查", "health"))
+                or any(w in normalized_text
+                       for w in ("告警", "报警", "alarm"))
             )
             if not client_id:
                 missing = "client_id"
@@ -1826,6 +1975,7 @@ class Agent:
             with self.state_lock:
                 if self.motion_rid == request_id:
                     self.motion_rid = None
+                    self.motion_intent = None
                 if self.active_device == device:
                     self.active_device = None
             log().info("motion end client_name=%s device=%s intent=%s elapsed=%.2fs",
@@ -1847,6 +1997,8 @@ class Agent:
             return self.device_run_state(device)
         if intent["action"] == "device_discover":
             return self.discover_devices()
+        if intent["action"] == "alarm_status":
+            return self.recent_alarm(device or None)
 
         if intent["action"] in ("move", "rotate"):
             preflight = self.preflight_features(device, ("motor",))
@@ -1883,6 +2035,7 @@ class Agent:
                 self._stop_owns_cleanup = False
                 self.abort.clear()
                 self.active_device = device
+                self.motion_intent = dict(intent)
                 self.worker = threading.Thread(target=self._run_motion,
                                                args=(device, intent, client_name),
                                                daemon=True)
@@ -2521,6 +2674,7 @@ class Agent:
             "moving": moving,
             "active_device": active,
             "last_motion_error": last_motion_error,
+            "last_alarm": self.last_alarm_notice,
             "limits": {
                 "min_speed_mps": float(self.cfg.get("MIN_SPEED", "0.5")),
                 "max_speed_mps": float(self.cfg["MAX_SPEED"]),
@@ -2557,7 +2711,8 @@ _LLM_SYSTEM = (
     "你是小车控制意图解析器。只输出 JSON，不要解释。"
     "允许的动作：move(forward/backward/left/right, distance_m, speed_mps)、"
     "rotate(left/right, angle_deg)、stop、status、agent_status、"
-    "service_health、device_base_state、device_run_state、device_discover。"
+    "service_health、alarm_status、device_base_state、device_run_state、"
+    "device_discover。"
     "无法确定时输出 {\"action\":\"unknown\"}。"
 )
 
@@ -2587,8 +2742,8 @@ def _llm_parse(text):
         intent = json.loads(content)
         if intent.get("action") in ("move", "rotate", "stop", "status",
                                     "agent_status", "service_health",
-                                    "device_base_state", "device_run_state",
-                                    "device_discover"):
+                                    "alarm_status", "device_base_state",
+                                    "device_run_state", "device_discover"):
             return intent
     except (urlerror.URLError, KeyError, ValueError, TimeoutError) as exc:
         log().warning("LLM 解析失败: %s", exc)
@@ -2663,6 +2818,8 @@ def _reply_text(intent, result):
             return result.get("reply") or "服务健康查询完成。"
         return "服务健康查询失败：{}。".format(
             result.get("cause") or result.get("error") or "未知错误")
+    elif action == "alarm_status":
+        return result.get("reply") or "暂无告警。"
     else:
         return "已解析。"
 

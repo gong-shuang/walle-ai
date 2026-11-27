@@ -7,7 +7,7 @@
 > 使用方式：每完成一项，把 `[ ]` 改成 `[x]`，补上完成日期、提交或证据，并更新「进度总览」和「更新记录」。
 >
 > 最后更新：2026-11-27
-> 当前阶段：M1 进行中（7/8）
+> 当前阶段：M1 已完成（8/8），下一步 M2
 
 ---
 
@@ -237,7 +237,7 @@ agent：
 | 里程碑 | 状态 | 完成项 | 说明 |
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
-| M1 请求总线与设备状态 | 进行中 | 7/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检已落地；alarm 接入待做 |
+| M1 请求总线与设备状态 | 已完成 | 8/8 | RequestBus、DeviceRegistry、状态工具/区分、能力预检、告警接入全部落地 |
 | M2 核心设备动作 | 未开始 | 0/10 | 录像、推流、舵机、电机回执、结构化返回 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
@@ -557,13 +557,20 @@ agent：
 
 - **层级**：L3 设备通信与状态层
 - **小白解释**：设备会主动报告“电池低了”“前面有障碍”“推流断了”。agent 收到后要能提醒用户，必要时停车。
-- [ ] 订阅 `device/+/alarm/report`。
-- [ ] 更新 DeviceRegistry：`last_alarm`、电池、障碍、推流/音频中断。
-- [ ] `obstacle_near` 时若 agent 正在前进，立即停车并提示。
-- [ ] `battery_low/critical` 时提示；critical 可停止运动。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] 订阅 `device/+/alarm/report`。
+- [x] 更新 DeviceRegistry：`last_alarm`、电池、障碍、推流/音频中断。
+- [x] `obstacle_near` 时若 agent 正在前进，立即停车并提示。
+- [x] `battery_low/critical` 时提示；critical 可停止运动。
+- 实现：
+  - 复用已有 `device/+/alarm/report` 订阅；`_on_message` 更新缓存后调用 `_handle_alarm`。
+  - `_update_alarm` 更新 `last_alarm`，并按告警类型更新 `battery`（电压）、`sonar`（距离）、`stream`（中断）、`phone_audio`（中断）；记录 `alarm_groups` 以便 runState 过期后仍能展示告警带来的新鲜值。
+  - 新增 `Agent.last_alarm_notice` 与 `health().last_alarm`，时间线内可提示用户。
+  - 新增 `Agent.recent_alarm(device=None)`：对话「告警/最新告警」返回最近一次告警；不要求已选设备。
+  - 障碍联锁：`obstacle_near` 时若 agent 正在 forward 运动，后台线程立即 `stop()`；非前进方向不停。
+  - 电池联锁：`battery_low` 且 `level=critical` 时停止当前运动；warning 只提示。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/test/test_agent_request_bus.py`
 - 验收：模拟障碍告警，agent 停车并回复；模拟电池低压，agent 提示。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次提交 / 新增 5 个告警缓存、联锁与对话测试；`pytest walle-agent/test` 57 passed；未修改 MQTT 协议
 
 ---
 
@@ -1143,6 +1150,7 @@ agent：
 | 2026-11-27 | M1-05 | device_discover 工具落地：租户级扫描、3s 收集、online 优先合并、无设备容错；M1 进度 5/8 | 本次提交 |
 | 2026-11-27 | M1-06 | 状态区分落地：状态=设备 base+run、agent 状态=本机 machine_state、服务健康=health；M1 进度 6/8 | 本次提交 |
 | 2026-11-27 | M1-07 | 能力缓存与预检落地：capabilities、preflight_features、录像任务预检、motor 控制前拦截；M1 进度 7/8 | 本次提交 |
+| 2026-11-27 | M1-08 | alarm/report 接入：告警缓存、障碍/低压联锁停车、recent_alarm 对话；M1 完成 8/8 | 本次提交 |
 
 ---
 
