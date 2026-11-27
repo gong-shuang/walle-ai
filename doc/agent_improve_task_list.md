@@ -7,7 +7,7 @@
 > 使用方式：每完成一项，把 `[ ]` 改成 `[x]`，补上完成日期、提交或证据，并更新「进度总览」和「更新记录」。
 >
 > 最后更新：2026-11-27
-> 当前阶段：M1 进行中（4/8）
+> 当前阶段：M1 进行中（5/8）
 
 ---
 
@@ -237,7 +237,7 @@ agent：
 | 里程碑 | 状态 | 完成项 | 说明 |
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
-| M1 请求总线与设备状态 | 进行中 | 4/8 | RequestBus、DeviceRegistry、baseState/runState 工具已落地；状态对话与发现待做 |
+| M1 请求总线与设备状态 | 进行中 | 5/8 | RequestBus、DeviceRegistry、baseState/runState/discover 已落地；状态对话与告警待做 |
 | M2 核心设备动作 | 未开始 | 0/10 | 录像、推流、舵机、电机回执、结构化返回 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
@@ -502,12 +502,18 @@ agent：
 
 - **层级**：L3 设备通信与状态层
 - **小白解释**：设备列表平时靠“上线公告”自动出现；有时需要主动扫一遍，看看有没有新设备或漏掉的设备。
-- [ ] 发布租户级 `discovery/query/request`，携带 `client_id/client_name`。
-- [ ] 收集 3s 内的 `device/{d}/discovery/query/response`。
-- [ ] retained online 为主，discovery 为辅。
-- 文件：`walle-agent/src/car_agent.py`
+- [x] 发布租户级 `discovery/query/request`，携带 `client_id/client_name`。
+- [x] 收集 3s 内的 `device/{d}/discovery/query/response`。
+- [x] retained online 为主，discovery 为辅。
+- 实现：
+  - 新增 `Agent.discover_devices(timeout=3.0)`：发布 `walle/{tenant}/discovery/query/request`，payload 带 `client_id/client_name`。
+  - `_on_message` 在 discovery 收集窗口内记录 `device/{d}/discovery/query/response`；窗口结束自动停止收集。
+  - 结果以 `Agent.devices` 的 retained online 为主，discovery 应答补充身份/型号；`source` 标记 `online`/`discovery`/`both`。
+  - 无设备返回 `ok=True, count=0, reply="未发现设备。"`；并发扫描返回 busy；发布失败返回明确错误。
+  - 对话“刷新设备/发现设备/设备列表/有哪些设备”走 `device_discover`，且**不要求已选设备**；`execute` / `_reply_text` / LLM 动作白名单同步支持。
+- 文件：`walle-agent/src/car_agent.py`、`walle-agent/test/test_agent_request_bus.py`
 - 验收：对话「刷新设备」能发现新设备；无设备时不报错。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次提交 / 新增 4 个 discovery 与意图测试；`pytest walle-agent/test` 41 passed；未修改 MQTT 协议
 
 #### M1-06 真实「状态」与 agent/设备状态区分
 
@@ -1119,6 +1125,7 @@ agent：
 | 2026-11-27 | M1-02 | DeviceRegistry 落地：online/baseState/runState/告警/控制权缓存，TTL 与 is_supported/available 处理；M1 进度 2/8 | 本次提交 |
 | 2026-11-27 | M1-03 | device_base_state 工具落地：baseState 查询、摘要与对话路由；M1 进度 3/8 | 本次提交 |
 | 2026-11-27 | M1-04 | device_run_state 工具落地：录像/推流/电量/声呐/控制权解析、is_supported/available 处理；M1 进度 4/8 | 本次提交 |
+| 2026-11-27 | M1-05 | device_discover 工具落地：租户级扫描、3s 收集、online 优先合并、无设备容错；M1 进度 5/8 | 本次提交 |
 
 ---
 

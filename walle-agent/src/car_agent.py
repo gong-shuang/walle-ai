@@ -716,6 +716,10 @@ def _human_duration(seconds):
     return "".join(parts)
 
 
+DISCOVER_WORDS = ("刷新设备", "发现设备", "扫描设备", "设备列表",
+                  "有哪些设备", "查找设备", "搜设备")
+
+
 def parse_intent(text):
     """返回 (intent, error)。intent 为 None 时 error 给出可读原因。"""
     t = _normalize(text)
@@ -724,6 +728,9 @@ def parse_intent(text):
 
     if re.fullmatch(r"(停止|停|急停|刹车|别动|stop)", t) or "急停" in t:
         return {"action": "stop"}, None
+
+    if any(w in t for w in DISCOVER_WORDS):
+        return {"action": "device_discover"}, None
 
     motion_words = ("前进", "向前", "往前", "前行", "后退", "向后", "往后", "倒车",
                     "左移", "右移", "左转", "右转")
@@ -788,7 +795,7 @@ def parse_intent(text):
 def validate_intent(intent, cfg):
     """返回 (intent, warning)。校验失败时 intent=None，warning 为原因。"""
     if intent["action"] in ("stop", "status", "device_base_state",
-                            "device_run_state"):
+                            "device_run_state", "device_discover"):
         return intent, None
 
     max_distance = float(cfg["MAX_DISTANCE"])
@@ -860,6 +867,11 @@ class Agent:
             decode=decode_result,
             request_id_factory=new_request_id,
         )
+        # 租户级 discovery 收集器
+        self._discovery_lock = threading.Lock()
+        self._discovery_results = {}
+        self._discovery_until = 0.0
+        self._discovery_running = False
         self.chat_enabled = cfg.get("CHAT_MQTT_ENABLED", "1") == "1"
         self.chat_requests = 0
         self.chat_errors = 0
@@ -879,6 +891,10 @@ class Agent:
                     "device_id": None,
                     "hostname": None,
                     "ip": None,
+                    "model": None,
+                    "device_type": None,
+                    "os_description": None,
+                    "version_name": None,
                     "timestamp": None,
                     # M1-02 设备状态缓存
                     "baseState": None,
@@ -950,6 +966,9 @@ class Agent:
         item["device_id"] = new_device_id
         item["hostname"] = payload.get("hostname") or item.get("hostname")
         item["ip"] = payload.get("ip") or item.get("ip")
+        for key in ("model", "device_type", "os_description", "version_name"):
+            if payload.get(key):
+                item[key] = payload[key]
         item["timestamp"] = payload.get("timestamp")
 
     def _update_base_state(self, item, payload, now):
@@ -979,6 +998,19 @@ class Agent:
         if "control_holder" in payload:
             item["control_holder"] = copy.deepcopy(payload.get("control_holder"))
             item["control_holder_ts"] = now
+
+    def _record_discovery(self, device, payload):
+        """discovery 收集窗口内记录设备身份应答。"""
+        if not isinstance(payload, dict):
+            return
+        now = time.monotonic()
+        with self._discovery_lock:
+            if now > self._discovery_until:
+                return
+            self._discovery_results[device] = {
+                "payload": copy.deepcopy(payload),
+                "ts": time.time(),
+            }
 
     @staticmethod
     def _normalize_run_group(name, group):
@@ -1255,6 +1287,8 @@ class Agent:
         if msg.topic.endswith("/car/motor/set/response"):
             self._on_motor_response(device, payload, decoded)
         self._update_device_cache(item, msg.topic, payload)
+        if msg.topic.endswith("/discovery/query/response"):
+            self._record_discovery(device, payload)
         if (isinstance(payload, dict) and "online" in msg.topic
                 and payload.get("online") is False):
             self.request_bus.fail_device(device, "device_offline", "设备离线")
@@ -1486,7 +1520,8 @@ class Agent:
                 missing = "client_name"
             elif not request_id:
                 missing = "request_id"
-            elif not device:
+            elif not device and not any(
+                    w in _normalize(text) for w in DISCOVER_WORDS):
                 missing = "device"
             elif not text:
                 missing = "text"
@@ -1786,6 +1821,8 @@ class Agent:
             return self.device_base_state(device)
         if intent["action"] == "device_run_state":
             return self.device_run_state(device)
+        if intent["action"] == "device_discover":
+            return self.discover_devices()
 
         duration = self._duration(intent)
         if not (self.mqtt_client and self.mqtt_connected):
@@ -2107,6 +2144,107 @@ class Agent:
             return None
         return group.get("is_supported")
 
+    def discover_devices(self, timeout=3.0):
+        """租户级 discovery：retained online 为主，3s 内 discovery 应答为辅。"""
+        if not (self.mqtt_client and self.mqtt_connected):
+            return {"ok": False, "action": "device_discover",
+                    "error": "mqtt_not_connected", "cause": "MQTT 未连接"}
+        wait = max(0.05, float(timeout))
+        with self._discovery_lock:
+            if self._discovery_running:
+                return {"ok": False, "action": "device_discover",
+                        "error": "busy", "cause": "已有设备发现正在进行"}
+            self._discovery_running = True
+            self._discovery_results = {}
+            self._discovery_until = time.monotonic() + wait
+
+        started = time.monotonic()
+        topic = "walle/{}/discovery/query/request".format(self.tenant)
+        try:
+            publish = self._publish_topic(topic, {
+                "client_id": agent_identity(),
+                "client_name": agent_name(),
+            })
+            if not publish.get("published"):
+                return {"ok": False, "action": "device_discover",
+                        "error": "publish_failed",
+                        "cause": "设备发现请求发布失败",
+                        "topic": topic, "publish": publish}
+            deadline = time.monotonic() + wait
+            while time.monotonic() < deadline:
+                time.sleep(0.05)
+            with self._discovery_lock:
+                discovered = copy.deepcopy(self._discovery_results)
+        finally:
+            with self._discovery_lock:
+                self._discovery_running = False
+                self._discovery_until = 0.0
+
+        with self.dev_lock:
+            cache = copy.deepcopy(self.devices)
+
+        merged = {}
+        for device, item in cache.items():
+            retained_online = item.get("online") is not None
+            if not retained_online and device not in discovered:
+                continue
+            if retained_online and device in discovered:
+                source = "both"
+            elif retained_online:
+                source = "online"
+            else:
+                source = "discovery"
+            merged[device] = {
+                "device": device,
+                "device_id": item.get("device_id"),
+                "hostname": item.get("hostname"),
+                "ip": item.get("ip"),
+                "online": item.get("online"),
+                "model": item.get("model"),
+                "device_type": item.get("device_type"),
+                "os_description": item.get("os_description"),
+                "version_name": item.get("version_name"),
+                "source": source,
+            }
+
+        for device, record in discovered.items():
+            payload = record.get("payload") or {}
+            entry = merged.get(device)
+            if entry is None:
+                entry = {
+                    "device": device, "device_id": None,
+                    "hostname": None, "ip": None, "online": None,
+                    "model": None, "device_type": None,
+                    "os_description": None, "version_name": None,
+                    "source": "discovery",
+                }
+                merged[device] = entry
+            for key in ("device_id", "hostname", "ip", "model",
+                        "device_type", "os_description", "version_name"):
+                if payload.get(key) is not None:
+                    entry[key] = payload[key]
+            if entry.get("online") is None:
+                entry["online"] = payload.get("online")
+
+        devices = sorted(
+            merged.values(),
+            key=lambda item: (item.get("online") is not True,
+                              item.get("device") or ""))
+        names = [item.get("hostname") or item.get("device")
+                 for item in devices]
+        reply = ("发现 {} 台设备：{}".format(len(devices), "、".join(names))
+                 if devices else "未发现设备。")
+        return {
+            "ok": True,
+            "action": "device_discover",
+            "devices": devices,
+            "count": len(devices),
+            "topic": topic,
+            "published": True,
+            "elapsed_ms": int((time.monotonic() - started) * 1000),
+            "reply": reply,
+        }
+
     @staticmethod
     def _run_state_reply(summary):
         parts = []
@@ -2235,7 +2373,7 @@ _LLM_SYSTEM = (
     "你是小车控制意图解析器。只输出 JSON，不要解释。"
     "允许的动作：move(forward/backward/left/right, distance_m, speed_mps)、"
     "rotate(left/right, angle_deg)、stop、status、device_base_state、"
-    "device_run_state。"
+    "device_run_state、device_discover。"
     "无法确定时输出 {\"action\":\"unknown\"}。"
 )
 
@@ -2264,7 +2402,8 @@ def _llm_parse(text):
         content = data["choices"][0]["message"]["content"]
         intent = json.loads(content)
         if intent.get("action") in ("move", "rotate", "stop", "status",
-                                    "device_base_state", "device_run_state"):
+                                    "device_base_state", "device_run_state",
+                                    "device_discover"):
             return intent
     except (urlerror.URLError, KeyError, ValueError, TimeoutError) as exc:
         log().warning("LLM 解析失败: %s", exc)
@@ -2295,6 +2434,14 @@ def _reply_text(intent, result):
         if inner.get("error") == "mqtt_not_connected":
             return "停止未下发：MQTT 未连接。"
         return "停止未下发。"
+    elif action == "device_discover":
+        if result.get("ok"):
+            return result.get("reply") or "设备发现完成。"
+        error = result.get("error")
+        if error == "mqtt_not_connected":
+            return "设备发现失败：MQTT 未连接。"
+        return "设备发现失败：{}。".format(
+            result.get("cause") or error or "未知错误")
     elif action == "device_run_state":
         if result.get("ok"):
             return result.get("reply") or "设备运行状态查询完成。"

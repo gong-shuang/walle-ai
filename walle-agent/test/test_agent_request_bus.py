@@ -384,3 +384,91 @@ def test_parse_intent_routes_run_state():
     assert intent == {"action": "status"}
     intent, _ = car_agent.parse_intent("设备状态")
     assert intent == {"action": "device_base_state"}
+
+
+def test_discover_devices_merges_online_and_discovery(agent):
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/online",
+        {"online": True, "device_id": "id-1", "hostname": "dev-one",
+         "ip": "192.168.1.11"}))
+    results = []
+
+    def worker():
+        results.append(agent.discover_devices(timeout=0.5))
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    assert _wait_for(lambda: any(
+        item["topic"].endswith("/discovery/query/request")
+        for item in agent.mqtt_client.published))
+    request = [
+        item for item in agent.mqtt_client.published
+        if item["topic"].endswith("/discovery/query/request")
+    ][-1]
+    assert request["topic"] == "walle/test/discovery/query/request"
+    assert request["payload"]["client_id"] == "agent-test"
+    assert request["payload"]["client_name"] == "Test Agent"
+
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-1/discovery/query/response",
+        {"online": True, "device_id": "id-1", "hostname": "dev-one",
+         "model": "Walle-1"}))
+    agent._on_message(None, None, _message(
+        "walle/test/device/dev-2/discovery/query/response",
+        {"online": True, "device_id": "id-2", "hostname": "dev-two",
+         "model": "Walle-2"}))
+    thread.join(timeout=2)
+
+    assert results
+    out = results[0]
+    assert out["ok"] is True
+    assert out["count"] == 2
+    by_device = {item["device"]: item for item in out["devices"]}
+    assert by_device["dev-1"]["source"] == "both"
+    assert by_device["dev-1"]["online"] is True
+    assert by_device["dev-1"]["model"] == "Walle-1"
+    assert by_device["dev-2"]["source"] == "discovery"
+    assert by_device["dev-2"]["online"] is True
+    assert by_device["dev-2"]["hostname"] == "dev-two"
+    assert "2 台设备" in out["reply"]
+
+
+def test_discover_no_devices_is_ok(agent):
+    out = agent.discover_devices(timeout=0.05)
+    assert out["ok"] is True
+    assert out["count"] == 0
+    assert out["devices"] == []
+    assert out["reply"] == "未发现设备。"
+
+
+def test_parse_intent_routes_device_discover():
+    for text in ("刷新设备", "发现设备", "设备列表", "有哪些设备"):
+        intent, error = car_agent.parse_intent(text)
+        assert error is None
+        assert intent == {"action": "device_discover"}, text
+    intent, _ = car_agent.parse_intent("设备状态")
+    assert intent == {"action": "device_base_state"}
+    intent, _ = car_agent.parse_intent("状态")
+    assert intent == {"action": "status"}
+
+
+def test_chat_refresh_devices_without_selected_device(agent, monkeypatch):
+    monkeypatch.setattr(car_agent, "_AGENT", agent)
+    monkeypatch.setattr(agent, "discover_devices", lambda: {
+        "ok": True, "action": "device_discover", "devices": [], "count": 0,
+        "reply": "未发现设备。",
+    })
+
+    agent._run_chat_request({
+        "request_id": "chat-1", "client_id": "web-a",
+        "client_name": "Web A", "device": "", "text": "刷新设备",
+    })
+
+    responses = [
+        item for item in agent.mqtt_client.published
+        if item["topic"].endswith("/chat/response")
+    ]
+    assert responses
+    payload = responses[-1]["payload"]
+    assert payload["ok"] is True
+    assert payload["reply"] == "未发现设备。"
