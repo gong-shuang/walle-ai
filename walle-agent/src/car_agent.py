@@ -33,6 +33,9 @@ VENDOR_DIR = os.path.join(BASE_DIR, "vendor")
 if os.path.isdir(VENDOR_DIR) and VENDOR_DIR not in sys.path:
     sys.path.insert(0, VENDOR_DIR)
 
+from walle_protocol import (RESULT_CODES, RequestBus, decode_result,  # noqa: E402,F401
+                            new_request_id)
+
 try:
     import paho.mqtt.client as mqtt
 except Exception:  # pragma: no cover - 允许无 paho 时仍可解析意图
@@ -376,41 +379,8 @@ def agent_progress_topic():
         server_tenant(), agent_identity())
 
 
-# §2.8 统一错误码：result -> (error, 默认 cause)
-RESULT_CODES = {
-    0: (None, "ok"),
-    -1: ("invalid_request", "请求无效"),
-    -2: ("bad_param", "参数错误"),
-    -3: ("unavailable", "资源不可用"),
-    -4: ("conflict", "状态冲突"),
-    -5: ("control_denied", "控制权被其他客户端占用"),
-    -6: ("failed", "执行失败"),
-    -7: ("no_space", "存储空间不足"),
-    -8: ("safety", "前方有障碍物"),
-}
-
-
-def decode_result(payload):
-    """把设备 response 统一解码为 ok / error / cause / holder。
-
-    动作、任务、LLM 工具解释设备应答时统一走这里，避免各自判断 result。
-    """
-    data = payload if isinstance(payload, dict) else {}
-    try:
-        result = int(data.get("result"))
-    except (TypeError, ValueError):
-        return {"ok": False, "result": None, "error": "invalid_response",
-                "cause": "应答缺少合法 result", "holder": None}
-    error, default_cause = RESULT_CODES.get(result, ("unknown", "未知错误码"))
-    cause = str(data.get("cause") or "").strip() or default_cause
-    holder = data.get("control_holder") if result == -5 else None
-    return {"ok": result == 0, "result": result, "error": error,
-            "cause": cause, "holder": holder}
-
-
-def new_request_id(tool):
-    """agent 主动请求的统一编号：agent-{tool}-{8hex}。"""
-    return "agent-{}-{}".format(tool, secrets.token_hex(4))
+# 统一错误码与 request_id 生成器已迁移到 walle_protocol.py（M1-01），
+# 这里通过顶部 import 保持 car_agent.decode_result / new_request_id 兼容。
 
 
 def _read_first_line(path):
@@ -805,10 +775,6 @@ class Agent:
         # device_id -> {last_result, last_publish, online, online_ts}
         self.devices = {}
         self.dev_lock = threading.Lock()
-        self.link_rid = None
-        self.link_dev = None
-        self.link_result = None
-        self.link_event = threading.Event()
         self.worker = None
         self.active_device = None
         self.motion_rid = None
@@ -819,11 +785,17 @@ class Agent:
         self._stop_owns_cleanup = False
         # 串行化“检查 busy + acquire + 启动 worker”，避免多客户端同时下发
         self.motion_lock = threading.Lock()
-        # 设备控制权：pending request_id -> {event, result}；control_held 记录当前持有的设备
-        self.control_pending = {}
-        self.control_pending_lock = threading.Lock()
         self.control_held = None
         self.control_lock = threading.Lock()
+        # 通用请求-应答总线：control/record/stream/state 等一对一请求统一走这里
+        self.request_bus = RequestBus(
+            publish=self._publish,
+            topic_for=topic_for,
+            default_timeout=6.0,
+            is_online=self._device_online,
+            decode=decode_result,
+            request_id_factory=new_request_id,
+        )
         self.chat_enabled = cfg.get("CHAT_MQTT_ENABLED", "1") == "1"
         self.chat_requests = 0
         self.chat_errors = 0
@@ -846,6 +818,13 @@ class Agent:
                 }
                 self.devices[device] = item
             return item
+
+    def _device_online(self, device):
+        """未知在线状态按在线处理（fail-open），明确 online=false 才拒绝发送。"""
+        with self.dev_lock:
+            item = self.devices.get(device)
+            online = item.get("online") if item else None
+        return online is not False
 
     @staticmethod
     def _topic_device(topic):
@@ -899,6 +878,9 @@ class Agent:
         MQTT 规定客户端正常 DISCONNECT 时 broker 会丢弃遗嘱，
         所以 Ctrl+C / SIGTERM 这类正常退出必须显式发布 online:false。
         """
+        bus = getattr(self, "request_bus", None)
+        if bus is not None:
+            bus.fail_all("agent_shutdown", "agent 退出")
         client = self.mqtt_client
         if client is None:
             return
@@ -990,6 +972,9 @@ class Agent:
 
     def _on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         self.mqtt_connected = False
+        bus = getattr(self, "request_bus", None)
+        if bus is not None:
+            bus.fail_all("mqtt_disconnected", "MQTT 连接断开")
         log().warning("MQTT 断开: %s", reason_code)
 
     def _on_message(self, client, userdata, msg):
@@ -1020,10 +1005,6 @@ class Agent:
         if not device:
             log().warning("忽略无法解析设备段的主题: %s", msg.topic)
             return
-        if (msg.topic.endswith("/control/acquire/response")
-                or msg.topic.endswith("/control/release/response")):
-            self._on_control_response(payload)
-            return
         if isinstance(payload, dict) and payload.get("error_code") == "control_denied":
             with self.control_lock:
                 if self.control_held and self.control_held.get("device") == device:
@@ -1041,6 +1022,11 @@ class Agent:
         if msg.topic.endswith("/response"):
             decoded = decode_result(payload)
             item["last_decode"] = decoded
+        # 一对一 response 交给 RequestBus 按 request_id 唤醒等待者；
+        # car/motor/set 是 5Hz 持续帧，不进入总线。
+        if (msg.topic.endswith("/response")
+                and not msg.topic.endswith("/car/motor/set/response")):
+            self.request_bus.on_message(device, msg.topic, payload)
         if msg.topic.endswith("/car/motor/set/response"):
             self._on_motor_response(device, payload, decoded)
         if isinstance(payload, dict) and "online" in msg.topic:
@@ -1049,11 +1035,9 @@ class Agent:
             item["device_id"] = payload.get("device_id") or device
             item["hostname"] = payload.get("hostname")
             item["timestamp"] = payload.get("timestamp")
-        if (isinstance(payload, dict) and self.link_rid
-                and payload.get("request_id") == self.link_rid
-                and (self.link_dev is None or self.link_dev == device)):
-            self.link_result = record
-            self.link_event.set()
+            if payload.get("online") is False:
+                self.request_bus.fail_device(
+                    device, "device_offline", "设备离线")
         if msg.topic.endswith("/car/motor/set/response"):
             log().debug("MQTT 收到 %s %s", msg.topic,
                         json.dumps(payload, ensure_ascii=False)[:500])
@@ -1423,41 +1407,23 @@ class Agent:
                 "payload": body, "rc": info.rc}
 
     # ---- 设备控制权（§4.19）----
-    def _on_control_response(self, payload):
-        if not isinstance(payload, dict):
-            log().warning("忽略控制权应答：不是 JSON 对象")
-            return
-        request_id = str(payload.get("request_id") or "")
-        with self.control_pending_lock:
-            item = self.control_pending.get(request_id)
-        if item is None:
-            log().info("收到未匹配的控制权应答 request_id=%s", request_id or "-")
-            return
-        item["result"] = payload
-        item["event"].set()
-
     def _control_request(self, device, action, timeout=5.0):
         """向设备发 control/{acquire|release}/request 并等待对应 response。"""
         request_id = new_request_id(action)
-        event = threading.Event()
-        with self.control_pending_lock:
-            self.control_pending[request_id] = {"event": event, "result": None}
-        res = self._publish(device, "control/{}/request".format(action),
-                            {"request_id": request_id})
-        if not res.get("published"):
-            with self.control_pending_lock:
-                self.control_pending.pop(request_id, None)
-            return {"ok": False,
-                    "error": res.get("error") or "control_publish_failed",
-                    "request_id": request_id, "publish": res}
-        got = event.wait(timeout)
-        with self.control_pending_lock:
-            item = self.control_pending.pop(request_id, None)
-        if not got or not item or not item.get("result"):
-            return {"ok": False, "error": "control_timeout",
-                    "request_id": request_id, "timeout": timeout}
+        res = self.request_bus.request(
+            device, "control/{}/request".format(action),
+            {"request_id": request_id}, timeout=timeout)
+        if not res.get("received"):
+            error = res.get("error")
+            if error == "publish_failed":
+                error = ((res.get("publish") or {}).get("error")
+                         or "control_publish_failed")
+            elif error == "timeout":
+                error = "control_timeout"
+            return {"ok": False, "error": error, "request_id": request_id,
+                    "publish": res.get("publish")}
         return {"ok": True, "request_id": request_id,
-                "response": item["result"]}
+                "response": res.get("payload")}
 
     def _acquire_control(self, device):
         with self.control_lock:
@@ -1712,31 +1678,35 @@ class Agent:
             return {"ok": False, "error": "device_missing",
                     "message": "请先在页面选择设备"}
         rid = new_request_id("link")
-        self.link_rid = rid
-        self.link_dev = device
-        self.link_result = None
-        self.link_event.clear()
-        res = self._publish(device, "baseState/query/request",
-                            {"request_id": rid})
-        got = self.link_event.wait(timeout=6.0)
+        res = self.request_bus.request(
+            device, "baseState/query/request", {"request_id": rid},
+            timeout=6.0)
+        received = bool(res.get("received"))
+        publish = res.get("publish") or {}
+        result = None
+        if received:
+            result = {
+                "topic": res.get("response_topic"),
+                "payload": res.get("payload"),
+                "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
         out = {
-            "ok": bool(got),
+            "ok": received,
             "request_id": rid,
             "device": device,
             "published": res.get("published"),
-            "topic": res.get("topic"),
-            "payload": res.get("payload"),
-            "result": self.link_result,
-            "decoded": (decode_result((self.link_result or {}).get("payload"))
-                        if got else None),
+            "topic": res.get("request_topic") or publish.get("topic"),
+            "payload": publish.get("payload"),
+            "result": result,
+            "decoded": res.get("decoded") if received else None,
             "mqtt": self.mqtt_status(),
         }
-        if not got:
-            out["error"] = "no_result_within_6s"
-        self.link_rid = None
-        self.link_dev = None
-        log().info("link test user=%s device=%s ok=%s result=%s", username, device, got,
-                   json.dumps(self.link_result, ensure_ascii=False))
+        if not received:
+            error = res.get("error")
+            out["error"] = ("no_result_within_6s"
+                            if error == "timeout" else error)
+        log().info("link test user=%s device=%s ok=%s result=%s", username,
+                   device, received, json.dumps(result, ensure_ascii=False))
         return out
 
     def mqtt_status(self):

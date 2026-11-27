@@ -61,19 +61,22 @@ class FakeMqttClient:
             "control_holder": None,
         }
 
+    def _respond(self, topic, body, response):
+        response = dict(response)
+        response["request_id"] = body.get("request_id")
+        response_topic = topic.rsplit("/", 1)[0] + "/response"
+        device = topic.split("/")[3]
+        self.agent.request_bus.on_message(device, response_topic, response)
+
     def publish(self, topic, payload, qos=0, retain=False):
         body = json.loads(payload) if isinstance(payload, str) else payload
         self.published.append({
             "topic": topic, "payload": body, "qos": qos, "retain": retain,
         })
         if topic.endswith("/control/acquire/request"):
-            response = dict(self.acquire_response)
-            response["request_id"] = body.get("request_id")
-            self.agent._on_control_response(response)
+            self._respond(topic, body, self.acquire_response)
         elif topic.endswith("/control/release/request"):
-            response = dict(self.release_response)
-            response["request_id"] = body.get("request_id")
-            self.agent._on_control_response(response)
+            self._respond(topic, body, self.release_response)
         return _PublishInfo()
 
 

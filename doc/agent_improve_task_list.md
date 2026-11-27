@@ -7,7 +7,7 @@
 > 使用方式：每完成一项，把 `[ ]` 改成 `[x]`，补上完成日期、提交或证据，并更新「进度总览」和「更新记录」。
 >
 > 最后更新：2026-11-27
-> 当前阶段：M0 已完成（10/10），下一步 M1
+> 当前阶段：M1 进行中（1/8）
 
 ---
 
@@ -237,7 +237,7 @@ agent：
 | 里程碑 | 状态 | 完成项 | 说明 |
 |---|---|---|---|
 | M0 安全、Bug 与契约 | 已完成 | 10/10 | 安全停止、控制权、PC 模拟与回归测试全部落地 |
-| M1 请求总线与设备状态 | 未开始 | 0/8 | RequestBus、DeviceRegistry、baseState/runState、状态对话 |
+| M1 请求总线与设备状态 | 进行中 | 1/8 | RequestBus 已落地；DeviceRegistry、baseState/runState、状态对话待做 |
 | M2 核心设备动作 | 未开始 | 0/10 | 录像、推流、舵机、电机回执、结构化返回 |
 | M3 调度与任务 | 未开始 | 0/10 | SQLite、daily_window、重启恢复、进度/事件 |
 | M4 混合 LLM | 未开始 | 0/10 | 规则→本地→在线、工具调用、多轮、确认 |
@@ -431,14 +431,20 @@ agent：
 
 - **层级**：L3 设备通信与状态层
 - **小白解释**：agent 发命令后要等设备回话。现在没有统一的“等回话”机制，所以录像、推流的结果收不到；这个功能就是“发出去、等回复、对上号”。
-- [ ] `pending: {request_id: Future}`。
-- [ ] 发布前注册 pending，收到 response 按 `request_id` 唤醒。
-- [ ] 校验 response topic 与期望 topic、device 一致。
-- [ ] 超时、重复 response、`control_denied`、设备离线时让 pending 失败。
-- [ ] 查询类（baseState/runState/servo status/record list）不申请租约。
-- 文件：`walle-agent/src/car_agent.py`（或拆 `walle_protocol.py`）
+- [x] `pending: {request_id: Future}`。
+- [x] 发布前注册 pending，收到 response 按 `request_id` 唤醒。
+- [x] 校验 response topic 与期望 topic、device 一致。
+- [x] 超时、重复 response、`control_denied`、设备离线时让 pending 失败。
+- [x] 查询类（baseState/runState/servo status/record list）不申请租约。
+  - `RequestBus` 本身不参与租约；`link_test` 的 baseState 查询已直接走总线，不调用 `_acquire_control`。
+- 实现：
+  - 新增 `walle-agent/src/walle_protocol.py`：`RequestBus`、`PendingRequest`、`REQUEST_TO_RESPONSE`；`decode_result` / `new_request_id` 同步迁入并保持原导入名兼容。
+  - `Agent` 接入 `request_bus`：`_on_message` 按 `request_id` 分发一对一 response；`online:false` 调 `fail_device`；`_on_disconnect` / `shutdown` 调 `fail_all`。
+  - `_control_request` 与 `link_test` 改为走 RequestBus；`car/motor/set` 5Hz 持续帧仍走 `publish_motor`，不进总线。
+  - 重复/迟到 response 立即从 pending 移除，只保留第一个匹配回包；错误 device/topic 计入 mismatch 并丢弃。
+- 文件：`walle-agent/src/walle_protocol.py`、`walle-agent/src/car_agent.py`、`walle-agent/test/test_request_bus.py`、`walle-agent/test/test_agent_request_bus.py`
 - 验收：任意 request 都能拿到对应 response；迟到/重复 response 被丢弃。
-- 完成：<!-- 日期 / commit / 证据 -->
+- 完成：2026-11-27 / 本次提交 / 新增 12 个 RequestBus 单元测试 + 3 个 Agent 集成测试；`pytest walle-agent/test` 21 passed；M0-08 device 3 passed；未修改 MQTT 协议
 
 #### M1-02 DeviceRegistry：设备状态缓存
 
@@ -1091,6 +1097,7 @@ agent：
 | 2026-11-26 | 文档增强 | 增加最终架构、四层模型、每项任务的层级与小白解释 | 本文件 |
 | 2026-11-27 | M0-07 | PC 模拟环境落地：pc_robot、bringup platform 分支、startup_check 平台化、env_walle 平台判定与 22.04/Humble 兼容 | 0b87a50 |
 | 2026-11-27 | M0-08 | 新增控制权与安全停止回归：agent 6 例 + device 3 例；chat/stop 收尾去重（零速帧 6→3） | 本次提交 |
+| 2026-11-27 | M1-01 | RequestBus 落地：pending/超时/重复/离线失败，control 与 link_test 接入；M1 进度 1/8 | 本次提交 |
 
 ---
 
