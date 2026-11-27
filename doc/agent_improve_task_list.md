@@ -345,22 +345,31 @@ agent：
 - 验收：抓包可见 `client_id` / `client_name`；request_id 不重复。
 - 完成：<!-- 日期 / commit / 证据 -->
 
-#### M0-07 fake device + 本地 Broker 测试骨架
+#### M0-07 PC 节点模拟小车环境（方案已定，暂不实现）
 
-- **层级**：跨层（测试工程）
-- **小白解释**：没有真车也能测试。否则每改一行代码都要去现场试，效率低还容易漏。
-- [ ] 新增 `walle-agent/test/`。
-- [ ] 实现 fake device：订阅 request 主题，发布 response；支持 online / alarm / control lease / record / stream。
-- [ ] 使用本地 Mosquitto/EMQX 或可注入的假 MQTT 总线。
-- [ ] 提供 pytest fixture：启动 agent、启动 fake device、等待订阅完成。
-- 文件：`walle-agent/test/`
-- 验收：`pytest -q walle-agent/test` 可跑通一个 `state` 查询。
+- **层级**：跨层（开发/测试环境）
+- **小白解释**：没有真车时，希望设备端也能在 PC 上完整跑起来。做法是加一个“PC 节点”：在 PC 环境下只启动它，不启动 `car_control` 里依赖真实硬件的节点；由它模拟电机、舵机和传感器。这样 `net_mqtt_bridge` 一行都不用改，Web/agent 看到的仍是一台正常设备。摄像头、麦克风、扬声器直接用 PC 自带的，不做模拟。
+- **方案（暂不实现，后续排期）**：
+  - 新增 PC 节点（建议独立包，如 `walle-device/ros2_ws/src/simulation/pc_robot`），对 `net_mqtt_bridge` 提供与真机一致的话题/服务：
+    - 电机：订阅 `/cmd_vel`（让 bridge 的订阅者检查通过），维护运动状态并按 500ms 死区停车；可选发布 `/odom`。
+    - 舵机：提供 `/ros_robot_controller/pwm_servo/get_state` 服务，订阅 `/ros_robot_controller/pwm_servo/set_state`，保存并返回模拟位置。
+    - 传感器：发布 `/ros_robot_controller/battery`（mV）、`/sonar_controller/get_distance`（mm），可选 IMU/按键；支持参数注入低压、30cm 障碍、断链等故障。
+  - 启动时按环境选择：PC 环境只启动 PC 节点 + `net_mqtt_bridge`（以及 PC 自带的摄像头/麦克风/扬声器相关节点），不启动 `ros_robot_controller`、`sonar_controller`、`controller/mecanum` 等真实底盘节点；真机环境保持现状。
+  - 环境判定：启动参数（如 `platform:=pc`）或平台检测，默认沿用真机流程。
+  - `net_mqtt_bridge` 不做任何修改；`support_*` 按 PC 实际能力配置（摄像头/音频可用则保持 true）。
+- [ ] 新增 PC 节点包与 launch（暂不实现）。
+- [ ] `bringup` 增加 PC 环境分支，只启动 PC 节点，不启动 `car_control` 硬件节点（暂不实现）。
+- [ ] PC 节点实现电机/舵机/电池/声呐接口与可注入故障（暂不实现）。
+- [ ] 摄像头/麦克风/扬声器直接复用 PC 设备，不模拟（暂不实现）。
+- 文件：`walle-device/ros2_ws/src/simulation/...`、`walle-device/ros2_ws/src/bringup/launch/bringup.launch.py`
+- 验收（后续实现时）：PC 上启动后设备 `online`；`car/motor/set`、`car/servo/set|status`、`runState`、`alarm/report` 全部正常；`net_mqtt_bridge` 无改动；不启动任何真实底盘节点。
 - 完成：<!-- 日期 / commit / 证据 -->
 
 #### M0-08 控制权与安全停止回归测试
 
 - **层级**：跨层（测试工程）
 - **小白解释**：保证“别人控制时不能抢”“agent 只停自己的车”“断线会自己停”这些规则不会被后续改动破坏。
+- **依赖**：端到端用例依赖 M0-07 的 PC 模拟环境；M0-07 落地前先做可脱离设备的单元测试（假总线/桩）。
 - [ ] 用例：Web holder 时 agent 运动请求 → `-5`。
 - [ ] 用例：Web holder 时 agent `chat/stop` → `no_session`，设备端收不到零速。
 - [ ] 用例：agent 自己运动中 `chat/stop` → 零速 + 释放租约。
